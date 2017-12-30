@@ -1,0 +1,959 @@
+*** ../../gcc-1.28/cccp.c	Sat Aug 20 15:56:27 1988
+--- cccp.c	Sat Oct  8 01:20:47 1988
+***************
+*** 106,111 ****
+--- 106,113 ----
+  
+  typedef unsigned char U_CHAR;
+  
++ #ifndef atarist
++ 
+  #ifdef EMACS
+  #define NO_SHORTNAMES
+  #include "../src/config.h"
+***************
+*** 143,148 ****
+--- 145,167 ----
+  #endif /* USG */
+  #endif /* not VMS */
+    
++ #else		/* atarist */
++ 
++ #include <ctype.h>
++ #include <stdio.h>
++ #include <types.h>
++ #include <stat.h>
++ #include <file.h>
++ #include "stddef.h"
++ 
++ #define index	strchr
++ #define rindex	strrchr
++ 
++ extern long _stksize = 524288;	/* want big stack cause include files
++ 				   get alloca'ed there */
++ 
++ #endif		/* atarist */
++ 
+  /* VMS-specific definitions */
+  #ifdef VMS
+  #include <time.h>
+***************
+*** 314,321 ****
+--- 333,349 ----
+  struct directory_stack include_defaults[] =
+    {
+  #ifndef VMS
++ #ifdef atarist
++     { &include_defaults[1], "\\gnu\\lib" },
++     { 0, "\\gnu\\include" }
++ #else
+      { &include_defaults[1], GCC_INCLUDE_DIR },
++ #ifdef CROSSATARI
++     { 0, CROSSINC }
++ #else
+      { 0, "/usr/include" }
++ #endif
++ #endif
+  #else
+      { &include_defaults[1], "GNU_CC_INCLUDE:" },       /* GNU includes */
+      { &include_defaults[2], "SYS$SYSROOT:[SYSLIB.]" }, /* VAX-11 "C" includes */
+***************
+*** 333,339 ****
+--- 361,371 ----
+      { &cplusplus_include_defaults[2], "/usr/include/CC" },
+      /* Use GNU CC specific header files.  */
+      { &cplusplus_include_defaults[3], GCC_INCLUDE_DIR },
++ #ifdef CROSSATARI
++     { 0, CROSSINC }
++ #else
+      { 0, "/usr/include" }
++ #endif
+  #else
+      { &cplusplus_include_defaults[1], "GNU_CC_INCLUDE:" },
+      /* VAX-11 C includes */
+***************
+*** 565,570 ****
+--- 597,655 ----
+  /* Nonzero means -I- has been seen,
+     so don't look for #include "foo" the source-file directory.  */
+  int ignore_srcdir;
++ + 
++ #ifdef atarist
++ /* a little frobule to filter incoming file data */
++ int eunuchs_read(f, buf, size)
++ int f;
++ char * buf;
++ int size;
++ {
++   char local_buf[1024];
++   register int result_size;
++   register char * local_bufp, * target_bufp;
++   register int buf_size, size_read;
++ 
++   for (result_size = 0, target_bufp = buf ; size > 0 ; size -= 1024)
++ /* do a buffer */
++   	{
++ 	if (size > 1024)
++ 		buf_size = 1024;
++ 	    else
++ 	    	buf_size = size;
++ 	size_read = read(f, &local_buf, buf_size);
++ 	for (local_bufp = (char * ) &local_buf; size_read > 0 ; size_read--)
++ 		if (*local_bufp == '\r')
++ 			local_bufp++;
++ 		    else
++ 		    	{
++ 			*target_bufp++ = *local_bufp++;
++ 			result_size++;
++ 			}
++ 	}
++   return(result_size);
++ }
++ 
++ /* the following dingus is used in place of some calls to bcopy,
++    to ensure that backslashes get properly slashified when getting
++    shoved into strings.  Note that it returns the new pointer!!
++    There ought to be a better way... */
++ 
++ U_CHAR * slashifying_bcopy(from_buf, to_buf, nbytes)
++ U_CHAR * from_buf, * to_buf;
++ int nbytes;
++ {
++   for ( ; nbytes > 0 ; )
++ 	{
++ 	if(*from_buf == '\\')
++ 		*to_buf++ = '\\';
++ 	*to_buf++ = *from_buf++;
++ 	nbytes--;
++ 	}
++   return(to_buf);
++ }
++ 
++ #endif		/* atari */
+  
+  int
+  main (argc, argv)
+***************
+*** 622,627 ****
+--- 707,731 ----
+    bzero (pend_defs, argc * sizeof (char *));
+    bzero (pend_undefs, argc * sizeof (char *));
+  
++ #ifdef atarist
++ /* see if we have an indication of where the GNU library directory is */
++   {
++     char * gnulib = (char * ) getenv("GNULIB");
++     struct directory_stack * gnulib_dir;
++ 
++     if (gnulib)
++ 	{
++ 	gnulib_dir = (struct directory_stack * ) 
++ 		xmalloc(sizeof(struct directory_stack));
++ 	gnulib_dir->fname = xmalloc(strlen(gnulib) + 1);
++ 	strcpy(gnulib_dir->fname, gnulib);
++ /* cons it onto the front of the defaults. */
++ 	gnulib_dir->next = include_defaults;
++ 	include_defaults = gnulib_dir;
++ 	}
++   }
++ #endif
++ 
+    /* Process switches and find input file name.  */
+  
+    for (i = 1; i < argc; i++) {
+***************
+*** 909,915 ****
+--- 1013,1023 ----
+      }
+    }
+  
++ #ifdef atarist
++   file_size_and_mode (in_fname, &st_mode, &st_size);
++ #else
+    file_size_and_mode (f, &st_mode, &st_size);
++ #endif
+    fp->fname = in_fname;
+    fp->lineno = 1;
+    /* JF all this is mine about reading pipes and ttys */
+***************
+*** 927,933 ****
+--- 1035,1045 ----
+      fp->buf = (U_CHAR *) xmalloc (bsize + 2);
+      bufp = fp->buf;
+      for (;;) {
++ #ifdef atarist
++       cnt = eunuchs_read (f, bufp, bsize - size);
++ #else
+        cnt = read (f, bufp, bsize - size);
++ #endif
+        if (cnt < 0) goto perror;	/* error! */
+        if (cnt == 0) break;	/* End of file */
+        size += cnt;
+***************
+*** 947,953 ****
+--- 1059,1069 ----
+      fp->buf = (U_CHAR *) xmalloc (st_size + 2);
+  
+      while (st_size > 0) {
++ #ifdef atarist
++       i = eunuchs_read (f, fp->buf + fp->length, st_size);
++ #else
+        i = read (f, fp->buf + fp->length, st_size);
++ #endif
+        if (i <= 0) {
+          if (i == 0) break;
+  	goto perror;
+***************
+*** 990,995 ****
+--- 1106,1114 ----
+    if (ferror (stdout))
+      fatal ("I/O error on output");
+  
++ #ifdef atarist
++   close(fileno(stdout));		/* this shouldn't be necessary */
++ #endif
+    if (errors)
+      exit (FATAL_EXIT_CODE);
+    exit (SUCCESS_EXIT_CODE);
+***************
+*** 2231,2236 ****
+--- 2350,2356 ----
+  
+    case T_DATE:
+    case T_TIME:
++ #ifndef atarist /* someday figure out how to do this */
+      if (timebuf == NULL) {
+        i = time (0);
+        timebuf = localtime (&i);
+***************
+*** 2242,2247 ****
+--- 2362,2370 ----
+      else
+        sprintf (buf, "\"%02d:%02d:%02d\"", timebuf->tm_hour, timebuf->tm_min,
+  	      timebuf->tm_sec);
++ #else
++     sprintf(buf, "<today>");
++ #endif
+      break;
+  
+    case T_SPEC_DEFINED:
+***************
+*** 2348,2353 ****
+--- 2471,2479 ----
+  		 and put it in front of the search list.  */
+  	      dsp[0].next = stackp;
+  	      stackp = dsp;
++ #ifdef atarist
++ 	      ep = rindex (nam, '\\');
++ #else
+  #ifndef VMS
+  	      ep = rindex (nam, '/');
+  #else /* VMS */
+***************
+*** 2356,2361 ****
+--- 2482,2488 ----
+  	      if (ep == NULL) ep = rindex (nam, ':');
+  	      if (ep != NULL) ep++;
+  #endif /* VMS */
++ #endif /* atarist */
+  	      if (ep != NULL) {
+  		n = ep - nam;
+  		dsp[0].fname = (char *) alloca (n + 1);
+***************
+*** 2406,2412 ****
+--- 2533,2543 ----
+  
+    /* If specified file name is absolute, just open it.  */
+  
++ #ifdef atarist
++   if (*fbeg == '\\') {
++ #else
+    if (*fbeg == '/') {
++ #endif
+      strncpy (fname, fbeg, flen);
+      fname[flen] = 0;
+      f = open (fname, O_RDONLY, 0666);
+***************
+*** 2417,2423 ****
+--- 2548,2558 ----
+      for (; stackp; stackp = stackp->next) {
+        if (stackp->fname) {
+  	strcpy (fname, stackp->fname);
++ #ifdef atarist
++ 	strcat (fname, "\\");
++ #else
+  	strcat (fname, "/");
++ #endif
+  	fname[strlen (fname) + flen] = 0;
+        } else {
+  	fname[0] = 0;
+***************
+*** 2470,2476 ****
+--- 2605,2615 ----
+    FILE_BUF *fp;			/* For input stack frame */
+    int success = 0;
+  
++ #ifdef atarist
++   if (file_size_and_mode (fname, (int *)0, &st_size) < 0)
++ #else
+    if (file_size_and_mode (f, (int *)0, &st_size) < 0)
++ #endif
+      goto nope;		/* Impossible? */
+  
+    fp = &instack[indepth + 1];
+***************
+*** 2485,2491 ****
+--- 2624,2634 ----
+    /* Read the file contents, knowing that st_size is an upper bound
+       on the number of bytes we can read.  */
+    while (st_size > 0) {
++ #ifdef atarist
++     i = eunuchs_read (f, fp->buf + fp->length, st_size);
++ #else
+      i = read (f, fp->buf + fp->length, st_size);
++ #endif
+      if (i <= 0) {
+        if (i == 0) break;
+        goto nope;
+***************
+*** 3802,3809 ****
+--- 3945,3956 ----
+    check_expand (op, len + 1);
+    if (op->bufp > op->buf && op->bufp[-1] != '\n')
+      *op->bufp++ = '\n';
++ #ifdef atarist
++   op->bufp = slashifying_bcopy (line_cmd_buf, op->bufp, len);
++ #else
+    bcopy (line_cmd_buf, op->bufp, len);
+    op->bufp += len;
++ #endif
+    op->lineno = ip->lineno;
+  }
+  
+***************
+*** 5013,5019 ****
+--- 5160,5170 ----
+    extern char *sys_errlist[];
+  
+    fprintf (stderr, "%s: ", progname);
++ #ifdef atarist
++   if ((errno > sys_nerr) && (errno < 0))
++ #else
+    if (errno < sys_nerr)
++ #endif
+      fprintf (stderr, "%s for `%s'\n", sys_errlist[errno], name);
+    else
+      fprintf (stderr, "undocumented error for `%s'\n", name);
+***************
+*** 5093,5106 ****
+--- 5244,5266 ----
+     and store them in *MODE_POINTER and *SIZE_POINTER.  */
+  
+  int
++ #ifdef atarist
++ file_size_and_mode (fname, mode_pointer, size_pointer)
++      char * fname;
++ #else
+  file_size_and_mode (fd, mode_pointer, size_pointer)
+       int fd;
++ #endif
+       int *mode_pointer;
+       long int *size_pointer;
+  {
+    struct stat sbuf;
+  
++ #ifdef atarist
++   if (stat (fname, &sbuf) < 0) return (-1);
++ #else
+    if (fstat (fd, &sbuf) < 0) return (-1);
++ #endif
+    if (mode_pointer) *mode_pointer = sbuf.st_mode;
+    if (size_pointer) *size_pointer = sbuf.st_size;
+    return 0;
+*** ../../gcc-1.28/combine.c	Wed Sep  7 19:07:51 1988
+--- combine.c	Tue Oct  4 21:31:07 1988
+***************
+*** 712,718 ****
+--- 712,722 ----
+    register char *fmt;
+    register int len, i;
+    register enum rtx_code code;
++ #ifdef atarist
++   short was_replaced[2];	/* 'char' confuses GAS 1.14... */
++ #else
+    char was_replaced[2];
++ #endif
+  
+  #define SUBST(INTO, NEWVAL)  \
+   do { if (undobuf.num_undo < MAX_UNDO)					\
+*** ../../gcc-1.28/gcc.c	Tue Sep  6 20:04:59 1988
+--- gcc.c	Sat Oct  8 00:23:31 1988
+***************
+*** 104,110 ****
+--- 104,116 ----
+  position among the other output files.
+  
+  */
++ #ifdef CROSSATARI
++ #ifdef atarist
++ #undef atarist
++ #endif
++ #endif
+  
++ 
+  /* This defines which switches take arguments.  */
+  
+  #define SWITCH_TAKES_ARG(CHAR)      \
+***************
+*** 114,122 ****
+--- 120,140 ----
+     || (CHAR) == 'L')
+  
+  #include <stdio.h>
++ 
++ #ifdef atarist
++ #include <types.h>
++ #include <signal.h>
++ include <file.h>
++ #include <osbind.h>
++ 
++ long _stksize = 8192;
++ 
++ #else
+  #include <sys/types.h>
+  #include <signal.h>
+  #include <sys/file.h>
++ #endif
++ 
+  #include "config.h"
+  #include "obstack.h"
+  
+***************
+*** 244,253 ****
+--- 262,282 ----
+  };
+  
+  /* Here is the spec for running the linker, after compiling all files.  */
++ #if (defined(CROSSATARI) || defined(atarist))
++  
+  char *link_spec = "%{!c:%{!M*:%{!E:%{!S:ld %{o*} %l\
+   %{A} %{d} %{e*} %{N} %{n} %{r} %{s} %{S} %{T*} %{t} %{u*} %{X} %{x} %{z}\
+   %{y*} %{!nostdlib:%S} \
++  %{L*} %o %{!nostdlib:%s %{g:-lg} %L}\n }}}}";
++ 
++ #else
++ 
++ char *link_spec = "%{!c:%{!M*:%{!E:%{!S:ld %{o*} %l\
++  %{A} %{d} %{e*} %{N} %{n} %{r} %{s} %{S} %{T*} %{t} %{u*} %{X} %{x} %{z}\
++  %{y*} %{!nostdlib:%S} \
+   %{L*} %o %{!nostdlib:gnulib%s %{g:-lg} %L}\n }}}}";
++ 
++ #endif
+  
+  /* Record the names of temporary files we tell compilers to write,
+     and delete them at the end of the run.  */
+***************
+*** 328,337 ****
+--- 357,377 ----
+  void
+  choose_temp_base ()
+  {
++ #ifndef atarist
+    register char *foo = "/tmp/ccXXXXXX";
+    temp_filename = (char *) xmalloc (strlen (foo) + 1);
+    strcpy (temp_filename, foo);
++ #else
++   char * env_temp = (char *)getenv("TEMP");
++ 
++   if (!env_temp)
++ 	env_temp = "\\temp";
++   temp_filename = concat(env_temp, "\\", "gcc-temp");
++ #endif
++ 
++ #ifndef atarist
+    mktemp (temp_filename);
++ #endif
+    temp_filename_length = strlen (temp_filename);
+  }
+  
+***************
+*** 361,373 ****
+--- 401,421 ----
+  /* Default prefixes to attach to command names.  */
+  
+  #ifndef STANDARD_EXEC_PREFIX
++ #ifdef CROSSATARI
++ #define STANDARD_EXEC_PREFIX "/dsrg/bammi/cross-gcc/lib/gcc-"
++ #else
+  #define STANDARD_EXEC_PREFIX "/usr/local/lib/gcc-"
++ #endif
+  #endif /* !defined STANDARD_EXEC_PREFIX */
+  
+  char *standard_exec_prefix = STANDARD_EXEC_PREFIX;
+  char *standard_exec_prefix_1 = "/usr/lib/gcc-";
+  
++ #ifdef CROSSATARI
++ char *standard_startfile_prefix = "/dsrg/bammi/cross-gcc/lib/";
++ #else
+  char *standard_startfile_prefix = "/lib/";
++ #endif
+  char *standard_startfile_prefix_1 = "/usr/lib/";
+  
+  /* Clear out the vector of arguments (after a command is executed).  */
+***************
+*** 419,424 ****
+--- 467,475 ----
+    if (strlen (standard_exec_prefix_1) > size)
+      size = strlen (standard_exec_prefix_1);
+    size += strlen (argbuf[0]) + 1;
++ #ifdef atarist
++   size += 5;		/* slush for ".ttp" */
++ #endif
+    temp = (char *) alloca (size);
+  
+    /* Determine the filename to execute.  */
+***************
+*** 427,432 ****
+--- 478,486 ----
+      {
+        strcpy (temp, user_exec_prefix);
+        strcat (temp, argbuf[0]);
++ #ifdef atarist
++ 	strcat (temp, ".ttp");
++ #endif
+        win = (access (temp, X_OK) == 0);
+      }
+  
+***************
+*** 434,439 ****
+--- 488,496 ----
+      {
+        strcpy (temp, standard_exec_prefix);
+        strcat (temp, argbuf[0]);
++ #ifdef atarist
++ 	strcat (temp, ".ttp");
++ #endif
+        win = (access (temp, X_OK) == 0);
+      }
+  
+***************
+*** 441,446 ****
+--- 498,506 ----
+      {
+        strcpy (temp, standard_exec_prefix_1);
+        strcat (temp, argbuf[0]);
++ #ifdef atarist
++ 	strcat (temp, ".ttp");
++ #endif
+        win = (access (temp, X_OK) == 0);
+      }
+  
+***************
+*** 467,472 ****
+--- 527,533 ----
+  #endif				/* DEBUG */
+      }
+  
++ #ifndef atarist
+  #ifdef USG
+    pid = fork ();
+    if (pid < 0)
+***************
+*** 490,495 ****
+--- 551,578 ----
+      fatal ("Program %s got fatal signal %d.", argbuf[0], (status & 0x7F));
+    if (((status & 0xFF00) >> 8) >= MIN_FATAL_STATUS)
+      return -1;
++ #else
++ 
++ 	{
++ 	char * sizep = (char * ) alloca(256);
++ 	char * cmdp = sizep + 1;
++ 	register int iii;
++ 
++ 	*cmdp = '\0';
++ 	for (iii = 1 ; (argbuf[iii] != 0) ; iii++ )
++ 		{
++ 		strcat (cmdp, argbuf[iii]);
++ 		strcat (cmdp, " ");
++ 		}
++ 	*sizep = strlen(cmdp);
++ 	if (!win)
++ 		temp = argbuf[0];
++ /*	printf("exec '%s' '%s'\n", temp, cmdp); */
++ 	iii = Pexec(0, temp, sizep, 0);
++ /*	printf(" ... -> %d\n", iii); */
++ 	return(iii);
++ 	}
++ #endif /* atarist */
+    return 0;
+  }
+  
+***************
+*** 655,660 ****
+--- 738,753 ----
+     search dirs for it.  */
+  int this_is_library_file;
+  
++ #ifdef atarist
++ /* I don't know why this is necessary.  Recursive calls to do_spec_1
++    end up ignoring the error code from calls to execute().  That causes
++    do_spec to get a 0 return value, and do_spec_1("\n"), which causes the
++    command to get executed again.
++ */
++ int execute_return_error = 0;
++ #endif
++ 
++ 
+  /* Process the spec SPEC and run the commands specified therein.
+     Returns 0 if the spec is successfully processed; -1 if failed.  */
+  
+***************
+*** 671,676 ****
+--- 764,776 ----
+    this_is_library_file = 0;
+  
+    value = do_spec_1 (spec, 0);
++ #ifdef atarist
++   if (!value && execute_return_error)
++ 	{
++ 	value = execute_return_error;
++ 	execute_return_error = 0;
++ 	}
++ #endif
+    if (value == 0)
+      value = do_spec_1 ("\n", 0);
+    return value;
+***************
+*** 702,707 ****
+--- 802,831 ----
+         Otherwise, NL, SPC, TAB and % are special.  */
+      switch (inswitch ? 'a' : c)
+        {
++ #ifdef atarist
++ /* this stuff added by jrd.  if see '$', expect name of env var, delimited
++    by '$'.  Find it's value, and subst it in. */
++ 
++       case '$':
++ 	{
++ 	char varname[32];		/* should be enough */
++ 	char * value;			/* deciphered value string */
++ 	int i;
++ 
++ 	for (i = 0 ; ((c = *p++) != '$') ; i++)
++ 		varname[i] = c;
++ 	varname[i] = '\0';
++ 	if (strlen(&varname) > 0)
++ 		{
++ 		value = (char * )getenv(&varname);
++ 		if (value)
++ 			do_spec_1(value, 0);
++ 		    else
++ 			do_spec_1(".", 0);	/* a compleat kludge... */
++ 		}
++ 	break;
++ 	}
++ #endif /* atarist */
+        case '\n':
+  	/* End of line: finish any pending argument,
+  	   then run the pending command if one has been started.  */
+***************
+*** 719,724 ****
+--- 843,852 ----
+  	if (argbuf_index)
+  	  {
+  	    int value = execute ();
++ #ifdef atarist
++ 		if (!execute_return_error)
++ 			execute_return_error = value;
++ #endif
+  	    if (value)
+  	      return value;
+  	  }
+***************
+*** 835,840 ****
+--- 963,972 ----
+  	    break;
+  
+  	  default:
++ #ifdef atarist
++ 	    fprintf(stderr, "Bogus char '%c' found at pos %d of spec '%s'\n",
++ 		c, (p - spec - 1), spec);
++ #endif
+  	    abort ();
+  	  }
+  	break;
+***************
+*** 1027,1033 ****
+--- 1159,1169 ----
+  
+    if (!win)
+      {
++ #ifdef atarist
++       strcpy (temp, ".\\");
++ #else
+        strcpy (temp, "./");
++ #endif
+        strcat (temp, name);
+        win = (access (temp, R_OK) == 0);
+      }
+***************
+*** 1043,1048 ****
+--- 1179,1185 ----
+  
+  /* On fatal signals, delete all the temporary files.  */
+  
++ #ifndef atarist
+  void
+  fatal_error (signum)
+       int signum;
+***************
+*** 1053,1058 ****
+--- 1190,1196 ----
+       so its normal effect occurs.  */
+    kill (getpid (), signum);
+  }
++ #endif /* atarist */
+  
+  int
+  main (argc, argv)
+***************
+*** 1064,1077 ****
+--- 1202,1221 ----
+    int nolink = 0;
+    int error = 0;
+  
++ #ifdef atarist
++   programname = "gcc";
++ #else
+    programname = argv[0];
++ #endif
+  
++ #ifndef atarist
+    if (signal (SIGINT, SIG_IGN) != SIG_IGN)
+      signal (SIGINT, fatal_error);
+    if (signal (SIGHUP, SIG_IGN) != SIG_IGN)
+      signal (SIGHUP, fatal_error);
+    if (signal (SIGTERM, SIG_IGN) != SIG_IGN)
+      signal (SIGTERM, fatal_error);
++ #endif
+  
+    argbuf_length = 10;
+    argbuf = (char **) xmalloc (argbuf_length * sizeof (char *));
+***************
+*** 1085,1090 ****
+--- 1229,1244 ----
+  
+    process_command (argc, argv);
+  
++ #ifdef atarist
++ /* if no default dir specified for executables, look for an env var
++    called 'GCCEXEC' and use that */
++ 
++   if (!user_exec_prefix)
++   	{
++ 	user_exec_prefix = getenv("GCCEXEC");
++ 	}
++ #endif /* atarist */
++ 
+    if (vflag)
+      {
+        extern char *version_string;
+***************
+*** 1131,1143 ****
+--- 1285,1307 ----
+  
+  	      input_basename = input_filename;
+  	      for (p = input_filename; *p; p++)
++ #ifdef atarist
++ 		if (*p == '\\')
++ #else
+  		if (*p == '/')
++ #endif
+  		  input_basename = p + 1;
+  	      basename_length = (input_filename_length - strlen (cp->suffix)
+  				 - (input_basename - input_filename));
+  	      value = do_spec (cp->spec);
+  	      if (value < 0)
+  		error = 1;
++ #ifdef atarist
++ /* is this necessary? */
++ 	       else
++ 	      if (value == FATAL_EXIT_CODE)
++ 		error = 1;
++ #endif
+  	      break;
+  	    }
+  	}
+***************
+*** 1233,1239 ****
+--- 1397,1407 ----
+    extern char *sys_errlist[];
+    char *s;
+  
++ #ifdef atarist
++   if ((errno > sys_nerr) && (errno < 0))
++ #else
+    if (errno < sys_nerr)
++ #endif
+      s = concat ("", sys_errlist[errno], " for %s");
+    else
+      s = "cannot open %s";
+***************
+*** 1247,1253 ****
+--- 1415,1425 ----
+    extern char *sys_errlist[];
+    char *s;
+  
++ #ifdef atarist
++   if ((errno > sys_nerr) && (errno < 0))
++ #else
+    if (errno < sys_nerr)
++ #endif
+      s = concat ("", sys_errlist[errno], " for %s");
+    else
+      s = "cannot open %s";
+*** ../../gcc-1.28/symout.c	Mon Aug 22 11:57:25 1988
+--- symout.c	Wed Oct  5 01:24:42 1988
+***************
+*** 25,30 ****
+--- 25,33 ----
+  #include "rtl.h"
+  #include "gdbfiles.h"
+  #include <stdio.h>
++ #ifndef atarist
++ #include <sys/types.h>
++ #endif
+  #undef NULL
+  #include "stddef.h"
+  
+*** ../../gcc-1.28/toplev.c	Tue Aug 23 16:54:36 1988
+--- toplev.c	Tue Oct  4 21:51:57 1988
+***************
+*** 28,33 ****
+--- 28,42 ----
+  #include <stdio.h>
+  #include <signal.h>
+  
++ #ifdef atarist
++ #include <types.h>
++ #include <stat.h>
++ 
++ extern long _stksize = 102400;		/* for 1M ST's */
++ /* extern long _stksize = 500000; */		/* enough to compile -O gas */
++ 
++ #else
++ 
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  
+***************
+*** 42,47 ****
+--- 51,58 ----
+  #endif
+  #endif
+  
++ #endif		/* atarist */
++ 
+  #include "tree.h"
+  #include "c-tree.h"
+  #include "rtl.h"
+***************
+*** 260,265 ****
+--- 271,279 ----
+  int
+  gettime ()
+  {
++ #ifdef atarist
++   long now;
++ #else
+  #ifdef USG
+    struct tms tms;
+  #else
+***************
+*** 275,284 ****
+--- 289,302 ----
+      } vms_times;
+  #endif
+  #endif
++ #endif
+  
+    if (quiet_flag)
+      return 0;
+  
++ #ifdef atarist
++   return(time(NULL) * 1000000);
++ #else
+  #ifdef USG
+    times (&tms);
+    return (tms.tms_utime + tms.tms_stime) * (1000000 / HZ);
+***************
+*** 292,297 ****
+--- 310,316 ----
+    return (vms_times.proc_user_time + vms_times.proc_system_time) * 10000;
+  #endif
+  #endif
++ #endif		/* atarist */
+  }
+  
+  #define TIMEVAR(VAR, BODY)    \
+***************
+*** 884,890 ****
+--- 903,913 ----
+      TIMEVAR (symout_time,
+  	     {
+  	       struct stat statbuf;
++ #ifdef atarist
++ 		stat (name, &statbuf);
++ #else
+  	       fstat (fileno (finput), &statbuf);
++ #endif
+  	       symout_types (get_permanent_types ());
+  	       symout_top_blocks (globals, gettags ());
+  	       symout_finish (name, statbuf.st_ctime);
+***************
+*** 1389,1394 ****
+--- 1412,1427 ----
+  	else if (!strcmp (str, "dumpbase"))
+  	  {
+  	    dump_base_name = argv[++i];
++ #ifdef atarist
++ /* dump_base_name will typically be 'foo.c' here.  Need to truncate at the '.',
++    cause dots mean something here */
++ 	    {
++ 	      char * n = dump_base_name;
++ 	      for ( ; ((*n) && (*n != '.')) ; )
++ 		n++;
++ 	      *n = '\0';
++ 	    }
++ #endif
+  	  }
+  	else if (str[0] == 'd')
+  	  {
+***************
+*** 1551,1556 ****
+--- 1584,1590 ----
+  
+    compile_file (filename);
+  
++ #ifndef atarist
+  #ifndef USG
+  #ifndef VMS
+    if (print_mem_flag)
+***************
+*** 1566,1572 ****
+      }
+  #endif /* not VMS */
+  #endif /* not USG */
+! 
+    if (errorcount)
+      exit (FATAL_EXIT_CODE);
+    if (sorrycount)
+--- 1600,1606 ----
+      }
+  #endif /* not VMS */
+  #endif /* not USG */
+! #endif /* atarist */
+    if (errorcount)
+      exit (FATAL_EXIT_CODE);
+    if (sorrycount)

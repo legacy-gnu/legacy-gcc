@@ -1,0 +1,3 @@
+gcc -g -O -I. -DCROSSATARI -c m68k.c
+gcc -g -O -I. -DCROSSATARI -c atof-m68k.c
+gcc -o a68 -g -O -I. -DCROSSATARI as.o		xrealloc.o	xmalloc.o	hash.o		hex-value.o atof-generic.o	append.o	messages.o	expr.o		app.o frags.o		input-file.o	input-scrub.o	output-file.o	read.o subsegs.o	symbols.o	write.o		error.o		version.o flonum-const.o	flonum-copy.o	flonum-mult.o	strstr.o	bignum-copy.o  gdb.o		gdb-file.o	gdb-symbols.o	gdb-blocks.o	obstack.o gdb-lines.o m68k.o		atof-m68k.o 
