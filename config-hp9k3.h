@@ -1,1 +1,0 @@
-../../gcc-1.30/config-hp9k3.h

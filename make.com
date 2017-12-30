@@ -1,1 +1,5 @@
-../../gcc-1.30/make.com
+$!
+$!	Build GCC
+$!
+$ @make-cccp
+$ @make-cc1

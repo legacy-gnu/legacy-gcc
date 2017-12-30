@@ -1,1 +1,0 @@
-../../gcc-1.30/config-ns32k.h

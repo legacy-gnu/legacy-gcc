@@ -3,20 +3,19 @@
 
 This file is part of GNU CC.
 
-GNU CC is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY.  No author or distributor
-accepts responsibility to anyone for the consequences of using it
-or for whether it serves any particular purpose or works at all,
-unless he says so in writing.  Refer to the GNU CC General Public
-License for full details.
+GNU CC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 1, or (at your option)
+any later version.
 
-Everyone is granted permission to copy, modify and redistribute
-GNU CC, but only under the conditions described in the
-GNU CC General Public License.   A copy of this license is
-supposed to have been given to you along with GNU CC so you
-can know your rights and responsibilities.  It should be in a
-file named COPYING.  Among other things, the copyright notice
-and this notice must be preserved on all copies.  */
+GNU CC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GNU CC; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 /* This module is essentially the "combiner" phase of the U. of Arizona
@@ -142,12 +141,21 @@ static int last_call_cuid;
 static rtx subst_insn;
 
 /* Record one modification to rtl structure
-   to be undone by storing old_contents into *where.  */
+   to be undone by storing old_contents into *where.
+   is_int is 1 if the contents are an int.  */
 
 struct undo
 {
   rtx *where;
   rtx old_contents;
+  int is_int;
+};
+
+struct undo_int
+{
+  int *where;
+  int old_contents;
+  int is_int;
 };
 
 /* Record a bunch of changes to be undone, up to MAX_UNDO of them.
@@ -185,8 +193,8 @@ static void copy_substitutions ();
 static void add_links ();
 static void remove_links ();
 static void add_incs ();
-static int insn_has_inc_p ();
 static int adjacent_insns_p ();
+static int check_asm_operands ();
 static rtx simplify_and_const_int ();
 static rtx gen_lowpart_for_combine ();
 static void simplify_set_cc0_and ();
@@ -277,7 +285,7 @@ combine_instructions (f, nregs)
 	      && GET_CODE (SET_DEST (PATTERN (prev))) == CC0)
 	    {
 	      if (try_combine (insn, prev, 0))
-		  goto retry;
+		goto retry;
 
 	      if (GET_CODE (prev) != NOTE)
 		for (nextlinks = LOG_LINKS (prev); nextlinks;
@@ -361,6 +369,7 @@ try_combine (i3, i2, i1)
   rtx i2dest, i2src;
   rtx i1dest, i1src;
   int maxreg;
+  rtx temp;
 
   combine_attempts++;
 
@@ -444,15 +453,40 @@ try_combine (i3, i2, i1)
 	return 0;
     }
 
+  /* If I2 contains anything volatile, reject, unless nothing
+     volatile comes between it and I3.  */
+  if (volatile_refs_p (PATTERN (i2)))
+    {
+      rtx insn;
+      for (insn = NEXT_INSN (i2); insn != i3; insn = NEXT_INSN (insn))
+	if (GET_CODE (insn) == INSN || GET_CODE (insn) == CALL_INSN
+	    || GET_CODE (insn) == JUMP_INSN)
+	  if (volatile_refs_p (PATTERN (insn)))
+	    return 0;
+    }
+  /* Likewise for I1; nothing volatile can come between it and I3,
+     except optionally I2.  */
+  if (i1 && volatile_refs_p (PATTERN (i1)))
+    {
+      rtx insn;
+      rtx end = (volatile_refs_p (PATTERN (i2)) ? i2 : i3);
+      for (insn = NEXT_INSN (i1); insn != end; insn = NEXT_INSN (insn))
+	if (GET_CODE (insn) == INSN || GET_CODE (insn) == CALL_INSN
+	    || GET_CODE (insn) == JUMP_INSN)
+	  if (volatile_refs_p (PATTERN (insn)))
+	    return 0;
+    }
+
   /* If I1 or I2 contains an autoincrement or autodecrement,
-     make sure that register is not used between there and I3.
+     make sure that register is not used between there and I3,
+     and not already used in I3 either.
      Also insist that I3 not be a jump; if it were one
      and the incremented register were spilled, we would lose.  */
   for (link = REG_NOTES (i2); link; link = XEXP (link, 1))
     if (REG_NOTE_KIND (link) == REG_INC
 	&& (GET_CODE (i3) == JUMP_INSN
 	    || reg_used_between_p (XEXP (link, 0), i2, i3)
-	    || reg_mentioned_p (XEXP (link, 0), i3)))
+	    || reg_mentioned_p (XEXP (link, 0), PATTERN (i3))))
       return 0;
 
   if (i1)
@@ -460,8 +494,41 @@ try_combine (i3, i2, i1)
       if (REG_NOTE_KIND (link) == REG_INC
 	  && (GET_CODE (i3) == JUMP_INSN
 	      || reg_used_between_p (XEXP (link, 0), i1, i3)
-	      || reg_mentioned_p (XEXP (link, 0), i3)))
+	      || reg_mentioned_p (XEXP (link, 0), PATTERN (i3))))
 	return 0;
+
+  /* If I3 has an inc, then give up if I1 or I2 uses the reg that is inc'd,
+     EXCEPT in one case: I3 has a post-inc in an output operand.  */
+  if (!(GET_CODE (PATTERN (i3)) == SET
+	&& GET_CODE (SET_SRC (PATTERN (i3))) == REG
+	&& GET_CODE (SET_DEST (PATTERN (i3))) == MEM
+	&& (GET_CODE (XEXP (SET_DEST (PATTERN (i3)), 0)) == POST_INC
+	    || GET_CODE (XEXP (SET_DEST (PATTERN (i3)), 0)) == POST_DEC)))
+    /* It's not the exception.  */
+    for (link = REG_NOTES (i3); link; link = XEXP (link, 1))
+      if (REG_NOTE_KIND (link) == REG_INC
+	  && (reg_mentioned_p (XEXP (link, 0), PATTERN (i2))
+	      || (i1 != 0
+		  && reg_mentioned_p (XEXP (link, 0), PATTERN (i1)))))
+	return 0;
+
+  /* Don't combine an insn I1 or I2 that follows a CC0-setting insn.
+     An insn that uses CC0 must not be separated from the one that sets it.
+     It would be more logical to test whether CC0 occurs inside I1 or I2,
+     but that would be much slower, and this ought to be equivalent.  */
+  temp = PREV_INSN (i2);
+  while (temp && GET_CODE (temp) == NOTE)
+    temp = PREV_INSN (temp);
+  if (temp && GET_CODE (temp) == INSN && sets_cc0_p (PATTERN (temp)))
+    return 0;
+  if (i1)
+    {
+      temp = PREV_INSN (i2);
+      while (temp && GET_CODE (temp) == NOTE)
+	temp = PREV_INSN (temp);
+      if (temp && GET_CODE (temp) == INSN && sets_cc0_p (PATTERN (temp)))
+	return 0;
+    }
 
   /* See if the SETs in i1 or i2 need to be kept around in the merged
      instruction: whenever the value set there is still needed past i3.  */
@@ -563,7 +630,9 @@ try_combine (i3, i2, i1)
   /* Is the result of combination a valid instruction?  */
   insn_code_number = recog (newpat, i3);
 
-  if (insn_code_number >= 0)
+  if (insn_code_number >= 0
+      /* Is the result a reasonable ASM_OPERANDS?  */
+      || (check_asm_operands (newpat) && ! added_sets_1 && ! added_sets_2))
     {
       /* Yes.  Install it.  */
       register int regno;
@@ -686,7 +755,8 @@ copy_substitutions ()
   if (undobuf.num_undo > 1)
     {
       for (i = undobuf.num_undo - 1; i >= 1; i--)
-	*undobuf.undo[i].where = copy_rtx (*undobuf.undo[i].where);
+	if (! undobuf.undo[i].is_int)
+	  *undobuf.undo[i].where = copy_rtx (*undobuf.undo[i].where);
     }
 }
 
@@ -711,17 +781,25 @@ subst (x, from, to)
   register char *fmt;
   register int len, i;
   register enum rtx_code code;
-#ifdef atarist
-  short was_replaced[2];	/* 'char' confuses GAS 1.14... */
-#else
   char was_replaced[2];
-#endif
 
 #define SUBST(INTO, NEWVAL)  \
  do { if (undobuf.num_undo < MAX_UNDO)					\
 	{								\
 	  undobuf.undo[undobuf.num_undo].where = &INTO;			\
 	  undobuf.undo[undobuf.num_undo].old_contents = INTO;		\
+	  undobuf.undo[undobuf.num_undo].is_int = 0;			\
+	  INTO = NEWVAL;						\
+	}								\
+      undobuf.num_undo++; } while (0)
+
+#define SUBST_INT(INTO, NEWVAL)  \
+ do { if (undobuf.num_undo < MAX_UNDO)					\
+	{								\
+	  struct undo_int *u = (struct undo_int *)&undobuf.undo[undobuf.num_undo];\
+	  u->where = &INTO;						\
+	  u->old_contents = INTO;					\
+	  u->is_int = 1;						\
 	  INTO = NEWVAL;						\
 	}								\
       undobuf.num_undo++; } while (0)
@@ -824,20 +902,59 @@ subst (x, from, to)
       /* Changing mode twice with SUBREG => just change it once,
 	 or not at all if changing back to starting mode.  */
       if (SUBREG_REG (x) == to
-	  && GET_CODE (to) == SUBREG
-	  && SUBREG_WORD (x) == 0
-	  && SUBREG_WORD (to) == 0)
+	  && GET_CODE (to) == SUBREG)
 	{
 	  if (GET_MODE (x) == GET_MODE (SUBREG_REG (to)))
-	    return SUBREG_REG (to);
+	    if (SUBREG_WORD (x) == 0 && SUBREG_WORD (to) == 0)
+	      return SUBREG_REG (to);
 	  SUBST (SUBREG_REG (x), SUBREG_REG (to));
+	  if (SUBREG_WORD (to) != 0)
+	    SUBST_INT (SUBREG_WORD (x), SUBREG_WORD (x) + SUBREG_WORD (to));
 	}
-      /* (subreg (sign_extend X)) is X, if it has same mode as X.  */
       if (SUBREG_REG (x) == to
 	  && (GET_CODE (to) == SIGN_EXTEND || GET_CODE (to) == ZERO_EXTEND)
-	  && SUBREG_WORD (x) == 0
-	  && GET_MODE (x) == GET_MODE (XEXP (to, 0)))
-	return XEXP (to, 0);
+	  && subreg_lowpart_p (x))
+	{
+	  /* (subreg (sign_extend X)) is X, if it has same mode as X.  */
+	  if (GET_MODE (x) == GET_MODE (XEXP (to, 0)))
+	    return XEXP (to, 0);
+	  /* (subreg (sign_extend X)), if it has a mode wider than X,
+	     can be done with (sign_extend X).  */
+	  if (GET_MODE_SIZE (GET_MODE (x)) > GET_MODE_SIZE (GET_MODE (XEXP (to, 0))))
+	    {
+	      if (!undobuf.storage)
+		undobuf.storage = (char *) oballoc (0);
+	      return gen_rtx (GET_CODE (to), GET_MODE (x), XEXP (to, 0));
+	    }
+	  /* Extend and then truncate smaller than it was to start with:
+	     no need to extend.  */
+	  if (GET_MODE_SIZE (GET_MODE (x)) < GET_MODE_SIZE (GET_MODE (XEXP (to, 0))))
+	    {
+	      SUBST (XEXP (x, 0), XEXP (to, 0));
+	    }
+	}
+      /* (subreg:A (mem:B X) N) becomes a modified MEM.
+	 This avoids producing any (subreg (mem))s except in the special
+	 paradoxical case where gen_lowpart_for_combine makes them.  */
+      if (SUBREG_REG (x) == to
+	  && GET_CODE (to) == MEM)
+	{
+	  int endian_offset = 0;
+#ifdef BYTES_BIG_ENDIAN
+	  if (GET_MODE_SIZE (GET_MODE (x)) < UNITS_PER_WORD)
+	    endian_offset += UNITS_PER_WORD - GET_MODE_SIZE (GET_MODE (x));
+	  if (GET_MODE_SIZE (GET_MODE (to)) < UNITS_PER_WORD)
+	    endian_offset -= UNITS_PER_WORD - GET_MODE_SIZE (GET_MODE (to));
+#endif
+	  if (!undobuf.storage)
+	    undobuf.storage = (char *) oballoc (0);
+	  /* Note if the plus_constant doesn't make a valid address
+	     then this combination won't be accepted.  */
+	  return gen_rtx (MEM, GET_MODE (x),
+			  plus_constant (XEXP (to, 0),
+					 (SUBREG_WORD (x) * UNITS_PER_WORD
+					  + endian_offset)));
+	}
       break;
 
     case NOT:
@@ -845,18 +962,26 @@ subst (x, from, to)
       if (was_replaced[0]
 	  && ((GET_CODE (to) == PLUS && INTVAL (XEXP (to, 1)) == -1)
 	      || (GET_CODE (to) == MINUS && XEXP (to, 1) == const1_rtx)))
-	return gen_rtx (NEG, GET_MODE (to), XEXP (to, 0));
+	{
+	  if (!undobuf.storage)
+	    undobuf.storage = (char *) oballoc (0);
+	  return gen_rtx (NEG, GET_MODE (to), XEXP (to, 0));
+	}
       /* Don't let substitution introduce double-negatives.  */
       if (was_replaced[0]
-          && GET_CODE (to) == code)
-        return XEXP (to, 0);
+	  && GET_CODE (to) == code)
+	return XEXP (to, 0);
       break;
 
     case NEG:
       /* (neg (minus X Y)) can become (minus Y X).  */
       if (was_replaced[0] && GET_CODE (to) == MINUS)
-          return gen_rtx (MINUS, GET_MODE (to),
-                          XEXP (to, 1), XEXP (to, 0));
+	{
+	  if (!undobuf.storage)
+	    undobuf.storage = (char *) oballoc (0);
+	  return gen_rtx (MINUS, GET_MODE (to),
+			  XEXP (to, 1), XEXP (to, 0));
+	}
       /* Don't let substitution introduce double-negatives.  */
       if (was_replaced[0]
 	  && GET_CODE (to) == code)
@@ -973,25 +1098,6 @@ subst (x, from, to)
 			      offset);
 	    }
 	}
-      break;
-
-    case MINUS:
-      /* Can simplify (minus:VOIDmode (zero/sign_extend FOO) CONST)
-	 (which is a compare instruction, not a subtract instruction)
-	 to (minus FOO CONST) if CONST fits in FOO's mode
-	 and we are only testing equality.
-	 In fact, this is valid for zero_extend if what follows is an
-	 unsigned comparison, and for sign_extend with a signed comparison.  */
-      if (GET_MODE (x) == VOIDmode
-	  && was_replaced[0]
-	  && (GET_CODE (to) == ZERO_EXTEND || GET_CODE (to) == SIGN_EXTEND)
-	  && next_insn_tests_no_inequality (subst_insn)
-	  && GET_CODE (XEXP (x, 1)) == CONST_INT
-	  /* This is overly cautious by one bit, but saves worrying about
-	     whether it is zero-extension or sign extension.  */
-	  && ((unsigned) INTVAL (XEXP (x, 1))
-	      < (1 << (GET_MODE_BITSIZE (GET_MODE (XEXP (to, 0))) - 1))))
-	SUBST (XEXP (x, 0), XEXP (to, 0));
       break;
 
     case EQ:
@@ -1215,7 +1321,7 @@ subst (x, from, to)
 	  SUBST (XEXP (x, 1), XEXP (to, 0));
 	} 
       /* In (set (zero-extract <x> <n> <y>)
-	         (subreg (and <foo> <(2**n-1) | anything>)))
+		 (subreg (and <foo> <(2**n-1) | anything>)))
 	 the `and' can be deleted.  */
       if (GET_CODE (XEXP (x, 0)) == ZERO_EXTRACT
 	  && GET_CODE (XEXP (XEXP (x, 0), 1)) == CONST_INT
@@ -1239,14 +1345,21 @@ subst (x, from, to)
 	      || GET_CODE (XEXP (x, 1)) == XOR)
 	  && rtx_equal_p (XEXP (x, 0), XEXP (XEXP (x, 1), 0))
 	  && GET_CODE (XEXP (XEXP (x, 1), 0)) == GET_CODE (XEXP (x, 0))
-	  && GET_CODE (XEXP (XEXP (x, 1), 1)) == CONST_INT)
+	  && GET_CODE (XEXP (XEXP (x, 1), 1)) == CONST_INT
+	  /* zero_extract can apply to a QImode even if the bits extracted
+	     don't fit inside that byte.  In such a case, we may not do this
+	     optimization, since the OR or AND insn really would need
+	     to fit in a byte.  */
+	  && (INTVAL (XEXP (XEXP (x, 0), 1)) + INTVAL (XEXP (XEXP (x, 0), 2))
+	      < GET_MODE_BITSIZE (GET_MODE (XEXP (XEXP (x, 0), 0)))))
 	{
+	  int shiftcount;
 #ifdef BITS_BIG_ENDIAN
-	  int shiftcount
+	  shiftcount
 	    = GET_MODE_BITSIZE (GET_MODE (XEXP (XEXP (x, 0), 0)))
 	      - INTVAL (XEXP (XEXP (x, 0), 1)) - INTVAL (XEXP (XEXP (x, 0), 2));
 #else
-	  int shiftcount
+	  shiftcount
 	    = INTVAL (XEXP (XEXP (x, 0), 2));
 #endif
 	  if (!undobuf.storage)
@@ -1264,6 +1377,22 @@ subst (x, from, to)
 					  ? (1 << shiftcount) - 1
 					  : 0))));
 	}
+      /* Can simplify (set (cc0) (compare (zero/sign_extend FOO) CONST))
+	 to (set (cc0) (compare FOO CONST)) if CONST fits in FOO's mode
+	 and we are only testing equality.
+	 In fact, this is valid for zero_extend if what follows is an
+	 unsigned comparison, and for sign_extend with a signed comparison.  */
+      if (SET_DEST (x) == cc0_rtx
+	  && GET_CODE (SET_SRC (x)) == COMPARE
+	  && (GET_CODE (XEXP (SET_SRC (x), 0)) == ZERO_EXTEND
+	      || GET_CODE (XEXP (SET_SRC (x), 0)) == SIGN_EXTEND)
+	  && next_insn_tests_no_inequality (subst_insn)
+	  && GET_CODE (XEXP (SET_SRC (x), 1)) == CONST_INT
+	  /* This is overly cautious by one bit, but saves worrying about
+	     whether it is zero-extension or sign extension.  */
+	  && ((unsigned) INTVAL (XEXP (SET_SRC (x), 1))
+	      < (1 << (GET_MODE_BITSIZE (GET_MODE (XEXP (XEXP (SET_SRC (x), 0), 0))) - 1))))
+	SUBST (XEXP (SET_SRC (x), 0), XEXP (XEXP (SET_SRC (x), 0), 0));
       break;
 
     case AND:
@@ -1274,6 +1403,26 @@ subst (x, from, to)
 	    return tem;
 	}
       break;
+
+    case IOR:
+    case XOR:
+      /* (ior (ior x c1) c2) => (ior x c1|c2); likewise for xor.  */
+      if (GET_CODE (XEXP (x, 1)) == CONST_INT
+	  && GET_CODE (XEXP (x, 0)) == code
+	  && GET_CODE (XEXP (XEXP (x, 0), 1)) == CONST_INT)
+	{
+	  int c0 = INTVAL (XEXP (x, 1));
+	  int c1 = INTVAL (XEXP (XEXP (x, 0), 1));
+	  int combined = (code == IOR ? c0 | c1 : c0 ^ c1);
+
+	  if (combined == 0)
+	    return XEXP (XEXP (x, 0), 0);
+	  if (!undobuf.storage)
+	    undobuf.storage = (char *) oballoc (0);
+	  SUBST (XEXP (x, 1), gen_rtx (CONST_INT, VOIDmode, combined));
+	  SUBST (XEXP (x, 0), XEXP (XEXP (x, 0), 0));
+	  break;
+	}
 
     case FLOAT:
       /* (float (sign_extend <X>)) = (float <X>).  */
@@ -1874,6 +2023,12 @@ use_crosses_set_p (x, from_cuid)
   if (code == REG)
     {
       register int regno = REGNO (x);
+#ifdef PUSH_ROUNDING
+      /* Don't allow uses of the stack pointer to be moved,
+	 because we don't know whether the move crosses a push insn.  */
+      if (regno == STACK_POINTER_REGNUM)
+	return 1;
+#endif
       return (reg_last_set[regno]
 	      && INSN_CUID (reg_last_set[regno]) > from_cuid);
     }
@@ -1934,6 +2089,32 @@ adjacent_insns_p (i, j)
   return 1;
 }
 
+/* Check that X is an insn-body for an `asm' with operands
+   and that the operands mentioned in it are legitimate.  */
+
+static int
+check_asm_operands (x)
+     rtx x;
+{
+  int noperands = asm_noperands (x);
+  rtx *operands;
+  int i;
+
+  if (noperands < 0)
+    return 0;
+  if (noperands == 0)
+    return 1;
+
+  operands = (rtx *) alloca (noperands * sizeof (rtx));
+  decode_asm_operands (x, operands, 0, 0, 0);
+
+  for (i = 0; i < noperands; i++)
+    if (!general_operand (operands[i], VOIDmode))
+      return 0;
+
+  return 1;
+}
+
 /* Concatenate the list of logical links of OINSN
    into INSN's list of logical links.
    Modifies OINSN destructively.
@@ -2285,13 +2466,13 @@ try_distrib (insn, xprev1, xprev2)
 
   switch (GET_CODE (src1))
     {
+    /* case XOR:  Does not distribute through anything!  */
     case LSHIFTRT:
     case ASHIFTRT:
       /* Right-shift can't distribute through addition
 	 since the round-off would happen differently.  */
     case AND:
     case IOR:
-    case XOR:
       /* Boolean ops don't distribute through addition.  */
       if (code == PLUS)
 	return 0;

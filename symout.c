@@ -3,20 +3,19 @@
 
 This file is part of GNU CC.
 
-GNU CC is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY.  No author or distributor
-accepts responsibility to anyone for the consequences of using it
-or for whether it serves any particular purpose or works at all,
-unless he says so in writing.  Refer to the GNU CC General Public
-License for full details.
+GNU CC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 1, or (at your option)
+any later version.
 
-Everyone is granted permission to copy, modify and redistribute
-GNU CC, but only under the conditions described in the
-GNU CC General Public License.   A copy of this license is
-supposed to have been given to you along with GNU CC so you
-can know your rights and responsibilities.  It should be in a
-file named COPYING.  Among other things, the copyright notice
-and this notice must be preserved on all copies.  */
+GNU CC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GNU CC; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include "config.h"
@@ -25,17 +24,16 @@ and this notice must be preserved on all copies.  */
 #include "rtl.h"
 #include "gdbfiles.h"
 #include <stdio.h>
-#ifndef atarist
-#include <sys/types.h>
-#else
-#include <types.h>
-#endif
 #undef NULL
 #include "stddef.h"
 
 /* Get N_SO from stab.h if we can expect the file to exist.  */
 #ifdef DBX_DEBUGGING_INFO
-#include <stab.h>
+#ifdef USG
+#include "stab.h"  /* If doing DBX on sysV, use our own stab.h.  */
+#else
+#include <stab.h>  /* On BSD, use the system's stab.h.  */
+#endif /* not USG */
 #endif
 
 /* .stabs code for source file name.  */
@@ -141,7 +139,7 @@ symout_init (filename, asm_file, sourcename)
 
   symfile = fopen (filename, "w");
   if (symfile == 0)
-    pfatal_with_name (symfile);
+    pfatal_with_name (filename);
   symfile_name = (char *) malloc (strlen (filename) + 1);
   strcpy (symfile_name, filename);
 
@@ -768,6 +766,48 @@ symout_block_symbols (decls, addr_buffer, filter)
 		  /* Detect vars that were optimized entirely away.  */
 		  if (buffer.value.value == -1)
 		    buffer.class = LOC_CONST;
+		}
+	      else if (GET_CODE (DECL_RTL (decl)) == MEM
+		       && (GET_CODE (XEXP (DECL_RTL (decl), 0)) == MEM
+			   || (GET_CODE (XEXP (DECL_RTL (decl), 0)) == REG
+			       && REGNO (XEXP (DECL_RTL (decl), 0)) != FRAME_POINTER_REGNUM)))
+		/* If the value is indirect by memory or by a register
+		   that isn't the frame pointer
+		   then it means the object is variable-sized and address through
+		   that register or stack slot.
+		   If we have a pointer-type (which we should, for an array),
+		   output the variable as a pointer.
+		   Otherwise ignore it, since it is hard to create the ptr
+		   type now and output it, and -gg is being retired.  */
+		{
+		  tree ptype = TYPE_POINTER_TO (TREE_TYPE (TREE_TYPE (decl)));
+		  if (ptype == 0
+		      || TYPE_OUTPUT_ADDRESS (ptype) == 0)
+		    continue;
+
+		  buffer.type = (struct type *) TYPE_OUTPUT_ADDRESS (ptype);
+
+
+		  if (GET_CODE (XEXP (DECL_RTL (decl), 0)) == REG)
+		    {
+		      buffer.class = LOC_REGISTER;
+		      buffer.value.value = REGNO (DECL_RTL (decl));
+		      /* Detect vars that were optimized entirely away.  */
+		      if (buffer.value.value == -1)
+			buffer.class = LOC_CONST;
+		    }
+		  else
+		    {
+		      register rtx addr = XEXP (DECL_RTL (decl), 0);
+		      if (GET_CODE (addr) != PLUS && GET_CODE (addr) != MINUS)
+			abort ();
+		      if (GET_CODE (XEXP (addr, 1)) != CONST_INT)
+			abort ();
+		      buffer.class = LOC_LOCAL;
+		      buffer.value.value = INTVAL (XEXP (addr, 1));
+		      if (GET_CODE (addr) == MINUS)
+			buffer.value.value = - buffer.value.value;
+		    }
 		}
 	      /* Locals in memory are expected to be addressed as
 		 (PLUS (REG ...) (CONST_INT ...)).

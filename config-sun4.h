@@ -1,1 +1,0 @@
-../../gcc-1.30/config-sun4.h

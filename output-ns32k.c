@@ -1,1 +1,0 @@
-../../gcc-1.30/output-ns32k.c

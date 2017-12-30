@@ -1,22 +1,21 @@
 /* GDB symbol table format definitions.
-   Copyright (C) 1986 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988 Free Software Foundation, Inc.
 
-GDB is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY.  No author or distributor accepts responsibility to anyone
-for the consequences of using it or for whether it serves any
-particular purpose or works at all, unless he says so in writing.
-Refer to the GDB General Public License for full details.
+This file is part of GNU CC.
 
-Everyone is granted permission to copy, modify and redistribute GDB,
-but only under the conditions described in the GDB General Public
-License.  A copy of this license is supposed to have been given to you
-along with GDB so you can know your rights and responsibilities.  It
-should be in a file named COPYING.  Among other things, the copyright
-notice and this notice must be preserved on all copies.
+GNU CC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 1, or (at your option)
+any later version.
 
-In other words, go ahead and share GDB, but don't try to stop
-anyone else from sharing it farther.  Help stamp out software hoarding!
-*/
+GNU CC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GNU CC; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Format of GDB symbol table data.
    There is one symbol segment for each source file or
@@ -333,26 +332,19 @@ struct sourcevector
   struct source *source[1];	/* Descriptions of the files */
 };
 
-/* Each item is either minus a line number, or a program counter.
-   If it represents a line number, that is the line described by the next
-   program counter value.  If it is positive, it is the program
-   counter at which the code for the next line starts.
-
-   Consecutive lines can be recorded by program counter entries
-   with no line number entries between them.  Line number entries
-   are used when there are lines to skip with no code on them.
-   This is to make the table shorter.  */
-
-struct linetable
-  {
-    int nitems;
-    int item[1];
-  };
+/* Line number and address of one line.  */
+ 
+struct line
+{
+  int linenum;
+  int address;
+};
 
 /* All the information on one source file.  */
 
 struct source
 {
   char *name;			/* Name of file */
-  struct linetable contents;
+  int nlines;			/* Number of lines that follow */
+  struct line lines[1];	/* Information on each line */
 };

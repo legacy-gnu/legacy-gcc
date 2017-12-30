@@ -1,1 +1,0 @@
-../../gcc-1.30/aux-output.c

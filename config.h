@@ -1,1 +1,0 @@
-config-atari.h

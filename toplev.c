@@ -1,22 +1,21 @@
 /* Top level of GNU C compiler
-   Copyright (C) 1987, 1988 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1989 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
-GNU CC is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY.  No author or distributor
-accepts responsibility to anyone for the consequences of using it
-or for whether it serves any particular purpose or works at all,
-unless he says so in writing.  Refer to the GNU CC General Public
-License for full details.
+GNU CC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 1, or (at your option)
+any later version.
 
-Everyone is granted permission to copy, modify and redistribute
-GNU CC, but only under the conditions described in the
-GNU CC General Public License.   A copy of this license is
-supposed to have been given to you along with GNU CC so you
-can know your rights and responsibilities.  It should be in a
-file named COPYING.  Among other things, the copyright notice
-and this notice must be preserved on all copies.  */
+GNU CC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GNU CC; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 /* This is the top level of cc1.
@@ -28,15 +27,6 @@ and this notice must be preserved on all copies.  */
 #include <stdio.h>
 #include <signal.h>
 #include <setjmp.h>
-
-#ifdef atarist
-#include <types.h>
-#include <stat.h>
-
-extern long _stksize = 128L * 1024L;		/* for 1M ST's */
-/* extern long _stksize = 500000; */		/* enough to compile -O gas */
-
-#else
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -52,8 +42,6 @@ extern long _stksize = 128L * 1024L;		/* for 1M ST's */
 #endif
 #endif
 
-#endif		/* atarist */
-
 #include "tree.h"
 #include "c-tree.h"
 #include "rtl.h"
@@ -62,6 +50,9 @@ extern long _stksize = 128L * 1024L;		/* for 1M ST's */
 extern int yydebug;
 
 extern FILE *finput;
+
+extern int reload_completed;
+extern int rtx_equal_function_value_matters;
 
 extern void init_lex ();
 extern void init_decl_processing ();
@@ -133,6 +124,20 @@ int use_gdb_dbx_extensions;
 /* Nonzero means do optimizations.  -opt.  */
 
 int optimize = 0;
+
+/* Nonzero for -fcaller-saves: allocate values in regs that need to
+   be saved across function calls, if that produces overall better code.
+   Optional now, so people can test it.  */
+
+#ifdef DEFAULT_CALLER_SAVES
+int flag_caller_saves = 1;
+#else
+int flag_caller_saves = 0;
+#endif
+
+/* Nonzero for -fpcc-struct-return: return values the same way PCC does.  */
+
+int flag_pcc_struct_return = 0;
 
 /* Nonzero for -fforce-mem: load memory value into a register
    before arithmetic on it.  This makes better cse but slower compilation.  */
@@ -211,6 +216,20 @@ int extra_warnings = 0;
 
 int warn_unused;
 
+/* Nonzero means warn about all declarations which shadow others.   */
+
+int warn_shadow;
+
+/* Warn if a switch on an enum fails to have a case for every enum value.  */
+
+int warn_switch;
+
+/* Nonzero means warn about any identifiers that match in the first N
+   characters.  The value N is in `id_clash_len'.  */
+
+int warn_id_clash;
+int id_clash_len;
+
 /* Number of error messages and warning messages so far.  */
 
 int errorcount = 0;
@@ -220,6 +239,10 @@ int sorrycount = 0;
 /* Nonzero if generating code to do profiling.  */
 
 int profile_flag = 0;
+
+/* Nonzero if generating code to do profiling on a line-by-line basis.  */
+
+int profile_block_flag;
 
 /* Nonzero for -pedantic switch: warn about anything
    that standard spec forbids.  */
@@ -237,6 +260,14 @@ int flag_inline_functions;
 
 int flag_keep_inline_functions;
 
+/* Nonzero if we are only using compiler to check syntax errors.  */
+
+int flag_syntax_only;
+
+/* Nonzero means make the text shared if supported.  */
+
+int flag_shared_data;
+
 /* Name for output file of assembly code, specified with -o.  */
 
 char *asm_file_name;
@@ -244,6 +275,33 @@ char *asm_file_name;
 /* Name for output file of GDB symbol segment, specified with -symout.  */
 
 char *sym_file_name;
+
+/* Table of language-independent -f options.
+   STRING is the option name.  VARIABLE is the address of the variable.
+   ON_VALUE is the value to store in VARIABLE
+    if `-fSTRING' is seen as an option.
+   (If `-fno-STRING' is seen as an option, the opposite value is stored.)  */
+
+struct { char *string; int *variable; int on_value;} f_options[] =
+{
+  {"float-store", &flag_float_store, 1},
+  {"volatile", &flag_volatile, 1},
+  {"defer-pop", &flag_defer_pop, 1},
+  {"omit-frame-pointer", &flag_omit_frame_pointer, 1},
+  {"strength-reduce", &flag_strength_reduce, 1},
+  {"writable-strings", &flag_writable_strings, 1},
+  {"peephole", &flag_no_peephole, 0},
+  {"force-mem", &flag_force_mem, 1},
+  {"force-addr", &flag_force_addr, 1},
+  {"combine-regs", &flag_combine_regs, 1},
+  {"function-cse", &flag_no_function_cse, 0},
+  {"inline-functions", &flag_inline_functions, 1},
+  {"keep-inline-functions", &flag_keep_inline_functions, 1},
+  {"syntax-only", &flag_syntax_only, 1},
+  {"shared-data", &flag_shared_data, 1},
+  {"caller-saves", &flag_caller_saves, 1},
+  {"pcc-struct-return", &flag_pcc_struct_return, 1}
+};
 
 /* Output files for assembler code (real compiler output)
    and debugging dumps.  */
@@ -280,9 +338,6 @@ int dump_time;
 int
 gettime ()
 {
-#ifdef atarist
-  long now;
-#else
 #ifdef USG
   struct tms tms;
 #else
@@ -298,14 +353,10 @@ gettime ()
     } vms_times;
 #endif
 #endif
-#endif
 
   if (quiet_flag)
     return 0;
 
-#ifdef atarist
-  return(time(NULL) * 1000000);
-#else
 #ifdef USG
   times (&tms);
   return (tms.tms_utime + tms.tms_stime) * (1000000 / HZ);
@@ -319,7 +370,6 @@ gettime ()
   return (vms_times.proc_user_time + vms_times.proc_system_time) * 10000;
 #endif
 #endif
-#endif		/* atarist */
 }
 
 #define TIMEVAR(VAR, BODY)    \
@@ -467,12 +517,13 @@ error_with_file_and_line (file, line, s, v, v2)
 }
 
 /* Report an error at the declaration DECL.
-   S is string which uses %s to substitute the declaration name.  */
+   S and V are a string and an arg which uses %s to substitute the declaration name.  */
 
 void
-error_with_decl (decl, s)
+error_with_decl (decl, s, v)
      tree decl;
      char *s;
+     int v;
 {
   count_error (0);
 
@@ -482,17 +533,54 @@ error_with_decl (decl, s)
 	   DECL_SOURCE_FILE (decl), DECL_SOURCE_LINE (decl));
 
   if (DECL_NAME (decl))
-    fprintf (stderr, s, IDENTIFIER_POINTER (DECL_NAME (decl)));
+    fprintf (stderr, s, IDENTIFIER_POINTER (DECL_NAME (decl)), v);
   else
-    fprintf (stderr, s, "((anonymous))");
+    fprintf (stderr, s, "((anonymous))", v);
   fprintf (stderr, "\n");
+}
+
+/* Report an error at the line number of the insn INSN.
+   S and V are a string and an arg for `printf'.
+   This is used only when INSN is an `asm' with operands,
+   and each ASM_OPERANDS records its own source file and line.  */
+
+void
+error_for_asm (insn, s, v, v2)
+     rtx insn;
+     char *s;
+     int v;			/* @@also used as pointer */
+     int v2;			/* @@also used as pointer */
+{
+  rtx temp;
+  char *filename;
+  int line;
+  rtx body = PATTERN (insn);
+  rtx asmop;
+
+  /* Find the (or one of the) ASM_OPERANDS in the insn.  */
+  if (GET_CODE (body) == SET && GET_CODE (SET_SRC (body)) == ASM_OPERANDS)
+    asmop = SET_SRC (body);
+  else if (GET_CODE (body) == ASM_OPERANDS)
+    asmop = body;
+  else if (GET_CODE (body) == PARALLEL
+	   && GET_CODE (XVECEXP (body, 0, 0)) == SET)
+    asmop = SET_SRC (XVECEXP (body, 0, 0));
+  else if (GET_CODE (body) == PARALLEL
+	   && GET_CODE (XVECEXP (body, 0, 0)) == ASM_OPERANDS)
+    asmop = XVECEXP (body, 0, 0);
+
+  filename = ASM_OPERANDS_SOURCE_FILE (asmop);
+  line = ASM_OPERANDS_SOURCE_LINE (asmop);
+  
+  error_with_file_and_line (filename, line, s, v, v2);
 }
 
 /* Report a warning at line LINE.
    S and V are a string and an arg for `printf'.  */
 
 void
-warning_with_line (line, s, v, v2)
+warning_with_file_and_line (file, line, s, v, v2)
+     char *file;
      int line;
      char *s;
      int v;
@@ -501,10 +589,10 @@ warning_with_line (line, s, v, v2)
   if (count_error (1) == 0)
     return;
 
-  report_error_function (input_filename);
+  report_error_function (file);
 
-  if (input_filename)
-    fprintf (stderr, "%s:%d: ", input_filename, line);
+  if (file)
+    fprintf (stderr, "%s:%d: ", file, line);
   else
     fprintf (stderr, "cc1: ");
 
@@ -522,16 +610,17 @@ warning (s, v, v2)
      int v;			/* @@also used as pointer */
      int v2;
 {
-  warning_with_line (lineno, s, v, v2);
+  warning_with_file_and_line (input_filename, lineno, s, v, v2);
 }
 
 /* Report a warning at the declaration DECL.
    S is string which uses %s to substitute the declaration name.  */
 
 void
-warning_with_decl (decl, s)
+warning_with_decl (decl, s, v)
      tree decl;
      char *s;
+     int v;
 {
   if (count_error (1) == 0)
     return;
@@ -543,9 +632,9 @@ warning_with_decl (decl, s)
 
   fprintf (stderr, "warning: ");
   if (DECL_NAME (decl))
-    fprintf (stderr, s, IDENTIFIER_POINTER (DECL_NAME (decl)));
+    fprintf (stderr, s, IDENTIFIER_POINTER (DECL_NAME (decl)), v);
   else
-    fprintf (stderr, s, "((anonymous))");
+    fprintf (stderr, s, "((anonymous))", v);
   fprintf (stderr, "\n");
 }
 
@@ -673,6 +762,14 @@ float_signal ()
   warning ("floating overflow in constant folding");
   float_handled = 0;
   longjmp (float_handler, 1);
+}
+
+/* Handler for SIGPIPE.  */
+
+static void
+pipe_closed ()
+{
+  fatal ("output pipe has been closed");
 }
 
 /* Compile an entire file of output from cpp, named NAME.
@@ -869,6 +966,13 @@ compile_file (name)
 
   ASM_FILE_START (asm_out_file);
 
+  /* Output something to inform GDB that this compilation was by GCC.  */
+#ifndef ASM_IDENTIFY_GCC
+  fprintf (asm_out_file, "gcc_compiled.:\n");
+#else
+  ASM_IDENTIFY_GCC (asm_out_file);
+#endif
+
   /* If GDB symbol table desired, open the GDB symbol output file.  */
   if (write_symbols == GDB_DEBUG)
     {
@@ -934,6 +1038,25 @@ compile_file (name)
 	    && DECL_INITIAL (decl) != 0
 	    && TREE_ADDRESSABLE (decl))
 	  output_inline_function (decl);
+
+	/* Warn about any function declared static but not defined.  */
+	if (warn_unused
+	    && TREE_CODE (decl) == FUNCTION_DECL
+	    && DECL_INITIAL (decl) == 0
+	    && TREE_EXTERNAL (decl)
+	    && ! TREE_PUBLIC (decl))
+	  warning_with_decl (decl, "`%s' declared but never defined");
+	/* Warn about statics fns or vars defined but not used,
+	   but not about inline functions
+	   since unused inline statics is normal practice.  */
+	if (warn_unused
+	    && (TREE_CODE (decl) == FUNCTION_DECL
+		|| TREE_CODE (decl) == VAR_DECL)
+	    && ! TREE_EXTERNAL (decl)
+	    && ! TREE_PUBLIC (decl)
+	    && ! TREE_USED (decl)
+	    && ! TREE_INLINE (decl))
+	  warning_with_decl (decl, "`%s' defined but not used");
       }
   }
 
@@ -961,15 +1084,15 @@ compile_file (name)
     TIMEVAR (symout_time,
 	     {
 	       struct stat statbuf;
-#ifdef atarist
-		stat (name, &statbuf);
-#else
 	       fstat (fileno (finput), &statbuf);
-#endif
 	       symout_types (get_permanent_types ());
 	       symout_top_blocks (globals, gettags ());
 	       symout_finish (name, statbuf.st_ctime);
 	     });
+
+  /* Output some stuff at end of file if nec.  */
+
+  end_final (main_input_filename);
 
   /* Close the dump files.  */
 
@@ -1053,8 +1176,14 @@ rest_of_decl_compilation (decl, asmspec, top_level, at_end)
   if (TREE_STATIC (decl) || TREE_EXTERNAL (decl))
     TIMEVAR (varconst_time,
 	     {
-	       assemble_variable (decl, asmspec, top_level,
-				  write_symbols, at_end);
+	       make_decl_rtl (decl, asmspec, top_level);
+	       /* Don't output anything
+		  when a tentative file-scope definition is seen.
+		  But at end of compilation, do output code for them.  */
+	       if (! (! at_end && top_level
+		      && (DECL_INITIAL (decl) == 0
+			  || DECL_INITIAL (decl) == error_mark_node)))
+		 assemble_variable (decl, top_level, write_symbols, at_end);
 	     });
 #ifdef DBX_DEBUGGING_INFO
   else if (write_symbols == DBX_DEBUG && TREE_CODE (decl) == TYPE_DECL)
@@ -1165,7 +1294,9 @@ rest_of_compilation (decl)
      Also do it if -W, but in that case it doesn't change the rtl code,
      it only computes whether control can drop off the end of the function.  */
 
-  if (optimize || extra_warnings || warn_return_type)
+  if (optimize || extra_warnings || warn_return_type
+      /* If function is `volatile', we should warn if it tries to return.  */
+      || TREE_THIS_VOLATILE (decl))
     TIMEVAR (jump_time, jump_optimize (insns, 0, 0));
 
   /* Dump rtl code after jump, if we are doing that.  */
@@ -1346,6 +1477,9 @@ rest_of_compilation (decl)
 	       fflush (global_reg_dump_file);
 	     });
 
+  rtx_equal_function_value_matters = 1;
+  reload_completed = 1;
+
   /* One more attempt to remove jumps to .+1
      left by dead-store-elimination.
      Also do cross-jumping this time
@@ -1408,6 +1542,9 @@ rest_of_compilation (decl)
 
  exit_rest_of_compilation:
 
+  rtx_equal_function_value_matters = 0;
+  reload_completed = 0;
+
   /* Clear out the real_constant_chain before some of the rtx's
      it runs through become garbage.  */
 
@@ -1447,6 +1584,8 @@ main (argc, argv, envp)
 
   signal (SIGFPE, float_signal);
 
+  signal (SIGPIPE, pipe_closed);
+
   /* Initialize whether `char' is signed.  */
   flag_signed_char = DEFAULT_SIGNED_CHAR;
 
@@ -1460,7 +1599,7 @@ main (argc, argv, envp)
   set_target_switch ("");
 
   for (i = 1; i < argc; i++)
-    if (argv[i][0] == '-')
+    if (argv[i][0] == '-' && argv[i][1] != 0)
       {
 	register char *str = argv[i] + 1;
 	if (str[0] == 'Y')
@@ -1471,16 +1610,6 @@ main (argc, argv, envp)
 	else if (!strcmp (str, "dumpbase"))
 	  {
 	    dump_base_name = argv[++i];
-#ifdef atarist
-/* dump_base_name will typically be 'foo.c' here.  Need to truncate at the '.',
-   cause dots mean something here */
-	    {
-	      char * n = dump_base_name;
-	      for ( ; ((*n) && (*n != '.')) ; )
-		n++;
-	      *n = '\0';
-	    }
-#endif
 	  }
 	else if (str[0] == 'd')
 	  {
@@ -1525,43 +1654,41 @@ main (argc, argv, envp)
 	  }
 	else if (str[0] == 'f')
 	  {
+	    int j;
 	    register char *p = &str[1];
-	    if (!strcmp (p, "float-store"))
-	      flag_float_store = 1;
-	    else if (!strcmp (p, "volatile"))
-	      flag_volatile = 1;
-	    else if (!strcmp (p, "defer-pop"))
-	      flag_defer_pop = 1;
-	    else if (!strcmp (p, "no-defer-pop"))
-	      flag_defer_pop = 0;
-	    else if (!strcmp (p, "omit-frame-pointer"))
-	      flag_omit_frame_pointer = 1;
-	    else if (!strcmp (p, "no-omit-frame-pointer"))
-	      flag_omit_frame_pointer = 0;
-	    else if (!strcmp (p, "strength-reduce"))
-	      flag_strength_reduce = 1;
-	    else if (!strcmp (p, "writable-strings"))
-	      flag_writable_strings = 1;
-	    else if (!strcmp (p, "no-peephole"))
-	      flag_no_peephole = 1;
-	    else if (!strcmp (p, "force-mem"))
-	      flag_force_mem = 1;
-	    else if (!strcmp (p, "force-addr"))
-	      flag_force_addr = 1;
-	    else if (!strcmp (p, "combine-regs"))
-	      flag_combine_regs = 1;
-	    else if (!strcmp (p, "no-function-cse"))
-	      flag_no_function_cse = 1;
+	    int found = 0;
+
+	    /* Some kind of -f option.
+	       P's value is the option sans `-f'.
+	       Search for it in the table of options.  */
+
+	    for (j = 0;
+		 !found && j < sizeof (f_options) / sizeof (f_options[0]);
+		 j++)
+	      {
+		if (!strcmp (p, f_options[j].string))
+		  {
+		    *f_options[j].variable = f_options[j].on_value;
+		    /* A goto here would be cleaner,
+		       but breaks the vax pcc.  */
+		    found = 1;
+		  }
+		if (p[0] == 'n' && p[1] == 'o' && p[2] == '-'
+		    && ! strcmp (p+3, f_options[j].string))
+		  {
+		    *f_options[j].variable = ! f_options[j].on_value;
+		    found = 1;
+		  }
+	      }
+
+	    if (found)
+	      ;
 	    else if (!strncmp (p, "fixed-", 6))
 	      fix_register (&p[6], 1, 1);
 	    else if (!strncmp (p, "call-used-", 10))
 	      fix_register (&p[10], 0, 1);
 	    else if (!strncmp (p, "call-saved-", 11))
 	      fix_register (&p[11], 0, 0);
-	    else if (!strcmp (p, "inline-functions"))
-	      flag_inline_functions = 1;
-	    else if (!strcmp (p, "keep-inline-functions"))
-	      flag_keep_inline_functions = 1;
 	    else if (! lang_decode_option (argv[i]))
 	      error ("Invalid option `%s'", argv[i]);	      
 	  }
@@ -1580,7 +1707,7 @@ main (argc, argv, envp)
 	else if (!strcmp (str, "version"))
 	  {
 	    extern char *version_string, *language_string;
-	    printf ("%s version %s", language_string, version_string);
+	    fprintf (stderr, "%s version %s", language_string, version_string);
 #ifdef TARGET_VERSION
 	    TARGET_VERSION;
 #endif
@@ -1588,9 +1715,9 @@ main (argc, argv, envp)
 #ifndef __VERSION__
 #define __VERSION__ "[unknown]"
 #endif
-	    printf (" compiled by GNU C version %s.\n", __VERSION__);
+	    fprintf (stderr, " compiled by GNU C version %s.\n", __VERSION__);
 #else
-	    printf (" compiled by CC.\n");
+	    fprintf (stderr, " compiled by CC.\n");
 #endif
 	  }
 	else if (!strcmp (str, "w"))
@@ -1599,8 +1726,34 @@ main (argc, argv, envp)
 	  extra_warnings = 1;
 	else if (!strcmp (str, "Wunused"))
 	  warn_unused = 1;
+	else if (!strcmp (str, "Wshadow"))
+	  warn_shadow = 1;
+	else if (!strcmp (str, "Wswitch"))
+	  warn_switch = 1;
+	else if (!strncmp (str, "Wid-clash-", 10))
+	  {
+	    char *endp = str + 10;
+
+	    while (*endp)
+	      {
+		if (*endp >= '0' && *endp <= '9')
+		  endp++;
+		else
+		  error ("Invalid option `%s'", argv[i]);
+	      }
+	    warn_id_clash = 1;
+	    id_clash_len = atoi (str + 10);
+	  }
 	else if (!strcmp (str, "p"))
 	  profile_flag = 1;
+	else if (!strcmp (str, "a"))
+	  {
+#if !defined (BLOCK_PROFILER) || !defined (FUNCTION_BLOCK_PROFILER)
+	    warning ("`-a' option (basic block profile) not supported");
+#else
+	    profile_block_flag = 1;
+#endif
+	  }
 	else if (!strcmp (str, "gg"))
 	  write_symbols = GDB_DEBUG;
 #ifdef DBX_DEBUGGING_INFO
@@ -1641,7 +1794,6 @@ main (argc, argv, envp)
 
   compile_file (filename);
 
-#ifndef atarist
 #ifndef USG
 #ifndef VMS
   if (print_mem_flag)
@@ -1657,7 +1809,7 @@ main (argc, argv, envp)
     }
 #endif /* not VMS */
 #endif /* not USG */
-#endif /* atarist */
+
   if (errorcount)
     exit (FATAL_EXIT_CODE);
   if (sorrycount)

@@ -1,1 +1,1 @@
-../../gcc-1.30/version.c
+char *version_string = "1.35";

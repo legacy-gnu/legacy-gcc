@@ -1,112 +1,27 @@
 /* C Compatible Compiler Preprocessor (CCCP)
-Copyright (C) 1986, 1987, Free Software Foundation, Inc.
+Copyright (C) 1986, 1987, 1989 Free Software Foundation, Inc.
                     Written by Paul Rubin, June 1986
 		    Adapted to ANSI C, Richard Stallman, Jan 1987
 
-			   NO WARRANTY
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 1, or (at your option) any
+later version.
 
-  BECAUSE THIS PROGRAM IS LICENSED FREE OF CHARGE, WE PROVIDE ABSOLUTELY
-NO WARRANTY, TO THE EXTENT PERMITTED BY APPLICABLE STATE LAW.  EXCEPT
-WHEN OTHERWISE STATED IN WRITING, FREE SOFTWARE FOUNDATION, INC,
-RICHARD M. STALLMAN AND/OR OTHER PARTIES PROVIDE THIS PROGRAM "AS IS"
-WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING,
-BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY
-AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE PROGRAM PROVE
-DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR
-CORRECTION.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
- IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW WILL RICHARD M.
-STALLMAN, THE FREE SOFTWARE FOUNDATION, INC., AND/OR ANY OTHER PARTY
-WHO MAY MODIFY AND REDISTRIBUTE THIS PROGRAM AS PERMITTED BELOW, BE
-LIABLE TO YOU FOR DAMAGES, INCLUDING ANY LOST PROFITS, LOST MONIES, OR
-OTHER SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
-USE OR INABILITY TO USE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR
-DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY THIRD PARTIES OR
-A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS) THIS
-PROGRAM, EVEN IF YOU HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH
-DAMAGES, OR FOR ANY CLAIM BY ANY OTHER PARTY.
-
-		GENERAL PUBLIC LICENSE TO COPY
-
-  1. You may copy and distribute verbatim copies of this source file
-as you receive it, in any medium, provided that you conspicuously
-and appropriately publish on each copy a valid copyright notice
-"Copyright (C) 1987, Free Software Foundation"; and include
-following the copyright notice a verbatim copy of the above disclaimer
-of warranty and of this License.  You may charge a distribution fee for the
-physical act of transferring a copy.
-
-  2. You may modify your copy or copies of this source file or
-any portion of it, and copy and distribute such modifications under
-the terms of Paragraph 1 above, provided that you also do the following:
-
-    a) cause the modified files to carry prominent notices stating
-    that you changed the files and the date of any change; and
-
-    b) cause the whole of any work that you distribute or publish,
-    that in whole or in part contains or is a derivative of this
-    program or any part thereof, to be licensed at no charge to all
-    third parties on terms identical to those contained in this
-    License Agreement (except that you may choose to grant more extensive
-    warranty protection to some or all third parties, at your option).
-
-    c) You may charge a distribution fee for the physical act of
-    transferring a copy, and you may at your option offer warranty
-    protection in exchange for a fee.
-
-Mere aggregation of another unrelated program with this program (or its
-derivative) on a volume of a storage or distribution medium does not bring
-the other program under the scope of these terms.
-
-  3. You may copy and distribute this program (or a portion or derivative
-of it, under Paragraph 2) in object code or executable form under the terms
-of Paragraphs 1 and 2 above provided that you also do one of the following:
-
-    a) accompany it with the complete corresponding machine-readable
-    source code, which must be distributed under the terms of
-    Paragraphs 1 and 2 above; or,
-
-    b) accompany it with a written offer, valid for at least three
-    years, to give any third party free (except for a nominal
-    shipping charge) a complete machine-readable copy of the
-    corresponding source code, to be distributed under the terms of
-    Paragraphs 1 and 2 above; or,
-
-    c) accompany it with the information you received as to where the
-    corresponding source code may be obtained.  (This alternative is
-    allowed only for noncommercial distribution and only if you
-    received the program in object code or executable form alone.)
-
-For an executable file, complete source code means all the source code for
-all modules it contains; but, as a special exception, it need not include
-source code for modules which are standard libraries that accompany the
-operating system on which the executable file runs.
-
-  4. You may not copy, sublicense, distribute or transfer this program
-except as expressly provided under this License Agreement.  Any attempt
-otherwise to copy, sublicense, distribute or transfer this program is void and
-your rights to use the program under this License agreement shall be
-automatically terminated.  However, parties who have received computer
-software programs from you with this License Agreement will not have
-their licenses terminated so long as such parties remain in full compliance.
-
-  5. If you wish to incorporate parts of this program into other free
-programs whose distribution conditions are different, write to the Free
-Software Foundation at 675 Mass Ave, Cambridge, MA 02139.  We have not yet
-worked out a simple rule that can be stated here, but we will often permit
-this.  We will be guided by the two goals of preserving the free status of
-all derivatives of our free software and of promoting the sharing and reuse of
-software.
-
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 
  In other words, you are welcome to use, share and improve this program.
  You are forbidden to forbid anyone else to use, share and improve
  what you give them.   Help stamp out software-hoarding!  */
 
 typedef unsigned char U_CHAR;
-
-#ifndef atarist
 
 #ifdef EMACS
 #define NO_SHORTNAMES
@@ -131,6 +46,7 @@ typedef unsigned char U_CHAR;
 #include <sys/stat.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <signal.h>
 
 #ifndef VMS
 #include <sys/file.h>
@@ -145,23 +61,6 @@ typedef unsigned char U_CHAR;
 #endif /* USG */
 #endif /* not VMS */
   
-#else		/* atarist */
-
-#include <ctype.h>
-#include <stdio.h>
-#include <types.h>
-#include <stat.h>
-#include <file.h>
-#include "stddef.h"
-
-#define index	strchr
-#define rindex	strrchr
-
-extern long _stksize = 524288;	/* want big stack cause include files
-				   get alloca'ed there */
-
-#endif		/* atarist */
-
 /* VMS-specific definitions */
 #ifdef VMS
 #include <time.h>
@@ -182,18 +81,19 @@ extern long _stksize = 524288;	/* want big stack cause include files
 
 void bcopy (), bzero ();
 int bcmp ();
+extern char *getenv ();
 extern char *version_string;
 
 /* Forward declarations.  */
 
 int do_define (), do_line (), do_include (), do_undef (), do_error (),
   do_pragma (), do_if (), do_xifdef (), do_else (),
-  do_elif (), do_endif (), do_sccs ();
+  do_elif (), do_endif (), do_sccs (), do_once ();
 
 struct hashnode *install ();
 struct hashnode *lookup ();
 
-char *xmalloc (), *xrealloc (), *xcalloc ();
+char *xmalloc (), *xrealloc (), *xcalloc (), *savestring ();
 void fatal (), pfatal_with_name (), perror_with_name ();
 
 void conditional_skip ();
@@ -321,58 +221,30 @@ FILE_BUF outbuf;
   (((OBUF)->length - ((OBUF)->bufp - (OBUF)->buf) <= (NEEDED))   \
    ? grow_outbuf ((OBUF), (NEEDED)) : 0)
 
-struct directory_stack
+struct file_name_list
   {
-    struct directory_stack *next;
+    struct file_name_list *next;
     char *fname;
   };
 
 /* #include "file" looks in source file dir, then stack. */
 /* #include <file> just looks in the stack. */
 /* -I directories are added to the end, then the defaults are added. */
-#ifdef atarist
-
-struct directory_stack include_canned_defaults[] =
-  {
-    { &include_canned_defaults[1], "\\gnu\\lib" },
-    { 0, "\\gnu\\include" }
-  };
-
-struct directory_stack * include_defaults = &include_canned_defaults[0];
-
-#else
-
-struct directory_stack include_defaults[] =
+struct file_name_list include_defaults[] =
   {
 #ifndef VMS
-#ifdef CROSSATARI
-    { 0, CROSSINC }
-#else
-    { 0, "/usr/include" }
-#endif
+    { &include_defaults[1], GCC_INCLUDE_DIR },
+    { &include_defaults[2], "/usr/include" },
+    { 0, "/usr/local/include" }
 #else
     { &include_defaults[1], "GNU_CC_INCLUDE:" },       /* GNU includes */
     { &include_defaults[2], "SYS$SYSROOT:[SYSLIB.]" }, /* VAX-11 "C" includes */
     { 0, "" },	/* This makes normal VMS filespecs work OK */
 #endif /* VMS */
   };
-#endif /* atarist */
 
 /* These are used instead of the above, for C++.  */
-#ifdef atarist
-
-struct directory_stack include_canned_cplusplus_defaults[] =
-  {
-    { &include_canned_defaults[1], "\\gnu\\lib" },
-    { 0, "\\gnu\\include" }
-  };
-
-struct directory_stack * cplusplus_include_defaults =
-					&include_canned_cplusplus_defaults[0];
-
-#else
-
-struct directory_stack cplusplus_include_defaults[] =
+struct file_name_list cplusplus_include_defaults[] =
   {
 #ifndef VMS
     /* Pick up GNU C++ specific include files.  */
@@ -381,11 +253,7 @@ struct directory_stack cplusplus_include_defaults[] =
     { &cplusplus_include_defaults[2], "/usr/include/CC" },
     /* Use GNU CC specific header files.  */
     { &cplusplus_include_defaults[3], GCC_INCLUDE_DIR },
-#ifdef CROSSATARI
-    { 0, CROSSINC }
-#else
     { 0, "/usr/include" }
-#endif
 #else
     { &cplusplus_include_defaults[1], "GNU_CC_INCLUDE:" },
     /* VAX-11 C includes */
@@ -393,12 +261,17 @@ struct directory_stack cplusplus_include_defaults[] =
     { 0, "" },	/* This makes normal VMS filespecs work OK */
 #endif /* VMS */
   };
-#endif /* atarist */
 
-struct directory_stack *include = 0;	/* First dir to search */
+struct file_name_list *include = 0;	/* First dir to search */
 	/* First dir to search for <file> */
-struct directory_stack *first_bracket_include = 0;
-struct directory_stack *last_include = 0;	/* Last in chain */
+struct file_name_list *first_bracket_include = 0;
+struct file_name_list *last_include = 0;	/* Last in chain */
+
+/* List of included files that contained #once.  */
+struct file_name_list *dont_repeat_files = 0;
+
+/* List of other included files.  */
+struct file_name_list *all_include_files = 0;
 
 /* Structure allocated for every #define.  For a simple replacement
    such as
@@ -467,10 +340,7 @@ enum node_type {
  T_IFNDEF,	/* the `#ifndef' keyword */
  T_IF,		/* the `#if' keyword */
  T_ELSE,	/* `#else' */
-#if 0
- /* cpp can pass #pragma through unchanged.  */
  T_PRAGMA,	/* `#pragma' */
-#endif
  T_ELIF,	/* `#else' */
  T_UNDEF,	/* `#undef' */
  T_LINE,	/* `#line' */
@@ -481,6 +351,7 @@ enum node_type {
  T_SPECLINE,	/* special symbol `__LINE__' */
  T_DATE,	/* `__DATE__' */
  T_FILE,	/* `__FILE__' */
+ T_BASE_FILE,	/* `__BASE_FILE__' */
  T_VERSION,	/* `__VERSION__' */
  T_TIME,	/* `__TIME__' */
  T_CONST,	/* Constant value, used by `__STDC__' */
@@ -533,6 +404,7 @@ struct directive {
   enum node_type type;		/* Code which describes which directive. */
   char angle_brackets;		/* Nonzero => <...> is special.  */
   char traditional_comments;	/* Nonzero: keep comments if -traditional.  */
+  char noscan;			/* Don't scan argument-line, just peek.  */
 };
 
 /* Here is the actual list of #-directives, most-often-used first.  */
@@ -552,9 +424,7 @@ struct directive directive_table[] = {
 #ifdef SCCS_DIRECTIVE
   {  4, do_sccs, "sccs", T_SCCS},
 #endif
-#if 0
-  {  6, do_pragma, "pragma", T_PRAGMA},
-#endif
+  {  6, do_pragma, "pragma", T_PRAGMA, 0, 0, 1},
   {  -1, 0, "", T_UNUSED},
 };
 
@@ -618,60 +488,15 @@ int deps_column;
 /* Nonzero means -I- has been seen,
    so don't look for #include "foo" the source-file directory.  */
 int ignore_srcdir;
- 
-#ifdef atarist
-/* a little frobule to filter incoming file data */
-int eunuchs_read(f, buf, size)
-int f;
-char * buf;
-int size;
-{
-  char local_buf[1024];
-  register int result_size;
-  register char * local_bufp, * target_bufp;
-  register int buf_size, size_read;
-
-  for (result_size = 0, target_bufp = buf ; size > 0 ; size -= 1024)
-/* do a buffer */
-  	{
-	if (size > 1024)
-		buf_size = 1024;
-	    else
-	    	buf_size = size;
-	size_read = read(f, &local_buf, buf_size);
-	for (local_bufp = (char * ) &local_buf; size_read > 0 ; size_read--)
-		if (*local_bufp == '\r')
-			local_bufp++;
-		    else
-		    	{
-			*target_bufp++ = *local_bufp++;
-			result_size++;
-			}
-	}
-  return(result_size);
-}
-
-/* the following dingus is used in place of some calls to bcopy,
-   to ensure that backslashes get properly slashified when getting
-   shoved into strings.  Note that it returns the new pointer!!
-   There ought to be a better way... */
-
-U_CHAR * slashifying_bcopy(from_buf, to_buf, nbytes)
-U_CHAR * from_buf, * to_buf;
-int nbytes;
-{
-  for ( ; nbytes > 0 ; )
-	{
-	if(*from_buf == '\\')
-		*to_buf++ = '\\';
-	*to_buf++ = *from_buf++;
-	nbytes--;
-	}
-  return(to_buf);
-}
-
-#endif		/* atari */
 
+/* Handler for SIGPIPE.  */
+
+static void
+pipe_closed ()
+{
+  fatal ("output pipe has been closed");
+}
+
 int
 main (argc, argv)
      int argc;
@@ -687,6 +512,14 @@ main (argc, argv)
   char **pend_undefs = (char **) xmalloc (argc * sizeof (char *));
   int inhibit_predefs = 0;
   int no_standard_includes = 0;
+
+  /* Non-0 means don't output the preprocessed program.  */
+  int inhibit_output = 0;
+
+  /* Stream on which to print the dependency information.  */
+  FILE *deps_stream = 0;
+  /* Target-name to write with the dependency information.  */
+  char *deps_target = 0;
 
 #ifdef RLIMIT_STACK
   /* Get rid of any avoidable limit on stack size.  */
@@ -719,37 +552,21 @@ main (argc, argv)
   cplusplus = 1;
 #endif
 
+  signal (SIGPIPE, pipe_closed);
+
+#ifndef VMS
   max_include_len
-#ifdef atarist
-    =    sizeof ("/usr/include/CC");
-#else
     = max (max (sizeof (GCC_INCLUDE_DIR),
 		sizeof (GPLUSPLUS_INCLUDE_DIR)),
 	   sizeof ("/usr/include/CC"));
-#endif
+#else /* VMS */
+  max_include_len
+    = sizeof("SYS$SYSROOT:[SYSLIB.]");
+#endif /* VMS */
 
   bzero (pend_files, argc * sizeof (char *));
   bzero (pend_defs, argc * sizeof (char *));
   bzero (pend_undefs, argc * sizeof (char *));
-
-#ifdef atarist
-/* see if we have an indication of where the GNU library directory is */
-  {
-    char * gnulib = (char * ) getenv("GNULIB");
-    struct directory_stack * gnulib_dir;
-
-    if (gnulib)
-	{
-	gnulib_dir = (struct directory_stack * ) 
-		xmalloc(sizeof(struct directory_stack));
-	gnulib_dir->fname = xmalloc(strlen(gnulib) + 1);
-	strcpy(gnulib_dir->fname, gnulib);
-/* cons it onto the front of the defaults. */
-	gnulib_dir->next = include_defaults;
-	include_defaults = gnulib_dir;
-	}
-  }
-#endif
 
   /* Process switches and find input file name.  */
 
@@ -784,8 +601,12 @@ main (argc, argv)
 	break;
 
       case 't':
-	traditional = 1;
-	dollars_in_ident = 1;
+	if (!strcmp (argv[i], "-traditional")) {
+	  traditional = 1;
+	  dollars_in_ident = 1;
+	} else if (!strcmp (argv[i], "-trigraphs")) {
+	  no_trigraphs = 0;
+	}
 	break;
 
       case '+':
@@ -795,13 +616,13 @@ main (argc, argv)
       case 'W':
 	if (!strcmp (argv[i], "-Wtrigraphs")) {
 	  warn_trigraphs = 1;
-	  no_trigraphs = 0;
 	}
 	if (!strcmp (argv[i], "-Wcomments"))
 	  warn_comments = 1;
+	if (!strcmp (argv[i], "-Wcomment"))
+	  warn_comments = 1;
 	if (!strcmp (argv[i], "-Wall")) {
 	  warn_trigraphs = 1;
-	  no_trigraphs = 0;
 	  warn_comments = 1;
 	}
 	break;
@@ -811,12 +632,7 @@ main (argc, argv)
 	  print_deps = 2;
 	else if (!strcmp (argv[i], "-MM"))
 	  print_deps = 1;
-	deps_allocated_size = 200;
-	deps_buffer = (char *) xmalloc (deps_allocated_size);
-	deps_buffer[0] = 0;
-	deps_size = 0;
-	deps_column = 0;
-
+	inhibit_output = 1;
 	break;
 
       case 'd':
@@ -861,23 +677,19 @@ main (argc, argv)
 	no_line_commands = 1;
 	break;
 
-      case 'T':			/* Enable ANSI trigraphs */
-	no_trigraphs = 0;
-	break;
-
       case '$':			/* Don't include $ in identifiers.  */
 	dollars_in_ident = 0;
 	break;
 
       case 'I':			/* Add directory to path for includes.  */
 	{
-	  struct directory_stack *dirtmp;
+	  struct file_name_list *dirtmp;
 
 	  if (! ignore_srcdir && !strcmp (argv[i] + 2, "-"))
-	    ignore_srcdir;
+	    ignore_srcdir = 1;
 	  else {
-	    dirtmp = (struct directory_stack *)
-	      xmalloc (sizeof (struct directory_stack));
+	    dirtmp = (struct file_name_list *)
+	      xmalloc (sizeof (struct file_name_list));
 	    dirtmp->next = 0;		/* New one goes on the end */
 	    if (include == 0)
 	      include = dirtmp;
@@ -1001,10 +813,65 @@ main (argc, argv)
   } else if ((f = open (in_fname, O_RDONLY, 0666)) < 0)
     goto perror;
 
+  /* Either of two environment variables can specify output of deps.
+     Its value is either "OUTPUT_FILE" or "OUTPUT_FILE DEPS_TARGET",
+     where OUTPUT_FILE is the file to write deps info to
+     and DEPS_TARGET is the target to mention in the deps.  */
+
+  if (print_deps == 0
+      && (getenv ("SUNPRO_DEPENDENCIES") != 0
+	  || getenv ("DEPENDENCIES_OUTPUT") != 0))
+    {
+      char *spec = getenv ("DEPENDENCIES_OUTPUT");
+      char *s;
+      char *output_file;
+
+      if (spec == 0)
+	{
+	  spec = getenv ("SUNPRO_DEPENDENCIES");
+	  print_deps = 2;
+	}
+      else
+	print_deps = 1;
+
+      s = spec;
+      /* Find the space before the DEPS_TARGET, if there is one.  */
+      /* Don't use `index'; that causes trouble on USG.  */
+      while (*s != 0 && *s != ' ') s++;
+      if (*s != 0)
+	{
+	  deps_target = s + 1;
+	  output_file = (char *) xmalloc (s - spec + 1);
+	  bcopy (spec, output_file, s - spec);
+	  output_file[s - spec] = 0;
+	}
+      else
+	{
+	  deps_target = 0;
+	  output_file = spec;
+	}
+      
+      deps_stream = fopen (output_file, "a");
+      if (deps_stream == 0)
+	pfatal_with_name (output_file);
+    }
+  /* If the -M option was used, output the deps to standard output.  */
+  else if (print_deps)
+    deps_stream = stdout;
+
   /* For -M, print the expected object file name
      as the target of this Make-rule.  */
   if (print_deps) {
-    if (*in_fname == 0)
+    deps_allocated_size = 200;
+    deps_buffer = (char *) xmalloc (deps_allocated_size);
+    deps_buffer[0] = 0;
+    deps_size = 0;
+    deps_column = 0;
+
+    if (deps_target) {
+      deps_output (deps_target, 0);
+      deps_output (":", 0);
+    } else if (*in_fname == 0)
       deps_output ("-: ", 0);
     else {
       int len;
@@ -1033,11 +900,7 @@ main (argc, argv)
     }
   }
 
-#ifdef atarist
-  file_size_and_mode (in_fname, &st_mode, &st_size);
-#else
   file_size_and_mode (f, &st_mode, &st_size);
-#endif
   fp->fname = in_fname;
   fp->lineno = 1;
   /* JF all this is mine about reading pipes and ttys */
@@ -1055,11 +918,7 @@ main (argc, argv)
     fp->buf = (U_CHAR *) xmalloc (bsize + 2);
     bufp = fp->buf;
     for (;;) {
-#ifdef atarist
-      cnt = eunuchs_read (f, bufp, bsize - size);
-#else
       cnt = read (f, bufp, bsize - size);
-#endif
       if (cnt < 0) goto perror;	/* error! */
       if (cnt == 0) break;	/* End of file */
       size += cnt;
@@ -1079,11 +938,7 @@ main (argc, argv)
     fp->buf = (U_CHAR *) xmalloc (st_size + 2);
 
     while (st_size > 0) {
-#ifdef atarist
-      i = eunuchs_read (f, fp->buf + fp->length, st_size);
-#else
       i = read (f, fp->buf + fp->length, st_size);
-#endif
       if (i <= 0) {
         if (i == 0) break;
 	goto perror;
@@ -1108,7 +963,7 @@ main (argc, argv)
 
   /* Now that we know the input file is valid, open the output.  */
 
-  if (out_fname && !strcmp (out_fname, ""))
+  if (!out_fname || !strcmp (out_fname, ""))
     out_fname = "stdout";
   else if (! freopen (out_fname, "w", stdout))
     pfatal_with_name (out_fname);
@@ -1125,17 +980,24 @@ main (argc, argv)
 
   if (dump_macros)
     dump_all_macros ();
-  else if (print_deps)
-    puts (deps_buffer);
-  else if (write (fileno (stdout), outbuf.buf, outbuf.bufp - outbuf.buf) < 0)
-    fatal ("I/O error on output");
+  else if (! inhibit_output && deps_stream != stdout) {
+    if (write (fileno (stdout), outbuf.buf, outbuf.bufp - outbuf.buf) < 0)
+      fatal ("I/O error on output");
+  }
+
+  if (print_deps) {
+    fputs (deps_buffer, deps_stream);
+    putc ('\n', deps_stream);
+    if (deps_stream != stdout) {
+      fclose (deps_stream);
+      if (ferror (deps_stream))
+	fatal ("I/O error on output");
+    }
+  }
 
   if (ferror (stdout))
     fatal ("I/O error on output");
 
-#ifdef atarist
-  close(fileno(stdout));		/* this shouldn't be necessary */
-#endif
   if (errors)
     exit (FATAL_EXIT_CODE);
   exit (SUCCESS_EXIT_CODE);
@@ -1514,7 +1376,14 @@ do { ip = &instack[indepth];		\
 
       while (1) {
 	if (ibp >= limit) {
-	  if (!traditional)
+	  if (traditional) {
+	    if (ip->macro != 0) {
+	      /* try harder: this string crosses a macro expansion boundary */
+	      POPMACRO;
+	      RECACHE;
+	      continue;
+	    }
+	  } else
 	    error_with_line (line_for_error (start_line),
 			     "unterminated string or character constant");
 	  break;
@@ -2130,6 +1999,13 @@ handle_directive (ip, op)
   ident = bp;
   after_ident = cp;
 
+  /* A line of just `#' becomes blank.  */
+
+  if (traditional && ident_length == 0 && *after_ident == '\n') {
+    ip->bufp = after_ident;
+    return 1;
+  }
+
   /*
    * Decode the keyword and call the appropriate expansion
    * routine, after moving the input pointer up to the next line.
@@ -2143,6 +2019,13 @@ handle_directive (ip, op)
       /* Nonzero means do not delete comments within the directive.
 	 #define needs this when -traditional.  */
       int keep_comments = traditional && kt->traditional_comments;
+
+      /* For #pragma, check whether `once' follows
+	 without really scanning anything.  */
+      if (kt->noscan) {
+	(*kt->func) (after_ident, after_ident, op, kt);
+	return 0;
+      }
 
       /* Find the end of this command (first newline not backslashed
 	 and not in a string or comment).
@@ -2317,8 +2200,8 @@ handle_directive (ip, op)
   return 0;
 }
 
-static char *monthnames[] = {"jan", "feb", "mar", "apr", "may", "jun",
-			     "jul", "aug", "sep", "oct", "nov", "dec",
+static char *monthnames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+			     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 			    };
 
 /*
@@ -2330,6 +2213,7 @@ special_symbol (hp, op)
      FILE_BUF *op;
 {
   char *buf;
+  long t;
   int i, len;
   FILE_BUF *ip = NULL;
   static struct tm *timebuf = NULL;
@@ -2349,9 +2233,24 @@ special_symbol (hp, op)
 
   switch (hp->type) {
   case T_FILE:
-    buf = (char *) alloca (3 + strlen (ip->fname));
-    sprintf (buf, "\"%s\"", ip->fname);
-    break;
+  case T_BASE_FILE:
+    {
+      char *string;
+      if (hp->type == T_FILE)
+	string = ip->fname;
+      else
+	string = instack[0].fname;
+
+      if (string)
+	{
+	  buf = (char *) alloca (3 + strlen (string));
+	  sprintf (buf, "\"%s\"", string);
+	}
+      else
+	buf = "\"\"";
+
+      break;
+    }
 
   case T_VERSION:
     buf = (char *) alloca (3 + strlen (version_string));
@@ -2370,10 +2269,9 @@ special_symbol (hp, op)
 
   case T_DATE:
   case T_TIME:
-#ifndef atarist /* someday figure out how to do this */
     if (timebuf == NULL) {
-      i = time (0);
-      timebuf = localtime (&i);
+      t = time (0);
+      timebuf = localtime (&t);
     }
     buf = (char *) alloca (20);
     if (hp->type == T_DATE)
@@ -2382,9 +2280,6 @@ special_symbol (hp, op)
     else
       sprintf (buf, "\"%02d:%02d:%02d\"", timebuf->tm_hour, timebuf->tm_min,
 	      timebuf->tm_sec);
-#else
-    sprintf(buf, "<today>");
-#endif
     break;
 
   case T_SPEC_DEFINED:
@@ -2444,8 +2339,8 @@ do_include (buf, limit, op, keyword)
   char *fname;		/* Dynamically allocated fname buffer */
   U_CHAR *fbeg, *fend;		/* Beginning and end of fname */
 
-  struct directory_stack *stackp = include; /* Chain of dirs to search */
-  struct directory_stack dsp[1];	/* First in chain, if #include "..." */
+  struct file_name_list *stackp = include; /* Chain of dirs to search */
+  struct file_name_list dsp[1];	/* First in chain, if #include "..." */
   int flen;
 
   int f;			/* file number */
@@ -2490,9 +2385,6 @@ get_filename:
 	       and put it in front of the search list.  */
 	    dsp[0].next = stackp;
 	    stackp = dsp;
-#ifdef atarist
-	      ep = rindex (nam, '\\');
-#else
 #ifndef VMS
 	    ep = rindex (nam, '/');
 #else				/* VMS */
@@ -2501,7 +2393,6 @@ get_filename:
 	    if (ep == NULL) ep = rindex (nam, ':');
 	    if (ep != NULL) ep++;
 #endif				/* VMS */
-#endif /* atarist */
 	    if (ep != NULL) {
 	      n = ep - nam;
 	      dsp[0].fname = (char *) alloca (n + 1);
@@ -2552,11 +2443,7 @@ get_filename:
 
   /* If specified file name is absolute, just open it.  */
 
-#ifdef atarist
-  if (*fbeg == '\\') {
-#else
   if (*fbeg == '/') {
-#endif
     strncpy (fname, fbeg, flen);
     fname[flen] = 0;
     f = open (fname, O_RDONLY, 0666);
@@ -2567,11 +2454,7 @@ get_filename:
     for (; stackp; stackp = stackp->next) {
       if (stackp->fname) {
 	strcpy (fname, stackp->fname);
-#ifdef atarist
-	strcat (fname, "\\");
-#else
 	strcat (fname, "/");
-#endif
 	fname[strlen (fname) + flen] = 0;
       } else {
 	fname[0] = 0;
@@ -2594,17 +2477,44 @@ get_filename:
     }
   }
 
-  /* For -M, print the name of the included file.  */
-  if (print_deps > system_header_p) {
-    deps_output (fname, strlen (fname));
-    deps_output (" ", 0);
-  }
-
   if (f < 0) {
     strncpy (fname, fbeg, flen);
     fname[flen] = 0;
-    error ("can't find include file `%s'", fname);
+    error_from_errno (fname);
   } else {
+
+    /* Check to see if this include file is a once-only include file.
+       If so, give up.  */
+
+    struct file_name_list* ptr;
+
+    for (ptr = dont_repeat_files; ptr; ptr = ptr->next) {
+      if (!strcmp (ptr->fname, fname))
+        return;				/* This file was once'd. */
+    }
+
+    for (ptr = all_include_files; ptr; ptr = ptr->next) {
+      if (!strcmp (ptr->fname, fname))
+        break;				/* This file was included before. */
+    }
+
+    if (ptr == 0) {
+      /* This is the first time for this file.  */
+      /* Add it to list of files included.  */
+
+      ptr = (struct file_name_list *) xmalloc (sizeof (struct file_name_list));
+      ptr->next = all_include_files;
+      all_include_files = ptr;
+      ptr->fname = savestring (fname);
+
+      /* For -M, add this file to the dependencies.  */
+      if (print_deps > system_header_p) {
+	deps_output (fname, strlen (fname));
+	deps_output (" ", 0);
+      }
+    }   
+
+    /* Actually process the file.  */
     finclude (f, fname, op);
     close (f);
   }
@@ -2618,41 +2528,70 @@ finclude (f, fname, op)
      char *fname;
      FILE_BUF *op;
 {
+  int st_mode;
   long st_size;
   long i;
   FILE_BUF *fp;			/* For input stack frame */
   int success = 0;
 
-#ifdef atarist
-  if (file_size_and_mode (fname, (int *)0, &st_size) < 0)
-#else
-  if (file_size_and_mode (f, (int *)0, &st_size) < 0)
-#endif
+  if (file_size_and_mode (f, &st_mode, &st_size) < 0)
     goto nope;		/* Impossible? */
 
   fp = &instack[indepth + 1];
   bzero (fp, sizeof (FILE_BUF));
-  fp->buf = (U_CHAR *) alloca (st_size + 2);
   fp->fname = fname;
   fp->length = 0;
   fp->lineno = 1;
-  fp->bufp = fp->buf;
   fp->if_stack = if_stack;
-  
-  /* Read the file contents, knowing that st_size is an upper bound
-     on the number of bytes we can read.  */
-  while (st_size > 0) {
-#ifdef atarist
-    i = eunuchs_read (f, fp->buf + fp->length, st_size);
-#else
-    i = read (f, fp->buf + fp->length, st_size);
-#endif
-    if (i <= 0) {
-      if (i == 0) break;
-      goto nope;
+
+  if (st_mode & S_IFREG) {
+    fp->buf = (U_CHAR *) alloca (st_size + 2);
+    fp->bufp = fp->buf;
+
+    /* Read the file contents, knowing that st_size is an upper bound
+       on the number of bytes we can read.  */
+    while (st_size > 0) {
+      i = read (f, fp->buf + fp->length, st_size);
+      if (i <= 0) {
+	if (i == 0) break;
+	goto nope;
+      }
+      fp->length += i;
+      st_size -= i;
     }
-    fp->length += i;
-    st_size -= i;
+  }
+  else {
+    /* Cannot count its file size before reading.
+       First read the entire file into heap and
+       copy them into buffer on stack. */
+
+    U_CHAR *bufp;
+    U_CHAR *basep;
+    int bsize = 2000;
+
+    st_size = 0;
+    basep = (U_CHAR *) xmalloc (bsize + 2);
+    bufp = basep;
+
+    for (;;) {
+      i = read (f, bufp, bsize - st_size);
+      if (i < 0)
+	goto nope;      /* error! */
+      if (i == 0)
+	break;	/* End of file */
+      st_size += i;
+      bufp += i;
+      if (bsize == st_size) {	/* Buffer is full! */
+	  bsize *= 2;
+	  basep = (U_CHAR *) xrealloc (basep, bsize + 2);
+	  bufp = basep + st_size;	/* May have moved */
+	}
+    }
+    fp->buf = (U_CHAR *) alloca (st_size + 2);
+    fp->bufp = fp->buf;
+    bcopy (basep, fp->buf, st_size);
+    fp->length = st_size;
+    free (basep);
   }
 
   if (!no_trigraphs)
@@ -2672,10 +2611,10 @@ finclude (f, fname, op)
 
 nope:
 
-  close (f);
-  if (!success) {
+  if (!success)
     perror_with_name (fname);
-  }
+
+  close (f);
 }
 
 /* The arglist structure is built by do_define to tell
@@ -3054,7 +2993,9 @@ collect_expansion (buf, end, nargs, arglist)
 	break;
 
       case '\\':
-	if (expected_delimiter != '\0' && p < limit) {
+	/* Backslash quotes delimiters and itself, but not macro args.  */
+	if (expected_delimiter != 0 && p < limit
+	    && (*p == expected_delimiter || *p == '\\')) {
 	  *exp_p++ = *p++;
 	  continue;
 	}
@@ -3166,24 +3107,6 @@ collect_expansion (buf, end, nargs, arglist)
   return defn;
 }
 
-#ifdef DEBUG
-/*
- * debugging routine ---- return a ptr to a string containing
- *   first n chars of s.  Returns a ptr to a static object
- *   since I happen to know it will fit.
- */
-U_CHAR *
-prefix (s, n)
-     U_CHAR *s;
-     int n;
-{
-  static U_CHAR buf[1000];
-  bcopy (s, buf, n);
-  buf[n] = '\0';		/* this should not be necessary! */
-  return buf;
-}
-#endif
-
 /*
  * interpret #line command.  Remembers previously seen fnames
  * in its very own hash table.
@@ -3299,7 +3222,7 @@ do_undef (buf, limit, op, keyword)
     delete_macro (hp);
   }
 }
-
+
 /*
  * Report a fatal error detected by the program we are processing.
  * Use the text of the line in the error message, then terminate.
@@ -3317,6 +3240,50 @@ do_error (buf, limit, op, keyword)
   SKIP_WHITE_SPACE (copy);
   error ("#error %s", copy);
   exit (FATAL_EXIT_CODE);
+}
+
+/* Remember the name of the current file being read from so that we can
+   avoid ever including it again.  */
+
+do_once ()
+{
+  int i;
+  FILE_BUF *ip = NULL;
+
+  for (i = indepth; i >= 0; i--)
+    if (instack[i].fname != NULL) {
+      ip = &instack[i];
+      break;
+    }
+
+  if (ip != NULL)
+    {
+      struct file_name_list *new;
+
+      new = (struct file_name_list *) xmalloc (sizeof (struct file_name_list));
+      new->next = dont_repeat_files;
+      dont_repeat_files = new;
+      new->fname = savestring (ip->fname);
+    }
+}
+
+/* #pragma receives as an argument the start of the rest of the line.
+   We use that to peek at what lies ahead without skipping any of it.
+   Thus, every #pragma is passed on to cc1, with macros expanded.
+   However, we also do something special here if the #pragma looks like
+   `#pragma once'.  */
+
+do_pragma (ptr)
+     U_CHAR *ptr;
+{
+  U_CHAR *bp = ptr;
+  while (*bp == ' ' || *bp == '\t') bp++;
+  if (!strncmp (bp, "once", 4)) {
+    bp += 4;
+    while (*bp == ' ' || *bp == '\t') bp++;
+    if (*bp == '\n')
+      do_once ();
+  }
 }
 
 #if 0
@@ -3965,12 +3932,8 @@ output_line_command (ip, op, conditional)
   check_expand (op, len + 1);
   if (op->bufp > op->buf && op->bufp[-1] != '\n')
     *op->bufp++ = '\n';
-#ifdef atarist
-  op->bufp = slashifying_bcopy (line_cmd_buf, op->bufp, len);
-#else
   bcopy (line_cmd_buf, op->bufp, len);
   op->bufp += len;
-#endif
   op->lineno = ip->lineno;
 }
 
@@ -4577,6 +4540,34 @@ error (msg, arg1, arg2, arg3)
   return 0;
 }
 
+/* Error including a message from `errno'.  */
+
+error_from_errno (name)
+     char *name;
+{
+  int i;
+  FILE_BUF *ip = NULL;
+  extern int errno, sys_nerr;
+  extern char *sys_errlist[];
+
+  for (i = indepth; i >= 0; i--)
+    if (instack[i].fname != NULL) {
+      ip = &instack[i];
+      break;
+    }
+
+  if (ip != NULL)
+    fprintf (stderr, "%s:%d: ", ip->fname, ip->lineno);
+
+  if (errno < sys_nerr)
+    fprintf (stderr, "%s: %s\n", name, sys_errlist[errno]);
+  else
+    fprintf (stderr, "%s: undocumented I/O error\n", name);
+
+  errors++;
+  return 0;
+}
+
 /* Print error message but don't count it.  */
 
 warning (msg, arg1, arg2, arg3)
@@ -4986,6 +4977,7 @@ initialize_builtins ()
   install ("__LINE__", -1, T_SPECLINE, 0, -1);
   install ("__DATE__", -1, T_DATE, 0, -1);
   install ("__FILE__", -1, T_FILE, 0, -1);
+  install ("__BASE_FILE__", -1, T_BASE_FILE, 0, -1);
   install ("__VERSION__", -1, T_VERSION, 0, -1);
   install ("__TIME__", -1, T_TIME, 0, -1);
   if (!traditional)
@@ -5069,7 +5061,11 @@ deps_output (string, size)
      char *string;
      int size;
 {
-  if (size != 0 && deps_column > 50) {
+#ifndef MAX_OUTPUT_COLUMNS
+#define MAX_OUTPUT_COLUMNS 75
+#endif
+  if (size != 0 && deps_column != 0
+      && size + deps_column > MAX_OUTPUT_COLUMNS) {
     deps_output ("\\\n  ", 0);
     deps_column = 0;
   }
@@ -5175,14 +5171,11 @@ perror_with_name (name)
   extern char *sys_errlist[];
 
   fprintf (stderr, "%s: ", progname);
-#ifdef atarist
-  if ((errno > sys_nerr) && (errno < 0))
-#else
   if (errno < sys_nerr)
-#endif
-    fprintf (stderr, "%s for `%s'\n", sys_errlist[errno], name);
+    fprintf (stderr, "%s: %s\n", name, sys_errlist[errno]);
   else
-    fprintf (stderr, "undocumented error for `%s'\n", name);
+    fprintf (stderr, "%s: undocumented I/O error\n", name);
+  errors++;
 }
 
 void
@@ -5253,28 +5246,28 @@ xcalloc (number, size)
   /*NOTREACHED*/
 }
 
+char *
+savestring (input)
+     char *input;
+{
+  int size = strlen (input);
+  char *output = xmalloc (size + 1);
+  strcpy (output, input);
+  return output;
+}
 
 /* Get the file-mode and data size of the file open on FD
    and store them in *MODE_POINTER and *SIZE_POINTER.  */
 
 int
-#ifdef atarist
-file_size_and_mode (fname, mode_pointer, size_pointer)
-     char * fname;
-#else
 file_size_and_mode (fd, mode_pointer, size_pointer)
      int fd;
-#endif
      int *mode_pointer;
      long int *size_pointer;
 {
   struct stat sbuf;
 
-#ifdef atarist
-  if (stat (fname, &sbuf) < 0) return (-1);
-#else
   if (fstat (fd, &sbuf) < 0) return (-1);
-#endif
   if (mode_pointer) *mode_pointer = sbuf.st_mode;
   if (size_pointer) *size_pointer = sbuf.st_size;
   return 0;
