@@ -808,7 +808,7 @@ process_init_constructor (type, init, elts)
 	  if (TREE_CODE (field) != FIELD_DECL)
 	    continue;
 
-	  /* Does this field have a default initializtion?  */
+	  /* Does this field have a default initialization?  */
 	  if (DECL_INITIAL (field))
 	    {
 	      register tree next1 = DECL_INITIAL (field);
@@ -1128,7 +1128,7 @@ build_functional_cast (exp, parms)
     }
   else type = exp;
 
-  /* Prepare to evaluate as a call to a consructor.  If this expression
+  /* Prepare to evaluate as a call to a constructor.  If this expression
      is actually used, for example,
 	 
      return X (arg1, arg2, ...);
@@ -1231,7 +1231,7 @@ build_functional_cast (exp, parms)
 		 && ! TYPE_HAS_CONSTRUCTOR (type))
 	    {
 	      type = BINFO_TYPE (TREE_VEC_ELT (binfos, 0));
-	      binfos = BINFO_BASETYPES (binfos);
+	      binfos = TYPE_BINFO_BASETYPES (type);
 	    }
 	  if (TYPE_HAS_CONSTRUCTOR (type))
 	    break;
@@ -1275,8 +1275,15 @@ build_functional_cast (exp, parms)
 
     if (expr_as_ctor && expr_as_ctor != error_mark_node)
       {
+#if 0
+	/* mrs Mar 12, 1992 I claim that if it is a constructor, it is
+	   impossible to be a expr_as_method, without being a
+	   constructor call. */
 	if (expr_as_method
 	    || (expr_as_fncall && expr_as_fncall != error_mark_node))
+#else
+	if (expr_as_fncall && expr_as_fncall != error_mark_node)
+#endif
 	  {
 	    error ("ambiguity between constructor for `%s' and function call",
 		   IDENTIFIER_POINTER (name));
@@ -1288,10 +1295,17 @@ build_functional_cast (exp, parms)
 		   IDENTIFIER_POINTER (name));
 	    return error_mark_node;
 	  }
+	if (current_function_decl)
+	  return build_cplus_new (type, expr_as_ctor, 1);
+	/* Initializers for static variables and parameters have
+	   to handle doing the initialization and cleanup themselves.  */
+	assert (TREE_CODE (expr_as_ctor) == CALL_EXPR);
+	assert (TREE_CALLS_NEW (TREE_VALUE (TREE_OPERAND (expr_as_ctor, 1))));
+	TREE_VALUE (TREE_OPERAND (expr_as_ctor, 1)) = NULL_TREE;
+	expr_as_ctor = build_indirect_ref (expr_as_ctor, 0);
+	TREE_HAS_CONSTRUCTOR (expr_as_ctor) = 1;
+	return expr_as_ctor;
       }
-
-    if (expr_as_ctor && expr_as_ctor != error_mark_node)
-      return build_cplus_new (type, expr_as_ctor, 1);
 
     /* If it didn't work going through constructor, try type conversion.  */
     if (! (flags & LOOKUP_COMPLAIN))

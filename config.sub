@@ -59,7 +59,7 @@ case $os in
 	-unicom* | -ibm* | -next* | -hp | -isi* | -apollo | -altos* | \
 	-convergent* | -ncr* | -news | -32* | -3600* | -3100* | -osf* | \
 	-c[123]* | -convex* | -sun | -crds | -omron* | -dg | -ultra | -tti* | \
-	-harris)
+	-harris | -dolphin)
 		os=
 		basic_machine=$1
 		;;
@@ -77,7 +77,7 @@ esac
 case $basic_machine in
 	# Recognize the basic CPU types with without company name.
 	# Some are omitted here because they have special meanings below.
-	tahoe | i386 | i860 | m68k | m68000 | m88k | ns32k | arm | pyramid \
+	tahoe | i[34]86 | i860 | m68k | m68000 | m88k | ns32k | arm | pyramid \
 		| tron | a29k | 580 | i960 | h8300 | hppa)
 		basic_machine=$basic_machine-unknown
 		;;
@@ -170,7 +170,7 @@ case $basic_machine in
 		os=-newsos
 		;;
 	3b1 | 7300 | 7300-att | att-7300 | pc7300 | safari | unixpc)
-		basic_machine=m68k-att
+		basic_machine=m68000-att
 		;;
 	delta | 3300 | motorola-3300 | motorola-delta \
 	      | 3300-motorola | delta-motorola)
@@ -221,7 +221,10 @@ case $basic_machine in
 		basic_machine=sparc-sun
 		;;
 	pbd)
-		basic_machine=sparc-unicom
+		basic_machine=sparc-tti
+		;;
+	pbb)
+		basic_machine=m68k-tti
 		;;
 	sun386 | sun386i | roadrunner)
 		basic_machine=i386-sun
@@ -430,7 +433,7 @@ case $os in
 	-bsd* | -sysv* | -mach* | -minix* | -genix* | -ultrix* | -irix* \
 	      | -vms* | -sco* | -esix* | -isc* | -aix* | -sunos* | -hpux* \
 	      | -unos* | -osf* | -luna* | -dgux* | -solari* | -sym* | -amix* \
-	      | -amigados* | -msdos* | -unicos* \
+	      | -amigados* | -msdos* | -unicos* | -aos* \
 	      | -nindy* | -vxworks* | -ebmon* | -hds* | -m88kbcs*)
 		;;
 	-newsos*)
@@ -445,11 +448,17 @@ case $os in
 	-dynix*)
 		os=-bsd
 		;;
-	-aos*)
-		os=-bsd
+	-acis*)
+		os=-aos
 		;;
 	-ctix* | -uts*)
 		os=-sysv
+		;;
+	-triton*)
+		os=-sysv3
+		;;
+	-oss*)
+		os=-sysv3
 		;;
 	-svr4)
 		os=-sysv4
@@ -482,11 +491,11 @@ case $basic_machine in
 		# default.
 		# os=-sunos4
 		;;
+	*-tti)	# must be before sparc entry or we get the wrong os.
+		os=-sysv3
+		;;
 	sparc-* | *-sun)
 		os=-sunos411
-		;;
-	romp-*)
-		os=-bsd
 		;;
 	*-ibm)
 		os=-aix
@@ -502,6 +511,9 @@ case $basic_machine in
 		;;
 	*-dg)
 		os=-dgux
+		;;
+	*-dolphin)
+		os=-sysv3
 		;;
 	m88k-omron*)
 		os=-luna

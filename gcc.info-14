@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -24,7 +24,379 @@ approved by the Free Software Foundation instead of in the original
 English.
 
 
-File: gcc.info,  Node: Trampolines,  Next: Library Calls,  Prev: Varargs,  Up: Machine Macros
+File: gcc.info,  Node: Function Entry,  Next: Profiling,  Prev: Caller Saves,  Up: Stack and Calling
+
+Function Entry and Exit
+-----------------------
+
+   This section describes the macros that output function entry
+("prologue") and exit ("epilogue") code.
+
+`FUNCTION_PROLOGUE (FILE, SIZE)'
+     A C compound statement that outputs the assembler code for entry
+     to a function.  The prologue is responsible for setting up the
+     stack frame, initializing the frame pointer register, saving
+     registers that must be saved, and allocating SIZE additional
+     bytes of storage for the local variables.  SIZE is an integer. 
+     FILE is a stdio stream to which the assembler code should be
+     output.
+
+     The label for the beginning of the function need not be output by
+     this macro.  That has already been done when the macro is run.
+
+     To determine which registers to save, the macro can refer to the
+     array `regs_ever_live': element R is nonzero if hard register R
+     is used anywhere within the function.  This implies the function
+     prologue should save register R, provided it is not one of the
+     call-used registers.  (`FUNCTION_EPILOGUE' must likewise use
+     `regs_ever_live'.)
+
+     On machines that have "register windows", the function entry code
+     does not save on the stack the registers that are in the windows,
+     even if they are supposed to be preserved by function calls;
+     instead it takes appropriate steps to "push" the register stack,
+     if any non-call-used registers are used in the function.
+
+     On machines where functions may or may not have frame-pointers,
+     the function entry code must vary accordingly; it must set up the
+     frame pointer if one is wanted, and not otherwise.  To determine
+     whether a frame pointer is in wanted, the macro can refer to the
+     variable `frame_pointer_needed'.  The variable's value will be 1
+     at run time in a function that needs a frame pointer.  *Note
+     Elimination::.
+
+     The function entry code is responsible for allocating any stack
+     space required for the function.  This stack space consists of
+     the regions listed below.  In most cases, these regions are
+     allocated in the order listed, with the last listed region
+     closest to the top of the stack (the lowest address if
+     `STACK_GROWS_DOWNWARD' is defined, and the highest address if it
+     is not defined).  You can use a different order for a machine if
+     doing so is more convenient or required for compatibility
+     reasons.  Except in cases where required by standard or by a
+     debugger, there is no reason why the stack layout used by GCC
+     need agree with that used by other compilers for a machine.
+
+        * A region of `current_function_pretend_args_size' bytes of
+          uninitialized space just underneath the first argument
+          arriving on the stack.  (This may not be at the very start
+          of the allocated stack region if the calling sequence has
+          pushed anything else since pushing the stack arguments.  But
+          usually, on such machines, nothing else has been pushed yet,
+          because the function prologue itself does all the pushing.) 
+          This region is used on machines where an argument may be
+          passed partly in registers and partly in memory, and, in
+          some cases to support the features in `varargs.h' and
+          `stdargs.h'.
+
+        * An area of memory used to save certain registers used by the
+          function.  The size of this area, which may also include
+          space for such things as the return address and pointers to
+          previous stack frames, is machine-specific and usually
+          depends on which registers have been used in the function. 
+          Machines with register windows often do not require a save
+          area.
+
+        * A region of at least SIZE bytes, possibly rounded up to an
+          allocation boundary, to contain the local variables of the
+          function.  On some machines, this region and the save area
+          may occur in the opposite order, with the save area closer
+          to the top of the stack.
+
+        * Optionally, in the case that `ACCUMULATE_OUTGOING_ARGS' is
+          defined, a region of `current_function_outgoing_args_size'
+          bytes to be used for outgoing argument lists of the
+          function.  *Note Stack Arguments::.
+
+     Normally, it is necessary for `FUNCTION_PROLOGUE' and
+     `FUNCTION_EPILOGUE' to treat leaf functions specially.  The C
+     variable `leaf_function' is nonzero for such a function.
+
+`EXIT_IGNORE_STACK'
+     Define this macro as a C expression that is nonzero if the return
+     instruction or the function epilogue ignores the value of the
+     stack pointer; in other words, if it is safe to delete an
+     instruction to adjust the stack pointer before a return from the
+     function.
+
+     Note that this macro's value is relevant only for functions for
+     which frame pointers are maintained.  It is never safe to delete
+     a final stack adjustment in a function that has no frame pointer,
+     and the compiler knows this regardless of `EXIT_IGNORE_STACK'.
+
+`FUNCTION_EPILOGUE (FILE, SIZE)'
+     A C compound statement that outputs the assembler code for exit
+     from a function.  The epilogue is responsible for restoring the
+     saved registers and stack pointer to their values when the
+     function was called, and returning control to the caller.  This
+     macro takes the same arguments as the macro `FUNCTION_PROLOGUE',
+     and the registers to restore are determined from `regs_ever_live'
+     and `CALL_USED_REGISTERS' in the same way.
+
+     On some machines, there is a single instruction that does all the
+     work of returning from the function.  On these machines, give that
+     instruction the name `return' and do not define the macro
+     `FUNCTION_EPILOGUE' at all.
+
+     Do not define a pattern named `return' if you want the
+     `FUNCTION_EPILOGUE' to be used.  If you want the target switches
+     to control whether return instructions or epilogues are used,
+     define a `return' pattern with a validity condition that tests
+     the target switches appropriately.  If the `return' pattern's
+     validity condition is false, epilogues will be used.
+
+     On machines where functions may or may not have frame-pointers,
+     the function exit code must vary accordingly.  Sometimes the code
+     for these two cases is completely different.  To determine
+     whether a frame pointer is in wanted, the macro can refer to the
+     variable `frame_pointer_needed'.  The variable's value will be 1
+     at run time in a function that needs a frame pointer.
+
+     Normally, it is necessary for `FUNCTION_PROLOGUE' and
+     `FUNCTION_EPILOGUE' to treat leaf functions specially.  The C
+     variable `leaf_function' is nonzero for such a function.  *Note
+     Leaf Functions::.
+
+     On some machines, some functions pop their arguments on exit while
+     others leave that for the caller to do.  For example, the 68020
+     when given `-mrtd' pops arguments in functions that take a fixed
+     number of arguments.
+
+     Your definition of the macro `RETURN_POPS_ARGS' decides which
+     functions pop their own arguments.  `FUNCTION_EPILOGUE' needs to
+     know what was decided.  The variable `current_function_pops_args'
+     is the number of bytes of its arguments that a function should
+     pop.  *Note Scalar Return::.
+
+`DELAY_SLOTS_FOR_EPILOGUE'
+     Define this macro if the function epilogue contains delay slots
+     to which instructions from the rest of the function can be
+     "moved".  The definition should be a C expression whose value is
+     an integer representing the number of delay slots there.
+
+`ELIGIBLE_FOR_EPILOGUE_DELAY (INSN, N)'
+     A C expression that returns 1 if INSN can be placed in delay slot
+     number N of the epilogue.
+
+     The argument N is an integer which identifies the delay slot now
+     being considered (since different slots may have different rules
+     of eligibility).  It is never negative and is always less than
+     the number of epilogue delay slots (what
+     `DELAY_SLOTS_FOR_EPILOGUE' returns).  If you reject a particular
+     insn for a given delay slot, in principle, it may be reconsidered
+     for a subsequent delay slot.  Also, other insns may (at least in
+     principle) be considered for the so far unfilled delay slot.
+
+     The insns accepted to fill the epilogue delay slots are put in an
+     RTL list made with `insn_list' objects, stored in the variable
+     `current_function_epilogue_delay_list'.  The insn for the first
+     delay slot comes first in the list.  Your definition of the macro
+     `FUNCTION_EPILOGUE' should fill the delay slots by outputting the
+     insns in this list, usually by calling `final_scan_insn'.
+
+     You need not define this macro if you did not define
+     `DELAY_SLOTS_FOR_EPILOGUE'.
+
+
+File: gcc.info,  Node: Profiling,  Prev: Function Entry,  Up: Stack and Calling
+
+Generating Code for Profiling
+-----------------------------
+
+`FUNCTION_PROFILER (FILE, LABELNO)'
+     A C statement or compound statement to output to FILE some
+     assembler code to call the profiling subroutine `mcount'.  Before
+     calling, the assembler code must load the address of a counter
+     variable into a register where `mcount' expects to find the
+     address.  The name of this variable is `LP' followed by the
+     number LABELNO, so you would generate the name using `LP%d' in a
+     `fprintf'.
+
+     The details of how the address should be passed to `mcount' are
+     determined by your operating system environment, not by GNU CC. 
+     To figure them out, compile a small program for profiling using
+     the system's installed C compiler and look at the assembler code
+     that results.
+
+`PROFILE_BEFORE_PROLOGUE'
+     Define this macro if the code for function profiling should come
+     before the function prologue.  Normally, the profiling code comes
+     after.
+
+`FUNCTION_BLOCK_PROFILER (FILE, LABELNO)'
+     A C statement or compound statement to output to FILE some
+     assembler code to initialize basic-block profiling for the current
+     object module.  This code should call the subroutine
+     `__bb_init_func' once per object module, passing it as its sole
+     argument the address of a block allocated in the object module.
+
+     The name of the block is a local symbol made with this statement:
+
+          ASM_GENERATE_INTERNAL_LABEL (BUFFER, "LPBX", 0);
+
+     Of course, since you are writing the definition of
+     `ASM_GENERATE_INTERNAL_LABEL' as well as that of this macro, you
+     can take a short cut in the definition of this macro and use the
+     name that you know will result.
+
+     The first word of this block is a flag which will be nonzero if
+     the object module has already been initialized.  So test this
+     word first, and do not call `__bb_init_func' if the flag is
+     nonzero.
+
+`BLOCK_PROFILER (FILE, BLOCKNO)'
+     A C statement or compound statement to increment the count
+     associated with the basic block number BLOCKNO.  Basic blocks are
+     numbered separately from zero within each compilation.  The count
+     associated with block number BLOCKNO is at index BLOCKNO in a
+     vector of words; the name of this array is a local symbol made
+     with this statement:
+
+          ASM_GENERATE_INTERNAL_LABEL (BUFFER, "LPBX", 2);
+
+     Of course, since you are writing the definition of
+     `ASM_GENERATE_INTERNAL_LABEL' as well as that of this macro, you
+     can take a short cut in the definition of this macro and use the
+     name that you know will result.
+
+
+File: gcc.info,  Node: Varargs,  Next: Trampolines,  Prev: Stack and Calling,  Up: Target Macros
+
+Implementing the Varargs Macros
+===============================
+
+   GNU CC comes with an implementation of `varargs.h' and `stdarg.h'
+that work without change on machines that pass arguments on the stack.
+ Other machines require their own implementations of varargs, and the
+two machine independent header files must have conditionals to include
+it.
+
+   ANSI `stdarg.h' differs from traditional `varargs.h' mainly in the
+calling convention for `va_start'.  The traditional implementation
+takes just one argument, which is the variable in which to store the
+argument pointer.  The ANSI implementation takes an additional first
+argument, which is the last named argument of the function.  However,
+it should not use this argument.  The way to find the end of the named
+arguments is with the built-in functions described below.
+
+`__builtin_saveregs ()'
+     Use this built-in function to save the argument registers in
+     memory so that the varargs mechanism can access them.  Both ANSI
+     and traditional versions of `va_start' must use
+     `__builtin_saveregs', unless you use `SETUP_INCOMING_VARARGS'
+     (see below) instead.
+
+     On some machines, `__builtin_saveregs' is open-coded under the
+     control of the macro `EXPAND_BUILTIN_SAVEREGS'.  On other
+     machines, it calls a routine written in assembler language, found
+     in `libgcc2.c'.
+
+     Regardless of what code is generated for the call to
+     `__builtin_saveregs', it appears at the beginning of the function,
+     not where the call to `__builtin_saveregs' is written.  This is
+     because the registers must be saved before the function starts to
+     use them for its own purposes.
+
+`__builtin_args_info (CATEGORY)'
+     Use this built-in function to find the first anonymous arguments
+     in registers.
+
+     In general, a machine may have several categories of registers
+     used for arguments, each for a particular category of data types.
+      (For example, on some machines, floating-point registers are
+     used for floating-point arguments while other arguments are
+     passed in the general registers.) To make non-varargs functions
+     use the proper calling convention, you have defined the
+     `CUMULATIVE_ARGS' data type to record how many registers in each
+     category have been used so far
+
+     `__builtin_args_info' accesses the same data structure of type
+     `CUMULATIVE_ARGS' after the ordinary argument layout is finished
+     with it, with CATEGORY specifying which word to access.  Thus, the
+     value indicates the first unused register in a given category.
+
+     Normally, you would use `__builtin_args_info' in the
+     implementation of `va_start', accessing each category just once
+     and storing the value in the `va_list' object.  This is because
+     `va_list' will have to update the values, and there is no way to
+     alter the values accessed by `__builtin_args_info'.
+
+`__builtin_next_arg ()'
+     This is the equivalent of `__builtin_args_info', for stack
+     arguments.  It returns the address of the first anonymous stack
+     argument, as type `void *'. If `ARGS_GROW_DOWNWARD', it returns
+     the address of the location above the first anonymous stack
+     argument. Use it in `va_start' to initialize the pointer for
+     fetching arguments from the stack.
+
+`__builtin_classify_type (OBJECT)'
+     Since each machine has its own conventions for which data types
+     are passed in which kind of register, your implementation of
+     `va_arg' has to embody these conventions.  The easiest way to
+     categorize the specified data type is to use
+     `__builtin_classify_type' together with `sizeof' and
+     `__alignof__'.
+
+     `__builtin_classify_type' ignores the value of OBJECT,
+     considering only its data type.  It returns an integer describing
+     what kind of type that is--integer, floating, pointer, structure,
+     and so on.
+
+     The file `typeclass.h' defines an enumeration that you can use to
+     interpret the values of `__builtin_classify_type'.
+
+   These machine description macros help implement varargs:
+
+`EXPAND_BUILTIN_SAVEREGS (ARGS)'
+     If defined, is a C expression that produces the machine-specific
+     code for a call to `__builtin_saveregs'.  This code will be moved
+     to the very beginning of the function, before any parameter
+     access are made.  The return value of this function should be an
+     RTX that contains the value to use as the return of
+     `__builtin_saveregs'.
+
+     The argument ARGS is a `tree_list' containing the arguments that
+     were passed to `__builtin_saveregs'.
+
+     If this macro is not defined, the compiler will output an ordinary
+     call to the library function `__builtin_saveregs'.
+
+`SETUP_INCOMING_VARARGS (ARGS_SO_FAR, MODE, TYPE, PRETEND_ARGS_SIZE, SECOND_TIME)'
+     This macro offers an alternative to using `__builtin_saveregs' and
+     defining the macro `EXPAND_BUILTIN_SAVEREGS'.  Use it to store the
+     anonymous register arguments into the stack so that all the
+     arguments appear to have been passed consecutively on the stack. 
+     Once this is done, you can use the standard implementation of
+     varargs that works for machines that pass all their arguments on
+     the stack.
+
+     The argument ARGS_SO_FAR is the `CUMULATIVE_ARGS' data structure,
+     containing the values that obtain after processing of the named
+     arguments.  The arguments MODE and TYPE describe the last named
+     argument--its machine mode and its data type as a tree node.
+
+     The macro implementation should do two things: first, push onto
+     the stack all the argument registers *not* used for the named
+     arguments, and second, store the size of the data thus pushed
+     into the `int'-valued variable whose name is supplied as the
+     argument PRETEND_ARGS_SIZE.  The value that you store here will
+     serve as additional offset for setting up the stack frame.
+
+     Because you must generate code to push the anonymous arguments at
+     compile time without knowing their data types,
+     `SETUP_INCOMING_VARARGS' is only useful on machines that have just
+     a single category of argument register and use it uniformly for
+     all data types.
+
+     If the argument SECOND_TIME is nonzero, it means that the
+     arguments of the function are being analyzed for the second time.
+      This happens for an inline function, which is not actually
+     compiled until the end of the source file.  The macro
+     `SETUP_INCOMING_VARARGS' should not generate any instructions in
+     this case.
+
+
+File: gcc.info,  Node: Trampolines,  Next: Library Calls,  Prev: Varargs,  Up: Target Macros
 
 Trampolines for Nested Functions
 ================================
@@ -144,7 +516,7 @@ same point in its cache line.  Look in `m68k.h' as a guide.
      label to jump directly to your special assembler code.
 
 
-File: gcc.info,  Node: Library Calls,  Next: Addressing Modes,  Prev: Trampolines,  Up: Machine Macros
+File: gcc.info,  Node: Library Calls,  Next: Addressing Modes,  Prev: Trampolines,  Up: Target Macros
 
 Implicit Calls to Library Routines
 ==================================
@@ -297,7 +669,7 @@ Implicit Calls to Library Routines
      method.
 
 
-File: gcc.info,  Node: Addressing Modes,  Next: Condition Code,  Prev: Library Calls,  Up: Machine Macros
+File: gcc.info,  Node: Addressing Modes,  Next: Condition Code,  Prev: Library Calls,  Up: Target Macros
 
 Addressing Modes
 ================
@@ -467,7 +839,7 @@ Addressing Modes
      operands when generating position independent code.
 
 
-File: gcc.info,  Node: Condition Code,  Next: Costs,  Prev: Addressing Modes,  Up: Machine Macros
+File: gcc.info,  Node: Condition Code,  Next: Costs,  Prev: Addressing Modes,  Up: Target Macros
 
 Condition Code Status
 =====================
@@ -564,527 +936,5 @@ machine-specific information by defining `CC_STATUS_MDEP'.
              ? CC_NOOVmode : CCmode)
 
      This macro is not required if `EXTRA_CC_MODES' is not defined.
-
-
-File: gcc.info,  Node: Costs,  Next: Sections,  Prev: Condition Code,  Up: Machine Macros
-
-Describing Relative Costs of Operations
-=======================================
-
-   These macros let you describe the relative speed of various
-operations on the target machine.
-
-`CONST_COSTS (X, CODE)'
-     A part of a C `switch' statement that describes the relative costs
-     of constant RTL expressions.  It must contain `case' labels for
-     expression codes `const_int', `const', `symbol_ref', `label_ref'
-     and `const_double'.  Each case must ultimately reach a `return'
-     statement to return the relative cost of the use of that kind of
-     constant value in an expression.  The cost may depend on the
-     precise value of the constant, which is available for examination
-     in X.
-
-     CODE is the expression code--redundant, since it can be obtained
-     with `GET_CODE (X)'.
-
-`RTX_COSTS (X, CODE)'
-     Like `CONST_COSTS' but applies to nonconstant RTL expressions. 
-     This can be used, for example, to indicate how costly a multiply
-     instruction is.  In writing this macro, you can use the construct
-     `COSTS_N_INSNS (N)' to specify a cost equal to N fast
-     instructions.
-
-     This macro is optional; do not define it if the default cost
-     assumptions are adequate for the target machine.
-
-`ADDRESS_COST (ADDRESS)'
-     An expression giving the cost of an addressing mode that contains
-     ADDRESS.  If not defined, the cost is computed from the ADDRESS
-     expression and the `CONST_COSTS' values.
-
-     For most CISC machines, the default cost is a good approximation
-     of the true cost of the addressing mode.  However, on RISC
-     machines, all instructions normally have the same length and
-     execution time.  Hence all addresses will have equal costs.
-
-     In cases where more than one form of an address is known, the
-     form with the lowest cost will be used.  If multiple forms have
-     the same, lowest, cost, the one that is the most complex will be
-     used.
-
-     For example, suppose an address that is equal to the sum of a
-     register and a constant is used twice in the same basic block. 
-     When this macro is not defined, the address will be computed in a
-     register and memory references will be indirect through that
-     register.  On machines where the cost of the addressing mode
-     containing the sum is no higher than that of a simple indirect
-     reference, this will produce an additional instruction and
-     possibly require an additional register.  Proper specification of
-     this macro eliminates this overhead for such machines.
-
-     Similar use of this macro is made in strength reduction of loops.
-
-     ADDRESS need not be valid as an address.  In such a case, the cost
-     is not relevant and can be any value; invalid addresses need not
-     be assigned a different cost.
-
-     On machines where an address involving more than one register is
-     as cheap as an address computation involving only one register,
-     defining `ADDRESS_COST' to reflect this can cause two registers
-     to be live over a region of code where only one would have been if
-     `ADDRESS_COST' were not defined in that manner.  This effect
-     should be considered in the definition of this macro.  Equivalent
-     costs should probably only be given to addresses with different
-     numbers of registers on machines with lots of registers.
-
-     This macro will normally either not be defined or be defined as a
-     constant.
-
-`REGISTER_MOVE_COST (FROM, TO)'
-     A C expression for the cost of moving data from a register in
-     class FROM to one in class TO.  The classes are expressed using
-     the enumeration values such as `GENERAL_REGS'.  A value of 2 is
-     the default; other values are interpreted relative to that.
-
-     It is not required that the cost always equal 2 when FROM is the
-     same as TO; on some machines it is expensive to move between
-     registers if they are not general registers.
-
-     If reload sees an insn consisting of a single `set' between two
-     hard registers, and if `REGISTER_MOVE_COST' applied to their
-     classes returns a value of 2, reload does not check to ensure
-     that the constraints of the insn are met.  Setting a cost of
-     other than 2 will allow reload to verify that the constraints are
-     met.  You should do this if the `movM' pattern's constraints do
-     not allow such copying.
-
-`MEMORY_MOVE_COST (M)'
-     A C expression for the cost of moving data of mode M between a
-     register and memory.  A value of 2 is the default; this cost is
-     relative to those in `REGISTER_MOVE_COST'.
-
-     If moving between registers and memory is more expensive than
-     between two registers, you should define this macro to express
-     the relative cost.
-
-`BRANCH_COST'
-     A C expression for the cost of a branch instruction.  A value of
-     1 is the default; other values are interpreted relative to that.
-
-   Here are additional macros which do not specify precise relative
-costs, but only that certain actions are more expensive than GNU CC
-would ordinarily expect.
-
-`SLOW_BYTE_ACCESS'
-     Define this macro as a C expression which is nonzero if accessing
-     less than a word of memory (i.e. a `char' or a `short') is no
-     faster than accessing a word of memory, i.e., if such access
-     require more than one instruction or if there is no difference in
-     cost between byte and (aligned) word loads.
-
-     When this macro is not defined, the compiler will access a field
-     by finding the smallest containing object; when it is defined, a
-     fullword load will be used if alignment permits.  Unless bytes
-     accesses are faster than word accesses, using word accesses is
-     preferable since it may eliminate subsequent memory access if
-     subsequent accesses occur to other fields in the same word of the
-     structure, but to different bytes.
-
-`SLOW_ZERO_EXTEND'
-     Define this macro if zero-extension (of a `char' or `short' to an
-     `int') can be done faster if the destination is a register that
-     is known to be zero.
-
-     If you define this macro, you must have instruction patterns that
-     recognize RTL structures like this:
-
-          (set (strict_low_part (subreg:QI (reg:SI ...) 0)) ...)
-
-     and likewise for `HImode'.
-
-`SLOW_UNALIGNED_ACCESS'
-     Define this macro if unaligned accesses have a cost many times
-     greater than aligned accesses, for example if they are emulated
-     in a trap handler.
-
-     When this macro is defined, the compiler will act as if
-     `STRICT_ALIGNMENT' were defined when generating code for block
-     moves.  This can cause significantly more instructions to be
-     produced.  Therefore, do not define this macro if unaligned
-     accesses only add a cycle or two to the time for a memory access.
-
-`DONT_REDUCE_ADDR'
-     Define this macro to inhibit strength reduction of memory
-     addresses.  (On some machines, such strength reduction seems to
-     do harm rather than good.)
-
-`MOVE_RATIO'
-     The number of scalar move insns which should be generated instead
-     of a string move insn or a library call.  Increasing the value
-     will always make code faster, but eventually incurs high cost in
-     increased code size.
-
-     If you don't define this, a reasonable default is used.
-
-`NO_FUNCTION_CSE'
-     Define this macro if it is as good or better to call a constant
-     function address than to call an address kept in a register.
-
-`NO_RECURSIVE_FUNCTION_CSE'
-     Define this macro if it is as good or better for a function to
-     call itself with an explicit address than to call an address kept
-     in a register.
-
-
-File: gcc.info,  Node: Sections,  Next: PIC,  Prev: Costs,  Up: Machine Macros
-
-Dividing the Output into Sections (Texts, Data, ...)
-====================================================
-
-   An object file is divided into sections containing different types
-of data.  In the most common case, there are three sections: the "text
-section", which holds instructions and read-only data; the "data
-section", which holds initialized writable data; and the "bss
-section", which holds uninitialized data.  Some systems have other
-kinds of sections.
-
-   The compiler must tell the assembler when to switch sections.  These
-macros control what commands to output to tell the assembler this.  You
-can also define additional sections.
-
-`TEXT_SECTION_ASM_OP'
-     A C string constant for the assembler operation that should
-     precede instructions and read-only data.  Normally `".text"' is
-     right.
-
-`DATA_SECTION_ASM_OP'
-     A C string constant for the assembler operation to identify the
-     following data as writable initialized data.  Normally `".data"'
-     is right.
-
-`SHARED_SECTION_ASM_OP'
-     If defined, a C string constant for the assembler operation to
-     identify the following data as shared data.  If not defined,
-     `DATA_SECTION_ASM_OP' will be used.
-
-`INIT_SECTION_ASM_OP'
-     If defined, a C string constant for the assembler operation to
-     identify the following data as initialization code.  If not
-     defined, GNU CC will assume such a section does not exist.
-
-`EXTRA_SECTIONS'
-     A list of names for sections other than the standard two, which
-     are `in_text' and `in_data'.  You need not define this macro on a
-     system with no other sections (that GCC needs to use).
-
-`EXTRA_SECTION_FUNCTIONS'
-     One or more functions to be defined in `varasm.c'.  These
-     functions should do jobs analogous to those of `text_section' and
-     `data_section', for your additional sections.  Do not define this
-     macro if you do not define `EXTRA_SECTIONS'.
-
-`READONLY_DATA_SECTION'
-     On most machines, read-only variables, constants, and jump tables
-     are placed in the text section.  If this is not the case on your
-     machine, this macro should be defined to be the name of a
-     function (either `data_section' or a function defined in
-     `EXTRA_SECTIONS') that switches to the section to be used for
-     read-only items.
-
-     If these items should be placed in the text section, this macro
-     should not be defined.
-
-`SELECT_SECTION (EXP, RELOC)'
-     A C statement or statements to switch to the appropriate section
-     for output of EXP.  You can assume that EXP is either a
-     `VAR_DECL' node or a constant of some sort.  RELOC indicates
-     whether the initial value of EXP requires link-time relocations. 
-     Select the section by calling `text_section' or one of the
-     alternatives for other sections.
-
-     Do not define this macro if you put all read-only variables and
-     constants in the read-only data section (usually the text
-     section).
-
-`SELECT_RTX_SECTION (MODE, RTX)'
-     A C statement or statements to switch to the appropriate section
-     for output of RTX in mode MODE.  You can assume that RTX is some
-     kind of constant in RTL.  The argument MODE is redundant except
-     in the case of a `const_int' rtx.  Select the section by calling
-     `text_section' or one of the alternatives for other sections.
-
-     Do not define this macro if you put all constants in the read-only
-     data section.
-
-`JUMP_TABLES_IN_TEXT_SECTION'
-     Define this macro if jump tables (for `tablejump' insns) should be
-     output in the text section, along with the assembler instructions. 
-     Otherwise, the readonly data section is used.
-
-     This macro is irrelevant if there is no separate readonly data
-     section.
-
-`ENCODE_SECTION_INFO (DECL)'
-     Define this macro if references to a symbol must be treated
-     differently depending on something about the variable or function
-     named by the symbol (such as what section it is in).
-
-     The macro definition, if any, is executed immediately after the
-     rtl for DECL has been created and stored in `DECL_RTL (DECL)'. 
-     The value of the rtl will be a `mem' whose address is a
-     `symbol_ref'.
-
-     The usual thing for this macro to do is to record a flag in the
-     `symbol_ref' (such as `SYMBOL_REF_FLAG') or to store a modified
-     name string in the `symbol_ref' (if one bit is not enough
-     information).
-
-
-File: gcc.info,  Node: PIC,  Next: Assembler Format,  Prev: Sections,  Up: Machine Macros
-
-Position Independent Code
-=========================
-
-   This section describes macros that help implement generation of
-position independent code.  Simply defining these macros is not enough
-to generate valid PIC; you must also add support to the macros
-`GO_IF_LEGITIMATE_ADDRESS' and `LEGITIMIZE_ADDRESS', and
-`PRINT_OPERAND_ADDRESS' as well.  You must modify the definition of
-`movsi' to do something appropriate when the source operand contains a
-symbolic address.  You may also need to alter the handling of switch
-statements so that they use relative addresses.
-
-`PIC_OFFSET_TABLE_REGNUM'
-     The register number of the register used to address a table of
-     static data addresses in memory.  In some cases this register is
-     defined by a processor's "application binary interface" (ABI). 
-     When this macro is defined, RTL is generated for this register
-     once, as with the stack pointer and frame pointer registers.  If
-     this macro is not defined, it is up to the machine-dependent
-     files to allocate such a register (if necessary).
-
-`FINALIZE_PIC'
-     By generating position-independent code, when two different
-     programs (A and B) share a common library (libC.a), the text of
-     the library can be shared whether or not the library is linked at
-     the same address for both programs.  In some of these
-     environments, position-independent code requires not only the use
-     of different addressing modes, but also special code to enable
-     the use of these addressing modes.
-
-     The `FINALIZE_PIC' macro serves as a hook to emit these special
-     codes once the function is being compiled into assembly code, but
-     not before.  (It is not done before, because in the case of
-     compiling an inline function, it would lead to multiple PIC
-     prologues being included in functions which used inline functions
-     and were compiled to assembly language.)
-
-
-File: gcc.info,  Node: Assembler Format,  Next: Debugging Info,  Prev: PIC,  Up: Machine Macros
-
-Defining the Output Assembler Language
-======================================
-
-   This section describes macros whose principal purpose is to
-describe how to write instructions in assembler language--rather than
-what the instructions do.
-
-* Menu:
-
-* File Framework::       Structural information for the assembler file.
-* Data Output::          Output of constants (numbers, strings, addresses).
-* Uninitialized Data::   Output of uninitialized variables.
-* Label Output::         Output and generation of labels.
-* Constructor Output::	 Output of initialization and termination routines.
-* Instruction Output::   Output of actual instructions.
-* Dispatch Tables::      Output of jump tables.
-* Alignment Output::     Pseudo ops for alignment and skipping data.
-
-
-File: gcc.info,  Node: File Framework,  Next: Data Output,  Prev: Assembler Format,  Up: Assembler Format
-
-The Overall Framework of an Assembler File
-------------------------------------------
-
-`ASM_FILE_START (STREAM)'
-     A C expression which outputs to the stdio stream STREAM some
-     appropriate text to go at the start of an assembler file.
-
-     Normally this macro is defined to output a line containing
-     `#NO_APP', which is a comment that has no effect on most
-     assemblers but tells the GNU assembler that it can save time by
-     not checking for certain assembler constructs.
-
-     On systems that use SDB, it is necessary to output certain
-     commands; see `attasm.h'.
-
-`ASM_FILE_END (STREAM)'
-     A C expression which outputs to the stdio stream STREAM some
-     appropriate text to go at the end of an assembler file.
-
-     If this macro is not defined, the default is to output nothing
-     special at the end of the file.  Most systems don't require any
-     definition.
-
-     On systems that use SDB, it is necessary to output certain
-     commands; see `attasm.h'.
-
-`ASM_IDENTIFY_GCC (FILE)'
-     A C statement to output assembler commands which will identify
-     the object file as having been compiled with GNU CC (or another
-     GNU compiler).
-
-     If you don't define this macro, the string `gcc_compiled.:' is
-     output.  This string is calculated to define a symbol which, on
-     BSD systems, will never be defined for any other reason.  GDB
-     checks for the presence of this symbol when reading the symbol
-     table of an executable.
-
-     On non-BSD systems, you must arrange communication with GDB in
-     some other fashion.  If GDB is not used on your system, you can
-     define this macro with an empty body.
-
-`ASM_COMMENT_START'
-     A C string constant describing how to begin a comment in the
-     target assembler language.  The compiler assumes that the comment
-     will end at the end of the line.
-
-`ASM_APP_ON'
-     A C string constant for text to be output before each `asm'
-     statement or group of consecutive ones.  Normally this is
-     `"#APP"', which is a comment that has no effect on most
-     assemblers but tells the GNU assembler that it must check the
-     lines that follow for all valid assembler constructs.
-
-`ASM_APP_OFF'
-     A C string constant for text to be output after each `asm'
-     statement or group of consecutive ones.  Normally this is
-     `"#NO_APP"', which tells the GNU assembler to resume making the
-     time-saving assumptions that are valid for ordinary compiler
-     output.
-
-`ASM_OUTPUT_SOURCE_FILENAME (STREAM, NAME)'
-     A C statement to output COFF information or DWARF debugging
-     information which indicates that filename NAME is the current
-     source file to the stdio stream STREAM.
-
-     This macro need not be defined if the standard form of output for
-     the file format in use is appropriate.
-
-`ASM_OUTPUT_SOURCE_LINE (STREAM, LINE)'
-     A C statement to output DBX or SDB debugging information before
-     code for line number LINE of the current source file to the stdio
-     stream STREAM.
-
-     This macro need not be defined if the standard form of debugging
-     information for the debugger in use is appropriate.
-
-`ASM_OUTPUT_IDENT (STREAM, STRING)'
-     A C statement to output something to the assembler file to handle
-     a `#ident' directive containing the text STRING.  If this macro
-     is not defined, nothing is output for a `#ident' directive.
-
-`OBJC_PROLOGUE'
-     A C statement to output any assembler statements which are
-     required to precede any Objective C object definitions or message
-     sending.  The statement is executed only when compiling an
-     Objective C program.
-
-
-File: gcc.info,  Node: Data Output,  Next: Uninitialized Data,  Prev: File Framework,  Up: Assembler Format
-
-Output of Data
---------------
-
-`ASM_OUTPUT_LONG_DOUBLE (STREAM, VALUE)'
-`ASM_OUTPUT_DOUBLE (STREAM, VALUE)'
-`ASM_OUTPUT_FLOAT (STREAM, VALUE)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a floating-point constant of `TFmode',
-     `DFmode' or `SFmode', respectively, whose value is VALUE.  VALUE
-     will be a C expression of type `REAL_VALUE__TYPE', usually
-     `double'.
-
-`ASM_OUTPUT_QUADRUPLE_INT (STREAM, EXP)'
-`ASM_OUTPUT_DOUBLE_INT (STREAM, EXP)'
-`ASM_OUTPUT_INT (STREAM, EXP)'
-`ASM_OUTPUT_SHORT (STREAM, EXP)'
-`ASM_OUTPUT_CHAR (STREAM, EXP)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble an integer of 16, 8, 4, 2 or 1 bytes,
-     respectively, whose value is VALUE.  The argument EXP will be an
-     RTL expression which represents a constant value.  Use
-     `output_addr_const (STREAM, EXP)' to output this value as an
-     assembler expression.
-
-     For sizes larger than `UNITS_PER_WORD', if the action of a macro
-     would be identical to repeatedly calling the macro corresponding
-     to a size of `UNITS_PER_WORD', once for each word, you need not
-     define the macro.
-
-`ASM_OUTPUT_BYTE (STREAM, VALUE)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a single byte containing the number VALUE.
-
-`ASM_BYTE_OP'
-     A C string constant giving the pseudo-op to use for a sequence of
-     single-byte constants.  If this macro is not defined, the default
-     is `"byte"'.
-
-`ASM_OUTPUT_ASCII (STREAM, PTR, LEN)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a string constant containing the LEN
-     bytes at PTR.  PTR will be a C expression of type `char *' and
-     LEN a C expression of type `int'.
-
-     If the assembler has a `.ascii' pseudo-op as found in the
-     Berkeley Unix assembler, do not define the macro
-     `ASM_OUTPUT_ASCII'.
-
-`ASM_OUTPUT_POOL_PROLOGUE (FILE FUNNAME FUNDECL SIZE)'
-     A C statement to output assembler commands to define the start of
-     the constant pool for a function.  FUNNAME is a string giving the
-     name of the function.  Should the return type of the function be
-     required, it can be obtained via FUNDECL.  SIZE is the size, in
-     bytes, of the constant pool that will be written immediately
-     after this call.
-
-     If no constant-pool prefix is required, the usual case, this
-     macro need not be defined.
-
-`ASM_OUTPUT_SPECIAL_POOL_ENTRY (FILE, X, MODE, ALIGN, LABELNO, JUMPTO)'
-     A C statement (with or without semicolon) to output a constant in
-     the constant pool, if it needs special treatment.  (This macro
-     need not do anything for RTL expressions that can be output
-     normally.)
-
-     The argument FILE is the standard I/O stream to output the
-     assembler code on.  X is the RTL expression for the constant to
-     output, and MODE is the machine mode (in case X is a
-     `const_int').  ALIGN is the required alignment for the value X;
-     you should output an assembler directive to force this much
-     alignment.
-
-     The argument LABELNO is a number to use in an internal label for
-     the address of this pool entry.  The definition of this macro is
-     responsible for outputting the label definition at the proper
-     place.  Here is how to do this:
-
-          ASM_OUTPUT_INTERNAL_LABEL (FILE, "LC", LABELNO);
-
-     When you output a pool entry specially, you should end with a
-     `goto' to the label JUMPTO.  This will prevent the same pool
-     entry from being output a second time in the usual manner.
-
-     You need not define this macro if it would do nothing.
-
-`ASM_OPEN_PAREN'
-`ASM_CLOSE_PAREN'
-     These macros are defined as C string constant, describing the
-     syntax in the assembler for grouping arithmetic expressions.  The
-     following definitions are correct for most assemblers:
-
-          #define ASM_OPEN_PAREN "("
-          #define ASM_CLOSE_PAREN ")"
 
 

@@ -27,7 +27,7 @@ INSTALL=cp
 # grow continuously until you finally run out of swap space or exceed
 # the system's process size limit.  To avoid this problem (which can
 # arise when a stage1 gcc is being used to build a stage2 gcc) you
-# *must* link in the C langauge version of alloca() which is supplied
+# *must* link in the C language version of alloca() which is supplied
 # with gcc to your stage1 version of gcc.  The following definition
 # forces that to happen.
 

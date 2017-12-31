@@ -24,7 +24,7 @@ typedef union {long itype; tree ttype; enum tree_code code;
 #define	CONTINUE	279
 #define	RETURN	280
 #define	GOTO	281
-#define	ASM	282
+#define	ASM_KEYWORD	282
 #define	TYPEOF	283
 #define	ALIGNOF	284
 #define	ALIGN	285

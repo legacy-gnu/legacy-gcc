@@ -147,7 +147,7 @@ cplus_expand_expr (exp, target, tmode, modifier)
 	    type = TREE_TYPE (exp);
 
 	    init = build (RTL_EXPR, return_type, 0, call_target);
-	    /* We got back a reference to the type we want.  Now intialize
+	    /* We got back a reference to the type we want.  Now initialize
 	       target with that.  */
 	    expand_aggr_init (slot, init, 0);
 	  }

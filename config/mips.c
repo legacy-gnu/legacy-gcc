@@ -145,7 +145,7 @@ char *current_function_file = "";
    within a function.  */
 int file_in_function_warning = FALSE;
 
-/* Whether to supress issuing .loc's because the user attempted
+/* Whether to suppress issuing .loc's because the user attempted
    to change the filename within a function.  */
 int ignore_line_number = FALSE;
 
@@ -519,7 +519,6 @@ simple_memory_operand (op, mode)
      enum machine_mode mode;
 {
   rtx addr, plus0, plus1;
-  int offset = 0;
 
   /* Eliminate non-memory operations */
   if (GET_CODE (op) != MEM)
@@ -570,17 +569,19 @@ simple_memory_operand (op, mode)
       if (mips_section_threshold == 0 || !optimize || !TARGET_GP_OPT)
 	return FALSE;
 
-      addr = eliminate_constant_term (addr, &offset);
-      if (GET_CODE (op) != SYMBOL_REF)
-	return FALSE;
+      {
+	rtx offset = const0_rtx;
+	addr = eliminate_constant_term (addr, &offset);
+	if (GET_CODE (op) != SYMBOL_REF)
+	  return FALSE;
 
+	/* let's be paranoid.... */
+	if (INTVAL (offset) < 0 || INTVAL (offset) > 0xffff)
+	  return FALSE;
+      }
       /* fall through */
 
     case SYMBOL_REF:
-      /* let's be paranoid.... */
-      if (offset < 0 || offset > 0xffff)
-	return FALSE;
-
       return SYMBOL_REF_FLAG (addr);
 #endif
     }
@@ -774,7 +775,7 @@ mips_fill_delay_slot (ret, type, operands, cur_insn)
 
 
 /* Determine whether a memory reference takes one (based off of the GP pointer),
-   two (normal), or three (label + reg) instructins, and bump the appropriate
+   two (normal), or three (label + reg) instructions, and bump the appropriate
    counter for -mstats.  */
 
 void
@@ -1392,14 +1393,12 @@ mips_move_2words (operands, insn)
 
 
 /* Provide the costs of an addressing mode that contains ADDR.
-   If ADDR is not a valid address, its cost is irrelavent.  */
+   If ADDR is not a valid address, its cost is irrelevant.  */
 
 int
 mips_address_cost (addr)
      rtx addr;
 {
-  int offset;
-
   switch (GET_CODE (addr))
     {
     case LO_SUM:
@@ -1410,17 +1409,18 @@ mips_address_cost (addr)
       return 2;
 
     case CONST:
-      offset = 0;
-      addr = eliminate_constant_term (addr, &offset);
-      if (GET_CODE (addr) == LABEL_REF)
-	return 2;
+      {
+	rtx offset = const0_rtx;
+	addr = eliminate_constant_term (addr, &offset);
+	if (GET_CODE (addr) == LABEL_REF)
+	  return 2;
 
-      if (GET_CODE (addr) != SYMBOL_REF)
-	return 4;
+	if (GET_CODE (addr) != SYMBOL_REF)
+	  return 4;
 
-      if (offset < -32768 || offset > 32767)
-	return 2;
-
+	if (INTVAL (offset) < -32768 || INTVAL (offset) > 32767)
+	  return 2;
+      }
       /* fall through */
 
     case SYMBOL_REF:
@@ -1632,7 +1632,7 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
   enum machine_mode mode;	/* mode to use for load/store */
   rtx reg;			/* temporary register */
   rtx src_addr;			/* source address */
-  rtx dest_addr;		/* destintation address */
+  rtx dest_addr;		/* destination address */
   rtx (*load_func)();		/* function to generate load insn */
   rtx (*store_func)();		/* function to generate destination insn */
 
@@ -2417,7 +2417,7 @@ override_options ()
     }
 #endif
 
-  /* Set up the classificaiton arrays now.  */
+  /* Set up the classification arrays now.  */
   mips_rtx_classify[(int)PLUS]  = CLASS_ADD_OP;
   mips_rtx_classify[(int)MINUS] = CLASS_ADD_OP;
   mips_rtx_classify[(int)DIV]   = CLASS_DIVMOD_OP;
@@ -2477,7 +2477,7 @@ override_options ()
      At present, restrict ints from being in FP registers, because reload
      is a little enthusiastic about storing extra values in FP registers,
      and this is not good for things like OS kernels.  Also, due to the
-     manditory delay, it is as fast to load from cached memory as to move
+     mandatory delay, it is as fast to load from cached memory as to move
      from the FP register.  */
 
   for (mode = VOIDmode;
@@ -2525,11 +2525,11 @@ mips_debugger_offset (addr, offset)
      rtx addr;
      int offset;
 {
-  int offset2 = 0;
+  rtx offset2 = const0_rtx;
   rtx reg = eliminate_constant_term (addr, &offset2);
 
   if (!offset)
-    offset = offset2;
+    offset = INTVAL (offset2);
 
   if (reg == stack_pointer_rtx)
     {
@@ -2982,6 +2982,8 @@ mips_output_filename (stream, name)
       SET_FILE_NUMBER ();
       current_function_file = name;
       fprintf (stream, "\t.file\t%d \"%s\"\n", num_source_filenames, name);
+      if (!TARGET_GAS && write_symbols == DBX_DEBUG)
+	fprintf (stream, "\t#@stabs\n");
     }
 
   else if (!TARGET_GAS && write_symbols == DBX_DEBUG)
@@ -3111,9 +3113,11 @@ mips_asm_file_end (file)
       for (p = extern_head; p != 0; p = p->next)
 	{
 	  name_tree = get_identifier (p->name);
-	  if (!TREE_ADDRESSABLE (name_tree))
+
+	  /* Positively ensure only one .extern for any given symbol.  */
+	  if (! TREE_ASM_WRITTEN (name_tree))
 	    {
-	      TREE_ADDRESSABLE (name_tree) = 1;
+	      TREE_ASM_WRITTEN (name_tree) = 1;
 	      fputs ("\t.extern\t", file);
 	      assemble_name (file, p->name);
 	      fprintf (file, ", %d\n", p->size);
@@ -3134,6 +3138,30 @@ mips_asm_file_end (file)
 
       if (fclose (asm_out_text_file) != 0)
 	pfatal_with_name (temp_filename);
+    }
+}
+
+
+/* Emit either a label, .comm, or .lcomm directive, and mark
+   that the symbol is used, so that we don't emit an .extern
+   for it in mips_asm_file_end.  */
+
+void
+mips_declare_object (stream, name, init_string, final_string, size)
+     FILE *stream;
+     char *name;
+     char *init_string;
+     char *final_string;
+     int size;
+{
+  fputs (init_string, stream);		/* "", "\t.comm\t", or "\t.lcomm\t" */
+  assemble_name (stream, name);
+  fprintf (stream, final_string, size);	/* ":\n", ",%u\n", ",%u\n" */
+
+  if (TARGET_GP_OPT && mips_section_threshold != 0)
+    {
+      tree name_tree = get_identifier (name);
+      TREE_ASM_WRITTEN (name_tree) = 1;
     }
 }
 

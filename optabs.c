@@ -71,6 +71,7 @@ optab neg_optab;
 optab abs_optab;
 optab one_cmpl_optab;
 optab ffs_optab;
+optab sqrt_optab;
 
 optab cmp_optab;
 optab ucmp_optab;  /* Used only for libcalls for unsigned comparisons.  */
@@ -1183,7 +1184,7 @@ emit_unop_insn (icode, target, op0, code)
 /* Emit code to perform a series of operations on a multi-word quantity, one
    word at a time.
 
-   Such a block is preceeded by a CLOBBER of the output, consists of multiple
+   Such a block is preceded by a CLOBBER of the output, consists of multiple
    insns, each setting one word of the output, and followed by a SET copying
    the output to itself.
 
@@ -1495,12 +1496,12 @@ emit_cmp_insn (x, y, comparison, size, mode, unsignedp, align)
 #endif
 	{
 #ifdef TARGET_MEM_FUNCTIONS
-	  emit_library_call (memcmp_libfunc, 0,
+	  emit_library_call (memcmp_libfunc, 1,
 			     TYPE_MODE (integer_type_node), 3,
 			     XEXP (x, 0), Pmode, XEXP (y, 0), Pmode,
 			     size, Pmode);
 #else
-	  emit_library_call (bcmp_libfunc, 0,
+	  emit_library_call (bcmp_libfunc, 1,
 			     TYPE_MODE (integer_type_node), 3,
 			     XEXP (x, 0), Pmode, XEXP (y, 0), Pmode,
 			     size, Pmode);
@@ -1585,7 +1586,7 @@ emit_cmp_insn (x, y, comparison, size, mode, unsignedp, align)
       if (unsignedp && ucmp_optab->handlers[(int) mode].libfunc)
 	libfunc = ucmp_optab->handlers[(int) mode].libfunc;
 
-      emit_library_call (libfunc, 0,
+      emit_library_call (libfunc, 1,
 			 SImode, 2, x, mode, y, mode);
 
       /* Integer comparison returns a result that must be compared against 1,
@@ -1706,7 +1707,7 @@ emit_float_lib_cmp (x, y, comparison)
       abort ();
     }
 
-  emit_library_call (libfunc, 0,
+  emit_library_call (libfunc, 1,
 		     SImode, 2, x, mode, y, mode);
 
   emit_cmp_insn (hard_libcall_value (SImode), const0_rtx, comparison,
@@ -2556,7 +2557,7 @@ expand_float (to, from, unsignedp)
 
       start_sequence ();
 
-      emit_library_call (libfcn, 0, GET_MODE (to), 1, from, GET_MODE (from));
+      emit_library_call (libfcn, 1, GET_MODE (to), 1, from, GET_MODE (from));
       insns = get_insns ();
       end_sequence ();
 
@@ -2752,7 +2753,7 @@ expand_fix (to, from, unsignedp)
 
       start_sequence ();
 
-      emit_library_call (libfcn, 0, GET_MODE (to), 1, from, GET_MODE (from));
+      emit_library_call (libfcn, 1, GET_MODE (to), 1, from, GET_MODE (from));
       insns = get_insns ();
       end_sequence ();
 
@@ -2829,6 +2830,7 @@ init_optabs ()
   abs_optab = init_optab (ABS);
   one_cmpl_optab = init_optab (NOT);
   ffs_optab = init_optab (FFS);
+  sqrt_optab = init_optab (SQRT);
 
 #ifdef HAVE_addqi3
   if (HAVE_addqi3)
@@ -2893,7 +2895,7 @@ init_optabs ()
 #endif
 #ifdef HAVE_subti3
   if (HAVE_subti3)
-    sub_optab->handlers[(int) Imode].insn_code = CODE_FOR_subti3;
+    sub_optab->handlers[(int) TImode].insn_code = CODE_FOR_subti3;
 #endif
 #ifdef HAVE_subsf3
   if (HAVE_subsf3)
@@ -3675,6 +3677,45 @@ init_optabs ()
   /* No library calls here!  If there is no abs instruction,
      expand_expr will generate a conditional negation.  */
 
+#ifdef HAVE_sqrtqi2
+  if (HAVE_sqrtqi2)
+    sqrt_optab->handlers[(int) QImode].insn_code = CODE_FOR_sqrtqi2;
+#endif
+#ifdef HAVE_sqrthi2
+  if (HAVE_sqrthi2)
+    sqrt_optab->handlers[(int) HImode].insn_code = CODE_FOR_sqrthi2;
+#endif
+#ifdef HAVE_sqrtpsi2
+  if (HAVE_sqrtpsi2)
+    sqrt_optab->handlers[(int) PSImode].insn_code = CODE_FOR_sqrtpsi2;
+#endif
+#ifdef HAVE_sqrtsi2
+  if (HAVE_sqrtsi2)
+    sqrt_optab->handlers[(int) SImode].insn_code = CODE_FOR_sqrtsi2;
+#endif
+#ifdef HAVE_sqrtdi2
+  if (HAVE_sqrtdi2)
+    sqrt_optab->handlers[(int) DImode].insn_code = CODE_FOR_sqrtdi2;
+#endif
+#ifdef HAVE_sqrtti2
+  if (HAVE_sqrtti2)
+    sqrt_optab->handlers[(int) TImode].insn_code = CODE_FOR_sqrtti2;
+#endif
+#ifdef HAVE_sqrtsf2
+  if (HAVE_sqrtsf2)
+    sqrt_optab->handlers[(int) SFmode].insn_code = CODE_FOR_sqrtsf2;
+#endif
+#ifdef HAVE_sqrtdf2
+  if (HAVE_sqrtdf2)
+    sqrt_optab->handlers[(int) DFmode].insn_code = CODE_FOR_sqrtdf2;
+#endif
+#ifdef HAVE_sqrttf2
+  if (HAVE_sqrttf2)
+    sqrt_optab->handlers[(int) TFmode].insn_code = CODE_FOR_sqrttf2;
+#endif
+  /* No library calls here!  If there is no sqrt instruction expand_builtin
+     should force the library call.  */
+
 #ifdef HAVE_one_cmplqi2
   if (HAVE_one_cmplqi2)
     one_cmpl_optab->handlers[(int) QImode].insn_code = CODE_FOR_one_cmplqi2;
@@ -3995,3 +4036,20 @@ init_optabs ()
   fixunsdfsi_libfunc = gen_rtx (SYMBOL_REF, Pmode, "__fixunsdfsi");
   fixunsdfdi_libfunc = gen_rtx (SYMBOL_REF, Pmode, "__fixunsdfdi");
 }
+
+#ifdef BROKEN_LDEXP
+
+/* SCO 3.2 apparently has a broken ldexp. */
+
+double
+ldexp(x,n)
+     double x;
+     int n;
+{
+  if (n > 0)
+    while (n--)
+      x *= 2;
+
+  return x;
+}
+#endif /* BROKEN_LDEXP */

@@ -88,7 +88,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define FUNCTION_PROFILER(FILE, LABELNO)  \
    fprintf (FILE, "\tmovl $LP%d,%%eax\n\tcall mcount\n", (LABELNO));
 
-/* Assember pseudo-op for shared data segment. */
+/* Assembler pseudo-op for shared data segment. */
 #define SHARED_SECTION_ASM_OP ".shdata"
 
 /* A C statement or statements which output an assembler instruction

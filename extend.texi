@@ -522,7 +522,7 @@ point number belongs:
 
 This is quite different from what @code{(int)f = 1} would do---that
 would convert 1 to floating point and store it.  Rather than cause this
-inconsistancy, we think it is better to prohibit use of @samp{&} on a cast.
+inconsistency, we think it is better to prohibit use of @samp{&} on a cast.
 
 If you really do want an @code{int *} pointer with the address of
 @code{f}, you can simply write @code{(int *)&f}.

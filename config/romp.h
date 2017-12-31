@@ -70,7 +70,7 @@ extern int target_flags;
 
 #define TARGET_DEFAULT 3
 
-/* Define this to change the optimizations peformed by default.
+/* Define this to change the optimizations performed by default.
 
    This used to depend on the value of write_symbols,
    but that is contrary to the general plan for GCC options.  */
@@ -102,7 +102,7 @@ extern int target_flags;
    for them.  Might as well be consistent with bits and bytes. */
 #define WORDS_BIG_ENDIAN 1
 
-/* number of bits in an addressible storage unit */
+/* number of bits in an addressable storage unit */
 #define BITS_PER_UNIT 8
 
 /* Width in bits of a "word", which is the contents of a machine register.
@@ -150,9 +150,9 @@ extern int target_flags;
    && TYPE_MODE (TREE_TYPE (TYPE)) == QImode	\
    && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
 
-/* Define this if move instructions will actually fail to work
+/* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
-#define STRICT_ALIGNMENT
+#define STRICT_ALIGNMENT 1
 
 /* Standard register usage.  */
 
@@ -1339,11 +1339,11 @@ struct rt_cargs {int gregs, fregs; };
 
 /* Output before instructions and read-only data.  */
 
-#define TEXT_SECTION_ASM_OP "\t.text"
+#define TEXT_SECTION_ASM_OP ".text"
 
 /* Output before writable data.  */
 
-#define DATA_SECTION_ASM_OP "\t.data"
+#define DATA_SECTION_ASM_OP ".data"
 
 /* How to refer to registers in assembler output.
    This sequence is indexed by compiler's hard-register-number (see above).  */

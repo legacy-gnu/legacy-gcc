@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -22,6 +22,413 @@ versions, except that the section entitled "GNU General Public
 License" and this permission notice may be included in translations
 approved by the Free Software Foundation instead of in the original
 English.
+
+
+File: gcc.info,  Node: Register Classes,  Next: Stack and Calling,  Prev: Registers,  Up: Target Macros
+
+Register Classes
+================
+
+   On many machines, the numbered registers are not all equivalent. 
+For example, certain registers may not be allowed for indexed
+addressing; certain registers may not be allowed in some instructions.
+ These machine restrictions are described to the compiler using
+"register classes".
+
+   You define a number of register classes, giving each one a name and
+saying which of the registers belong to it.  Then you can specify
+register classes that are allowed as operands to particular
+instruction patterns.
+
+   In general, each register will belong to several classes.  In fact,
+one class must be named `ALL_REGS' and contain all the registers. 
+Another class must be named `NO_REGS' and contain no registers.  Often
+the union of two classes will be another class; however, this is not
+required.
+
+   One of the classes must be named `GENERAL_REGS'.  There is nothing
+terribly special about the name, but the operand constraint letters
+`r' and `g' specify this class.  If `GENERAL_REGS' is the same as
+`ALL_REGS', just define it as a macro which expands to `ALL_REGS'.
+
+   Order the classes so that if class X is contained in class Y then X
+has a lower class number than Y.
+
+   The way classes other than `GENERAL_REGS' are specified in operand
+constraints is through machine-dependent operand constraint letters. 
+You can define such letters to correspond to various classes, then use
+them in operand constraints.
+
+   You should define a class for the union of two classes whenever some
+instruction allows both classes.  For example, if an instruction allows
+either a floating point (coprocessor) register or a general register
+for a certain operand, you should define a class
+`FLOAT_OR_GENERAL_REGS' which includes both of them.  Otherwise you
+will get suboptimal code.
+
+   You must also specify certain redundant information about the
+register classes: for each class, which classes contain it and which
+ones are contained in it; for each pair of classes, the largest class
+contained in their union.
+
+   When a value occupying several consecutive registers is expected in
+a certain class, all the registers used must belong to that class. 
+Therefore, register classes cannot be used to enforce a requirement for
+a register pair to start with an even-numbered register.  The way to
+specify this requirement is with `HARD_REGNO_MODE_OK'.
+
+   Register classes used for input-operands of bitwise-and or shift
+instructions have a special requirement: each such class must have, for
+each fixed-point machine mode, a subclass whose registers can transfer
+that mode to or from memory.  For example, on some machines, the
+operations for single-byte values (`QImode') are limited to certain
+registers.  When this is so, each register class that is used in a
+bitwise-and or shift instruction must have a subclass consisting of
+registers from which single-byte values can be loaded or stored.  This
+is so that `PREFERRED_RELOAD_CLASS' can always have a possible value
+to return.
+
+`enum reg_class'
+     An enumeral type that must be defined with all the register class
+     names as enumeral values.  `NO_REGS' must be first.  `ALL_REGS'
+     must be the last register class, followed by one more enumeral
+     value, `LIM_REG_CLASSES', which is not a register class but rather
+     tells how many classes there are.
+
+     Each register class has a number, which is the value of casting
+     the class name to type `int'.  The number serves as an index in
+     many of the tables described below.
+
+`N_REG_CLASSES'
+     The number of distinct register classes, defined as follows:
+
+          #define N_REG_CLASSES (int) LIM_REG_CLASSES
+
+`REG_CLASS_NAMES'
+     An initializer containing the names of the register classes as C
+     string constants.  These names are used in writing some of the
+     debugging dumps.
+
+`REG_CLASS_CONTENTS'
+     An initializer containing the contents of the register classes,
+     as integers which are bit masks.  The Nth integer specifies the
+     contents of class N.  The way the integer MASK is interpreted is
+     that register R is in the class if `MASK & (1 << R)' is 1.
+
+     When the machine has more than 32 registers, an integer does not
+     suffice.  Then the integers are replaced by sub-initializers,
+     braced groupings containing several integers.  Each
+     sub-initializer must be suitable as an initializer for the type
+     `HARD_REG_SET' which is defined in `hard-reg-set.h'.
+
+`REGNO_REG_CLASS (REGNO)'
+     A C expression whose value is a register class containing hard
+     register REGNO.  In general there is more that one such class;
+     choose a class which is "minimal", meaning that no smaller class
+     also contains the register.
+
+`BASE_REG_CLASS'
+     A macro whose definition is the name of the class to which a valid
+     base register must belong.  A base register is one used in an
+     address which is the register value plus a displacement.
+
+`INDEX_REG_CLASS'
+     A macro whose definition is the name of the class to which a valid
+     index register must belong.  An index register is one used in an
+     address where its value is either multiplied by a scale factor or
+     added to another register (as well as added to a displacement).
+
+`REG_CLASS_FROM_LETTER (CHAR)'
+     A C expression which defines the machine-dependent operand
+     constraint letters for register classes.  If CHAR is such a
+     letter, the value should be the register class corresponding to
+     it.  Otherwise, the value should be `NO_REGS'.  The register
+     letter `r', corresponding to class `GENERAL_REGS', will not be
+     passed to this macro; you do not need to handle it.
+
+`REGNO_OK_FOR_BASE_P (NUM)'
+     A C expression which is nonzero if register number NUM is
+     suitable for use as a base register in operand addresses.  It may
+     be either a suitable hard register or a pseudo register that has
+     been allocated such a hard register.
+
+`REGNO_OK_FOR_INDEX_P (NUM)'
+     A C expression which is nonzero if register number NUM is
+     suitable for use as an index register in operand addresses.  It
+     may be either a suitable hard register or a pseudo register that
+     has been allocated such a hard register.
+
+     The difference between an index register and a base register is
+     that the index register may be scaled.  If an address involves
+     the sum of two registers, neither one of them scaled, then either
+     one may be labeled the "base" and the other the "index"; but
+     whichever labeling is used must fit the machine's constraints of
+     which registers may serve in each capacity.  The compiler will
+     try both labelings, looking for one that is valid, and will
+     reload one or both registers only if neither labeling works.
+
+`PREFERRED_RELOAD_CLASS (X, CLASS)'
+     A C expression that places additional restrictions on the
+     register class to use when it is necessary to copy value X into a
+     register in class CLASS.  The value is a register class; perhaps
+     CLASS, or perhaps another, smaller class.  On many machines, the
+     definition
+
+          #define PREFERRED_RELOAD_CLASS(X,CLASS) CLASS
+
+     is safe.
+
+     Sometimes returning a more restrictive class makes better code. 
+     For example, on the 68000, when X is an integer constant that is
+     in range for a `moveq' instruction, the value of this macro is
+     always `DATA_REGS' as long as CLASS includes the data registers. 
+     Requiring a data register guarantees that a `moveq' will be used.
+
+     If X is a `const_double', by returning `NO_REGS' you can force X
+     into a memory constant.  This is useful on certain machines where
+     immediate floating values cannot be loaded into certain kinds of
+     registers.
+
+`LIMIT_RELOAD_CLASS (MODE, CLASS)'
+     A C expression that places additional restrictions on the
+     register class to use when it is necessary to be able to hold a
+     value of mode MODE in a reload register for which class CLASS
+     would ordinarily be used.
+
+     Unlike `PREFERRED_RELOAD_CLASS', this macro should be used when
+     there are certain modes that simply can't go in certain reload
+     classes.
+
+     The value is a register class; perhaps CLASS, or perhaps another,
+     smaller class.
+
+     Don't define this macro unless the target machine has limitations
+     which require the macro to do something nontrivial.
+
+`SECONDARY_RELOAD_CLASS (CLASS, MODE, X)'
+`SECONDARY_INPUT_RELOAD_CLASS (CLASS, MODE, X)'
+`SECONDARY_OUTPUT_RELOAD_CLASS (CLASS, MODE, X)'
+     Many machines have some registers that cannot be copied directly
+     to or from memory or even from other types of registers.  An
+     example is the `MQ' register, which on most machines, can only be
+     copied to or from general registers, but not memory.  Some
+     machines allow copying all registers to and from memory, but
+     require a scratch register for stores to some memory locations
+     (e.g., those with symbolic address on the RT, and those with
+     certain symbolic address on the Sparc when compiling PIC).  In
+     some cases, both an intermediate and a scratch register are
+     required.
+
+     You should define these macros to indicate to the reload phase
+     that it may need to allocate at least one register for a reload
+     in addition to the register to contain the data.  Specifically,
+     if copying X to a register CLASS in MODE requires an intermediate
+     register, you should define `SECONDARY_INPUT_RELOAD_CLASS' to
+     return the largest register class all of whose registers can be
+     used as intermediate registers or scratch registers.
+
+     If copying a register CLASS in MODE to X requires an intermediate
+     or scratch register, you should define
+     `SECONDARY_OUTPUT_RELOAD_CLASS' to return the largest register
+     class required.  If the requirements for input and output reloads
+     are the same, the macro `SECONDARY_RELOAD_CLASS' should be used
+     instead of defining both macros identically.
+
+     The values returned by these macros are often `GENERAL_REGS'. 
+     Return `NO_REGS' if no spare register is needed; i.e., if X can
+     be directly copied to or from a register of CLASS in MODE without
+     requiring a scratch register.  Do not define this macro if it
+     would always return `NO_REGS'.
+
+     If a scratch register is required (either with or without an
+     intermediate register), you should define patterns for
+     `reload_inM' or `reload_outM', as required (*note Standard
+     Names::..  These patterns, which will normally be implemented
+     with a `define_expand', should be similar to the `movM' patterns,
+     except that operand 2 is the scratch register.
+
+     Define constraints for the reload register and scratch register
+     that contain a single register class.  If the original reload
+     register (whose class is CLASS) can meet the constraint given in
+     the pattern, the value returned by these macros is used for the
+     class of the scratch register.  Otherwise, two additional reload
+     registers are required.  Their classes are obtained from the
+     constraints in the insn pattern.
+
+     X might be a pseudo-register or a `subreg' of a pseudo-register,
+     which could either be in a hard register or in memory.  Use
+     `true_regnum' to find out; it will return -1 if the pseudo is in
+     memory and the hard register number if it is in a register.
+
+     These macros should not be used in the case where a particular
+     class of registers can only be copied to memory and not to
+     another class of registers.  In that case, secondary reload
+     registers are not needed and would not be helpful.  Instead, a
+     stack location must be used to perform the copy and the `movM'
+     pattern should use memory as a intermediate storage.  This case
+     often occurs between floating-point and general registers.
+
+`SMALL_REGISTER_CLASSES'
+     Normally the compiler will avoid choosing spill registers from
+     registers that have been explicitly mentioned in the rtl (these
+     registers are normally those used to pass parameters and return
+     values).  However, some machines have so few registers of certain
+     classes that there would not be enough registers to use as spill
+     registers if this were done.
+
+     On those machines, you should define `SMALL_REGISTER_CLASSES'. 
+     When it is defined, the compiler allows registers explicitly used
+     in the rtl to be used as spill registers but prevents the
+     compiler from extending the lifetime of these registers.
+
+     Defining this macro is always safe, but unnecessarily defining
+     this macro will reduce the amount of optimizations that can be
+     performed in some cases.  If this macro is not defined but needs
+     to be, the compiler will run out of reload registers and print a
+     fatal error message.
+
+     For most machines, this macro should not be defined.
+
+`CLASS_MAX_NREGS (CLASS, MODE)'
+     A C expression for the maximum number of consecutive registers of
+     class CLASS needed to hold a value of mode MODE.
+
+     This is closely related to the macro `HARD_REGNO_NREGS'.  In
+     fact, the value of the macro `CLASS_MAX_NREGS (CLASS, MODE)'
+     should be the maximum value of `HARD_REGNO_NREGS (REGNO, MODE)'
+     for all REGNO values in the class CLASS.
+
+     This macro helps control the handling of multiple-word values in
+     the reload pass.
+
+   Three other special macros describe which operands fit which
+constraint letters.
+
+`CONST_OK_FOR_LETTER_P (VALUE, C)'
+     A C expression that defines the machine-dependent operand
+     constraint letters that specify particular ranges of integer
+     values.  If C is one of those letters, the expression should
+     check that VALUE, an integer, is in the appropriate range and
+     return 1 if so, 0 otherwise.  If C is not one of those letters,
+     the value should be 0 regardless of VALUE.
+
+`CONST_DOUBLE_OK_FOR_LETTER_P (VALUE, C)'
+     A C expression that defines the machine-dependent operand
+     constraint letters that specify particular ranges of
+     `const_double' values.
+
+     If C is one of those letters, the expression should check that
+     VALUE, an RTX of code `const_double', is in the appropriate range
+     and return 1 if so, 0 otherwise.  If C is not one of those
+     letters, the value should be 0 regardless of VALUE.
+
+     `const_double' is used for all floating-point constants and for
+     `DImode' fixed-point constants.  A given letter can accept either
+     or both kinds of values.  It can use `GET_MODE' to distinguish
+     between these kinds.
+
+`EXTRA_CONSTRAINT (VALUE, C)'
+     A C expression that defines the optional machine-dependent
+     constraint letters that can be used to segregate specific types
+     of operands, usually memory references, for the target machine. 
+     Normally this macro will not be defined.  If it is required for a
+     particular target machine, it should return 1 if VALUE
+     corresponds to the operand type represented by the constraint
+     letter C.  If C is not defined as an extra constraint, the value
+     returned should be 0 regardless of VALUE.
+
+     For example, on the ROMP, load instructions cannot have their
+     output in r0 if the memory reference contains a symbolic address.
+      Constraint letter `Q' is defined as representing a memory
+     address that does *not* contain a symbolic address.  An
+     alternative is specified with a `Q' constraint on the input and
+     `r' on the output.  The next alternative specifies `m' on the
+     input and a register class that does not include r0 on the output.
+
+
+File: gcc.info,  Node: Stack and Calling,  Next: Varargs,  Prev: Register Classes,  Up: Target Macros
+
+Describing Stack Layout and Calling Conventions
+===============================================
+
+* Menu:
+
+* Frame Layout::
+* Frame Registers::
+* Elimination::
+* Stack Arguments::
+* Register Arguments::
+* Scalar Return::
+* Aggregate Return::
+* Caller Saves::
+* Function Entry::
+* Profiling::
+
+
+File: gcc.info,  Node: Frame Layout,  Next: Frame Registers,  Up: Stack and Calling
+
+Basic Stack Layout
+------------------
+
+`STACK_GROWS_DOWNWARD'
+     Define this macro if pushing a word onto the stack moves the stack
+     pointer to a smaller address.
+
+     When we say, "define this macro if ...," it means that the
+     compiler checks this macro only with `#ifdef' so the precise
+     definition used does not matter.
+
+`FRAME_GROWS_DOWNWARD'
+     Define this macro if the addresses of local variable slots are at
+     negative offsets from the frame pointer.
+
+`ARGS_GROW_DOWNWARD'
+     Define this macro if successive arguments to a function occupy
+     decreasing addresses on the stack.
+
+`STARTING_FRAME_OFFSET'
+     Offset from the frame pointer to the first local variable slot to
+     be allocated.
+
+     If `FRAME_GROWS_DOWNWARD', the next slot's offset is found by
+     subtracting the length of the first slot from
+     `STARTING_FRAME_OFFSET'.  Otherwise, it is found by adding the
+     length of the first slot to the value `STARTING_FRAME_OFFSET'.
+
+`STACK_POINTER_OFFSET'
+     Offset from the stack pointer register to the first location at
+     which outgoing arguments are placed.  If not specified, the
+     default value of zero is used.  This is the proper value for most
+     machines.
+
+     If `ARGS_GROW_DOWNWARD', this is the offset to the location above
+     the first location at which outgoing arguments are placed.
+
+`FIRST_PARM_OFFSET (FUNDECL)'
+     Offset from the argument pointer register to the first argument's
+     address.  On some machines it may depend on the data type of the
+     function.
+
+     If `ARGS_GROW_DOWNWARD', this is the offset to the location above
+     the first argument's address.
+
+`STACK_DYNAMIC_OFFSET (FUNDECL)'
+     Offset from the stack pointer register to an item dynamically
+     allocated on the stack, e.g., by `alloca'.
+
+     The default value for this macro is `STACK_POINTER_OFFSET' plus
+     the length of the outgoing arguments.  The default is correct for
+     most machines.  See `function.c' for details.
+
+`DYNAMIC_CHAIN_ADDRESS (FRAMEADDR)'
+     A C expression whose value is RTL representing the address in a
+     stack frame where the pointer to the caller's frame is stored. 
+     Assume that FRAMEADDR is an RTL expression for the address of the
+     stack frame itself.
+
+     If you don't define this macro, the default is to return the value
+     of FRAMEADDR--that is, the stack frame address is also the
+     address of the stack word that points to the previous frame.
 
 
 File: gcc.info,  Node: Frame Registers,  Next: Elimination,  Prev: Frame Layout,  Up: Stack and Calling
@@ -533,8 +940,8 @@ values--values that can fit in registers.
 
 File: gcc.info,  Node: Aggregate Return,  Next: Caller Saves,  Prev: Scalar Return,  Up: Stack and Calling
 
-How Large Values Are Returnd
-----------------------------
+How Large Values Are Returned
+-----------------------------
 
    When a function value's mode is `BLKmode' (and in some other
 cases), the value is not returned according to `FUNCTION_VALUE' (*note
@@ -622,377 +1029,5 @@ variables that must live across calls.
 
      If you don't define this macro, a default is used which is good
      on most machines: `4 * CALLS < REFS'.
-
-
-File: gcc.info,  Node: Function Entry,  Next: Profiling,  Prev: Caller Saves,  Up: Stack and Calling
-
-Function Entry and Exit
------------------------
-
-   This section describes the macros that output function entry
-("prologue") and exit ("epilogue") code.
-
-`FUNCTION_PROLOGUE (FILE, SIZE)'
-     A C compound statement that outputs the assembler code for entry
-     to a function.  The prologue is responsible for setting up the
-     stack frame, initializing the frame pointer register, saving
-     registers that must be saved, and allocating SIZE additional
-     bytes of storage for the local variables.  SIZE is an integer. 
-     FILE is a stdio stream to which the assembler code should be
-     output.
-
-     The label for the beginning of the function need not be output by
-     this macro.  That has already been done when the macro is run.
-
-     To determine which registers to save, the macro can refer to the
-     array `regs_ever_live': element R is nonzero if hard register R
-     is used anywhere within the function.  This implies the function
-     prologue should save register R, provided it is not one of the
-     call-used registers.  (`FUNCTION_EPILOGUE' must likewise use
-     `regs_ever_live'.)
-
-     On machines that have "register windows", the function entry code
-     does not save on the stack the registers that are in the windows,
-     even if they are supposed to be preserved by function calls;
-     instead it takes appropriate steps to "push" the register stack,
-     if any non-call-used registers are used in the function.
-
-     On machines where functions may or may not have frame-pointers,
-     the function entry code must vary accordingly; it must set up the
-     frame pointer if one is wanted, and not otherwise.  To determine
-     whether a frame pointer is in wanted, the macro can refer to the
-     variable `frame_pointer_needed'.  The variable's value will be 1
-     at run time in a function that needs a frame pointer.  *Note
-     Elimination::.
-
-     The function entry code is responsible for allocating any stack
-     space required for the function.  This stack space consists of
-     the regions listed below.  In most cases, these regions are
-     allocated in the order listed, with the last listed region
-     closest to the top of the stack (the lowest address if
-     `STACK_GROWS_DOWNWARD' is defined, and the highest address if it
-     is not defined).  You can use a different order for a machine if
-     doing so is more convenient or required for compatibility
-     reasons.  Except in cases where required by standard or by a
-     debugger, there is no reason why the stack layout used by GCC
-     need agree with that used by other compilers for a machine.
-
-        * A region of `current_function_pretend_args_size' bytes of
-          uninitialized space just underneath the first argument
-          arriving on the stack.  (This may not be at the very start
-          of the allocated stack region if the calling sequence has
-          pushed anything else since pushing the stack arguments.  But
-          usually, on such machines, nothing else has been pushed yet,
-          because the function prologue itself does all the pushing.) 
-          This region is used on machines where an argument may be
-          passed partly in registers and partly in memory, and, in
-          some cases to support the features in `varargs.h' and
-          `stdargs.h'.
-
-        * An area of memory used to save certain registers used by the
-          function.  The size of this area, which may also include
-          space for such things as the return address and pointers to
-          previous stack frames, is machine-specific and usually
-          depends on which registers have been used in the function. 
-          Machines with register windows often do not require a save
-          area.
-
-        * A region of at least SIZE bytes, possibly rounded up to an
-          allocation boundary, to contain the local variables of the
-          function.  On some machines, this region and the save area
-          may occur in the opposite order, with the save area closer
-          to the top of the stack.
-
-        * Optionally, in the case that `ACCUMULATE_OUTGOING_ARGS' is
-          defined, a region of `current_function_outgoing_args_size'
-          bytes to be used for outgoing argument lists of the
-          function.  *Note Stack Arguments::.
-
-     Normally, it is necessary for `FUNCTION_PROLOGUE' and
-     `FUNCTION_EPILOGUE' to treat leaf functions specially.  The C
-     variable `leaf_function' is nonzero for such a function.
-
-`EXIT_IGNORE_STACK'
-     Define this macro as a C expression that is nonzero if the return
-     instruction or the function epilogue ignores the value of the
-     stack pointer; in other words, if it is safe to delete an
-     instruction to adjust the stack pointer before a return from the
-     function.
-
-     Note that this macro's value is relevant only for functions for
-     which frame pointers are maintained.  It is never safe to delete
-     a final stack adjustment in a function that has no frame pointer,
-     and the compiler knows this regardless of `EXIT_IGNORE_STACK'.
-
-`FUNCTION_EPILOGUE (FILE, SIZE)'
-     A C compound statement that outputs the assembler code for exit
-     from a function.  The epilogue is responsible for restoring the
-     saved registers and stack pointer to their values when the
-     function was called, and returning control to the caller.  This
-     macro takes the same arguments as the macro `FUNCTION_PROLOGUE',
-     and the registers to restore are determined from `regs_ever_live'
-     and `CALL_USED_REGISTERS' in the same way.
-
-     On some machines, there is a single instruction that does all the
-     work of returning from the function.  On these machines, give that
-     instruction the name `return' and do not define the macro
-     `FUNCTION_EPILOGUE' at all.
-
-     Do not define a pattern named `return' if you want the
-     `FUNCTION_EPILOGUE' to be used.  If you want the target switches
-     to control whether return instructions or epilogues are used,
-     define a `return' pattern with a validity condition that tests
-     the target switches appropriately.  If the `return' pattern's
-     validity condition is false, epilogues will be used.
-
-     On machines where functions may or may not have frame-pointers,
-     the function exit code must vary accordingly.  Sometimes the code
-     for these two cases is completely different.  To determine
-     whether a frame pointer is in wanted, the macro can refer to the
-     variable `frame_pointer_needed'.  The variable's value will be 1
-     at run time in a function that needs a frame pointer.
-
-     Normally, it is necessary for `FUNCTION_PROLOGUE' and
-     `FUNCTION_EPILOGUE' to treat leaf functions specially.  The C
-     variable `leaf_function' is nonzero for such a function.  *Note
-     Leaf Functions::.
-
-     On some machines, some functions pop their arguments on exit while
-     others leave that for the caller to do.  For example, the 68020
-     when given `-mrtd' pops arguments in functions that take a fixed
-     number of arguments.
-
-     Your definition of the macro `RETURN_POPS_ARGS' decides which
-     functions pop their own arguments.  `FUNCTION_EPILOGUE' needs to
-     know what was decided.  The variable `current_function_pops_args'
-     is the number of bytes of its arguments that a function should
-     pop.  *Note Scalar Return::.
-
-`DELAY_SLOTS_FOR_EPILOGUE'
-     Define this macro if the function epilogue contains delay slots
-     to which instructions from the rest of the function can be
-     "moved".  The definition should be a C expression whose value is
-     an integer representing the number of delay slots there.
-
-`ELIGIBLE_FOR_EPILOGUE_DELAY (INSN, N)'
-     A C expression that returns 1 if INSN can be placed in delay slot
-     number N of the epilogue.
-
-     The argument N is an integer which identifies the delay slot now
-     being considered (since different slots may have different rules
-     of eligibility).  It is never negative and is always less than
-     the number of epilogue delay slots (what
-     `DELAY_SLOTS_FOR_EPILOGUE' returns).  If you reject a particular
-     insn for a given delay slot, in principle, it may be reconsidered
-     for a subsequent delay slot.  Also, other insns may (at least in
-     principle) be considered for the so far unfilled delay slot.
-
-     The insns accepted to fill the epilogue delay slots are put in an
-     RTL list made with `insn_list' objects, stored in the variable
-     `current_function_epilogue_delay_list'.  The insn for the first
-     delay slot comes first in the list.  Your definition of the macro
-     `FUNCTION_EPILOGUE' should fill the delay slots by outputting the
-     insns in this list, usually by calling `final_scan_insn'.
-
-     You need not define this macro if you did not define
-     `DELAY_SLOTS_FOR_EPILOGUE'.
-
-
-File: gcc.info,  Node: Profiling,  Prev: Function Entry,  Up: Stack and Calling
-
-Generating Code for Profiling
------------------------------
-
-`FUNCTION_PROFILER (FILE, LABELNO)'
-     A C statement or compound statement to output to FILE some
-     assembler code to call the profiling subroutine `mcount'.  Before
-     calling, the assembler code must load the address of a counter
-     variable into a register where `mcount' expects to find the
-     address.  The name of this variable is `LP' followed by the
-     number LABELNO, so you would generate the name using `LP%d' in a
-     `fprintf'.
-
-     The details of how the address should be passed to `mcount' are
-     determined by your operating system environment, not by GNU CC. 
-     To figure them out, compile a small program for profiling using
-     the system's installed C compiler and look at the assembler code
-     that results.
-
-`PROFILE_BEFORE_PROLOGUE'
-     Define this macro if the code for function profiling should come
-     before the function prologue.  Normally, the profiling code comes
-     after.
-
-`FUNCTION_BLOCK_PROFILER (FILE, LABELNO)'
-     A C statement or compound statement to output to FILE some
-     assembler code to initialize basic-block profiling for the current
-     object module.  This code should call the subroutine
-     `__bb_init_func' once per object module, passing it as its sole
-     argument the address of a block allocated in the object module.
-
-     The name of the block is a local symbol made with this statement:
-
-          ASM_GENERATE_INTERNAL_LABEL (BUFFER, "LPBX", 0);
-
-     Of course, since you are writing the definition of
-     `ASM_GENERATE_INTERNAL_LABEL' as well as that of this macro, you
-     can take a short cut in the definition of this macro and use the
-     name that you know will result.
-
-     The first word of this block is a flag which will be nonzero if
-     the object module has already been initialized.  So test this
-     word first, and do not call `__bb_init_func' if the flag is
-     nonzero.
-
-`BLOCK_PROFILER (FILE, BLOCKNO)'
-     A C statement or compound statement to increment the count
-     associated with the basic block number BLOCKNO.  Basic blocks are
-     numbered separately from zero within each compilation.  The count
-     associated with block number BLOCKNO is at index BLOCKNO in a
-     vector of words; the name of this array is a local symbol made
-     with this statement:
-
-          ASM_GENERATE_INTERNAL_LABEL (BUFFER, "LPBX", 2);
-
-     Of course, since you are writing the definition of
-     `ASM_GENERATE_INTERNAL_LABEL' as well as that of this macro, you
-     can take a short cut in the definition of this macro and use the
-     name that you know will result.
-
-
-File: gcc.info,  Node: Varargs,  Next: Trampolines,  Prev: Stack and Calling,  Up: Machine Macros
-
-Implementing the Varargs Macros
-===============================
-
-   GNU CC comes with an implementation of `varargs.h' and `stdarg.h'
-that work without change on machines that pass arguments on the stack.
- Other machines require their own implementations of varargs, and the
-two machine independent header files must have conditionals to include
-it.
-
-   ANSI `stdarg.h' differs from traditional `varargs.h' mainly in the
-calling convention for `va_start'.  The traditional implementation
-takes just one argument, which is the variable in which to store the
-argument pointer.  The ANSI implementation takes an additional first
-argument, which is the last named argument of the function.  However,
-it should not use this argument.  The way to find the end of the named
-arguments is with the built-in functions described below.
-
-`__builtin_saveregs ()'
-     Use this built-in function to save the argument registers in
-     memory so that the varargs mechanism can access them.  Both ANSI
-     and traditional versions of `va_start' must use
-     `__builtin_saveregs', unless you use `SETUP_INCOMING_VARARGS'
-     (see below) instead.
-
-     On some machines, `__builtin_saveregs' is open-coded under the
-     control of the macro `EXPAND_BUILTIN_SAVEREGS'.  On other
-     machines, it calls a routine written in assembler language, found
-     in `libgcc2.c'.
-
-     Regardless of what code is generated for the call to
-     `__builtin_saveregs', it appears at the beginning of the function,
-     not where the call to `__builtin_saveregs' is written.  This is
-     because the registers must be saved before the function starts to
-     use them for its own purposes.
-
-`__builtin_args_info (CATEGORY)'
-     Use this built-in function to find the first anonymous arguments
-     in registers.
-
-     In general, a machine may have several categories of registers
-     used for arguments, each for a particular category of data types.
-      (For example, on some machines, floating-point registers are
-     used for floating-point arguments while other arguments are
-     passed in the general registers.) To make non-varargs functions
-     use the proper calling convention, you have defined the
-     `CUMULATIVE_ARGS' data type to record how many registers in each
-     category have been used so far
-
-     `__builtin_args_info' accesses the same data structure of type
-     `CUMULATIVE_ARGS' after the ordinary argument layout is finished
-     with it, with CATEGORY specifying which word to access.  Thus, the
-     value indicates the first unused register in a given category.
-
-     Normally, you would use `__builtin_args_info' in the
-     implementation of `va_start', accessing each category just once
-     and storing the value in the `va_list' object.  This is because
-     `va_list' will have to update the values, and there is no way to
-     alter the values accessed by `__builtin_args_info'.
-
-`__builtin_next_arg ()'
-     This is the equivalent of `__builtin_args_info', for stack
-     arguments.  It returns the address of the first anonymous stack
-     argument, as type `void *'. If `ARGS_GROW_DOWNWARD', it returns
-     the address of the location above the first anonymous stack
-     argument. Use it in `va_start' to initialize the pointer for
-     fetching arguments from the stack.
-
-`__builtin_classify_type (OBJECT)'
-     Since each machine has its own conventions for which data types
-     are passed in which kind of register, your implementation of
-     `va_arg' has to embody these conventions.  The easiest way to
-     categorize the specified data type is to use
-     `__builtin_classify_type' together with `sizeof' and
-     `__alignof__'.
-
-     `__builtin_classify_type' ignores the value of OBJECT,
-     considering only its data type.  It returns an integer describing
-     what kind of type that is--integer, floating, pointer, structure,
-     and so on.
-
-     The file `typeclass.h' defines an enumeration that you can use to
-     interpret the values of `__builtin_classify_type'.
-
-   These machine description macros help implement varargs:
-
-`EXPAND_BUILTIN_SAVEREGS (ARGS)'
-     If defined, is a C expression that produces the machine-specific
-     code for a call to `__builtin_saveregs'.  This code will be moved
-     to the very beginning of the function, before any parameter
-     access are made.  The return value of this function should be an
-     RTX that contains the value to use as the return of
-     `__builtin_saveregs'.
-
-     The argument ARGS is a `tree_list' containing the arguments that
-     were passed to `__builtin_saveregs'.
-
-     If this macro is not defined, the compiler will output an ordinary
-     call to the library function `__builtin_saveregs'.
-
-`SETUP_INCOMING_VARARGS (ARGS_SO_FAR, MODE, TYPE, PRETEND_ARGS_SIZE, SECOND_TIME)'
-     This macro offers an alternative to using `__builtin_saveregs' and
-     defining the macro `EXPAND_BUILTIN_SAVEREGS'.  Use it to store the
-     anonymous register arguments into the stack so that all the
-     arguments appear to have been passed consecutively on the stack. 
-     Once this is done, you can use the standard implementation of
-     varargs that works for machines that pass all their arguments on
-     the stack.
-
-     The argument ARGS_SO_FAR is the `CUMULATIVE_ARGS' data structure,
-     containing the values that obtain after processing of the named
-     arguments.  The arguments MODE and TYPE describe the last named
-     argument--its machine mode and its data type as a tree node.
-
-     The macro implementation should do two things: first, push onto
-     the stack all the argument registers *not* used for the named
-     arguments, and second, store the size of the data thus pushed
-     into the `int'-valued variable whose name is supplied as the
-     argument PRETEND_ARGS_SIZE.  The value that you store here will
-     serve as additional offset for setting up the stack frame.
-
-     Because you must generate code to push the anonymous arguments at
-     compile time without knowing their data types,
-     `SETUP_INCOMING_VARARGS' is only useful on machines that have just
-     a single category of argument register and use it uniformly for
-     all data types.
-
-     If the argument SECOND_TIME is nonzero, it means that the
-     arguments of the function are being analyzed for the second time.
-      This happens for an inline function, which is not actually
-     compiled until the end of the source file.  The macro
-     `SETUP_INCOMING_VARARGS' should not generate any instructions in
-     this case.
 
 

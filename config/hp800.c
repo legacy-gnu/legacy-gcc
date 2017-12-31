@@ -1,6 +1,6 @@
 /* Subroutines for insn-output.c for HPPA.
    Copyright (C) 1992 Free Software Foundation, Inc.
-   Contributed by Tim Moore (moore@cs.utah.edu), based on out-sparc.c
+   Contributed by Tim Moore (moore@cs.utah.edu), based on sparc.c
 
 This file is part of GNU CC.
 
@@ -32,6 +32,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "flags.h"
 #include "tree.h"
 #include "c-tree.h"
+#include "expr.h"
 
 /* Save the operands last given to a compare for use when we
    generate a scc or bcc insn.  */
@@ -39,11 +40,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 rtx hppa_compare_op0, hppa_compare_op1;
 enum cmp_type hppa_branch_type;
 
+/* Set by the FUNCTION_PROFILER macro. */
+int hp_profile_labelno;
+
 /* Global variables set by FUNCTION_PROLOGUE.  */
 /* Size of frame.  Need to know this to emit return insns from
    leaf procedures.  */
 int apparent_fsize;
 int actual_fsize;
+int local_fsize, save_fregs;
 
 /* Name of where we pretend to think the frame pointer points.
    Normally, this is "4", but if we are in a leaf procedure,
@@ -237,9 +242,9 @@ eq_or_neq (op, mode)
   return (GET_CODE (op) == EQ || GET_CODE (op) == NE);
 }
 
-/* Return truth value of whether OP can be used as an operands in a three
-   address arithmetic insn (such as add %o1,7,%l2) of mode MODE.  */
-
+/* Return truth value of whether OP can be used as an operand in a
+   three operand arithmetic insn that accepts registers of mode MODE
+   or 14-bit signed integers.  */
 int
 arith_operand (op, mode)
      rtx op;
@@ -247,6 +252,18 @@ arith_operand (op, mode)
 {
   return (register_operand (op, mode)
 	  || (GET_CODE (op) == CONST_INT && INT_14_BITS (op)));
+}
+
+/* Return truth value of whether OP can be used as an operand in a
+   three operand arithmetic insn that accepts registers of mode MODE
+   or 11-bit signed integers.  */
+int
+arith11_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return (register_operand (op, mode)
+	  || (GET_CODE (op) == CONST_INT && INT_11_BITS (op)));
 }
 
 int
@@ -515,7 +532,7 @@ emit_move_sequence (operands, mode)
       && symbolic_operand (XEXP (operand1, 0), mode)
       && !read_only_operand (XEXP (operand1, 0)))
     {
-      rtx temp = reload_in_progress ? operand0 : gen_reg_rtx(mode);
+      rtx temp = reload_in_progress ? operand0 : gen_reg_rtx (mode);
       
       emit_insn (gen_rtx (SET, VOIDmode, temp, operand1));
       emit_insn (gen_rtx (SET, VOIDmode,
@@ -640,7 +657,7 @@ char *
 output_move_double (operands)
      rtx *operands;
 {
-  enum { REGOP, OFFSOP, MEMOP, PUSHOP, POPOP, CNSTOP, RNDOP } optype0, optype1;
+  enum { REGOP, OFFSOP, MEMOP, CNSTOP, RNDOP } optype0, optype1;
   rtx latehalf[2];
   rtx addreg0 = 0, addreg1 = 0;
 
@@ -657,8 +674,7 @@ output_move_double (operands)
 
   if (REG_P (operands[1]))
     optype1 = REGOP;
-  else if (CONSTANT_P (operands[1])
-	   || GET_CODE (operands[1]) == CONST_DOUBLE)
+  else if (CONSTANT_P (operands[1]))
     optype1 = CNSTOP;
   else if (offsettable_memref_p (operands[1]))
     optype1 = OFFSOP;
@@ -671,22 +687,98 @@ output_move_double (operands)
      supposed to allow to happen.  Abort if we get one,
      because generating code for these cases is painful.  */
 
-  if (optype0 == RNDOP || optype1 == RNDOP)
+  if (optype0 != REGOP && optype1 != REGOP)
     abort ();
+
+   /* Handle auto decrementing and incrementing loads and stores
+     specifically, since the structure of the function doesn't work
+     for them without major modification.  Do it better when we learn
+     this port about the general inc/dec addressing of PA.
+     (This was written by tege.  Chide him if it doesn't work.)  */
+
+  if (optype0 == MEMOP)
+    {
+      rtx addr = XEXP (operands[0], 0);
+      if (GET_CODE (addr) == POST_INC || GET_CODE (addr) == POST_DEC
+	  || GET_CODE (addr) == PRE_INC || GET_CODE (addr) == PRE_DEC)
+	{
+	  operands[0] = gen_rtx (MEM, SImode, addr);
+	  return "stw%M0 %1,%0\n\tstw%M0 %1,%0";
+	}
+    }
+  if (optype1 == MEMOP)
+    {
+      /* We have to output the address syntax ourselves, since print_operand
+	 doesn't deal with the addresses we want to use.  Fix this later.  */
+
+      rtx addr = XEXP (operands[1], 0);
+      if (GET_CODE (addr) == POST_INC || GET_CODE (addr) == POST_DEC)
+	{
+	  rtx high_reg = gen_rtx (SUBREG, SImode, operands[0], 0);
+
+	  operands[1] = XEXP (addr, 0);
+	  if (GET_CODE (operands[0]) != REG || GET_CODE (operands[1]) != REG)
+	    abort ();
+
+	  if (!reg_overlap_mentioned_p (high_reg, addr))
+	    {
+	      /* No overlap between high target register and address
+		 register.  (We do this in an non-obious way to
+		 save a register file writeback)  */
+	      if (GET_CODE (addr) == POST_INC)
+		return "ldws,ma 8(0,%1),%0\n\tldw -4(0,%1),%R0";
+	      return "ldws,ma -8(0,%1),%0\n\tldw 12(0,%1),%R0";
+	    }
+	  else
+	    {
+	      /* This is an undefined situation.  We should load into the
+		 address register *and* update that register.  Probably
+		 we don't need to handle this at all.  */
+	      if (GET_CODE (addr) == POST_INC)
+		return "ldw 4(0,%1),%R0\n\tldws,ma 8(0,%1),%0";
+	      return "ldw 4(0,%1),%R0\n\tldws,ma -8(0,%1),%0";
+	    }
+	}
+      else if (GET_CODE (addr) == PRE_INC || GET_CODE (addr) == PRE_DEC)
+	{
+	  rtx high_reg = gen_rtx (SUBREG, SImode, operands[0], 0);
+
+	  operands[1] = XEXP (addr, 0);
+	  if (GET_CODE (operands[0]) != REG || GET_CODE (operands[1]) != REG)
+	    abort ();
+
+	  if (!reg_overlap_mentioned_p (high_reg, addr))
+	    {
+	      /* No overlap between high target register and address
+		 register.  (We do this in an non-obious way to
+		 save a register file writeback)  */
+	      if (GET_CODE (addr) == PRE_INC)
+		return "ldws,mb 8(0,%1),%0\n\tldw 4(0,%1),%R0";
+	      return "ldws,mb -8(0,%1),%0\n\tldw 4(0,%1),%R0";
+	    }
+	  else
+	    {
+	      /* This is an undefined situation.  We should load into the
+		 address register *and* update that register.  Probably
+		 we don't need to handle this at all.  */
+	      if (GET_CODE (addr) == PRE_INC)
+		return "ldw 12(0,%1),%R0\n\tldws,mb 8(0,%1),%0";
+	      return "ldw -4(0,%1),%R0\n\tldws,mb -8(0,%1),%0";
+	    }
+	}
+    }
 
   /* If an operand is an unoffsettable memory ref, find a register
      we can increment temporarily to make it refer to the second word.  */
 
   if (optype0 == MEMOP)
-    addreg0 = find_addr_reg (operands[0]);
+    addreg0 = find_addr_reg (XEXP (operands[0], 0));
 
   if (optype1 == MEMOP)
-    addreg1 = find_addr_reg (operands[1]);
+    addreg1 = find_addr_reg (XEXP (operands[1], 0));
 
   /* Ok, we can do one word at a time.
-     Normally we do the low-numbered word first,
-     but if either operand is autodecrementing then we
-     do the high-numbered word first.
+     Normally we do the low-numbered word first.
 
      In either case, set up in LATEHALF the operands to use
      for the high-numbered word and in some cases alter the
@@ -704,17 +796,7 @@ output_move_double (operands)
   else if (optype1 == OFFSOP)
     latehalf[1] = adj_offsettable_operand (operands[1], 4);
   else if (optype1 == CNSTOP)
-    {
-      if (CONSTANT_P (operands[1]))
-	latehalf[1] = const0_rtx;
-      else if (GET_CODE (operands[1]) == CONST_DOUBLE)
-	{
-	  latehalf[1] = gen_rtx (CONST_INT, VOIDmode,
-				 XINT (operands[1], 1));
-	  operands[1] = gen_rtx (CONST_INT, VOIDmode,
-				 XINT (operands[1], 0));
-	}
-    }
+    split_double (operands[1], &operands[1], &latehalf[1]);
   else
     latehalf[1] = operands[1];
 
@@ -725,7 +807,7 @@ output_move_double (operands)
      such overlap can't happen in memory unless the user explicitly
      sets it up, and that is an undefined circumstance."
 
-     but it happens on the sparc when loading parameter registers,
+     but it happens on the HP-PA when loading parameter registers,
      so I am going to define that circumstance, and make it work
      as expected.  */
 
@@ -909,150 +991,174 @@ output_load_address (operands)
     abort ();
 }
 
-/* Output code to place a size count SIZE in register REG.
-   ALIGN is the size of the unit of transfer.
-
-   Because block moves are pipelined, we don't include the
-   first element in the transfer of SIZE to REG.  */
-
-static void
-output_size_for_block_move (size, reg, align)
-     rtx size, reg;
-     rtx align;
-{
-  rtx xoperands[3];
-
-  xoperands[0] = reg;
-  xoperands[1] = size;
-  xoperands[2] = align;
-  if (GET_CODE (size) == REG)
-    output_asm_insn ("ldo -%2(%1),%0", xoperands);
-  else
-    {
-      xoperands[1]
-	= gen_rtx (CONST_INT, VOIDmode, INTVAL (size) - INTVAL (align));
-      if (INT_14_BITS (xoperands[1]))
-	output_asm_insn ("ldi %1,%0", xoperands);
-      else
-	output_asm_insn ("addil L'%1,0\n\tldo R'%1(1),%0", xoperands);
-    }
-}
-
 /* Emit code to perform a block move.
 
-   OPERANDS[0] is the destination.
-   OPERANDS[1] is the source.
-   OPERANDS[2] is the size.
-   OPERANDS[3] is the alignment safe to use.
-   OPERANDS[4] is a register we can safely clobber as a temp.  */
+   Restriction: If the length argument is non-constant, alignment
+   must be 4.
+
+   OPERANDS[0] is the destination pointer as a REG, clobbered.
+   OPERANDS[1] is the source pointer as a REG, clobbered.
+   if SIZE_IS_CONSTANT
+     OPERANDS[2] is a register for temporary storage.
+     OPERANDS[4] is the size as a CONST_INT
+   else
+     OPERANDS[2] is a REG which will contain the size, clobbered.
+   OPERANDS[3] is a register for temporary storage.
+   OPERANDS[5] is the alignment safe to use, as a CONST_INT.  */
 
 char *
-output_block_move (operands)
+output_block_move (operands, size_is_constant)
      rtx *operands;
+     int size_is_constant;
 {
-  /* A vector for our computed operands.  Note that load_output_address
-     makes use of (and can clobber) up to the 8th element of this vector.  */
-  rtx xoperands[10];
-  rtx zoperands[10];
-  static int movstrsi_label = 0;
-  int i, j;
-  rtx temp1 = operands[4];
-  rtx alignrtx = operands[3];
-  int align = INTVAL (alignrtx);
+  int align = INTVAL (operands[5]);
+  unsigned long n_bytes;
 
-  xoperands[0] = operands[0];
-  xoperands[1] = operands[1];
-  xoperands[2] = temp1;
-
-  /* We can't move more than four bytes at a time
-     because we have only one register to move them through.  */
+  /* We can't move more than four bytes at a time because the PA
+     has no longer integer move insns.  (Could use fp mem ops?)  */
   if (align > 4)
+    align = 4;
+
+  if (size_is_constant)
     {
-      align = 4;
-      alignrtx = gen_rtx (CONST_INT, VOIDmode, 4);
+      unsigned long n_items;
+      unsigned long offset;
+      rtx temp;
+
+      n_bytes = INTVAL (operands[4]);
+      if (n_bytes == 0)
+	return "";
+
+      if (align >= 4)
+	{
+	  /* Don't unroll too large blocks.  */
+	  if (n_bytes > 64)
+	    goto copy_with_loop;
+
+	  /* Read and store using two registers, and hide latency
+	     by defering the stores until three instructions after
+	     the corresponding load.  The last load insn will read
+	     the entire word were the last bytes are, possibly past
+	     the end of the source block, but since loads are aligned,
+	     this is harmless.  */
+
+	  output_asm_insn ("ldws,ma 4(0,%1),%2", operands);
+
+	  for (offset = 4; offset < n_bytes; offset += 4)
+	    {
+	      output_asm_insn ("ldws,ma 4(0,%1),%3", operands);
+	      output_asm_insn ("stws,ma %2,4(0,%0)", operands);
+
+	      temp = operands[2];
+	      operands[2] = operands[3];
+	      operands[3] = temp;
+	    }
+	  if (n_bytes % 4 == 0)
+	    /* Store the last word.  */
+	    output_asm_insn ("stw %2,0(0,%0)", operands);
+	  else
+	    {
+	      /* Store the last, partial word.  */
+	      operands[4] = gen_rtx (CONST_INT, VOIDmode, n_bytes % 4);
+	      output_asm_insn ("stbys,e %2,%4(0,%0)", operands);
+	    }
+	  return "";
+	}
+
+      if (align >= 2 && n_bytes >= 2)
+	{
+	  output_asm_insn ("ldhs,ma 2(0,%1),%2", operands);
+
+	  for (offset = 2; offset + 2 <= n_bytes; offset += 2)
+	    {
+	      output_asm_insn ("ldhs,ma 2(0,%1),%3", operands);
+	      output_asm_insn ("sths,ma %2,2(0,%0)", operands);
+
+	      temp = operands[2];
+	      operands[2] = operands[3];
+	      operands[3] = temp;
+	    }
+	  if (n_bytes % 2 != 0)
+	    output_asm_insn ("ldb 0(0,%1),%3", operands);
+
+	  output_asm_insn ("sths,ma %2,2(0,%0)", operands);
+
+	  if (n_bytes % 2 != 0)
+	    output_asm_insn ("stb %3,0(0,%0)", operands);
+
+	  return "";
+	}
+
+      output_asm_insn ("ldbs,ma 1(0,%1),%2", operands);
+
+      for (offset = 1; offset + 1 <= n_bytes; offset += 1)
+	{
+	  output_asm_insn ("ldbs,ma 1(0,%1),%3", operands);
+	  output_asm_insn ("stbs,ma %2,1(0,%0)", operands);
+
+	  temp = operands[2];
+	  operands[2] = operands[3];
+	  operands[3] = temp;
+	}
+      output_asm_insn ("stb %2,0(0,%0)", operands);
+
+      return "";
     }
 
-  /* Since we clobber untold things, nix the condition codes.  */
-
-  /* Recognize special cases of block moves.  These occur
-     when GNU C++ is forced to treat something as BLKmode
-     to keep it in memory, when its mode could be represented
-     with something smaller.
-
-     We cannot do this for global variables, since we don't know
-     what pages they don't cross.  Sigh.  */
-  if (GET_CODE (operands[2]) == CONST_INT
-      && INTVAL (operands[2]) <= 8
-      && ! CONSTANT_ADDRESS_P (operands[0])
-      && ! CONSTANT_ADDRESS_P (operands[1]))
-    {
-      int size = INTVAL (operands[2]);
-
-      if (align == 1)
-	{
-	  if (memory_address_p (QImode, plus_constant (xoperands[0], size))
-	      && memory_address_p (QImode, plus_constant (xoperands[1], size)))
-	    {
-	      /* We will store different integers into xoperands[2].  */
-
-	      for (i = 0; i <= size-1; i++)
-		{
-		  xoperands[2] = gen_rtx (CONST_INT, VOIDmode, i);
-		  output_asm_insn ("ldbs %2(%1),1\n\tstbs,ma 1,1(0,%0)",
-				   xoperands);
-		}
-	      return "";
-	    }
-	}
-      else if (align == 2)
-	{
-	  if (memory_address_p (HImode, plus_constant (xoperands[0], size))
-	      && memory_address_p (HImode, plus_constant (xoperands[1], size)))
-	    {
-	      for (i = 0 ; i <= (size>>1)-1; i++)
-		{
-		  xoperands[2] = gen_rtx (CONST_INT, VOIDmode, i << 1);
-		  output_asm_insn ("ldhs %2(%1),1\n\tsths,ma 1,2(0,%0)",
-				   xoperands);
-		}
-	      return "";
-	    }
-	}
-      else
-	{
-	  if (memory_address_p (SImode, plus_constant (xoperands[0], size))
-	      && memory_address_p (SImode, plus_constant (xoperands[1], size)))
-	    {
-	      for (i = 0; i <= (size>>2)-1; i++)
-		{
-		  xoperands[2] = gen_rtx (CONST_INT, VOIDmode, i << 2);
-		  output_asm_insn ("ldws %2(%1),1\n\tstws,ma 1,4(0,%0)",
-				   xoperands);
-		}
-	      return "";
-	    }
-	}
-    }
-
-  /* This is the size of the transfer.
-     Either use the register which already contains the size,
-     or use a free register (used by no operands).
-     Also emit code to decrement the size value by ALIGN.  */
-  output_size_for_block_move (operands[2], temp1, alignrtx);
+  if (align != 4)
+    abort();
      
-  zoperands[0] = operands[0];
-  zoperands[3] = gen_rtx (PLUS, SImode, operands[0], temp1);
-  output_load_address (zoperands);
+ copy_with_loop:
 
-  xoperands[3] = gen_rtx (CONST_INT, VOIDmode, movstrsi_label++);
-  xoperands[4] = gen_rtx (CONST_INT, VOIDmode, - align);
-
-  if (align == 1)
-    output_asm_insn ("\nLm%3\n\tldbx %2(%1),1\n\taddib,>= %4,%2,Lm%3\n\tstbs,ma 1,%4(0,%0)", xoperands);
-  else if (align == 2)
-    output_asm_insn ("\nLm%3\n\tldhx %2(%1),1\n\taddib,>= %4,%2,Lm%3\n\tsths,ma 1,%4(0,%0)", xoperands);
+  if (size_is_constant)
+    {
+      /* Size is an compile-time determined, and also not
+	 very small (such small cases are handled above).  */
+      operands[4] = gen_rtx (CONST_INT, VOIDmode, n_bytes - 4);
+      output_asm_insn ("ldo %4(0),%2", operands);
+    }
   else
-    output_asm_insn ("\nLm%3\n\tldwx %2(%1),1\n\taddib,>= %4,%2,Lm%3\n\tstws,ma 1,%4(0,%0)", xoperands);
+    {
+      /* Decrement counter by 4, and if it becomes negative, jump past the
+	 word copying loop.  */
+      output_asm_insn ("addib,<,n -4,%2,.+16", operands);
+    }
+
+  /* Copying loop.  Note that the first load is in the anulled delay slot
+     of addib.  Is it OK on PA to have a load in a delay slot, i.e. is a
+     possible page fault stopped in time?  */
+  output_asm_insn ("ldws,ma 4(0,%1),%3", operands);
+  output_asm_insn ("addib,>= -4,%2,.-4", operands);
+  output_asm_insn ("stws,ma %3,4(0,%0)", operands);
+
+  /* The counter is negative, >= -4.  The remaining number of bytes are
+     determined by the two least significant bits.  */
+
+  if (size_is_constant)
+    {
+      if (n_bytes % 4 != 0)
+	{
+	  /* Read the entire word of the source block tail.  */
+	  output_asm_insn ("ldw 0(0,%1),%3", operands);
+	  operands[4] = gen_rtx (CONST_INT, VOIDmode, n_bytes % 4);
+	  output_asm_insn ("stbys,e %3,%4(0,%0)", operands);
+	}
+    }
+  else
+    {
+      /* Add 4 to counter.  If it becomes zero, we're done.  */
+      output_asm_insn ("addib,=,n 4,%2,.+16", operands);
+
+      /* Read the entire word of the source block tail.  (Also this
+	 load is in an anulled delay slot.)  */
+      output_asm_insn ("ldw 0(0,%1),%3", operands);
+
+      /* Make %0 point at the first byte after the destination block.  */
+      output_asm_insn ("add %2,%0,%0", operands);
+      /* Store the leftmost bytes, up to, but not including, the address
+	 in %0.  */
+      output_asm_insn ("stbys,e %3,0(0,%0)", operands);
+    }
   return "";
 }
 
@@ -1067,10 +1173,10 @@ output_ascii (file, p, size)
   int chars_output;
   unsigned char partial_output[16];	/* Max space 4 chars can occupy.   */
 
-  /* The HP assember can only take strings of 256 characters at one
+  /* The HP assembler can only take strings of 256 characters at one
      time.  This is a limitation on input line length, *not* the
      length of the string.  Sigh.  Even worse, it seems that the
-     restricition is in number of input characters (see \xnn &
+     restriction is in number of input characters (see \xnn &
      \whatever).  So we have to do this very carefully.  */
 
   fprintf (file, "\t.STRING \"");
@@ -1174,7 +1280,7 @@ output_ascii (file, p, size)
        .
        .
        .
-       SP + p (SP')	points to next avaliable address.
+       SP + p (SP')	points to next available address.
        
 */
 
@@ -1202,12 +1308,6 @@ print_ldw (file, r, disp, base)
     fprintf (file, "\taddil L'%d,%d\n\tldw R'%d(0,1),%d\n", disp, base,
 	     disp, r);
 }
-
-/* Set by the FUNCTION_PROFILER macro. */
-int hp_profile_labelno;
-extern int profile_flag;
-
-int local_fsize, save_fregs, actual_fsize;
 
 int
 compute_frame_size (size, leaf_function)
@@ -1350,15 +1450,19 @@ output_function_prologue (file, size, leaf_function)
   /* Floating point register store.  */
   if (save_fregs)
     if (frame_pointer_needed)
-      if (VAL_14_BITS_P (offset))
-	fprintf (file, "\tldo %d(4),1\n", offset);
-      else
-	fprintf (file, "\taddil L'%d,4\n\tldo R'%d(1),1\n", offset, offset);
+      {
+	if (VAL_14_BITS_P (offset))
+	  fprintf (file, "\tldo %d(4),1\n", offset);
+	else
+	  fprintf (file, "\taddil L'%d,4\n\tldo R'%d(1),1\n", offset, offset);
+      }
     else
-      if (VAL_14_BITS_P (offset))
-	fprintf (file, "\tldo %d(30),1\n", offset);
-      else
-	fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),1\n", offset, offset);
+      {
+	if (VAL_14_BITS_P (offset))
+	  fprintf (file, "\tldo %d(30),1\n", offset);
+	else
+	  fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),1\n", offset, offset);
+      }
   if (!TARGET_SNAKE)
     {
       for (i = 47; i >= 44; i--)
@@ -1418,15 +1522,19 @@ output_function_epilogue (file, size, leaf_function)
   /* Floating point register restore.  */
   if (save_fregs)
     if (frame_pointer_needed)
-      if (VAL_14_BITS_P (offset))
-	fprintf (file, "\tldo %d(4),1\n", offset);
-      else
-	fprintf (file, "\taddil L'%d,4\n\tldo R'%d(1),1\n", offset, offset);
+      {
+	if (VAL_14_BITS_P (offset))
+	  fprintf (file, "\tldo %d(4),1\n", offset);
+	else
+	  fprintf (file, "\taddil L'%d,4\n\tldo R'%d(1),1\n", offset, offset);
+      }
     else
-      if (VAL_14_BITS_P (offset))
-	fprintf (file, "\tldo %d(30),1\n", offset);
-      else
-	fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),1\n", offset, offset);
+      {
+	if (VAL_14_BITS_P (offset))
+	  fprintf (file, "\tldo %d(30),1\n", offset);
+	else
+	  fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),1\n", offset, offset);
+      }
   if (!TARGET_SNAKE)
     {
       for (i = 47; i >= 44; i--)
@@ -1784,30 +1892,38 @@ output_global_address (file, x)
 	  base = XEXP (XEXP (x, 0), 0);
 	  output_addr_const (file, base);
 	}
-      else
-	if (GET_CODE(XEXP (XEXP (x, 0), 0)) == CONST_INT)
-	  offset = INTVAL (XEXP (XEXP (x, 0), 0));
-	else abort();
+      else if (GET_CODE (XEXP (XEXP (x, 0), 0)) == CONST_INT)
+	offset = INTVAL (XEXP (XEXP (x, 0), 0));
+      else abort ();
+
       if (GET_CODE (XEXP (XEXP (x, 0), 1)) == SYMBOL_REF)
 	{
 	  base = XEXP (XEXP (x, 0), 1);
 	  output_addr_const (file, base);
 	}
-      else
-	if (GET_CODE (XEXP (XEXP (x, 0), 1)) == CONST_INT)
-	  offset = INTVAL (XEXP (XEXP (x, 0),1));
-	else abort();
+      else if (GET_CODE (XEXP (XEXP (x, 0), 1)) == CONST_INT)
+	offset = INTVAL (XEXP (XEXP (x, 0),1));
+      else abort ();
+
       if (GET_CODE (XEXP (x, 0)) == PLUS)
-	sep= "+";
-      else
-	if (GET_CODE (XEXP (x, 0)) == MINUS
-	    && (GET_CODE (XEXP (XEXP (x, 0), 0)) == SYMBOL_REF))
-	  sep = "-";
-	else abort();
+	{
+	  if (offset < 0)
+	    {
+	      offset = -offset;
+	      sep = "-";
+	    }
+	  else
+	    sep = "+";
+	}
+      else if (GET_CODE (XEXP (x, 0)) == MINUS
+	       && (GET_CODE (XEXP (XEXP (x, 0), 0)) == SYMBOL_REF))
+	sep = "-";
+      else abort ();
+
       if (!read_only_operand (base))
 	fprintf (file, "-$global$");
       fprintf (file, "%s", sep);
-      if (offset) fprintf(file,"%d", offset);
+      if (offset) fprintf (file,"%d", offset);
     }
   else
     output_addr_const (file, x);
@@ -1864,241 +1980,6 @@ reverse_relop (code)
     }
 }
 
-/* What the spectrum lacks in hardware, make up for in software.
-   Compute a fairly good sequence of shift and add insns
-   to make a multiply happen. This should punt and call millicode if
-   the sequence gets too big, but that's hard to do at this stage
-   because it involves clobbering several registers. Oh, well. */
-
-#define ABS(x) ((x) < 0 ? -(x) : x)
-
-static rtx *mul_operands;
-
-void mul_by_constant_aux ();
-
-int
-emit_mul_by_constant (operands, unsignedp)
-     rtx *operands;
-     int unsignedp;
-{
-  int constant;
-  mul_operands = operands;
-  
-  constant = INTVAL (operands[2]);
-  if (constant == 0)
-    {
-      /* Does happen, at least when not optimizing.  */
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0], const0_rtx));
-      return 1;
-    }
-  if (constant == 1)
-    {
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0], operands[1]));
-      return 1;
-    }
-  mul_by_constant_aux (ABS(constant));
-  if (constant < 0)
-    emit_insn (gen_negsi2 (operands[0], operands[0]));
-  return 1;      
-}
-
-/* This greedy algorithm uses the fact that several constant 
-   multiplies are rather cheap on the PA:
-   * 2^n (shift n places)
-   * (2^n + 1) and (2^n - 1) (shift n and add or subtract)
-   * 3, 5, 9 (sh1add, sh2add, sh3add) */
-
-void
-mul_by_constant_aux (constant)
-     int constant;
-{
-  int log2, diff;		/* log2 of constant and difference */
-				/* from a power of 2 */
-  int ffs_res;
-  rtx xoperands[4];
-
-  xoperands[0] = mul_operands[0];  xoperands[1] = mul_operands[1];
-  log2 = log2_and_diff(constant, &diff);
-  /* constant = 2^n or 2^n +/- 1? constant = 3,5,9 is handled better 
-     by the shift and add instructions. */
-  if (!diff || (diff == 1 && constant != 3 && constant != 5 && constant != 9)
-      || (diff == -1 && constant != 3))
-    {
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (ASHIFT, SImode,
-				   mul_operands[1],
-				   gen_rtx (CONST_INT, VOIDmode, log2))));
-      if (diff == 1)
-	emit_insn (gen_addsi3 (mul_operands[0],
-			       mul_operands[0],
-			       mul_operands[1]));
-      else if (diff == -1)
-	emit_insn (gen_subsi3 (mul_operands[0],
-			       mul_operands[0],
-			       mul_operands[1]));
-    }
-  /* The things we try are ordered by how many binary digits of 
-     constant they consume */
-  /* is 2^n a factor of constant, n > 3? */
-  else if ((ffs_res = ffs (constant)) > 4)
-    {
-      mul_by_constant_aux ((constant >> (ffs_res - 1)));
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (ASHIFT, SImode,
-				   mul_operands[0],
-				   gen_rtx (CONST_INT, VOIDmode,
-					    ffs_res - 1))));
-    }
-  /* If the bottom n bits of constant are all 1's, that's the same as 
-     multiplying the total by 2^n and subtracting the multiplicand. */
-  else if ((ffs_res = ffs (~constant)) > 4)
-    {
-      mul_by_constant_aux ((constant >> (ffs_res - 1)) | 1);
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (ASHIFT, SImode,
-				   mul_operands[0],
-				   gen_rtx (CONST_INT, VOIDmode,
-					    ffs_res - 1))));
-      emit_insn (gen_subsi3 (mul_operands[0],
-			       mul_operands[0],
-			       mul_operands[1]));
-    }
-  /* factor and test for possible shift/add combinations */
-  else if (test_factor_and_output (constant, 9));
-  else if (test_factor_and_output (constant, 8));
-  else if ((constant & 0x7) == 0x1)
-    {
-      mul_by_constant_aux (constant >> 3);
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (PLUS, SImode,
-				   mul_operands[1],
-				   gen_rtx (MULT, SImode,
-					    mul_operands[0],
-					    gen_rtx (CONST_INT, VOIDmode,
-						     8)))));
-    }
-  else if (test_factor_and_output (constant, 5));
-  else if (test_factor_and_output (constant, 4));
-  else if ((constant & 0x3) == 0x1)
-    {
-      mul_by_constant_aux (constant >> 2);
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (PLUS, SImode,
-				   mul_operands[1],
-				   gen_rtx (MULT, SImode,
-					    mul_operands[0],
-					    gen_rtx (CONST_INT, VOIDmode,
-						     4)))));
-    }
-  else if (test_factor_and_output (constant, 3));
-  else if (test_factor_and_output (constant, 2));
-  else
-    {
-      mul_by_constant_aux (constant >> 1);
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  mul_operands[0],
-			  gen_rtx (PLUS, SImode,
-				   mul_operands[1],
-				   gen_rtx (MULT, SImode,
-					    mul_operands[0],
-					    gen_rtx (CONST_INT, VOIDmode,
-						     2)))));
-    }
-}
-
-/* If FACTOR is a factor of CONSTANT, output the appropriate shift and 
-   add instruction */
-
-int
-test_factor_and_output (constant, factor)
-     int constant, factor;
-{
-  rtx xoperands0, xoperands1, xoperands2;
-  int shift, add_op = 0;
-
-  xoperands0 = mul_operands[0];
-  if (!(constant % factor))
-    {
-      switch (factor)
-	{
-	case 9:
-	  shift = 3;  add_op = 1;  break;
-	case 8:
-	  shift = 3;  break;
-	case 5:
-	  shift = 2;  add_op = 1;  break;
-	case 4:
-	  shift = 2;  break;
-	case 3:
-	  shift = 1;  add_op = 1;  break;
-	case 2:
-	  shift = 1; break;
-	default:
-	  abort ();
-	}
-      if (constant / factor == 1)
-	{
-	  xoperands1 = mul_operands[1];
-	  xoperands2 = mul_operands[1];
-	}
-      else
-	{
-	  mul_by_constant_aux (constant / factor);
-	  xoperands1 = mul_operands[0];
-	  xoperands2 = mul_operands[0];
-	}
-      if (add_op)
-	emit_insn (gen_rtx (SET, VOIDmode,
-			  xoperands0,
-			  gen_rtx (PLUS, SImode,
-				   xoperands1,
-				   gen_rtx (MULT, SImode,
-					    xoperands2,
-					    gen_rtx (CONST_INT, VOIDmode,
-						     1 << shift)))));
-      else
-	emit_insn (gen_rtx (SET, VOIDmode,
-			    xoperands0,
-			    gen_rtx (ASHIFT, SImode,
-				     xoperands1,
-				     gen_rtx (CONST_INT, VOIDmode, shift))));
-      return 1;
-    }
-  return 0;
-}
-
-/* This routine finds the floor_log2 of val and returns it and the 
-   difference between val and 2^log2(val). If val is 1 less than a
-   power of 2, that power's log and -1 are returned. */
-
-int log2_and_diff (val, diff)
-     int val, *diff;
-{
-  int log = floor_log2 (val);
-  
-  *diff = val - (1 << log);
-  if (!*diff || *diff == 1)
-    {
-      return log;
-    }
-  else				/* see if val is one less than a power */
-    {				/* of 2 */
-      int alt_log = floor_log2 (val + 1);
-      if (!((val + 1) - (1 << alt_log)))
-	{
-	  *diff = -1;
-	  return alt_log;
-	}
-    }
-  return log;
-}
-
-
 /* HP's millicode routines mean something special to the assembler.
    Keep track of which ones we have used.  */
 
@@ -2112,7 +1993,7 @@ static int
 import_milli (code)
      enum millicodes code;
 {
-  char str[sizeof(import_string)];
+  char str[sizeof (import_string)];
   
   if (!imported[(int)code])
     {
@@ -2172,7 +2053,7 @@ div_operand (op, mode)
 }
 
 int
-emit_hpdiv_const(operands, unsignedp)
+emit_hpdiv_const (operands, unsignedp)
      rtx *operands;
      int unsignedp;
 {
@@ -2200,7 +2081,7 @@ emit_hpdiv_const(operands, unsignedp)
 }
 
 char *
-output_div_insn(operands, unsignedp)
+output_div_insn (operands, unsignedp)
      rtx *operands;
      int unsignedp;
 {
@@ -2336,13 +2217,11 @@ secondary_reload_class (class, mode, in)
 
   if (class == FP_REGS || class == SNAKE_FP_REGS || class == HI_SNAKE_FP_REGS)
     {
-      if (regno = -1 || !REGNO_OK_FOR_FP_P (regno))
+      if (regno == -1 || !REGNO_OK_FOR_FP_P (regno))
 	return GENERAL_REGS;
     }
   return NO_REGS;
 }
-
-enum direction {none, upward, downward};
 
 enum direction
 function_arg_padding (mode, type)
@@ -2378,4 +2257,114 @@ use_milli_regs (insn)
 	  reg_mentioned_p (gen_rtx (REG, SImode, 26), insn) ||
 	  reg_mentioned_p (gen_rtx (REG, SImode, 29), insn) ||
 	  reg_mentioned_p (gen_rtx (REG, SImode, 31), insn));
+}
+
+/* Do what is necessary for `va_start'.  The argument is ignored;
+   We look at the current function to determine if stdargs or varargs
+   is used and fill in an initial va_list.  A pointer to this constructor
+   is returned.  */
+
+struct rtx_def *
+hppa_builtin_saveregs (arglist)
+     tree arglist;
+{
+  rtx block, float_addr, offset, float_mem;
+  tree fntype = TREE_TYPE (current_function_decl);
+  int argadj = ((!(TYPE_ARG_TYPES (fntype) != 0
+		   && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (fntype)))
+		       != void_type_node)))
+		? UNITS_PER_WORD : 0);
+
+  if (argadj)
+    offset = plus_constant (current_function_arg_offset_rtx, argadj);
+  else
+    offset = current_function_arg_offset_rtx;
+  /* Allocate the va_list structure. */
+  block = assign_stack_local (BLKmode, 4 * UNITS_PER_WORD, BITS_PER_UNIT);
+  RTX_UNCHANGING_P (block) = 1;
+  RTX_UNCHANGING_P (XEXP (block, 0)) = 1;
+  /* 
+   * Store a pointer to where arguments should begin on the stack in 
+   * __va_stack_start. 
+   */
+  emit_move_insn (change_address (block, Pmode, XEXP (block, 0)),
+		  copy_to_reg
+		  (plus_constant (current_function_internal_arg_pointer,
+				  -16)));
+  /* Store where to start getting args from in the __va_int member. */
+  emit_move_insn (change_address (block, Pmode,
+				  plus_constant (XEXP (block, 0),
+						 UNITS_PER_WORD)),
+		  copy_to_reg (expand_binop (Pmode, add_optab,
+					     current_function_internal_arg_pointer,
+					     offset,
+					     0, 0, OPTAB_LIB_WIDEN)));
+  /* Store general registers on the stack. */
+  move_block_from_reg (23,
+		       gen_rtx (MEM, BLKmode,
+				plus_constant
+				(current_function_internal_arg_pointer, -16)),
+		       4); 
+  /* 
+   * Allocate space for the float args, and store it in the 
+   * __va_float member.
+   */
+  float_addr = copy_to_reg (XEXP (float_mem =
+				  assign_stack_local (BLKmode,
+						      4 * UNITS_PER_WORD, -1),
+				  0));
+  MEM_IN_STRUCT_P (float_mem) = 1;
+  RTX_UNCHANGING_P (float_mem) = 1;
+  RTX_UNCHANGING_P (XEXP (float_mem, 0)) = 1;
+  emit_move_insn (change_address (block, Pmode,
+				  plus_constant (XEXP (block, 0),
+						 2 * UNITS_PER_WORD)),
+		  copy_to_reg (expand_binop (Pmode, add_optab,
+					     float_addr,
+					     plus_constant (offset, 4 *
+							    UNITS_PER_WORD),
+					     0, 0, OPTAB_LIB_WIDEN)));
+  /* Store fp registers. */
+  emit_move_insn (gen_rtx (MEM, SFmode, float_addr),
+		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 60 : 39));
+  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
+						 gen_rtx (CONST_INT,
+							  Pmode, 4))),
+		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 58 : 38));
+  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
+						 gen_rtx (CONST_INT,
+							  Pmode, 8))),
+		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 56 : 37));
+  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
+						 gen_rtx (CONST_INT,
+							  Pmode, 12))),
+		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 54 : 36));
+  /* 
+   * Allocate space for the double args, and store it in the 
+   * __va_double member.
+   */
+  float_addr = copy_to_reg (XEXP (float_mem =
+				  assign_stack_local (BLKmode,
+						      4 * UNITS_PER_WORD, -1),
+				  0));
+  MEM_IN_STRUCT_P (float_mem) = 1;
+  RTX_UNCHANGING_P (float_mem) = 1;
+  RTX_UNCHANGING_P (XEXP (float_mem, 0)) = 1;
+  emit_move_insn (change_address (block, Pmode,
+				  plus_constant (XEXP (block, 0),
+						 3 * UNITS_PER_WORD)),
+		  copy_to_reg (expand_binop (Pmode, add_optab,
+					     float_addr,
+					     plus_constant (offset, 4 *
+							    UNITS_PER_WORD),
+					     0, 0, OPTAB_LIB_WIDEN)));
+  /* Store fp registers as doubles. */
+
+  emit_move_insn (gen_rtx (MEM, DFmode, float_addr),
+		  (gen_rtx (REG, DFmode, TARGET_SNAKE ? 60 : 39)));
+  emit_move_insn (gen_rtx (MEM, DFmode, gen_rtx (PLUS, Pmode, float_addr,
+						 gen_rtx (CONST_INT,
+							  Pmode, 8))),
+		  gen_rtx (REG, DFmode, TARGET_SNAKE ? 56 : 37));
+  return copy_to_reg (XEXP (block, 0));
 }

@@ -16,6 +16,7 @@
 @end ifclear
 
 @syncodeindex fn cp
+@syncodeindex vr cp
 
 @ifinfo
 This file documents the use
@@ -126,7 +127,7 @@ It corresponds to GNU CC version 2.0.
 * Passes::          Order of passes, what they do, and what each file is for.
 * RTL::             The intermediate representation that most passes work on.
 * Machine Desc::    How to write machine description instruction patterns.
-* Machine Macros::  How to write the machine description C macros.
+* Target Macros::   How to write the machine description C macros.
 * Config::          Writing the @file{xm-@var{machine}.h} file.
 * Index::	    Index of concepts and symbol names.
 @end menu
@@ -550,7 +551,7 @@ of GNU CC.
 @itemize @bullet
 @item
 The idea of using RTL and some of the optimization ideas came from the
-U. of Arizona Portable Optimizer, written by Jack Davidson and
+program PO written at the University of Arizona by Jack Davidson and
 Christopher Fraser.  See ``Register Allocation and Exhaustive Peephole
 Optimization'', Software Practice and Experience 14 (9), Sept. 1984,
 857-866.
@@ -661,6 +662,11 @@ Ron Guilmette implemented the protoize and unprotoize tools, the support
 for Dwarf symbolic debugging information, and much of the support for
 System V Release 4.  He has also worked heavily on the Intel 386 and 860
 support.
+
+@item
+Torbjorn Granlund of the Swedish Institute of Computer Science
+implemented multiply-by-constant optimization and better long long
+support, and improved leaf function register allocation.
 @end itemize
 
 @node Boycott, Invoking GCC, Contributors, Top
@@ -672,10 +678,12 @@ Freedom to the users of GNU CC.  It is included here as an expression
 of support for the League on the part of the Free Software Foundation.}
 @end quotation
 
-Apple, Lotus and Xerox are trying to create a new form of
-legal monopoly: a copyright on a class of user interfaces.  These
-monopolies would cause serious problems for users and developers of
-computer software and systems.
+Apple and Lotus are trying to create a new form of legal monopoly: a
+copyright on a class of user interfaces.  These monopolies would cause
+serious problems for users and developers of computer software and
+systems.  Xerox, too, has tried to make a monopoly for itself on window
+systems; their suit against Apple was thrown out on a technicality, but
+Xerox has not said anything to indicate it wouldn't try again.
 
 Until a few years ago, the law seemed clear: no one could restrict
 others from using a user interface; programmers were free to implement
@@ -693,8 +701,8 @@ considered it ``enough'' when they made their decision to do so.  It
 seems they are not satisfied with the opportunity to continue to compete
 in the marketplace---not even with a head start.
 
-If Xerox, Lotus, and Apple are permitted to make law through
-the courts, the precedent will hobble the software industry:
+If companies like Xerox, Lotus, and Apple are permitted to make law
+through the courts, the precedent will hobble the software industry:
 
 @itemize @bullet
 @item
@@ -819,9 +827,6 @@ Here is the procedure for installing GNU CC on a Unix system.
 * Sun Install::   See below for installation on the Sun.
 * 3B1 Install::   See below for installation on the 3B1.
 * VMS Install::   See below for installation on VMS.
-* SCO Install::   See below for installation on SCO System V 3.2.
-                    (This may also be a start on solving 
-                     the problems of installation on Xenix.)
 * Unos Install::  See below for installation on Unos (from CRDS).
 @end menu
 @iftex
@@ -834,7 +839,7 @@ compile in the same directory that contains the source files.
 @enumerate
 @item
 If you have built GNU CC previously in the same directory for a
-different target machine, do @samp{make cleanconfig} to delete all files
+different target machine, do @samp{make distclean} to delete all files
 that might be invalid.
 
 @item
@@ -871,9 +876,9 @@ can figure out which dashes serve which purpose.)  For example,
 You can also replace parts of the configuration by nicknames or aliases.
 For example, @samp{sun3} stands for @samp{m68k-sun}, so
 @samp{sun3-sunos4.1} is another way to specify a Sun 3.  You can also
-use simply @samp{sun3-sunos}, since the version of Sunos is assumed by
+use simply @samp{sun3-sunos}, since the version of SunOS is assumed by
 default to be version 4.  @samp{sun3-bsd} also works, since
-@file{configure} knows that the only BSD variant on a Sun 3 is Sunos.
+@file{configure} knows that the only BSD variant on a Sun 3 is SunOS.
 
 You can specify a version number after any of the system types, and some
 of the CPU types.  In most cases, the version is irrelevant, and will be
@@ -887,9 +892,6 @@ a29k, arm, c@var{n}, hppa, i386,
 i860, m68000, m68k, m88k, mips,
 ns32k, romp, rs6000, sparc, vax.
 @end quotation
-
-Note that the type hppa currently works only with Berkeley systems,
-not with HP/UX.
 
 Here are the recognized company names.  As you can see, customary
 abbreviations are used rather than the longer official names.
@@ -912,7 +914,7 @@ Here is a list of system types:
 
 @quotation
 bsd, sysv, mach, minix, genix,
-ultrix, vms, sco, esix, isc,
+ultrix, vms, sco, isc,
 aix, sunos, hpux, unos,
 luna, dgux, newsos, osfrose, osf,
 dynix, aos, ctix.
@@ -922,12 +924,24 @@ dynix, aos, ctix.
 You can omit the system type; then @file{configure} guesses the
 operating system from the CPU and company.
 
-Often a particular model of machine has a name.  Many of these names are
-recognized as an alias for a CPU/company combination.  The alias
-@samp{sun3}, mentioned above, is an example of this: it stands for
-@samp{m68k-sun}.  Sometimes we accept a company name as a machine name,
-when the name is popularly used for a particular machine.  Here is a
-table of the known machine names:
+You can add a version number to the system type; this may or may not
+make a difference.  For example, you can write @samp{bsd4.3} or
+@samp{bsd4.4} to distinguish versions of BSD.  In practice, the version
+number is most needed for @samp{sysv3} and @samp{sysv4}, which are often
+treated differently.
+
+If you specify an impossible combination such as @samp{i860-dg-vms},
+then you may get an error message from @file{configure}, or it may
+ignore part of the information and do the best it can with the rest.
+@file{configure} always prints the canonical name for the alternative
+that it used.
+
+Often a particular model of machine has a name.  Many machine names are
+recognized as aliases for CPU/company combinations.  Thus, the machine
+name @samp{sun3}, mentioned above, is an alias for @samp{m68k-sun}.
+Sometimes we accept a company name as a machine name, when the name is
+popularly used for a particular machine.  Here is a table of the known
+machine names:
 
 @quotation
 3300, 3b1, 7300, altos3068, altos,
@@ -944,11 +958,9 @@ rtpc, sun2, sun386i, sun386, sun3,
 sun4, symmetry, tower-32, tower.
 @end quotation 
 
-If you specify an impossible combination such as @samp{i860-dg-vms},
-then you may get an error message from @file{configure}, or it may
-ignore part of the information and do the best it can with the rest.
-@file{configure} always prints the canonical name for the alternative
-that it used.
+@noindent
+Remember that a machine name specifies both the cpu type and the company
+name.
 
 On certain systems, you must specify whether you want GNU CC to work with
 the usual compilation tools or with the GNU compilation tools (including
@@ -974,7 +986,8 @@ Thus, if you specify @samp{m68k-local}, then the files used are
 @file{m68k-local.md}, @file{m68k-local.h}, @file{m68k-local.c},
 @file{xm-m68k-local.h}, @file{t-m68k-local}, and @file{x-m68k-local}.
 
-Here is a list of configurations that have special treatment:
+Here is a list of configurations that have special treatment or special
+things you must know:
 
 @table @samp
 @ignore
@@ -1001,6 +1014,15 @@ Note also that Alliant's version of DBX does not manage to work with the
 output from GNU CC.
 @end ignore
 
+@item hppa-hp-hpux
+HP precision architecture, running HP-UX.  @samp{-g} does not work
+on this configuration, since the system uses a peculiar debugging
+format which GNU CC does not know about.
+
+@item i386-*-sco
+Compilation with RCC is recommended, but it produces lots of spurious
+warnings.  They do not necessarily indicate that anything is wrong.
+
 @item m68000-att
 AT&T 3b1, a.k.a. 7300 PC.  Special procedures are needed to compile GNU
 CC with this machine's standard C compiler, due to bugs in that
@@ -1018,11 +1040,13 @@ COFF-encapsulation.  Also, you must fix a kernel bug.  Details in the
 file @file{ALTOS-README}.
 
 @item m68k-hp-hpux
-HP 9000 series 200 or 300 running HPUX.  GNU CC does not support the
-special symbol table used by HP's debugger, but you can debug programs
-with GDB if you specify @samp{--gas} to use the GNU tools instead.  In
-order to use the GNU tools, you must install a library conversion
-program called @code{hpxt}.
+HP 9000 series 300 or 400 running HP-UX.  HP-UX version 8.0 has a bug in
+the assembler that prevents compilation of GNU CC.  To fix it, get patch
+PHCO_0800 from HP.
+
+In addition, @samp{--gas} does not currently work with this
+configuration.  Changes in HP-UX have broken the library conversion tool
+and the linker.
 
 @item m68k-sun
 Sun 3.  We do not provide a configuration file to use the Sun FPA by
@@ -1038,6 +1062,13 @@ environment.  This is done by issuing this command:
 eval `sde-target m88kbcs`
 @end example
 
+@item mips-mips-bsd
+MIPS machines running the MIPS operating system in BSD mode.  It's
+possible that some old versions of the system lack the functions
+@code{memcpy}, @code{memcmp}, and @code{memset}.  If your system lacks
+these, you must remove or undo the definition of
+@code{TARGET_MEM_FUNCTIONS} in @file{mips-bsd.h}.
+
 @item ns32k-encore
 Encore ns32000 system.  Encore systems are supported only under BSD.
 
@@ -1051,10 +1082,9 @@ UTEK ns32000 system (``merlin'').  The C compiler that comes with this
 system cannot compile GNU CC; contact @samp{tektronix!reed!mason} to get
 binaries of GNU CC for bootstrapping.
 
-@item rs6000-ibm
-IBM PowerStation/6000 machines.  Due to the nonstandard debugging
-information required for this machine, @samp{-g} is not available in
-this configuration.
+@item pyramid
+The Pyramid C compler is reported to be unable to compile GNU CC.
+You must use an older version of GNU CC for bootstrapping.
 
 @item vax-dec-ultrix
 Don't try compiling with Vax C (@code{vcc}).  It produces incorrect code
@@ -1231,7 +1261,8 @@ This will mention any object files that differ between stage 2 and stage
 compiler has compiled GNU CC incorrectly, and is therefore a potentially
 serious bug which you should investigate and report (@pxref{Bugs}).
 
-On systems that use COFF object files, bytes 5 to 8 will always be
+On systems that use COFF object files, or an object file format that is
+a superset of COFF (such as ECOFF or XCOFF), bytes 5 to 8 will always be
 different, since it is a timestamp.  On these systems, you can do the
 comparison as follows (in Bourne shell):
 
@@ -1243,15 +1274,8 @@ cmp foo1 foo2 || echo $file
 done
 @end example
 
-On MIPS machines, you need to use the shell script @file{ecoff-cmp}
-to compare two object files if you have built the compiler with
-the @samp{-mno-mips-tfile} option.  Thus, do this:
-
-@example
-for file in *.o; do
-ecoff-cmp $file stage2/$file
-done
-@end example
+If you have built the compiler with the @samp{-mno-mips-tfile} option on
+MIPS machines, you will not be able to compare the files.
 
 @item
 Install the compiler driver, the compiler's passes and run-time support.
@@ -1267,7 +1291,7 @@ that are being installed.)
 
 This copies the files @file{cc1}, @file{cpp} and @file{libgcc.a} to files
 @file{cc1}, @file{cpp} and @file{libgcc.a} in directory
-@file{/usr/local/lib/gcc/@var{target}/@var{version}}, which is where the
+@file{/usr/local/lib/gcc-lib/@var{target}/@var{version}}, which is where the
 compiler driver program looks for them.  Here @var{target} is the target
 machine type specified when you ran @file{configure}, and @var{version}
 is the version number of GNU CC.  This naming scheme permits various
@@ -1278,10 +1302,15 @@ It also copies the driver program @file{gcc} into the directory
 paths.@refill
 
 @cindex @code{alloca} and SunOs
-@strong{Warning: there is a bug in @code{alloca} in the Sun library.
-To avoid this bug, install the binaries of GNU CC that were compiled
-by GNU CC.  They use @code{alloca} as a built-in function and never
-the one in the library.}
+@strong{Warning: there is a bug in @code{alloca} in the Sun library.  To
+avoid this bug, be sure to install the executables of GNU CC that were
+compiled by GNU CC.  (That is, the executables from stage 2 or 3, not
+stage 1.)  They use @code{alloca} as a built-in function and never the
+one in the library.}
+
+(It is usually better to install GNU CC executables from stage 2 or 3,
+since they usually run faster than the ones compiled with some other
+compiler.)
 
 @item
 If you will be using C++ or Objective C, and your operating system does
@@ -1372,7 +1401,16 @@ feature.  (GNU Make supports it, as do Make versions on most BSD
 systems.)
 
 @item
-Go to that directory before running @file{configure}:
+If you have ever run @file{configure} in the source directory, you must undo
+the configuration.  Do this by running:
+
+@example
+make cleanconfig
+@end example
+
+@item
+Go to the directory in which you want to build the compiler before
+running @file{configure}:
 
 @example
 mkdir gcc-sun3
@@ -1433,7 +1471,7 @@ it by using the following command to compile GNU CC with Sun CC:
 make CC="TERMCAP=x OBJS=x LIBFUNCS=x STAGESTUFF=x cc"
 @end example
 
-@node 3b1 Install, SCO Install, Sun Install, Installation
+@node 3b1 Install, Unos Install, Sun Install, Installation
 @section Installing GNU CC on the 3b1
 @cindex 3b1 installation
 @cindex installing GNU CC on the 3b1
@@ -1475,37 +1513,7 @@ Now you can compile GNU CC with itself and install it in the normal
 fashion.
 @end enumerate
 
-@node SCO Install, Unos Install, 3B1 Install, Installation
-@section Installing GNU CC on SCO System V 3.2
-@cindex SCO installation
-@cindex installation on SCO systems
-
-The compiler that comes with this system does not work properly with
-@samp{-O}.  Therefore, you should redefine the Make variable
-@code{CCLIBFLAGS} not to use @samp{-O}.
-
-In addition, the compiler produces incorrect output when compiling parts
-of GNU CC; the resulting executable @file{cc1} does not work properly
-when it is used with @samp{-O}.
-
-Therefore, what you must do after building the first stage
-is use GNU CC to compile itself without optimization.  Here is how:
-
-@example
-make -k cc1 CC="./gcc -B./"
-@end example
-
-You can think of this as ``stage 1.1'' of the installation process.
-However, using this command has the effect of discarding the faulty
-stage 1 executable for @file{cc1} and replacing it with stage 1.1.  You
-can then proceed with @samp{make stage1} and the rest of installation.
-
-On Xenix, the same thing is necessary; in addition, you may have to
-remove @samp{-g} from the options used with @code{cc}, and you may have
-to simplify complicated statements in the sources of GNU CC to get them
-to compile.
-
-@node Unos Install, VMS Install, SCO Install, Installation
+@node Unos Install, VMS Install, 3b1 Install, Installation
 @section Installing GNU CC on Unos
 @cindex Unos installation
 @cindex installing GNU CC on Unos
@@ -1561,8 +1569,10 @@ to point to the directories where the GNU CC executables
 kept.  This should be done with the commands:@refill
 
 @smallexample
-$ assign /super /system disk:[gcc.] gnu_cc
-$ assign /super /system disk:[gcc.include.] gnu_cc_include
+$ assign /system /translation=concealed -
+  disk:[gcc.] gnu_cc
+$ assign /system /translation=concealed -
+  disk:[gcc.include.] gnu_cc_include
 @end smallexample
 
 @noindent
@@ -1575,7 +1585,9 @@ the machine is rebooted.  You may, if you choose, do this via the
 Install the @file{GCC} command with the command line:
 
 @smallexample
-$ set command /table=sys$library:dcltables gnu_cc:[000000]gcc
+$ set command /table=sys$common:[syslib]dcltables -
+  /output=sys$common:[syslib]dcltables gnu_cc:[000000]gcc
+$ install replace sys$common:[syslib]dcltables
 @end smallexample
 
 @item
@@ -1601,28 +1613,18 @@ directory where the preprocessor will search for the C++ header files.
 This can be done with the command:@refill
 
 @smallexample
-$ assign /super /system disk:[gcc.gxx_include.] gnu_gxx_include
+$ assign /system /translation=concealed -
+  disk:[gcc.gxx_include.] gnu_gxx_include
 @end smallexample
 
 @noindent
 with the appropriate disk and directory name.  If you are going to be
-using libg++, you should place the libg++ header files in the directory
-that this logical name points to.
+using libg++, this is where the libg++ install procedure will install
+the libg++ header files.
 
 @item
 Obtain the file @file{gcc-cc1plus.exe}, and place this in the same
 directory that @file{gcc-cc1.exe} is kept.
-
-@item 
-You will need several library functions which are used to call the
-constructors and destructors for global objects.  These functions are
-part of the libg++ distribution, and you will automatically get them if
-you install libg++.
-
-If you are not planning to install libg++, you will need to obtain the
-files @file{gxx-startup-1.mar} and @file{gstart.cc} from the libg++
-distribution, compile them, and supply them to the linker whenever you
-link a C++ program.
 
 The GNU C++ compiler can be invoked with a command like @samp{gcc /plus
 /verbose file.cc}, which is equivalent to the command @samp{g++ -v -c
@@ -1653,7 +1655,8 @@ to the directories where the Bison executable is kept.  This should be
 done with the command:@refill
 
 @smallexample
-$ assign /super /system disk:[bison.] gnu_bison
+$ assign /system /translation=concealed -
+  disk:[bison.] gnu_bison
 @end smallexample
 
 You may, if you choose, use the @file{INSTALL_BISON.COM} script in the
@@ -1663,7 +1666,10 @@ You may, if you choose, use the @file{INSTALL_BISON.COM} script in the
 Install the @samp{BISON} command with the command line:@refill
 
 @smallexample
-$ set command /table=sys$library:dcltables gnu_bison:[000000]bison
+$ set command /table=sys$common:[syslib]dcltables -
+  /output=sys$common:[syslib]dcltables -
+  gnu_bison:[000000]bison
+$ install replace sys$common:[syslib]dcltables
 @end smallexample
 
 @item
@@ -1672,6 +1678,30 @@ submit the file @file{make-gcc.com} to a batch queue).  If you wish to
 build the GNU C++ compiler as well as the GNU CC compiler, you must
 first edit @file{make-gcc.com} and follow the instructions that appear
 in the comments.@refill
+
+@item
+In order to use GCC, you need a library of functions which GCC compiled code
+will call to perform certain tasks, and these functions are defined in the
+file @file{libgcc2.c}.  To compile this you should use the command procedure
+@file{make-l2.com}, which will generate the library @file{libgcc2.olb}.
+@file{libgcc2.olb} should be built using the compiler built from
+the same distribution that @file{libgcc2.c} came from, and
+@file{make-gcc.com} will automatically do all of this for you.
+
+To install the library, use the following commands:@refill
+
+@smallexample
+$ lib gnu_cc:[000000]gcclib/delete=(new,eprintf)
+$ lib libgcc2/extract=*/output=libgcc2.obj
+$ lib gnu_cc:[000000]gcclib libgcc2.obj
+@end smallexample
+
+The first command simply removes old modules that will be replaced with modules
+from libgcc2.  If the VMS librarian complains about those modules not being
+present, simply ignore the message and continue on with the next command.
+
+Whenever you update the compiler on your system, you should also update the
+library with the above procedure.
 
 @strong{If you are building GNU CC with a previous version of GNU CC,
 you also should check to see that you have the newest version of the
@@ -1731,6 +1761,27 @@ or using GNU CC.
 @item
 On certain systems, defining certain environment variables such as
 @code{CC} can interfere with the functioning of @code{make}.
+
+@item
+If you encounter seemingly strange errors when trying to build the
+compiler in a directory other than the source directory, make sure you
+have done all the necessary preparations.  @xref{Other Dir}.
+
+@item
+In previous versions of GNU CC, the @code{gcc} driver program looked for
+@code{as} and @code{ld} in various places such as files beginning with
+@file{/usr/local/lib/gcc-}.  GNU CC version 2 looks for them in the
+directory @file{/usr/local/lib/gcc/@var{target}/@var{version}}.
+
+Thus, to use a version of @code{as} or @code{ld} that is not the system
+default, for example @code{gas} or GNU @code{ld}, you must put them in
+that directory (or make links to them from that directory).
+
+@item
+Some commands executed when making the compiler may fail (return a
+non-zero status) and be ignored by @code{make}.  These failes, which are
+often due to files that were not found, are expected, and can safely be
+ignored.
 
 @item
 Cross compilation can run into trouble for certain machines because
@@ -1815,6 +1866,20 @@ being incompatible with ANSI C just to avoid an error for the example
 shown above.
 
 @item
+Programs that use preprocessor directives in the middle of macro
+arguments do not work with GNU CC.  For example, a program like this
+will not work:
+
+@example
+foobar (
+#define luser
+        hack)
+@end example
+
+ANSI C does not permit such a construct, and it does not seem worth the
+trouble of implementing, given that it is not required.
+
+@item
 Certain local variables aren't recognized by debuggers when you compile
 with optimization.
 
@@ -1826,6 +1891,17 @@ variable when it writes debugging information.
 
 You have to expect a certain amount of disagreement between the
 executable and your source code, when you use optimization.
+
+@item
+@code{-2147483648} is positive.
+
+This is because 2147483648 cannot fit in the type @code{int}, so
+(following the ANSI C rules) its data type is @code{unsigned long int}.
+Negating this value yields 2147483648 again.
+
+@item
+The GNU assembler (GAS) does not support PIC.  To generate PIC code, you
+must use some other assembler, such as @file{/bin/as}.
 
 @ignore
 @cindex @code{vfork}, for the Sun-4
@@ -1843,19 +1919,25 @@ the problem goes away, or by not declaring them @code{register} and not
 using @samp{-O} for those source files.
 @end ignore
 
-@item
-@code{-2147483648} is positive.
-
-This is because 2147483648 cannot fit in the type @code{int}, so
-(following the ANSI C rules) its data type is @code{unsigned long int}.
-Negating this value yields 2147483648 again.
-
 @cindex @code{genflags}, crash on Sun 4
 @item
 Sometimes on a Sun 4 you may observe a crash in the program
-@code{genflags} while building GCC.  This is said to be due to a bug in
-@code{sh}.  You can probably get around it by running @code{genflags}
-manually and then retrying the @code{make}.
+@code{genflags} or @code{genoutput} while building GCC.  This is said to
+be due to a bug in @code{sh}.  You can probably get around it by running
+@code{genflags} or @code{genoutput} manually and then retrying the
+@code{make}.
+
+@item
+On a Sun, linking using GNU CC fails to find a shared library and
+reports that the library doesn't exist at all.
+
+This happens if you are using the GNU linker, because it does only
+static linking and looks only for unshared libraries.  If you have a
+shared library with no unshared counterpart, the GNU linker won't find
+anything.
+
+We hope to make a linker which supports Sun shared libraries, but please
+don't ask when it will be finished---we don't know.
 
 @item 
 On some versions of Ultrix, the system supplied compiler cannot compile
@@ -1866,6 +1948,56 @@ statement.  You can work around this problem by compiling with GNU CC.
 On some BSD systems including some versions of Ultrix, use of profiling
 causes static variable destructors (currently used only in C++) not to
 be run.
+
+@item
+On HP 9000 series 300 or 400 running HP-UX release 8.0, there is a bug
+in the assembler that must be fixed before GNU CC can be built.  This
+bug manifests itself during the first stage of compilation, while
+building @file{libgcc2.a}:
+
+@example
+_floatdisf
+cc1: warning: `-g' option not supported on this version of GCC
+cc1: warning: `-g1' option not supported on this version of GCC
+./gcc: Internal compiler error: program as got fatal signal 11
+@end example
+
+A patched version of the assembler is available by anonymous ftp from
+@code{altdorf.ai.mit.edu} as the file
+@file{archive/cph/hpux-8.0-assembler}.  If you have HP software support,
+the patch can also be obtained directly from HP, as described in the
+following note:
+
+@quotation
+This is the patched assembler, to patch SR#1653-010439, where the
+assembler aborts on floating point constants.
+
+The bug is not really in the assembler, but in the shared library
+version of the function ``cvtnum(3c)''.  The bug on ``cvtnum(3c)'' is
+SR#4701-078451.  Anyway, the attached assembler uses the archive
+library version of ``cvtnum(3c)'' and thus does not exhibit the bug.
+@end quotation
+
+This patch is also known as PHCO_0800.
+
+@item
+The current version of the assembler (@file{/bin/as}) for the RS/6000
+has certain problems that prevent the @samp{-g} option in GCC from
+working.
+
+IBM has produced a fixed version of the assembler.  The replacement
+assembler is not a standard component of either AIX 3.1.5 or AIX 3.2,
+but is expected to become standard in a future distribution.  This
+assembler is available from IBM as APAR IX22829.  See the file
+@file{README.RS6000} for more details on how to obtain this assembler.
+
+@item
+Sun forgot to include a static version of @file{libdl.a} with some
+versions of SunOS (mainly 4.1).  This results in undefined symbols when
+linking static binaries (that is, if you use @samp{-static}).  If you
+see undefined symbols @code{_dlclose}, @code{_dlsym} or @code{_dlopen}
+when linking, compile and link against the file
+@file{mit/util/misc/dlsym.c} from the MIT version of X windows.
 
 @item
 On the IBM RS/6000, compiling code of the form
@@ -1883,6 +2015,11 @@ will cause the linker to report an undefined symbol @code{foo}.
 Although this behavior differs from most other systems, it is not a
 bug because redefining an @code{extern} variable as @code{static}
 is undefined in ANSI C.
+
+@item
+On VMS, GAS versions 1.38.1 and earlier may cause spurious warning
+messages from the linker.  These warning messages complain of mismatched
+psect attributes.  You can ignore them.  @xref{VMS Install}.
 @end itemize
 
 For additional common problems, see @ref{Incompatibilities}.
@@ -2533,7 +2670,7 @@ old-fashioned definition and no prototype.
 Such a feature would work only occasionally---only for calls that appear
 in the same file as the called function, following the definition.  The
 only way to check all calls reliably is to add a prototype for the
-function.  But adding a prototype will eliminate the need for this
+function.  But adding a prototype eliminates the motivation for this
 feature.  So the feature is not worthwhile.
 
 @item 
@@ -2547,6 +2684,15 @@ Warning about assigning a signed value to an unsigned variable.
 
 Such assignments must be very common; warning about them would cause
 more annoyance than good.
+
+@item
+Warning when a non-void function value is ignored.
+
+Coming as I do from a Lisp background, I balk at the idea that there is
+something dangerous about discarding a value.  There are functions that
+return values which some callers may find useful; it makes no sense to
+clutter the program with a cast to @code{void} whenever the value isn't
+useful.
 
 @item
 Making bitfields unsigned by default on particular machines where ``the
@@ -2572,8 +2718,8 @@ a mistake, however, to say anything about this issue in an ABI.  This is
 because the handling of plain bitfields distinguishes two dialects of C.
 Both dialects are meaningful on every type of machine.  Whether a
 particular object file was compiled using signed bitfields or unsigned
-is of no concern to functions in any other object file, even if they
-access the same bitfields in the same data structures.
+is of no concern to other object files, even if they access the same
+bitfields in the same data structures.
 
 A given program is written in one or the other of these two dialects.
 The program stands a chance to work on most any machine if it is
@@ -2595,8 +2741,14 @@ from this kind of compatibility.
 This is why GNU CC does and will treat plain bitfields in the same
 fashion on all types of machines (by default).
 
+There are some arguments for making bitfields unsigned by default on all
+machines.  If, for example, this becomes a universal de facto standard,
+it would make sense for GNU CC to go along with it.  This is something
+to be considered in the future.
+
 (Of course, users strongly concerned about portability should indicate
-explicitly in each bitfield whether it is signed or not.)
+explicitly in each bitfield whether it is signed or not.  In this way,
+they write programs which have the same meaning in both C dialects.)
 
 @item
 Undefining @code{__STDC__} when @samp{-ansi} is not used.
@@ -2622,10 +2774,10 @@ library.
 Sometimes people say that defining @code{__STDC__} in a compiler that
 does not completely conform to the ANSI C standard somehow violates the
 standard.  This is illogical.  The standard is a standard for compilers
-that are supposed to conform.  It says nothing about what any other
-compilers should do.  Whatever the ANSI C standard says is relevant to
-the design of plain @samp{gcc} without @samp{-ansi} only for pragmatic
-reasons, not as a requirement.
+that claim to support ANSI C, such as @samp{gcc -ansi}---not for other
+compilers such as plain @samp{gcc}.  Whatever the ANSI C standard says
+is relevant to the design of plain @samp{gcc} without @samp{-ansi} only
+for pragmatic reasons, not as a requirement.
 
 @item
 Undefining @code{__STDC__} in C++.
@@ -2779,19 +2931,29 @@ feature in a fairly natural way:
 
 @smallexample
 #ifdef __GNUC__
-#define GLOBALREF(NAME) \
-        NAME asm("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME  )
-#define GLOBALDEF(NAME,VALUE) \
-        NAME asm("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME  ) = VALUE
-#define GLOBALVALUEREF(NAME) \
-  const NAME [1] asm("_$$PsectAttributes_GLOBALVALUE$$" #NAME  )
-#define GLOBALVALUEDEF(NAME,VALUE) \
-  const NAME [1] asm("_$$PsectAttributes_GLOBALVALUE$$" #NAME  ) = @{VALUE@}
+#define GLOBALREF(TYPE,NAME)                      \
+  TYPE NAME                                       \
+  asm ("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME)
+#define GLOBALDEF(TYPE,NAME,VALUE)                \
+  TYPE NAME                                       \
+  asm ("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME) \
+    = VALUE
+#define GLOBALVALUEREF(TYPE,NAME)                 \
+  const TYPE NAME[1]                              \     
+  asm ("_$$PsectAttributes_GLOBALVALUE$$" #NAME)
+#define GLOBALVALUEDEF(TYPE,NAME,VALUE)           \
+  const TYPE NAME[1]                              \
+  asm ("_$$PsectAttributes_GLOBALVALUE$$" #NAME)  \
+    = @{VALUE@}
 #else
-#define GLOBALREF(NAME) globalref NAME
-#define GLOBALDEF(NAME,VALUE) globaldef NAME = VALUE
-#define GLOBALVALUEDEF(NAME,VALUE) globalvalue NAME = VALUE
-#define GLOBALVALUEREF(NAME) globalvalue NAME
+#define GLOBALREF(TYPE,NAME) \
+  globalref TYPE NAME
+#define GLOBALDEF(TYPE,NAME,VALUE) \
+  globaldef TYPE NAME = VALUE
+#define GLOBALVALUEDEF(TYPE,NAME,VALUE) \
+  globalvalue TYPE NAME = VALUE
+#define GLOBALVALUEREF(TYPE,NAME) \
+  globalvalue TYPE NAME
 #endif
 @end smallexample
 
@@ -2803,8 +2965,8 @@ distribution in a header file @file{GNU_HACKS.H}.  An example of the
 usage is:
 
 @example
-int GLOBALREF (ijk);
-int GLOBALDEF (jkl, 0);
+GLOBALREF (int, ijk);
+GLOBALDEF (int, jkl, 0);
 @end example
 
 The macros @code{GLOBALREF} and @code{GLOBALDEF} cannot be used
@@ -2815,7 +2977,7 @@ array type, like this:
 
 @example
 typedef int intvector[10];
-intvector GLOBALREF (foo);
+GLOBALREF (intvector, foo);
 @end example
 
 Array and structure initializers will also break the macros; you can
@@ -2831,7 +2993,7 @@ A shortcoming of this implementation is that a variable declared with
 example, the declaration:
 
 @example
-int GLOBALVALUEREF(ijk);
+GLOBALVALUEREF(int, ijk);
 @end example
 
 @noindent
@@ -2850,8 +3012,8 @@ example; it takes advantage of the ANSI C feature allowing macros that
 expand to use the same name as the macro itself.
 
 @example
-int GLOBALVALUEREF (ss$_normal);
-int GLOBALVALUEDEF (xyzzy,123);
+GLOBALVALUEREF (int, ss$_normal);
+GLOBALVALUEDEF (int, xyzzy,123);
 #ifdef __GNUC__
 #define ss$_normal ((int) ss$_normal)
 #define xyzzy ((int) xyzzy)
@@ -2865,10 +3027,10 @@ enumeration values.  An example of this would be:
 
 @example
 #ifdef __GNUC__
-int GLOBALDEF (color, 0);
-int GLOBALVALUEDEF (RED, 0);
-int GLOBALVALUEDEF (BLUE, 1);
-int GLOBALVALUEDEF (GREEN, 3);
+GLOBALDEF (int, color, 0);
+GLOBALVALUEDEF (int, RED, 0);
+GLOBALVALUEDEF (int, BLUE, 1);
+GLOBALVALUEDEF (int, GREEN, 3);
 #else
 enum globaldef color @{RED, BLUE, GREEN = 3@};
 #endif
@@ -3003,7 +3165,7 @@ affect only the target machines that need them.
 
 GNU CC is normally configured to use the same function calling convention
 normally in use on the target system.  This is done with the
-machine-description macros described (@pxref{Machine Macros}).
+machine-description macros described (@pxref{Target Macros}).
 
 @cindex unions, returning
 @cindex structures, returning
@@ -3539,7 +3701,7 @@ from the machine description by the program @file{genattrtab}.@refill
 @include tm.texi
 
 @ifset INTERNALS
-@node Config, Index, Machine Macros, Top
+@node Config, Index, Target Macros, Top
 @chapter The Configuration File
 @cindex configuration file
 @cindex @file{xm-@var{machine}.h}
@@ -3658,6 +3820,35 @@ efficient built-in @code{alloca} function.
 Define this macro to indicate that the host compiler does not properly
 handle converting a function value to a pointer-to-function when it is
 used in an expression.
+
+@findex HAVE_VPRINTF
+@findex vprintf
+@item HAVE_VPRINTF
+Define this if the library function @code{vprintf} is available on your
+system.
+
+@findex HAVE_PUTENV
+@findex putenv
+@item HAVE_PUTENV
+Define this if the library function @code{putenv} is available on your
+system.
+
+@findex NO_SYS_SIGLIST
+@item NO_SYS_SIGLIST
+Define this if your system @emph{does not} provide the variable
+@code{sys_siglist}.
+
+@vindex sys_siglist
+Some systems do provide this variable, but with a different name such
+as @code{_sys_siglist}.  On these systems, you can define
+@code{sys_siglist} as a macro which expands into the name actually
+provided.
+
+@findex NO_STAB_H
+@item NO_STAB_H
+Define this if your system does not have the include file
+@file{stab.h}.  If @samp{USG} is defined, @samp{NO_STAB_H} is
+assumed.
 @end table
 
 @findex bzero

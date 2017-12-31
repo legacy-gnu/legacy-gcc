@@ -124,6 +124,7 @@ extern int		md_register_operand ();
 extern int		mips_address_cost ();
 extern void		mips_asm_file_end ();
 extern void		mips_asm_file_start ();
+extern void		mips_declare_object ();
 extern int		mips_const_double_ok ();
 extern void		mips_count_memory_refs ();
 extern int		mips_debugger_offset ();
@@ -249,7 +250,6 @@ while (0)
       flag_expensive_optimizations	= TRUE;				\
       flag_rerun_cse_after_loop		= TRUE;				\
       flag_schedule_insns		= TRUE;				\
-      flag_caller_saves			= TRUE;				\
     }									\
 									\
   if (LEVEL >= 3)							\
@@ -269,6 +269,7 @@ while (0)
     || defined(SGI_TARGET) \
     || defined(MIPS_NEWS) \
     || defined(MIPS_SYSV) \
+    || defined(MIPS_SVR4) \
     || defined(MIPS_BSD43)
 
 #ifndef CPP_PREDEFINES
@@ -296,11 +297,16 @@ while (0)
 #endif
 #endif
 
+/* Tell collect what flags to pass to nm.  */
+#ifndef NM_FLAGS
+#define NM_FLAGS "-Bp"
+#endif
+
 
 /* Names to predefine in the preprocessor for this target machine.  */
 
 #ifndef CPP_PREDEFINES
-#define CPP_PREDEFINES "-Dmips -Dunix -Dhost_mips -DMIPSEB -DR3000"
+#define CPP_PREDEFINES "-Dmips -Dunix -Dhost_mips -DMIPSEB -DR3000 -DSYSTYPE_BSD43"
 #endif
 
 /* Extra switches sometimes passed to the assembler.  */
@@ -308,10 +314,11 @@ while (0)
 #ifndef ASM_SPEC
 #define ASM_SPEC "\
 %{!mgas: \
-	%{!mrnames: -nocpp} \
+	%{!mrnames: %{!.s:-nocpp} %{.s: %{cpp} %{nocpp}}} \
 	%{pipe: %e-pipe is not supported.} \
 	%{EB} %{!EB:-EB} \
 	%{EL: %e-EL not supported} \
+	%{mips1} %{mips2} %{mips3} \
 	%{O:-O2} %{O1:-O2} %{O2:-O2} %{O3:-O3} \
 	%{g} %{g0} %{g1} %{g2} %{g3} %{v} %{K}} \
 %{G*}"
@@ -321,7 +328,7 @@ while (0)
 /* Specify to run a post-processor, mips-tfile after the assembler
    has run to stuff the mips debug information into the object file.
    This is needed because the $#!%^ MIPS assembler provides no way
-   of specifing such information in the assembly file.  */
+   of specifying such information in the assembly file.  */
 
 #ifndef ASM_FINAL_SPEC
 #define ASM_FINAL_SPEC "\
@@ -350,6 +357,7 @@ while (0)
 	%{pipe: %e-pipe is not supported.} \
 	%{EB} %{!EB:-EB} \
 	%{EL: %e-EL not supported} \
+	%{mips1} %{mips2} %{mips3} \
 	%{bestGnum}}"
 #endif				/* LINK_SPEC defined */
 
@@ -375,7 +383,6 @@ while (0)
 
 #ifndef CPP_SPEC
 #define CPP_SPEC "\
-%{!ansi:-DSYSTYPE_BSD} -D__SYSTYPE_BSD__ \
 %{.cc:	-D__LANGUAGE_C_PLUS_PLUS -D_LANGUAGE_C_PLUS_PLUS} \
 %{.cxx:	-D__LANGUAGE_C_PLUS_PLUS -D_LANGUAGE_C_PLUS_PLUS} \
 %{.C:	-D__LANGUAGE_C_PLUS_PLUS -D_LANGUAGE_C_PLUS_PLUS} \
@@ -388,13 +395,17 @@ while (0)
    `STANDARD_EXEC_PREFIX'.  */
 
 #ifndef MD_EXEC_PREFIX
-#define MD_EXEC_PREFIX "/usr/lib/cmplrs/cc"
+#define MD_EXEC_PREFIX "/usr/lib/cmplrs/cc/"
+#endif
+
+#ifndef MD_STARTFILE_PREFIX
+#define MD_STARTFILE_PREFIX "/usr/lib/cmplrs/cc/"
 #endif
 
 
 /* Print subsidiary information on the compiler version in use.  */
 
-#define MIPS_VERSION "[AL 1.1, MM 12]"
+#define MIPS_VERSION "[AL 1.1, MM 14]"
 
 #ifndef MACHINE_TYPE
 #define MACHINE_TYPE "BSD Mips"
@@ -415,8 +426,11 @@ while (0)
 #define MIPS_DEBUGGING_INFO		/* MIPS specific debugging info */
 
 #ifndef PREFERRED_DEBUGGING_TYPE	/* assume SDB_DEBUGGING_INFO */
-#define PREFERRED_DEBUGGING_TYPE SDB_DEBUG
+#define PREFERRED_DEBUGGING_TYPE ((len > 1 && !strncmp (str, "ggdb", len)) ? DBX_DEBUG : SDB_DEBUG)
 #endif
+
+/* By default, turn on GDB extensions.  */
+#define DEFAULT_GDB_EXTENSIONS 1
 
 /* If we are passing smuggling stabs through the MIPS ECOFF object
    format, put a comment in front of the .stab<x> operation so
@@ -615,7 +629,7 @@ do {							\
 					/* switches not used yet */
 #define MASK_WC8	0x00000000	/* wchar's are  8 bits, not 32 */
 #define MASK_WC16	0x00000000	/* wchar's are 16 bits, not 32 */
-#define MASK_WC32	0x00000000	/* dummy for consistancy */
+#define MASK_WC32	0x00000000	/* dummy for consistency */
 
 					/* Debug switches, not documented */
 #define MASK_DEBUG	0x40000000	/* Eliminate version # in .s file */
@@ -805,7 +819,7 @@ do {							\
 #define LEAST_SIGNIFICANT_WORD	0
 #endif
 
-/* Number of bits in an addressible storage unit */
+/* Number of bits in an addressable storage unit */
 #define BITS_PER_UNIT 8
 
 /* Width in bits of a "word", which is the contents of a machine register.
@@ -885,9 +899,9 @@ do {							\
 /* Biggest alignment any structure field can require in bits.  */
 #define BIGGEST_FIELD_ALIGNMENT 64
 
-/* Define this if move instructions will actually fail to work
+/* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
-#define STRICT_ALIGNMENT
+#define STRICT_ALIGNMENT 1
 
 /* Define this if you wish to imitate the way many other C compilers
    handle alignment of bitfields and the structures that contain
@@ -1324,8 +1338,8 @@ extern enum reg_class mips_char_to_class[];
    operand as its first argument and the constraint letter as its
    second operand.
 
-   `Q'	is for memory refereces using take more than 1 instruction.
-   `R'	is for memory refereces which take 1 word for the instruction.
+   `Q'	is for memory references which take more than 1 instruction.
+   `R'	is for memory references which take 1 word for the instruction.
    `S'	is for references to extern items which are PIC for OSF/rose.  */
 
 #define EXTRA_CONSTRAINT(OP,CODE)					\
@@ -1947,7 +1961,7 @@ __enable_execute_stack (addr)						\
 	     machine doesn't support it.  This is because the		\
 	     assembler can use $r1 to load just the high 16 bits, add	\
 	     in the register, and fold the low 16 bits into the memory	\
-	     reference, wheras the compiler generates a 4 instruction	\
+	     reference, whereas the compiler generates a 4 instruction	\
 	     sequence.  On the other hand, CSE is not as effective.	\
 	     It would be a win to generate the lui directly, but the	\
 	     MIPS assembler does not have syntax to generate the	\
@@ -2126,8 +2140,16 @@ while (0)
    is done just by pretending it is already truncated.  */
 #define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
-/* By default, allow $ to be part of an identifier.  */
+/* Define this macro to control use of the character `$' in
+   identifier names.  The value should be 0, 1, or 2.  0 means `$'
+   is not allowed by default; 1 means it is allowed by default if
+   `-traditional' is used; 2 means it is allowed by default provided
+   `-ansi' is not used.  1 is the default; there is no need to
+   define this macro in that case. */
+
+#ifndef DOLLARS_IN_IDENTIFIERS
 #define DOLLARS_IN_IDENTIFIERS 1
+#endif
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction
@@ -2173,7 +2195,7 @@ while (0)
   case CONST:								\
     {									\
       extern rtx eliminate_constant_term ();				\
-      int offset = 0;							\
+      rtx offset = const0_rtx;						\
       rtx symref = eliminate_constant_term (X, &offset);		\
 									\
       if (GET_CODE (symref) == LABEL_REF)				\
@@ -2183,7 +2205,7 @@ while (0)
 	return COSTS_N_INSNS (4);					\
 									\
       /* let's be paranoid.... */					\
-      if (offset < -32768 || offset > 32767)				\
+      if (INTVAL (offset) < -32768 || INTVAL (offset) > 32767)		\
 	return COSTS_N_INSNS (2);					\
 									\
       return COSTS_N_INSNS (SYMBOL_REF_FLAG (symref) ? 1 : 2);		\
@@ -2397,7 +2419,7 @@ while (0)
 /* Optionally define this if you have added predicates to
    `MACHINE.c'.  This macro is called within an initializer of an
    array of structures.  The first field in the structure is the
-   name of a predicate and the second field is an arrary of rtl
+   name of a predicate and the second field is an array of rtl
    codes.  For each predicate, list all rtl codes that can be in
    expressions matched by the predicate.  The list should have a
    trailing comma.  Here is an example of two entries in the list
@@ -2866,30 +2888,30 @@ while (0)
    since those bits seem to be unused, and we don't have any method
    of getting the decl nodes from the name.  */
 
-#ifndef COLLECT
 #define ASM_OUTPUT_LABEL(STREAM,NAME)					\
 do {									\
   assemble_name (STREAM, NAME);						\
   fputs (":\n", STREAM);						\
-									\
-  if (TARGET_GP_OPT && mips_section_threshold != 0)			\
-    {									\
-      tree name_tree = get_identifier (NAME);				\
-      TREE_ADDRESSABLE (name_tree) = 1;					\
-    }									\
 } while (0)
 
-#else
-#define ASM_OUTPUT_LABEL(STREAM,NAME)					\
-do {									\
-  fprintf (STREAM, "%s:\n", NAME);					\
-} while (0)
-#endif
+
+/* A C statement (sans semicolon) to output to the stdio stream
+   STREAM any text necessary for declaring the name NAME of an
+   initialized variable which is being defined.  This macro must
+   output the label definition (perhaps using `ASM_OUTPUT_LABEL'). 
+   The argument DECL is the `VAR_DECL' tree node representing the
+   variable.
+
+   If this macro is not defined, then the variable name is defined
+   in the usual manner as a label (by means of `ASM_OUTPUT_LABEL').  */
+
+#define ASM_DECLARE_OBJECT_NAME(STREAM, NAME, DECL)			\
+  mips_declare_object (STREAM, NAME, "", ":\n", 0);
+
 
 /* This is how to output a command to make the user-level label named NAME
    defined for reference from other files.  */
 
-#ifndef COLLECT
 #define ASM_GLOBALIZE_LABEL(STREAM,NAME)				\
   do {									\
     fputs ("\t.globl\t", STREAM);					\
@@ -2897,44 +2919,16 @@ do {									\
     fputs ("\n", STREAM);						\
   } while (0)
 
-#else
-#define ASM_GLOBALIZE_LABEL(STREAM,NAME)				\
-do {									\
-  fprintf (STREAM, "\t.globl\t%s\n", NAME);				\
-} while (0)
-#endif
-
-/* This says how to output an assembler line
-   to define a global common symbol.  */
+/* This says how to define a global common symbol.  */
 
 #define ASM_OUTPUT_COMMON(STREAM, NAME, SIZE, ROUNDED)			\
-do {									\
-  fputs ("\n\t.comm\t", (STREAM));					\
-  assemble_name ((STREAM), (NAME));					\
-  fprintf ((STREAM), ",%u\n", (ROUNDED));				\
-									\
-  if (TARGET_GP_OPT && mips_section_threshold != 0)			\
-    {									\
-      tree name_tree = get_identifier (NAME);				\
-      TREE_ADDRESSABLE (name_tree) = 1;					\
-    }									\
-} while (0)
+  mips_declare_object (STREAM, NAME, "\n\t.comm\t", ",%u\n", (ROUNDED))
 
-/* This says how to output an assembler line
-   to define a local common symbol.  */
+/* This says how to define a local common symbol (ie, not visable to
+   linker).  */
 
 #define ASM_OUTPUT_LOCAL(STREAM, NAME, SIZE, ROUNDED)			\
-do {									\
-  fputs ("\n\t.lcomm\t", (STREAM));					\
-  assemble_name ((STREAM), (NAME));					\
-  fprintf ((STREAM), ",%u\n", (ROUNDED));				\
-									\
-  if (TARGET_GP_OPT && mips_section_threshold != 0)			\
-    {									\
-      tree name_tree = get_identifier (NAME);				\
-      TREE_ADDRESSABLE (name_tree) = 1;					\
-    }									\
-} while (0)
+  mips_declare_object (STREAM, NAME, "\n\t.lcomm\t", ",%u\n", (ROUNDED))
 
 
 /* This says how to output an external.  It would be possible not to
@@ -3005,18 +2999,12 @@ do {									\
 
 /* This is how to output an assembler line defining an `int' constant.  */
 
-#ifndef COLLECT
 #define ASM_OUTPUT_INT(STREAM,VALUE)					\
 do {									\
   fprintf (STREAM, "\t.word\t");					\
   output_addr_const (STREAM, (VALUE));					\
   fprintf (STREAM, "\n");						\
 } while (0)
-
-#else
-#define ASM_OUTPUT_INT(STREAM,VALUE)					\
-  fprintf (STREAM, "\t.word\t%d\n", VALUE)
-#endif
 
 /* Likewise for `char' and `short' constants.  */
 
@@ -3033,29 +3021,6 @@ do {									\
   output_addr_const (STREAM, (VALUE));					\
   fprintf (STREAM, "\n");						\
 }
-
-/* This is how to output an assembler line defining an `int' constant,
-   which is not in tree format (for collect.c).  */
-
-#define ASM_OUTPUT_INT_CONST(STREAM,VALUE) 				\
-  fprintf(STREAM, "\t.word\t%d\n", VALUE)
-
-/* This is how to output an assembler line defining an external/static
-   address which is not in tree format (for collect.c).  */
-
-#define ASM_OUTPUT_PTR_INT_SUM(STREAM, NAME, VALUE)			\
-do {									\
-  fprintf (STREAM, "\t.word\t");					\
-  ASM_OUTPUT_LABELREF (STREAM, NAME);					\
-  fprintf (STREAM, "+%d\n", VALUE);					\
-} while (0)
-
-#define ASM_OUTPUT_LABELREF_AS_INT(STREAM, NAME)			\
-do {									\
-  fprintf (STREAM, "\t.word\t");					\
-  ASM_OUTPUT_LABELREF (STREAM, NAME);					\
-  fprintf (STREAM, "\n");						\
-} while (0)
 
 /* This is how to output an assembler line for a numeric constant byte.  */
 
@@ -3189,19 +3154,19 @@ do {									\
 
 /* Output before read-only data.  */
 
-#define TEXT_SECTION_ASM_OP "\t.text"
+#define TEXT_SECTION_ASM_OP ".text"
 
 /* Output before writable data.  */
 
-#define DATA_SECTION_ASM_OP "\t.data"
+#define DATA_SECTION_ASM_OP ".data"
 
 /* Output before writable  short data.  */
 
-#define SDATA_SECTION_ASM_OP "\t.sdata"
+#define SDATA_SECTION_ASM_OP ".sdata"
 
 /* Output before read-only data.  */
 
-#define RDATA_SECTION_ASM_OP "\t.rdata"
+#define RDATA_SECTION_ASM_OP ".rdata"
 #define READONLY_DATA_SECTION rdata_section
 
 /* What other sections we support other than the normal .data/.text.  */

@@ -449,7 +449,7 @@ If you use @samp{#import} @emph{instead of} @samp{#include}, then you
 don't need the conditionals inside the header file to prevent multiple
 execution of the contents.
 
-@samp{#include} is obsolete because it is not a well-designed feature.
+@samp{#import} is obsolete because it is not a well-designed feature.
 It requires the users of a header file---the applications
 programmers---to know that a certain header file should only be included
 once.  It is much better for the header file's implementor to write the
@@ -476,8 +476,8 @@ the base file.  This is less straightforward.
 For example, suppose an application program uses the system header file
 @file{sys/signal.h}, but the version of @file{/usr/include/sys/signal.h}
 on a particular system doesn't do what the application program expects.
-It would be convenient to define a ``local'' version
-@file{/usr/local/include/sys/signal.h} to override or add to the one
+It might be convenient to define a ``local'' version, perhaps
+@file{/usr/local/include/sys/signal.h}, to override or add to the one
 supplied by the system.
 
 You can do this by using the option @samp{-I.} for compilation, and
@@ -496,19 +496,20 @@ means that any change in where the system's header files are kept
 requires a change somewhere else.
 
 @findex #include_next
-The clean way to solve this problem is to use the directive
+The clean way to solve this problem is to use 
 @samp{#include_next}, which means, ``Include the @emph{next} file with
 this name.''  This command works like @samp{#include} except in
 searching for the specified file: it starts searching the list of header
 file directories @emph{after} the directory in which the current file
 was found.
 
-Thus, suppose the list of directories to search contains
-@file{/usr/local/include} and @file{/usr/include}, and both directories
-contain a file named @file{sys/signal.h}.  Ordinary @samp{#include
-<sys/signal.h>} finds the file under @file{/usr/local/include}.  If that
-file contains @samp{#include_next <sys/signal.h>}, it starts searching
-after that directory, and finds the file in @file{/usr/include}.
+Suppose you specify @samp{-I /usr/local/include}, and the list of
+directories to search also includes @file{/usr/include}; and suppose that
+both directories contain a file named @file{sys/signal.h}.  Ordinary
+@samp{#include <sys/signal.h>} finds the file under
+@file{/usr/local/include}.  If that file contains @samp{#include_next
+<sys/signal.h>}, it starts searching after that directory, and finds the
+file in @file{/usr/include}.
 
 @node Macros, Conditionals, Header Files, Top
 @section Macros
@@ -824,6 +825,13 @@ processing moves to the line after the @samp{#include}).
 
 The expansions of both @samp{__FILE__} and @samp{__LINE__} are altered
 if a @samp{#line} command is used.  @xref{Combining Sources}.
+
+@item __INCLUDE_LEVEL__
+@findex __INCLUDE_LEVEL_
+This macro expands to a decimal integer constant that represents the
+depth of nesting in include files.  The value of this macro is
+incremented on every @samp{#include} command and decremented at every
+end of file.
 
 @item __DATE__
 @findex __DATE__
@@ -1909,7 +1917,7 @@ require a matching @samp{#endif} of its own.  Like @samp{#if}, the
 @samp{#elif} command includes an expression to be tested.
 
 The text following the @samp{#elif} is processed only if the original
-@samp{#if}-condition failed and the @samp{#elif} condition succeeeds.  More
+@samp{#if}-condition failed and the @samp{#elif} condition succeeds.  More
 than one @samp{#elif} can go in the same @samp{#if}-@samp{#endif} group.
 Then the text after each @samp{#elif} is processed only if the @samp{#elif}
 condition succeeds after the original @samp{#if} and any previous

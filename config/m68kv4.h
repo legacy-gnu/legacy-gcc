@@ -21,7 +21,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Use SGS_* macros to control compilation in m68k.md */
 
-#define SGS_SWAP_W		/* Use swap.w rather than just plain swap */
 #define SGS_SWITCH_TABLES	/* Different switch table handling */
 
 #include "m68ksgs.h"		/* The m68k/SVR4 assembler is SGS based */
@@ -85,7 +84,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    than ".bss", so override the definition in svr4.h */
 
 #undef BSS_ASM_OP
-#define BSS_ASM_OP	"\t.lcomm"
+#define BSS_ASM_OP	".lcomm"
 
 /* Register in which address to store a structure value is passed to a
    function.  The default in m68k.h is a1.  For m68k/SVR4 it is a0. */
@@ -113,7 +112,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #undef ASM_OUTPUT_SKIP
 #define ASM_OUTPUT_SKIP(FILE,SIZE)  \
-  fprintf (FILE, "%s %u\n", SPACE_ASM_OP, (SIZE))
+  fprintf (FILE, "\t%s %u\n", SPACE_ASM_OP, (SIZE))
 
 /* 1 if N is a possible register number for a function value.
    For m68k/SVR4 allow d0, a0, or fp0 as return registers, for integral,

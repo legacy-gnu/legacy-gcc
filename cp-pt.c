@@ -932,12 +932,11 @@ instantiate_class_template (classname, setup_parse)
   t1 = TREE_PURPOSE (template);
   assert (TREE_CODE (t1) == TEMPLATE_DECL);
 
+  /* If a template is declared but not defined, accept it; don't crash.
+     Later uses requiring the definition will be flagged as errors by
+     other code.  Thanks to niklas@appli.se for this bug fix.  */
   if (DECL_TEMPLATE_INFO (t1)->text == 0)
-    {
-      error ("template `%s' declared but not defined",
-	     IDENTIFIER_POINTER (DECL_NAME (t1)));
-      return error_mark_node;
-    }
+    setup_parse = 0;
 
 #ifdef DEBUG_CP_BINDING_LEVELS
   indent_to (stderr, debug_bindings_indentation);
@@ -945,13 +944,13 @@ instantiate_class_template (classname, setup_parse)
   debug_bindings_indentation += 4;
 #endif
 
+  push_to_top_level ();
+  push_template_decls (DECL_TEMPLATE_PARMS (TREE_PURPOSE (template)),
+		       TREE_VALUE (template), 0);
+  set_current_level_tags_transparency (1);
+  template_info = DECL_TEMPLATE_INFO (t1);
   if (setup_parse)
     {
-      push_to_top_level ();
-      push_template_decls (DECL_TEMPLATE_PARMS (TREE_PURPOSE (template)),
-			   TREE_VALUE (template), 0);
-      set_current_level_tags_transparency (1);
-      template_info = DECL_TEMPLATE_INFO (t1);
       feed_input (template_info->text, template_info->length, (struct obstack *)0);
       lineno = template_info->lineno;
       input_filename = template_info->filename;
@@ -966,11 +965,6 @@ instantiate_class_template (classname, setup_parse)
     {
       tree t, decl, id, tmpl;
 
-      push_to_top_level ();
-      push_template_decls (DECL_TEMPLATE_PARMS (TREE_PURPOSE (template)),
-			   TREE_VALUE (template), 0);
-      set_current_level_tags_transparency (1);
-      template_info = DECL_TEMPLATE_INFO (t1);
       id = classname;
       tmpl = TREE_PURPOSE (IDENTIFIER_TEMPLATE (id));
       t = xref_tag (DECL_TEMPLATE_INFO (tmpl)->aggr, id, NULL_TREE);
@@ -1123,8 +1117,7 @@ tsubst (t, args, nargs)
 	else
 	  {
 	    r = DECL_NAME (t);
-	    r = build_decl_overload (IDENTIFIER_POINTER (r),
-				     TYPE_VALUES (type),
+	    r = build_decl_overload (r, TYPE_VALUES (type),
 				     DECL_CONTEXT (t) != NULL_TREE);
 	    r = build_lang_decl (FUNCTION_DECL, r, type);
 	  }
@@ -1370,17 +1363,22 @@ instantiate_template (tmpl, targ_ptr)
   /* substitute template parameters */
   fndecl = tsubst (DECL_RESULT (tmpl), targ_ptr,
 		   TREE_VEC_LENGTH (targs));
-  p = (struct pending_inline *) permalloc (sizeof (struct pending_inline));
   t = DECL_TEMPLATE_INFO (tmpl);
-  p->parm_vec = t->parm_vec;
-  p->bindings = targs;
-  p->can_free = 0;
-  p->deja_vu = 0;
-  p->lineno = t->lineno;
-  p->filename = t->filename;
-  p->buf = t->text;
-  p->len = t->length;
-  p->fndecl = fndecl;
+  if (t->text)
+    {
+      p = (struct pending_inline *) permalloc (sizeof (struct pending_inline));
+      p->parm_vec = t->parm_vec;
+      p->bindings = targs;
+      p->can_free = 0;
+      p->deja_vu = 0;
+      p->lineno = t->lineno;
+      p->filename = t->filename;
+      p->buf = t->text;
+      p->len = t->length;
+      p->fndecl = fndecl;
+    }
+  else
+    p = 0;
 
   DECL_TEMPLATE_INSTANTIATIONS (tmpl) =
     tree_cons (targs, fndecl, DECL_TEMPLATE_INSTANTIATIONS (tmpl));
@@ -1388,7 +1386,7 @@ instantiate_template (tmpl, targ_ptr)
   function_maybepermanent_obstack = old_fmp_obstack;
   pop_obstacks ();
 
-  if (fndecl == error_mark_node)
+  if (fndecl == error_mark_node || p == 0)
     {
       /* do nothing */
     }
@@ -1423,7 +1421,9 @@ undo_template_name_overload (id, classlevel)
   debug_bindings_indentation += 4;
 #endif
 
-  poplevel (0,0,0);
+#if 0 /* not yet, should get fixed properly later */
+  poplevel (0, 0, 0);
+#endif
   if (!classlevel)
     poplevel (0, 0, 0);
 #ifdef DEBUG_CP_BINDING_LEVELS
@@ -1477,12 +1477,16 @@ overload_template_name (id, classlevel)
   if (classlevel)
     pushdecl_class_level (decl);
   else
+#if 0 /* not yet, should get fixed properly later */
+    pushdecl (decl);
+  pushlevel (1);
+#else
     {
       pushdecl (decl);
       /* @@ Is this necessary now?  */
       IDENTIFIER_LOCAL_VALUE (template) = decl;
     }
-  pushlevel(1);
+#endif
 
 #ifdef DEBUG_CP_BINDING_LEVELS
   debug_bindings_indentation -= 4;

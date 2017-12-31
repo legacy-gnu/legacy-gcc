@@ -616,12 +616,12 @@ typedef const void *CPTR_T;
 #define __proto(x) x
 #else
 
-#ifdef _STDIO_H_		/* Ultrix 4.0 */
+#if defined(_STDIO_H_) || defined(__STDIO_H__)		/* Ultrix 4.0, SGI */
 typedef void *PTR_T;
 typedef void *CPTR_T;
 
 #else
-typedef char *PTR_T;		/* Ultrix 3.1 */
+typedef char *PTR_T;					/* Ultrix 3.1 */
 typedef char *CPTR_T;
 #endif
 
@@ -646,7 +646,7 @@ typedef char *CPTR_T;
 extern void	pfatal_with_name
 				__proto((char *));
 extern void	fancy_abort	__proto((void));
-extern void	botch		__proto((const char *));
+       void	botch		__proto((const char *));
 extern PTR_T	xmalloc		__proto((Size_t));
 extern PTR_T	xcalloc		__proto((Size_t, Size_t));
 extern PTR_T	xrealloc	__proto((PTR_T, Size_t));
@@ -684,7 +684,7 @@ main ()
 #include <signal.h>
 #include <sys/stat.h>
 
-#ifdef USG
+#if defined (USG) || defined (NO_STAB_H)
 #include "gstab.h"  /* If doing DBX on sysV, use our own stab.h.  */
 #else
 #include <stab.h>  /* On BSD, use the system's stab.h.  */
@@ -1593,6 +1593,7 @@ static int	version		= 0; 		/* print version # */
 static int	had_errors	= 0;		/* != 0 if errors were found */
 static int	rename_output	= 0;		/* != 0 if rename output file*/
 static int	delete_input	= 0;		/* != 0 if delete input after done */
+static int	stabs_seen	= 0;		/* != 0 if stabs have been seen */
 
 
 /* Pseudo symbol to use when putting stabs into the symbol table.  */
@@ -1675,6 +1676,7 @@ STATIC char    *st_to_string	__proto((st_t));
 STATIC char    *sc_to_string	__proto((sc_t));
 STATIC char    *read_line	__proto((void));
 STATIC void	parse_input	__proto((void));
+STATIC void	mark_stabs	__proto((const char *));
 STATIC void	parse_begin	__proto((const char *));
 STATIC void	parse_bend	__proto((const char *));
 STATIC void	parse_def	__proto((const char *));
@@ -1715,6 +1717,12 @@ STATIC void	  free_scope		__proto((scope_t *));
 STATIC void	  free_tag		__proto((tag_t *));
 STATIC void	  free_thead		__proto((thead_t *));
 
+/* rms: The following is a very bad idea.
+   It's easy for these to conflict with definitions on certain systems.
+   All system calls and library functions
+   for which an implicit definition will work
+   should be left implicit.
+   I deleted the declarations for open and fstat.  */
 /* Prototypes for library functions used.  */
 #if !defined(NO_LIB_PROTOTYPE) && !defined(_OSF_SOURCE) && !defined(_STDIO_H_)
 extern char  *strchr		__proto((const char *, int));
@@ -1735,7 +1743,6 @@ extern FILE  *freopen		__proto((const char *, const char *, FILE *));
 extern int    fflush		__proto((FILE *));
 extern void   perror		__proto((const char *));
 extern void   exit		__proto((int));
-extern int    open		__proto((const char *, int, ...));
 extern int    rename		__proto((const char *, const char *));
 
 #ifndef sgi
@@ -1760,7 +1767,6 @@ extern int    write		__proto((int, CPTR_T, Size_t));
 extern int    read		__proto((int, PTR_T, Size_t));
 extern long   lseek		__proto((int, long, int));
 extern int    ftruncate		__proto((int, long));
-extern int    fstat		__proto((int, struct stat *));
 #endif
 
 extern char  *mktemp		__proto((char *));
@@ -1800,6 +1806,7 @@ static pseudo_ops_t pseudo_ops[] = {
   { "#.stabn",	sizeof("#.stabn")-1,	parse_stabn },
   { ".stabs",	sizeof(".stabs")-1,	parse_stabs },
   { ".stabn",	sizeof(".stabn")-1,	parse_stabn },
+  { "#@stabs",	sizeof("#@stabs")-1,	mark_stabs },
 };
 
 
@@ -2791,13 +2798,13 @@ parse_begin (start)
 
   if (cur_file_ptr == (efdr_t *)0)
     {
-      error ("#.begin directive without a preceeding .file directive");
+      error ("#.begin directive without a preceding .file directive");
       return;
     }
 
   if (cur_proc_ptr == (PDR *)0)
     {
-      error ("#.begin directive without a preceeding .ent directive");
+      error ("#.begin directive without a preceding .ent directive");
       return;
     }
 
@@ -2841,13 +2848,13 @@ parse_bend (start)
 
   if (cur_file_ptr == (efdr_t *)0)
     {
-      error ("#.begin directive without a preceeding .file directive");
+      error ("#.begin directive without a preceding .file directive");
       return;
     }
 
   if (cur_proc_ptr == (PDR *)0)
     {
-      error ("#.bend directive without a preceeding .ent directive");
+      error ("#.bend directive without a preceding .ent directive");
       return;
     }
 
@@ -3462,13 +3469,13 @@ parse_end (start)
 
   if (cur_file_ptr == (efdr_t *)0)
     {
-      error (".end directive without a preceeding .file directive");
+      error (".end directive without a preceding .file directive");
       return;
     }
 
   if (cur_proc_ptr == (PDR *)0)
     {
-      error (".end directive without a preceeding .ent directive");
+      error (".end directive without a preceding .ent directive");
       return;
     }
 
@@ -3522,7 +3529,7 @@ parse_ent (start)
 
   if (cur_file_ptr == (efdr_t *)0)
     {
-      error (".ent directive without a preceeding .file directive");
+      error (".ent directive without a preceding .file directive");
       return;
     }
 
@@ -3577,6 +3584,24 @@ parse_file (start)
 }
 
 
+/* Make sure the @stabs symbol is emitted.  */
+
+static void
+mark_stabs (start)
+     const char *start;			/* Start of directive (ignored) */
+{
+  if (!stabs_seen)
+    {
+      /* Add a dummy @stabs dymbol. */
+      stabs_seen = 1;
+      (void) add_local_symbol (stabs_symbol,
+			       stabs_symbol + sizeof (stabs_symbol),
+			       stNil, scInfo, -1, MIPS_MARK_STAB(0));
+
+    }
+}
+
+
 /* Parse .stabs directives.
 
    .stabs directives have five fields:
@@ -3619,15 +3644,9 @@ parse_stabs_common (string_start, string_end, rest)
   st_t st;
   sc_t sc;
   int ch;
-  static int stabs_seen = 0;
 
-  if (stabs_seen++ == 0)
-    {
-      /* Add a dummy @stabs dymbol. */
-      (void) add_local_symbol (stabs_symbol,
-			       stabs_symbol + sizeof (stabs_symbol),
-			       stNil, scInfo, -1, MIPS_MARK_STAB(0));
-    }
+  if (stabs_seen == 0)
+    mark_stabs ("");
 
   /* Read code from stabs.  */
   if (!isdigit (*rest))
@@ -3691,7 +3710,7 @@ parse_stabs_common (string_start, string_end, rest)
       /* Skip ,0,0, */
       if (p[0] != ',' || p[1] != '0' || p[2] != ',' || p[3] != '0' || p[4] != ',')
 	{
-	  error ("Illegal .stabs/.stabn directive, manditory 0 isn't");
+	  error ("Illegal .stabs/.stabn directive, mandatory 0 isn't");
 	  return;
 	}
 

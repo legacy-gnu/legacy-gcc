@@ -24,6 +24,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "cp-tree.h"
 #include "flags.h"
 #include "assert.h"
+
 #define NULL 0
 
 extern tree build_t_desc_overload ();

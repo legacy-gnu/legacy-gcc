@@ -1,5 +1,5 @@
-This directory contains the version 2.0 release of the GNU C compiler.
-This is the first test release of GCC version 2.
+This directory contains the version 2.1 release of the GNU C compiler.
+This is the second test release of GCC version 2.
 
 See the file gcc.texi (together with other files that it includes) for
 installation and porting information.  The file INSTALL contains a

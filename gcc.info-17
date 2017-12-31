@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -151,8 +151,8 @@ Index
 * leu and attributes:                   Expressions.
 * le and attributes:                    Expressions.
 * long long data types:                 Long Long.
-* longjmp and automatic variables:      Interface.
 * longjmp and automatic variables:      Dialect Options.
+* longjmp and automatic variables:      Interface.
 * longjmp incompatibilities:            Incompatibilities.
 * longjmp warnings:                     Warning Options.
 * lshiftrt and attributes:              Expressions.
@@ -250,7 +250,7 @@ Index
 * libgcc.a:                             Library Calls.
 * stdarg.h and RT PC:                   RT Options.
 * stdarg.h and register arguments:      Register Arguments.
-* tm.h macros:                          Machine Macros.
+* tm.h macros:                          Target Macros.
 * varargs.h and RT PC:                  RT Options.
 * xm-MACHINE.h:                         Config.
 * ! in constraint:                      Multi-Alternative.
@@ -376,7 +376,6 @@ Index
 * C language extensions:                Extensions.
 * C language, traditional:              Dialect Options.
 * C statements for assembler output:    Output Statement.
-* C++_INCLUDE_PATH:                     Environment Variables.
 * CALLER_SAVE_PROFITABLE:               Caller Saves.
 * CALL_USED_REGISTERS:                  Register Basics.
 * CAN_ELIMINATE:                        Elimination.
@@ -409,6 +408,7 @@ Index
 * CONST_DOUBLE_OK_FOR_LETTER_P:         Register Classes.
 * CONST_OK_FOR_LETTER_P:                Register Classes.
 * COSTS_N_INSNS:                        Costs.
+* CPLUS_INCLUDE_PATH:                   Environment Variables.
 * CPP_PREDEFINES:                       Run-time Target.
 * CPP_SPEC:                             Driver.
 * CUMULATIVE_ARGS:                      Register Arguments.
@@ -432,6 +432,7 @@ Index
 * DBX_OUTPUT_STANDARD_TYPES:            Debugging Info.
 * DBX_REGISTER_NUMBER:                  Debugging Info.
 * DBX_STATIC_STAB_DATA_SECTION:         Debugging Info.
+* DBX_WORKING_DIRECTORY:                Debugging Info.
 * DCmode:                               Machine Modes.
 * DEBUGGER_ARG_OFFSET:                  Debugging Info.
 * DEBUGGER_AUTO_OFFSET:                 Debugging Info.
@@ -540,7 +541,8 @@ Index
 * HAVE_POST_INCREMENT:                  Addressing Modes.
 * HAVE_PRE_DECREMENT:                   Addressing Modes.
 * HAVE_PRE_INCREMENT:                   Addressing Modes.
-* HAVE_VPRINTF:                         Misc.
+* HAVE_PUTENV:                          Config.
+* HAVE_VPRINTF:                         Config.
 * HImode:                               Machine Modes.
 * HOST_BITS_PER_CHAR:                   Config.
 * HOST_BITS_PER_INT:                    Config.
@@ -574,6 +576,7 @@ Index
 * INTEGRATE_THRESHOLD:                  Misc.
 * INTIFY:                               Library Calls.
 * INT_TYPE_SIZE:                        Type Layout.
+* Intel 386 Options:                    i386 Options.
 * Interdependence of Patterns:          Dependent Patterns.
 * JUMP_LABEL:                           Insns.
 * JUMP_TABLES_IN_TEXT_SECTION:          Sections.
@@ -645,9 +648,12 @@ Index
 * NOTE_LINE_NUMBER:                     Insns.
 * NOTE_SOURCE_FILE:                     Insns.
 * NOTICE_UPDATE_CC:                     Condition Code.
+* NO_DOLLAR_IN_LABEL:                   Misc.
 * NO_FUNCTION_CSE:                      Costs.
 * NO_RECURSIVE_FUNCTION_CSE:            Costs.
 * NO_REGS:                              Register Classes.
+* NO_STAB_H:                            Config.
+* NO_SYS_SIGLIST:                       Config.
 * NUM_MACHINE_MODES:                    Machine Modes.
 * N_REG_CLASSES:                        Register Classes.
 * OBJC_GEN_METHOD_LABEL:                Label Output.
@@ -790,7 +796,6 @@ Index
 * Register Transfer Language (RTL):     RTL.
 * SCCS_DIRECTIVE:                       Misc.
 * SCHED_GROUP_P:                        Flags.
-* SCO installation:                     SCO Install.
 * SCmode:                               Machine Modes.
 * SDB_ALLOW_FORWARD_REFERENCES:         Debugging Info.
 * SDB_ALLOW_UNKNOWN_REFERENCES:         Debugging Info.
@@ -903,6 +908,7 @@ Index
 * WCHAR_TYPE_SIZE:                      Type Layout.
 * WORDS_BIG_ENDIAN:                     Storage Layout.
 * WORD_SWITCH_TAKES_ARG:                Driver.
+* XCOFF_DEBUGGING_INFO:                 Debugging Info.
 * XCmode:                               Machine Modes.
 * XEXP:                                 Accessors.
 * XFmode:                               Machine Modes.
@@ -1044,6 +1050,7 @@ Index
 * const_int:                            Constants.
 * const_string:                         Constants.
 * const_true_rtx:                       Constants.
+* constant attributes:                  Constant Attributes.
 * constant folding:                     Passes.
 * constant folding and floating point:  Cross-compilation.
 * constant propagation:                 Passes.
@@ -1137,8 +1144,8 @@ Index
 * expressions, constructor:             Constructors.
 * extended asm:                         Extended Asm.
 * extensible constraints:               Simple Constraints.
-* extensions, ?::                       Lvalues.
 * extensions, ?::                       Conditionals.
+* extensions, ?::                       Lvalues.
 * extensions, C language:               Extensions.
 * extern int target_flags:              Run-time Target.
 * external declaration scope:           Incompatibilities.
@@ -1183,7 +1190,7 @@ Index
 * generating insns:                     RTL Template.
 * genflags:                             Passes.
 * get_attr:                             Expressions.
-* get_attr_value:                       Insn Lengths.
+* get_attr_length:                      Insn Lengths.
 * get_frame_size:                       Elimination.
 * get_insns:                            Insns.
 * get_last_insn:                        Insns.
@@ -1204,6 +1211,7 @@ Index
 * hardware models and configurations, specifying: Submodel Options.
 * header files and VMS:                 Include Files and VMS.
 * high:                                 Constants.
+* i386 Options:                         i386 Options.
 * identifier names, dollar signs in:    Dollar Signs.
 * identifiers, names in assembler code: Asm Labels.
 * identifying source, compiler (88k):   M88K Options.
@@ -1233,7 +1241,6 @@ Index
 * insns:                                Insns.
 * insns, generating:                    RTL Template.
 * insns, recognizing:                   RTL Template.
-* installation on SCO systems:          SCO Install.
 * installation trouble:                 Trouble.
 * installing GNU CC:                    Installation.
 * installing GNU CC on Unos:            Unos Install.
@@ -1299,7 +1306,7 @@ Index
 * ltu:                                  Comparisons.
 * lvalues, generalized:                 Lvalues.
 * machine dependent options:            Submodel Options.
-* machine description macros:           Machine Macros.
+* machine description macros:           Target Macros.
 * machine descriptions:                 Machine Desc.
 * machine mode conversions:             Conversions.
 * machine modes:                        Machine Modes.
@@ -1307,8 +1314,8 @@ Index
 * macros, inline alternative:           Inline.
 * macros, local labels:                 Local Labels.
 * macros, local variables in:           Naming Types.
-* macros, machine description:          Machine Macros.
 * macros, statements in expressions:    Statement Exprs.
+* macros, target description:           Target Macros.
 * macros, types of arguments:           Typeof.
 * make:                                 Preprocessor Options.
 * make_safe_from:                       Expander Definitions.
@@ -1423,6 +1430,7 @@ Index
 * promotion of formal parameters:       Trouble.
 * pseudo registers:                     Regs and Memory.
 * push address instruction:             Simple Constraints.
+* putenv:                               Config.
 * question mark:                        Multi-Alternative.
 * quotient:                             Arithmetic.
 * r0-relative references (88k):         M88K Options.
@@ -1547,8 +1555,10 @@ Index
 * symbol_ref:                           Constants.
 * symbolic label:                       Sharing.
 * syntax checking:                      Warning Options.
+* sys_siglist:                          Config.
 * tagging insns:                        Tagging Insns.
 * tail recursion optimization:          Passes.
+* target description macros:            Target Macros.
 * target machine, specifying:           Target Options.
 * target options:                       Target Options.
 * target specifications:                Run-time Target.
@@ -1603,7 +1613,7 @@ Index
 * volatil:                              Flags.
 * volatile memory references:           Flags.
 * voting between constraint alternatives: Class Preferences.
-* vprintf:                              Misc.
+* vprintf:                              Config.
 * warning messages:                     Warning Options.
 * which_alternative:                    Output Statement.
 * whitespace:                           Incompatibilities.

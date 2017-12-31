@@ -200,7 +200,7 @@ mcount()
 	/* selfpc = pc pushed by mcount call.
 	   This identifies the function that was just entered.  */
 	selfpc = (void *) __builtin_return_address (0);
-	/* frompcindex = pc in preceeding frame.
+	/* frompcindex = pc in preceding frame.
 	   This identifies the caller of the function just entered.  */
 	frompcindex = (void *) __builtin_return_address (1);
 	/*

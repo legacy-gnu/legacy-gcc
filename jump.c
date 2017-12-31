@@ -640,7 +640,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	      continue;
 	    }
 
-	  /* If we have an unconditional jump preceeded by a USE, try to put
+	  /* If we have an unconditional jump preceded by a USE, try to put
 	     the USE before the target and jump there.  This simplifies many
 	     of the optimizations below since we don't have to worry about
 	     dealing with these USE insns.  We only do this if the label
@@ -690,7 +690,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 
 	     We set:
 
-	     TEMP to the jump insn preceeding "x = a;"
+	     TEMP to the jump insn preceding "x = a;"
 	     TEMP1 to X
 	     TEMP2 to the insn that sets "x = b;"
 	     TEMP3 to the insn that sets "x = a;"  */
@@ -1415,6 +1415,17 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 			rtx range2beg = next_active_insn (label1);
 			rtx range1after, range2after;
 			rtx range1before, range2before;
+
+			/* Include in each range any line number before it.  */
+			while (PREV_INSN (range1beg)
+			       && GET_CODE (PREV_INSN (range1beg)) == NOTE
+			       && NOTE_LINE_NUMBER (PREV_INSN (range1beg)) > 0)
+			  range1beg = PREV_INSN (range1beg);
+
+			while (PREV_INSN (range2beg)
+			       && GET_CODE (PREV_INSN (range2beg)) == NOTE
+			       && NOTE_LINE_NUMBER (PREV_INSN (range2beg)) > 0)
+			  range2beg = PREV_INSN (range2beg);
 
 			/* Don't move NOTEs for blocks or loops; shift them
 			   outside the ranges, where they'll stay put.  */
@@ -2666,7 +2677,7 @@ mark_jump_label (x, insn, cross_jump)
 	  {
 	    if (GET_CODE (insn) == JUMP_INSN)
 	      JUMP_LABEL (insn) = label;
-	    else if (! find_reg_note (insn, REG_LABEL, 0))
+	    else if (! find_reg_note (insn, REG_LABEL, label))
 	      {
 		rtx next = next_real_insn (label);
 		/* Don't record labels that refer to dispatch tables.

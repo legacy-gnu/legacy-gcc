@@ -63,7 +63,7 @@
 ;; # instructions (4 bytes each)
 (define_attr "length" "" (const_int 1))
 
-;; whether or not an instruction has a mandiatory delay slot
+;; whether or not an instruction has a mandatory delay slot
 (define_attr "dslot" "no,yes"
   (if_then_else (eq_attr "type" "branch,jump,call,load,xfer,hilo,fcmp")
 		(const_string "yes")
@@ -71,21 +71,21 @@
 
 ;; Attribute describing the processor
 (define_attr "cpu" "default,r3000,r4000,r6000"
-; (const
+  (const
    (cond [(eq (symbol_ref "mips_cpu") (symbol_ref "PROCESSOR_DEFAULT")) (const_string "default")
 	  (eq (symbol_ref "mips_cpu") (symbol_ref "PROCESSOR_R3000"))   (const_string "r3000")
 	  (eq (symbol_ref "mips_cpu") (symbol_ref "PROCESSOR_R4000"))   (const_string "r4000")
 	  (eq (symbol_ref "mips_cpu") (symbol_ref "PROCESSOR_R6000"))   (const_string "r6000")]
-	 (const_string "default")))
+	 (const_string "default"))))
 
 ;; Attribute defining whether or not we can use the branch-likely instructions
 ;; (MIPS ISA level 2)
 
 (define_attr "branch_likely" "no,yes"
-; (const
+  (const
    (if_then_else (ge (symbol_ref "mips_isa") (const_int 2))
 		 (const_string "yes")
-		 (const_string "no")))
+		 (const_string "no"))))
 
 
 ;; Describe a user's asm statement.
@@ -122,139 +122,114 @@
 ;			TEST READY-DELAY BUSY-DELAY [CONFLICT-LIST])
 
 ;; Make the default case (PROCESSOR_DEFAULT) handle the worst case
-;; At present, the functional units with cpu attributes fully
-;; specified cause genattrtab to use more than 32 megabytes of
-;; data, which is too much for some systems, so simplify things
-;; to use only the default case.
 
-(define_function_unit "memory"	 1 0 (eq_attr "type" "load,pic")	3 0)
-(define_function_unit "memory"	 1 0 (eq_attr "type" "store")		1 0)
+(define_function_unit "memory" 1 0
+  (and (eq_attr "type" "load,pic") (eq_attr "cpu" "!r3000"))
+  3 0)
 
-(define_function_unit "transfer" 1 0 (eq_attr "type" "xfer")		2 0)
-(define_function_unit "transfer" 1 0 (eq_attr "type" "hilo")		3 0)
+(define_function_unit "memory" 1 0
+  (and (eq_attr "type" "load,pic") (eq_attr "cpu" "r3000"))
+  2 0)
 
-(define_function_unit "imuldiv"  1 1 (eq_attr "type" "imul")		17 34)
-(define_function_unit "imuldiv"  1 1 (eq_attr "type" "idiv")		38 76)
+(define_function_unit "memory"	 1 0 (eq_attr "type" "store") 1 0)
 
-(define_function_unit "adder"	 1 1 (eq_attr "type" "fadd")		4 8)
-(define_function_unit "fast"	 1 1 (eq_attr "type" "fabs,fneg")	2 4)
+(define_function_unit "transfer" 1 0 (eq_attr "type" "xfer")	 2 0)
+(define_function_unit "transfer" 1 0 (eq_attr "type" "hilo")	 3 0)
 
-(define_function_unit "mult"	 1 1 (and (eq_attr "type" "fmul") (eq_attr "mode" "SF"))  7 14)
-(define_function_unit "mult"	 1 1 (and (eq_attr "type" "fmul") (eq_attr "mode" "DF"))  8 16)
+(define_function_unit "imuldiv"  1 1
+  (and (eq_attr "type" "imul") (eq_attr "cpu" "!r3000,r4000"))
+  17 34)
 
-(define_function_unit "divide"	 1 1 (and (eq_attr "type" "fdiv") (eq_attr "mode" "SF")) 23 46)
-(define_function_unit "divide"	 1 1 (and (eq_attr "type" "fdiv") (eq_attr "mode" "DF")) 36 72)
+(define_function_unit "imuldiv"  1 1
+  (and (eq_attr "type" "imul") (eq_attr "cpu" "r3000"))
+  12 24)
 
-(define_function_unit "sqrt"	 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "SF"))  54 108)
-(define_function_unit "sqrt"	 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "DF")) 112 224)
+(define_function_unit "imuldiv" 1 1
+  (and (eq_attr "type" "imul") (eq_attr "cpu" "r4000"))
+  10 20)
 
-;; (define_function_unit "memory" 1 0
-;;   (and (eq_attr "type" "load,pic") (eq_attr "cpu" "!r3000"))
-;;   3 0)
-;; 
-;; (define_function_unit "memory" 1 0
-;;   (and (eq_attr "type" "load,pic") (eq_attr "cpu" "r3000"))
-;;   2 0)
-;; 
-;; (define_function_unit "memory"	 1 0 (eq_attr "type" "store") 1 0)
-;; 
-;; (define_function_unit "transfer" 1 0 (eq_attr "type" "xfer")	 2 0)
-;; (define_function_unit "transfer" 1 0 (eq_attr "type" "hilo")	 3 0)
-;; 
-;; (define_function_unit "imuldiv"  1 1
-;;   (and (eq_attr "type" "imul") (eq_attr "cpu" "!r3000,r4000"))
-;;   17 34)
-;; 
-;; (define_function_unit "imuldiv"  1 1
-;;   (and (eq_attr "type" "imul") (eq_attr "cpu" "r3000"))
-;;   12 24)
-;; 
-;; (define_function_unit "imuldiv" 1 1
-;;   (and (eq_attr "type" "imul") (eq_attr "cpu" "r4000"))
-;;   10 20)
-;; 
-;; (define_function_unit "imuldiv"  1 1
-;;   (and (eq_attr "type" "idiv") (eq_attr "cpu" "!r3000,r4000"))
-;;   38 76)
-;; 
-;; (define_function_unit "imuldiv"  1 1
-;;   (and (eq_attr "type" "idiv") (eq_attr "cpu" "r3000"))
-;;   35 70)
-;; 
-;; (define_function_unit "imuldiv" 1 1
-;;   (and (eq_attr "type" "idiv") (eq_attr "cpu" "r4000"))
-;;   69 138)
-;; 
-;; (define_function_unit "adder" 1 1
-;;   (and (eq_attr "type" "fadd") (eq_attr "cpu" "!r3000,r6000"))
-;;   4 8)
-;; 
-;; (define_function_unit "adder" 1 1
-;;   (and (eq_attr "type" "fadd") (eq_attr "cpu" "r3000"))
-;;   2 4)
-;; 
-;; (define_function_unit "adder" 1 1
-;;   (and (eq_attr "type" "fadd") (eq_attr "cpu" "r6000"))
-;;   3 6)
-;; 
-;; (define_function_unit "fast" 1 1
-;;   (and (eq_attr "type" "fabs,fneg") (eq_attr "cpu" "!r3000"))
-;;   2 4)
-;; 
-;; (define_function_unit "fast" 1 1
-;;   (and (eq_attr "type" "fabs,fneg") (eq_attr "cpu" "r3000"))
-;;   1 2)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "!r3000,r6000")))
-;;   7 14)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r3000")))
-;;   4 8)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r6000")))
-;;   5 10)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "!r3000,r6000")))
-;;   8 16)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r3000")))
-;;   5 10)
-;; 
-;; (define_function_unit "mult" 1 1
-;;   (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r6000")))
-;;   6 12)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "!r3000,r6000")))
-;;   23 46)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r3000")))
-;;   12 24)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r6000")))
-;;   15 30)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "!r3000,r6000")))
-;;   36 72)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r3000")))
-;;   19 34)
-;; 
-;; (define_function_unit "divide" 1 1
-;;   (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r6000")))
-;;   16 32)
-;; 
-;; (define_function_unit "sqrt" 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "SF"))  54 108)
-;; (define_function_unit "sqrt" 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "DF")) 112 224)
+(define_function_unit "imuldiv"  1 1
+  (and (eq_attr "type" "idiv") (eq_attr "cpu" "!r3000,r4000"))
+  38 76)
+
+(define_function_unit "imuldiv"  1 1
+  (and (eq_attr "type" "idiv") (eq_attr "cpu" "r3000"))
+  35 70)
+
+(define_function_unit "imuldiv" 1 1
+  (and (eq_attr "type" "idiv") (eq_attr "cpu" "r4000"))
+  69 138)
+
+(define_function_unit "adder" 1 1
+  (and (eq_attr "type" "fadd") (eq_attr "cpu" "!r3000,r6000"))
+  4 8)
+
+(define_function_unit "adder" 1 1
+  (and (eq_attr "type" "fadd") (eq_attr "cpu" "r3000"))
+  2 4)
+
+(define_function_unit "adder" 1 1
+  (and (eq_attr "type" "fadd") (eq_attr "cpu" "r6000"))
+  3 6)
+
+(define_function_unit "fast" 1 1
+  (and (eq_attr "type" "fabs,fneg") (eq_attr "cpu" "!r3000"))
+  2 4)
+
+(define_function_unit "fast" 1 1
+  (and (eq_attr "type" "fabs,fneg") (eq_attr "cpu" "r3000"))
+  1 2)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "!r3000,r6000")))
+  7 14)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r3000")))
+  4 8)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r6000")))
+  5 10)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "!r3000,r6000")))
+  8 16)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r3000")))
+  5 10)
+
+(define_function_unit "mult" 1 1
+  (and (eq_attr "type" "fmul") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r6000")))
+  6 12)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "!r3000,r6000")))
+  23 46)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r3000")))
+  12 24)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "SF") (eq_attr "cpu" "r6000")))
+  15 30)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "!r3000,r6000")))
+  36 72)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r3000")))
+  19 34)
+
+(define_function_unit "divide" 1 1
+  (and (eq_attr "type" "fdiv") (and (eq_attr "mode" "DF") (eq_attr "cpu" "r6000")))
+  16 32)
+
+(define_function_unit "sqrt" 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "SF"))  54 108)
+(define_function_unit "sqrt" 1 1 (and (eq_attr "type" "fsqrt") (eq_attr "mode" "DF")) 112 224)
 
 
 ;;
@@ -516,8 +491,8 @@
    && GET_CODE (operands[2]) == REG && GP_REG_P (REGNO (operands[2]))"
 
   [(set (match_dup 3)
-	(lt:CC (subreg:SI (match_dup 1) 0)
-	       (subreg:SI (match_dup 2) 0)))
+	(ltu:CC (subreg:SI (match_dup 1) 0)
+		(subreg:SI (match_dup 2) 0)))
 
    (set (subreg:SI (match_dup 0) 0)
 	(minus:SI (subreg:SI (match_dup 1) 0)
@@ -543,8 +518,8 @@
    && GET_CODE (operands[2]) == REG && GP_REG_P (REGNO (operands[2]))"
 
   [(set (match_dup 3)
-	(lt:CC (subreg:SI (match_dup 1) 1)
-	       (subreg:SI (match_dup 2) 1)))
+	(ltu:CC (subreg:SI (match_dup 1) 1)
+	        (subreg:SI (match_dup 2) 1)))
 
    (set (subreg:SI (match_dup 0) 1)
 	(minus:SI (subreg:SI (match_dup 1) 1)
@@ -1642,14 +1617,10 @@ move\\t%0,%z4\\n\\
 ;;  ....................
 
 ;; unaligned word moves generated by the block moves.
-;; We use (use (reg:SI 0)) to select this pattern rather than the
-;; normal movsi.  Make these before the normal move patterns so they
-;; match first.
 
 (define_expand "movsi_unaligned"
-  [(parallel [(set (match_operand:SI 0 "general_operand" "")
-		   (match_operand:SI 1 "general_operand" ""))
-	      (use (reg:SI 0))])]
+  [(set (match_operand:SI 0 "general_operand" "")
+	(unspec [(match_operand:SI 1 "general_operand" "")] 0))]
   ""
   "
 {
@@ -1678,15 +1649,14 @@ move\\t%0,%z4\\n\\
 
 (define_insn "movsi_ulw"
   [(set (match_operand:SI 0 "register_operand" "=&d,&d,d,d")
-	(match_operand:SI 1 "general_operand" "R,o,dIKL,M"))
-   (use (reg:SI 0))]
+	(unspec [(match_operand:SI 1 "general_operand" "R,o,dIKL,M")] 0))]
   ""
   "*
 {
   extern rtx eliminate_constant_term ();
   enum rtx_code code;
   char *ret;
-  int offset;
+  rtx offset;
   rtx addr;
   rtx mem_addr;
 
@@ -1699,11 +1669,11 @@ move\\t%0,%z4\\n\\
   /* The stack/frame pointers are always aligned, so we can convert
      to the faster lw if we are referencing an aligned stack location.  */
 
-  offset = 0;
+  offset = const0_rtx;
   addr = XEXP (operands[1], 0);
   mem_addr = eliminate_constant_term (addr, &offset);
 
-  if ((offset & (UNITS_PER_WORD-1)) == 0
+  if ((INTVAL (offset) & (UNITS_PER_WORD-1)) == 0
       && (mem_addr == stack_pointer_rtx || mem_addr == frame_pointer_rtx))
     ret = \"lw\\t%0,%1\";
 
@@ -1730,13 +1700,12 @@ move\\t%0,%z4\\n\\
 
 (define_insn "movsi_usw"
   [(set (match_operand:SI 0 "memory_operand" "=R,o")
-	(match_operand:SI 1 "reg_or_0_operand" "dJ,dJ"))
-   (use (reg:SI 0))]
+	(unspec [(match_operand:SI 1 "reg_or_0_operand" "dJ,dJ")] 0))]
   ""
   "*
 {
   extern rtx eliminate_constant_term ();
-  int offset = 0;
+  rtx offset = const0_rtx;
   rtx addr = XEXP (operands[0], 0);
   rtx mem_addr = eliminate_constant_term (addr, &offset);
 
@@ -1746,7 +1715,7 @@ move\\t%0,%z4\\n\\
   /* The stack/frame pointers are always aligned, so we can convert
      to the faster sw if we are referencing an aligned stack location.  */
 
-  if ((offset & (UNITS_PER_WORD-1)) == 0
+  if ((INTVAL (offset) & (UNITS_PER_WORD-1)) == 0
       && (mem_addr == stack_pointer_rtx || mem_addr == frame_pointer_rtx))
     return \"sw\\t%1,%0\";
 
@@ -1775,13 +1744,13 @@ move\\t%0,%z4\\n\\
 ;; the compiler, have memoized the insn number already.
 
 (define_insn "movdi"
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=d,d,d,d,R,o,*d,*f,*f,*f,*f,*R,*o,*d,*x")
-	(match_operand:DI 1 "general_operand" "d,iF,R,o,d,d,*f,*d,*f,*R,*o,*f,*f,*x,*d"))]
+  [(set (match_operand:DI 0 "nonimmediate_operand" "=d,d,d,d,R,o,*d,*x")
+	(match_operand:DI 1 "general_operand" "d,iF,R,o,d,d,*x,*d"))]
   ""
   "* return mips_move_2words (operands, insn); "
-  [(set_attr "type"	"move,arith,load,load,store,store,xfer,xfer,move,load,load,store,store,hilo,hilo")
-   (set_attr "mode"	"DI,DI,DI,DI,DI,DI,DI,DI,DI,DI,DI,DI,DI,DI,DI")
-   (set_attr "length"	"2,4,2,4,2,4,2,2,1,2,4,2,4,2,2")])
+  [(set_attr "type"	"move,arith,load,load,store,store,hilo,hilo")
+   (set_attr "mode"	"DI,DI,DI,DI,DI,DI,DI,DI")
+   (set_attr "length"	"2,4,2,4,2,4,2,2")])
 
 (define_split
   [(set (match_operand:DI 0 "register_operand" "")
@@ -2843,6 +2812,8 @@ move\\t%0,%z4\\n\\
     case NE:  return \"%*bne%?\\t%z2,%.,%1\";
     case GTU: return \"%*bne%?\\t%z2,%.,%1\";
     case LEU: return \"%*beq%?\\t%z2,%.,%1\";
+    case GEU: return \"%*j\\t%1\";
+    case LTU: return \"#%*bltuz\\t%z2,%1\";
     }
 
   return \"%*b%C0z%?\\t%z2,%1\";
@@ -2867,6 +2838,8 @@ move\\t%0,%z4\\n\\
     case NE:  return \"%*beq%?\\t%z2,%.,%1\";
     case GTU: return \"%*beq%?\\t%z2,%.,%1\";
     case LEU: return \"%*bne\\t%z2,%.,%1\";
+    case GEU: return \"#%*bgeuz\\t%z2,%1\";
+    case LTU: return \"%*j\\t%1\";
     }
 
   return \"%*b%N0z%?\\t%z2,%1\";

@@ -1,6 +1,4 @@
-/* Protoize program - Written by Ron Guilmette at the Microelectronics
-   and Computer Technology Corporation (MCC).  The author's current
-   E-mail address is <rfg@ncd.com>.
+/* Protoize program - Original version by Ron Guilmette at MCC.
 
    Copyright (C) 1989, 1992 Free Software Foundation, Inc.
 
@@ -68,28 +66,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #endif
 #include <setjmp.h>
 #include "gvarargs.h"
-#include "getopt.h"
 
-#ifndef PATH_MAX	/* <limits.h> defines this on most POSIX systems.  */
-#include <sys/param.h>
-/* Sometimes <sys/param.h> defines these macros.  */
-#undef CHAR_BIT
-#undef CHAR_MAX
-#undef CHAR_MIN
-#undef CLK_TCK
-#undef INT_MAX
-#undef INT_MIN
-#undef LONG_MAX
-#undef LONG_MIN
-#undef SCHAR_MAX
-#undef SCHAR_MIN
-#undef SHRT_MAX
-#undef SHRT_MIN
-#undef UCHAR_MAX
-#undef UINT_MAX
-#undef ULONG_MAX
-#undef USHRT_MAX
-#endif
+/* Include getopt.h for the sake of getopt_long.
+   We don't need the declaration of getopt, and it could conflict
+   with something from a system header file, so effectively nullify that.  */
+#define getopt getopt_loser
+#include "getopt.h"
 
 extern int errno;
 extern char *sys_errlist[];
@@ -110,12 +92,7 @@ extern char *version_string;
 #define my_open(file, mode, flag)	open((char *)file, mode, flag)
 #define my_chmod(file, mode)	chmod((char *)file, mode)
 
-#if !(defined (USG) || defined (VMS) || defined (POSIX))
-#define GUESSPATHLEN (MAXPATHLEN + 1)
-#else /* (defined (USG) || defined (VMS) || defined (POSIX)) */
-/* We actually use this as a starting point, not a limit.  */
-#define GUESSPATHLEN 200
-#endif /* (defined (USG) || defined (VMS) || defined (POSIX)) */
+char *getpwd ();
 
 /* Aliases for pointers to void.
    These were made to facilitate compilation with other compilers.  */
@@ -145,17 +122,6 @@ typedef char * const_pointer_type;
 
 #define O_RDONLY        0
 #define O_WRONLY        1
-
-/* Virtually every UN*X system now in common use (except for pre-4.3-tahoe
-   BSD systems) now provides getcwd as called for by POSIX.  Allow for
-   the few exceptions to the general rule here.  */
-
-#if !(defined (USG) || defined (VMS))
-extern char *getwd ();
-#define getcwd(buf,len) getwd(buf)
-#else /* (defined (USG) || defined (VMS)) */
-extern char *getcwd ();
-#endif /* (defined (USG) || defined (VMS)) */
 
 /* Declaring stat or __flsbuf with a prototype
    causes conflicts with system headers on some systems.  */
@@ -198,12 +164,11 @@ extern int      strncmp ();
 extern char *   strncpy ();
 extern char *   strrchr ();
 
+/* Fork is not declared because the declaration caused a conflict
+   on the HPPA.  */
 #if !(defined (USG) || defined (VMS))
-extern int vfork ();
 #define fork vfork
-#else
-extern int fork ();
-#endif /* !(defined (USG) || defined (VMS)) */
+#endif /* (defined (USG) || defined (VMS)) */
 
 #endif /* !defined (POSIX) */
 
@@ -248,7 +213,7 @@ static const char * const save_suffix = ".save";
    routines.  Note that we never actually do anything with this file per se,
    but we do read in its corresponding aux_info file.  */
 
-static const char * const syscalls_filename = "SYSCALLS.c";
+static const char syscalls_filename[] = "SYSCALLS.c";
 
 /* Default place to find the above file.  */
 
@@ -500,11 +465,15 @@ static const char* nondefault_syscalls_dir = 0; /* Dir to look for
 						   SYSCALLS.c.X in.  */
 #endif /* !defined (UNPROTOIZE) */
 
-/* An index into the compile_params array where we should insert the filename
-   parameter when we are ready to exec the C compiler.  A zero value indicates
+/* An index into the compile_params array where we should insert the source
+   file name when we are ready to exec the C compiler.  A zero value indicates
    that we have not yet called munge_compile_params.  */
 
-static int filename_index = 0;
+static int input_file_name_index = 0;
+
+/* An index into the compile_params array where we should insert the filename
+   for the aux info file, when we run the C compiler.  */
+static int aux_info_file_name_index = 0;
 
 /* Count of command line arguments which were "filename" arguments.  */
 
@@ -897,7 +866,9 @@ static int
 is_syscalls_file (fi_p)
      const file_info *fi_p;
 {
-  return (substr (fi_p->hash_entry->symbol, syscalls_filename) != NULL);
+  char const *f = fi_p->hash_entry->symbol;
+  size_t fl = strlen (f), sysl = sizeof (syscalls_filename) - 1;
+  return sysl <= fl  &&  strcmp (f + fl - sysl, syscalls_filename) == 0;
 }
 
 #endif /* !defined (UNPROTOIZE) */
@@ -1208,11 +1179,11 @@ abspath (cwd, rel_filename)
   /* Setup the current working directory as needed.  */
   const char *cwd2 = (cwd) ? cwd : cwd_buffer;
   char *const abs_buffer
-    = (char *) alloca (strlen (cwd2) + strlen (rel_filename) + 1);
+    = (char *) alloca (strlen (cwd2) + strlen (rel_filename) + 2);
   char *endp = abs_buffer;
   char *outp, *inp;
 
-  /* Copy the  filename (possibly preceeded by the current working
+  /* Copy the  filename (possibly preceded by the current working
      directory name) into the absolutization buffer.  */
 
   {
@@ -1228,8 +1199,6 @@ abspath (cwd, rel_filename)
     src_p = rel_filename;
     while (*endp++ = *src_p++)
       continue;
-    if (endp[-1] == '/')
-      *endp = '\0';
   }
 
   /* Now make a copy of abs_buffer into abs_buffer, shortening the
@@ -1237,6 +1206,10 @@ abspath (cwd, rel_filename)
 
   outp = inp = abs_buffer;
   *outp++ = *inp++;        	/* copy first slash */
+#ifdef apollo
+  if (inp[0] == '/')
+    *outp++ = *inp++;        	/* copy second slash */
+#endif
   for (;;)
     {
       if (!inp[0])
@@ -1315,16 +1288,17 @@ shortpath (cwd, filename)
   char *cwd_p = cwd_buffer;
   char *path_p;
   int unmatched_slash_count = 0;
+  size_t filename_len = strlen (filename);
 
   path_p = abspath (cwd, filename);
-  rel_buf_p = rel_buffer = (char *) xmalloc (strlen (path_p) + 1);
+  rel_buf_p = rel_buffer = (char *) xmalloc (filename_len);
 
   while (*cwd_p && (*cwd_p == *path_p))
     {
       cwd_p++;
       path_p++;
     }
-  if (!*cwd_p)        		/* whole pwd matched */
+  if (!*cwd_p && (!*path_p || *path_p == '/'))	/* whole pwd matched */
     {
       if (!*path_p)        	/* input *is* the current path! */
         return ".";
@@ -1351,17 +1325,23 @@ shortpath (cwd, filename)
                 unmatched_slash_count++;
       while (unmatched_slash_count--)
         {
+	  if (rel_buffer + filename_len <= rel_buf_p + 3)
+	    return filename;
           *rel_buf_p++ = '.';
           *rel_buf_p++ = '.';
           *rel_buf_p++ = '/';
         }
-      while (*rel_buf_p++ = *path_p++)
-        continue;
+
+      do
+	{
+	  if (rel_buffer + filename_len <= rel_buf_p)
+	    return filename;
+	}
+      while (*rel_buf_p++ = *path_p++);
+
       --rel_buf_p;
       if (*(rel_buf_p-1) == '/')
         *--rel_buf_p = '\0';
-      if (strlen (rel_buffer) > (unsigned) strlen (filename))
-	strcpy (rel_buffer, filename);
       return rel_buffer;
     }
 }
@@ -1502,7 +1482,7 @@ referenced_file_is_newer (l, aux_info_mtime)
    a function definition or declaration.
 
    Link this record onto the list of such records for the particular file in
-   which it occured in proper (descending) line number order (for now).
+   which it occurred in proper (descending) line number order (for now).
 
    If there is an identical record already on the list for the file, throw
    this one away.  Doing so takes care of the (useless and troublesome)
@@ -1555,7 +1535,7 @@ save_def_or_dec (l, is_syscalls)
        all of these base file names (even if they may be useless later).
        The file_info records for all of these "base" file names (properly)
        act as file_info records for the "original" (i.e. un-included) files
-       which were submitted to gcc for compilation (when the -fgen-aux-info
+       which were submitted to gcc for compilation (when the -aux-info
        option was used).  */
   
     def_dec_p->file = find_file (abspath (invocation_filename, filename), is_syscalls);
@@ -1679,7 +1659,7 @@ save_def_or_dec (l, is_syscalls)
          character of the name of the function that was declared/defined.
          If p points to another right paren, then this indicates that we
          are dealing with multiple formals lists.  In that case, there
-         really should be another right paren preceeding this right paren.  */
+         really should be another right paren preceding this right paren.  */
 
       if (*p != ')')
         break;
@@ -1886,15 +1866,21 @@ save_def_or_dec (l, is_syscalls)
     }
 }
 
-/* Rewrite the options list used to recompile base source files.  All we are
-   really doing here is removing -g, -O, -S, -c, and -o options, and then
-   adding a final group of options like '-fgen-aux-info -S  -o /dev/null'.  */
+/* Set up the vector COMPILE_PARAMS which is the argument list for running GCC.
+   Also set input_file_name_index and aux_info_file_name_index
+   to the indices of the slots where the file names should go.  */
+
+/* We initialize the vector by  removing -g, -O, -S, -c, and -o options,
+   and adding '-aux-info AUXFILE -S  -o /dev/null INFILE' at the end.  */
 
 static void
 munge_compile_params (params_list)
      const char *params_list;
 {
-  char **temp_params = (char **) alloca (strlen (params_list) + 10);
+  /* Build up the contents in a temporary vector
+     that is so big that to has to be big enough.  */
+  char **temp_params
+    = (char **) alloca ((strlen (params_list) + 6) * sizeof (char *));
   int param_count = 0;
   const char *param;
 
@@ -1934,14 +1920,20 @@ munge_compile_params (params_list)
       if (!*params_list)
         break;
     }
-  temp_params[param_count++] = "-fgen-aux-info";
+  temp_params[param_count++] = "-aux-info";
+
+  /* Leave room for the aux-info file name argument.  */
+  aux_info_file_name_index = param_count;
+  temp_params[param_count++] = NULL;
+
   temp_params[param_count++] = "-S";
   temp_params[param_count++] = "-o";
   temp_params[param_count++] = "/dev/null";
 
-  /* Leave room for the filename argument and a terminating null pointer.  */
-
-  temp_params[filename_index = param_count++] = NULL;
+  /* Leave room for the input file name argument.  */
+  input_file_name_index = param_count;
+  temp_params[param_count++] = NULL;
+  /* Terminate the list.  */
   temp_params[param_count++] = NULL;
 
   /* Make a copy of the compile_params in heap space.  */
@@ -1960,14 +1952,20 @@ gen_aux_info_file (base_filename)
 {
   int child_pid;
 
-  if (!filename_index)
+  if (!input_file_name_index)
     munge_compile_params ("");
 
-  compile_params[filename_index] = shortpath (NULL, base_filename);
+  /* Store the full source file name in the argument vector.  */
+  compile_params[input_file_name_index] = shortpath (NULL, base_filename);
+  /* Add .X to source file name to get aux-info file name.  */
+  compile_params[aux_info_file_name_index]
+    = dupnstr (compile_params[input_file_name_index],
+	       (2 + strlen (compile_params[input_file_name_index])));
+  strcat (compile_params[aux_info_file_name_index], ".X");
 
   if (!quiet_flag)
     fprintf (stderr, "%s: compiling `%s'\n",
-	     pname, compile_params[filename_index]);
+	     pname, compile_params[input_file_name_index]);
 
   if (child_pid = fork ())
     {
@@ -2007,19 +2005,32 @@ gen_aux_info_file (base_filename)
           }
         if (!WIFEXITED (wait_status))
           {
+            fprintf (stderr, "%s: error: subprocess %ld did not exit\n",
+		     pname, (long) child_pid);
             kill (child_pid, 9);
             return 0;
           }
-        return (WEXITSTATUS (wait_status) == 0) ? 1 : 0;
+        if (WEXITSTATUS (wait_status) != 0)
+	  {
+	    fprintf (stderr, "%s: error: %s: compilation failed\n",
+		     pname, base_filename);
+	    return 0;
+	  }
+	return 1;
       }
     }
   else
     {
       if (my_execvp (compile_params[0], (char *const *) compile_params))
         {
-          fprintf (stderr, "%s: error: execvp returned: %s\n",
-		   pname, sys_errlist[errno]);
-          exit (errno);
+	  int e = errno, f = fileno (stderr);
+	  write (f, pname, strlen (pname));
+	  write (f, ": ", 2);
+	  write (f, compile_params[0], strlen (compile_params[0]));
+	  write (f, ": ", 2);
+	  write (f, sys_errlist[e], strlen (sys_errlist[e]));
+	  write (f, "\n", 1);
+          _exit (1);
         }
       return 1;		/* Never executed.  */
     }
@@ -2034,11 +2045,12 @@ process_aux_info_file (base_source_filename, keep_it, is_syscalls)
      int keep_it;
      int is_syscalls;
 {
-  char *const aux_info_filename
-    = (char *) alloca (strlen (base_source_filename)
-		       + strlen (aux_info_suffix) + 1);
+  size_t base_len = strlen (base_source_filename);
+  char * aux_info_filename
+    = (char *) alloca (base_len + strlen (aux_info_suffix) + 1);
   char *aux_info_base;
   char *aux_info_limit;
+  char *aux_info_relocated_name;
   const char *aux_info_second_line;
   time_t aux_info_mtime;
   size_t aux_info_size;
@@ -2068,7 +2080,10 @@ retry:
                 return;
               }
             if (!gen_aux_info_file (base_source_filename))
-              return;
+	      {
+		errors++;
+		return;
+	      }
             retries++;
             goto retry;
           }
@@ -2186,6 +2201,22 @@ retry:
     while (*p++ != '\n')
       continue;
     aux_info_second_line = p;
+    aux_info_relocated_name = 0;
+    if (invocation_filename[0] != '/')
+      {
+	/* INVOCATION_FILENAME is relative;
+	   append it to BASE_SOURCE_FILENAME's dir.  */
+	char *dir_end;
+	aux_info_relocated_name = xmalloc (base_len + (p-invocation_filename));
+	strcpy (aux_info_relocated_name, base_source_filename);
+	dir_end = strrchr (aux_info_relocated_name, '/');
+	if (dir_end)
+	  dir_end++;
+	else
+	  dir_end = aux_info_relocated_name;
+	strcpy (dir_end, invocation_filename);
+	invocation_filename = aux_info_relocated_name;
+      }
   }
 
 
@@ -2206,7 +2237,8 @@ retry:
             if (referenced_file_is_newer (aux_info_p, aux_info_mtime))
               {
                 free (aux_info_base);
-                if (my_unlink (aux_info_filename) == -1)
+		xfree (aux_info_relocated_name);
+                if (keep_it && my_unlink (aux_info_filename) == -1)
                   {
                     fprintf (stderr, "%s: error: can't delete file `%s': %s\n",
 			     pname, shortpath (NULL, aux_info_filename),
@@ -2252,6 +2284,7 @@ retry:
   }
 
   free (aux_info_base);
+  xfree (aux_info_relocated_name);
 }
 
 #ifndef UNPROTOIZE
@@ -2488,7 +2521,11 @@ find_extern_def (head, user)
                 strcpy (needed, user->ansi_decl);
                 p = (NONCONST char *) substr (needed, user->hash_entry->symbol)
                     + strlen (user->hash_entry->symbol) + 2;
-                strcpy (p, "??\?);");
+		/* Avoid having ??? in the string.  */
+		*p++ = '?';
+		*p++ = '?';
+		*p++ = '?';
+                strcpy (p, ");");
 
                 fprintf (stderr, "%s: %d: `%s' used but missing from SYSCALLS\n",
 			 shortpath (NULL, file), user->line,
@@ -2580,7 +2617,7 @@ connect_defs_and_decs (hp)
      prototypes *should* all match exactly with one another and with the
      prototype for the actual function definition.  We don't check for this
      here however, since we assume that the compiler must have already done
-     this consistancy checking when it was creating the .X files.  */
+     this consistency checking when it was creating the .X files.  */
 
   for (dd_p = hp->ddip; dd_p; dd_p = dd_p->next_for_func)
     if (dd_p->prototyped)
@@ -3418,7 +3455,7 @@ add_local_decl (def_dec_p, clean_text_p)
       output_string (decl);
     }
 
-    /* Finally, write out a new indent string, just like the preceeding one
+    /* Finally, write out a new indent string, just like the preceding one
        that we found.  This will typically include a newline as the first
        character of the indent string.  */
 
@@ -3956,7 +3993,7 @@ edit_file (hp)
 #ifdef UNPROTOIZE
           /* Don't even mention "system" include files unless we are
              protoizing.  If we are protoizing, we mention these as a
-             gentile way of prodding the user to convert his "system"
+             gentle way of prodding the user to convert his "system"
              include files to prototype format.  */
           && !in_system_include_dir (convert_filename)
 #endif /* defined (UNPROTOIZE) */
@@ -4265,14 +4302,14 @@ do_processing ()
     {
       syscalls_absolute_filename
         = (char *) xmalloc (strlen (nondefault_syscalls_dir)
-                            + strlen (syscalls_filename) + 2);
+                            + sizeof (syscalls_filename) + 1);
       strcpy (syscalls_absolute_filename, nondefault_syscalls_dir);
     }
   else
     {
       syscalls_absolute_filename
         = (char *) xmalloc (strlen (default_syscalls_dir)
-                            + strlen (syscalls_filename) + 2);
+                            + sizeof (syscalls_filename) + 1);
       strcpy (syscalls_absolute_filename, default_syscalls_dir);
     }
 
@@ -4359,23 +4396,17 @@ main (argc, argv)
 {
   int longind;
   int c;
-  int size;
+  char *params = "";
 
   pname = strrchr (argv[0], '/');
   pname = pname ? pname+1 : argv[0];
 
-  /* Read the working directory, avoiding arbitrary limit.  */
-  size = GUESSPATHLEN;
-  while (1)
+  cwd_buffer = getpwd ();
+  if (!cwd_buffer)
     {
-      char *value;
-
-      cwd_buffer = (char *) xmalloc (size);
-      value = getcwd (cwd_buffer, size);
-      if (value != 0 || errno != ERANGE)
-	break;
-      free (cwd_buffer);
-      size *= 2;
+      fprintf (stderr, "%s: cannot get working directory: %s\n",
+	       pname, sys_errlist[errno]);
+      exit (1);
     }
 
   /* By default, convert the files in the current directory.  */
@@ -4426,7 +4457,7 @@ main (argc, argv)
 	  keep_flag = 1;
 	  break;
 	case 'c':
-	  munge_compile_params (optarg);
+	  params = optarg;
 	  break;
 #ifdef UNPROTOIZE
 	case 'i':
@@ -4451,6 +4482,9 @@ main (argc, argv)
 	}
     }
  
+  /* Set up compile_params based on -p and -c options.  */
+  munge_compile_params (params);
+
   n_base_source_files = argc - optind;
 
   /* Now actually make a list of the base source filenames.  */

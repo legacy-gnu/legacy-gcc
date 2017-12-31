@@ -35,9 +35,19 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 extern int xmalloc ();
 extern void free ();
+extern void sorry ();
+
+extern tree build_function_call_maybe ();
+
+extern int inhibit_warnings;
+extern int flag_assume_nonnull_objects;
+extern tree ctor_label, dtor_label;
 
 /* See cp-decl.c for comment of this variable.  */
 extern int flag_int_enum_equivalence;
+
+/* From cp-typeck.c:  */
+extern tree unary_complex_lvalue ();
 
 /* Compute the ease with which a conversion can be performed
    between an expected and the given type.  */
@@ -136,7 +146,6 @@ convert_harshness (type, parmtype, parm)
 	  if (! BINFO_OFFSET_ZEROP (binfo))
 	    {
 	      static int explained;
-	      extern void sorry ();
 	      if (CONTRAVARIANT_HARSHNESS (new_harshness))
 		message_2_types (sorry, "cannot cast `%d' to `%d' at function call site", p2, p1);
 	      else
@@ -206,7 +215,7 @@ convert_harshness (type, parmtype, parm)
 	harshness = CONTRAVARIANT_HARSHNESS (-1);
       else
 	return 1;
-      /* Now test the OFFSET_TYPE's target compatability.  */
+      /* Now test the OFFSET_TYPE's target compatibility.  */
       type = TREE_TYPE (type);
       parmtype = TREE_TYPE (parmtype);
     }
@@ -306,7 +315,7 @@ convert_harshness (type, parmtype, parm)
       if (ttr == ttl)
 	return INT_TO_BD_HARSHNESS (0);
 
-      if (IS_AGGR_TYPE_2 (ttl, ttr))
+      if (TREE_CODE (ttl) == RECORD_TYPE && TREE_CODE (ttr) == RECORD_TYPE)
 	{
 	  int b_or_d = get_base_distance (ttl, ttr, 0, 0);
 	  if (b_or_d < 0)
@@ -436,7 +445,7 @@ convert_harshness (type, parmtype, parm)
 	/* Here it does matter.  If this conversion is from
 	   derived to base, allow it.  Otherwise, types must
 	   be compatible in the strong sense.  */
-	if (IS_AGGR_TYPE_2 (ttl, ttr))
+	if (TREE_CODE (ttl) == RECORD_TYPE && TREE_CODE (ttr) == RECORD_TYPE)
 	  {
 	    int b_or_d = get_base_distance (ttl, ttr, 0, 0);
 	    if (b_or_d < 0)
@@ -473,7 +482,7 @@ convert_harshness (type, parmtype, parm)
   return 1;
 }
 
-/* Algorithm: Start out with no stikes against.  For each argument
+/* Algorithm: Start out with no strikes against.  For each argument
    which requires a (subjective) hard conversion (such as between
    floating point and integer), issue a strike.  If there are the same
    number of formal and actual parameters in the list, there will be at
@@ -486,7 +495,7 @@ convert_harshness (type, parmtype, parm)
    so that fields with fewer strikes are tried first.
 
    Conversions between builtin and user-defined types are allowed, but
-   no function involving such a conversion is prefered to one which
+   no function involving such a conversion is preferred to one which
    does not require such a conversion.  Furthermore, such conversions
    must be unique.  */
 
@@ -533,7 +542,6 @@ compute_conversion_costs (function, tta_in, cp, arglen)
 	  tree lhstype = TREE_VALUE (ttf);
 
 	  /* Keep quiet about possible contravariance violations.  */
-	  extern int inhibit_warnings;
 	  int old_inhibit_warnings = inhibit_warnings;
 	  inhibit_warnings = 1;
 
@@ -733,7 +741,7 @@ compute_conversion_costs (function, tta_in, cp, arglen)
 	{
 	  /* Calling a non-const member function from a const member function
 	     is probably invalid, but for now we let it only draw a warning.
-	     We indicate that such a mismatch has occured by setting the
+	     We indicate that such a mismatch has occurred by setting the
 	     harshness to a maximum value.  */
 	  if (TREE_CODE (TREE_TYPE (TREE_VALUE (tta_in))) == POINTER_TYPE
 	      && (TYPE_READONLY (TREE_TYPE (TREE_TYPE (TREE_VALUE (tta_in))))))
@@ -752,7 +760,7 @@ compute_conversion_costs (function, tta_in, cp, arglen)
 
    BASETYPE is the context from which we start method resolution
    or NULL if we are comparing overloaded functions.
-   CANDIDATES is the array of canidates we have to choose from.
+   CANDIDATES is the array of candidates we have to choose from.
    N_CANDIDATES is the length of CANDIDATES.
    PARMS is a TREE_LIST of parameters to the function we'll ultimately
    choose.  It is modified in place when resolving methods.  It is not
@@ -854,14 +862,15 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 	    {
 	      if (USER_HARSHNESS (cp[i].harshness[index]))
 		{
-		  TREE_VALUE (tta)
-		    = build_type_conversion (CALL_EXPR, TREE_VALUE (ttf), TREE_PURPOSE (tta), 2);
-		  if (TREE_VALUE (tta))
+		  tree this_parm = build_type_conversion (CALL_EXPR, TREE_VALUE (ttf), TREE_PURPOSE (tta), 2);
+		  if (basetype != NULL_TREE)
+		    TREE_VALUE (tta) = this_parm;
+		  if (this_parm)
 		    {
-		      if (TREE_CODE (TREE_VALUE (tta)) != CONVERT_EXPR
-			  && (TREE_CODE (TREE_VALUE (tta)) != NOP_EXPR
-			      || comp_target_types (TREE_TYPE (TREE_VALUE (tta)),
-						    TREE_TYPE (TREE_OPERAND (TREE_VALUE (tta), 0)), 1)))
+		      if (TREE_CODE (this_parm) != CONVERT_EXPR
+			  && (TREE_CODE (this_parm) != NOP_EXPR
+			      || comp_target_types (TREE_TYPE (this_parm),
+						    TREE_TYPE (TREE_OPERAND (this_parm, 0)), 1)))
 			exact_conversions += 1;
 		    }
 		  else if (PROMOTES_TO_AGGR_TYPE (TREE_VALUE (ttf), REFERENCE_TYPE))
@@ -996,7 +1005,7 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 		  if (newbase != base1 && ! DERIVED_FROM_P (newbase, base1))
 		    {
 		      char *buf = (char *)alloca (8192);
-		      error ("ambiguous request for function from distinct base classes of type `%s'", TYPE_NAME_STRING (basetype));
+		      error_with_aggr_type (basetype, "ambiguous request for function from distinct base classes of type `%s'");
 		      error ("first candidate is `%s'",
 			     fndecl_as_string (0, candidates[best].function, 1));
 		      error ("second candidate is `%s'",
@@ -1116,7 +1125,6 @@ build_vfield_ref (datum, type)
      tree datum, type;
 {
   tree rval;
-  extern int flag_assume_nonnull_objects;
   int old_assume_nonnull_objects = flag_assume_nonnull_objects;
 
   /* Vtable references are always made from non-null objects.  */
@@ -1325,7 +1333,7 @@ build_scoped_method_call (exp, scopes, name, parms)
 {
   /* Because this syntactic form does not allow
      a pointer to a base class to be `stolen',
-     we need not protect the drived->base conversion
+     we need not protect the derived->base conversion
      that happens here.
      
      @@ But we do have to check visibility privileges later.  */
@@ -1598,7 +1606,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	  tree typedef_name = lookup_name (name, 1);
 	  if (typedef_name && TREE_CODE (typedef_name) == TYPE_DECL)
 	    {
-	      /* Cannonicalize the typedef name.  */
+	      /* Canonicalize the typedef name.  */
 	      basetype = TREE_TYPE (typedef_name);
 	      name = TYPE_IDENTIFIER (basetype);
 	    }
@@ -1631,8 +1639,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
     }
   else if (instance == C_C_D || instance == current_class_decl)
     {
-      extern tree ctor_label, dtor_label;
-
       /* When doing initialization, we side-effect the TREE_TYPE of
 	 C_C_D, hence we cannot set up BASETYPE from CURRENT_CLASS_TYPE.  */
       basetype = TREE_TYPE (C_C_D);
@@ -1686,9 +1692,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
     {
       /* The MAIN_VARIANT of the type that `instance_ptr' winds up being.  */
       tree inst_ptr_basetype;
-
-      /* from the file "cp-typeck.c".  */
-      extern tree unary_complex_lvalue ();
 
       static_call_context = (TREE_CODE (instance) == NOP_EXPR
 			     && TREE_OPERAND (instance, 0) == error_mark_node);
@@ -1762,7 +1765,11 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	      if (TYPE_MAIN_VARIANT (basetype) == TYPE_MAIN_VARIANT (inst_ptr_basetype))
 		basetype = inst_ptr_basetype;
 	      else
-		instance_ptr = convert (TYPE_POINTER_TO (basetype), instance_ptr);
+		{
+		  instance_ptr = convert (TYPE_POINTER_TO (basetype), instance_ptr);
+		  if (instance_ptr == error_mark_node)
+		    return error_mark_node;
+		}
 	    }
 	  else
 	    inst_ptr_basetype = TREE_TYPE (TREE_TYPE (instance_ptr));
@@ -1872,7 +1879,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	  parmtypes = tree_cons (NULL_TREE, integer_type_node, parmtypes);
 	}
 
-      if (flag_this_is_variable)
+      if (flag_this_is_variable > 0)
 	{
 	  constp = 0;
 	  volatilep = 0;
@@ -1980,8 +1987,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
      Putting `void_list_node' on the end of the parmtypes
      fakes out `build_decl_overload' into doing the right thing.  */
   TREE_CHAIN (last) = void_list_node;
-  method_name = build_decl_overload (IDENTIFIER_POINTER (name),
-				     parmtypes,
+  method_name = build_decl_overload (name, parmtypes,
 				     1 + (name == constructor_name (save_basetype)));
   TREE_CHAIN (last) = NULL_TREE;
 
@@ -2062,7 +2068,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	    basetypes = TREE_VALUE (basetypes);
 	  basetype = BINFO_TYPE (basetypes);
 
-	  /* Cast the instance variable to the approriate type.  */
+	  /* Cast the instance variable to the appropriate type.  */
 	  TREE_VALUE (parmtypes) = TYPE_POINTER_TO (basetype);
 
 	  if (DESTRUCTOR_NAME_P (DECL_ASSEMBLER_NAME (function)))
@@ -2589,7 +2595,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
       {
 	int used, size;
 
-	/* Count the number of bytes of arguements to operator->(),
+	/* Count the number of bytes of arguments to operator->(),
 	   not to the method itself.  In the tally, don't count bytes
 	   for pointer to member function or for the bytecount.  */
 	parms = TREE_OPERAND (result, 1);
@@ -2635,8 +2641,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	function = build1 (ADDR_EXPR, build_pointer_type (fntype), function);
       else
 	{
-	  if (TREE_EXTERNAL (function))
-	    assemble_external (function);
+	  assemble_external (function);
 	  TREE_USED (function) = 1;
 	  function = default_conversion (function);
 	}
@@ -2681,8 +2686,6 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
      struct candidate *final_cp;
      int buildxxx;
 {
-  extern tree build_function_call_maybe ();
-
   /* must check for overloading here */
   tree overload_name, functions, function, parm;
   tree parmtypes = NULL_TREE, last = NULL_TREE;
@@ -2725,7 +2728,7 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
     TREE_CHAIN (last) = void_list_node;
   else
     parmtypes = void_list_node;
-  overload_name = build_decl_overload (IDENTIFIER_POINTER (fnname), parmtypes, 0);
+  overload_name = build_decl_overload (fnname, parmtypes, 0);
 
   /* Now check to see whether or not we can win.
      Note that if we are called from `build_method_call',

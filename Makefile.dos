@@ -45,7 +45,7 @@ OBJS = toplev.o version.o tree.o print-tree.o stor-layout.o fold-const.o \
  regclass.o local-alloc.o global-alloc.o reload.o reload1.o caller-save.o \
  insn-peep.o reorg.o sched.o final.o recog.o reg-stack.o \
  insn-recog.o insn-extract.o insn-output.o \
- insn-attrtab.o aux-output.o
+ insn-attrtab.o aux-output.o getpwd.o
 
 # GEN files are listed separately, so they can be built before doing parallel
 #  makes for cc1 or cc1plus.  Otherwise sequent parallel make attempts to load
@@ -176,10 +176,10 @@ c-common.o : c-common.c $(TREE_H) c-tree.h c-parse.h flags.h
 # Language-independent files.
 
 gcc.o: gcc.c gvarargs.h obstack.h
-	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) \
-  -DDEFAULT_TARGET_MACHINE=\"dos\" \
-  -DCPP_SPEC=\"-D__MSDOS__\040-D__GO32__\" \
-  -c gcc.c
+	>gcc.rf $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) \
+	-DDEFAULT_TARGET_MACHINE="dos" \
+	-DCPP_SPEC="-noprecomp\040-D__MSDOS__\040-D__GO32__"
+	gcc @gcc.rf -c gcc.c
 
 dumpvers: dumpvers.c
 
@@ -220,6 +220,7 @@ dwarfout.o : dwarfout.c $(CONFIG_H) $(TREE_H) $(RTL_H) flags.h
 
 emit-rtl.o : emit-rtl.c $(CONFIG_H) $(RTL_H) gvarargs.h function.h  \
    regs.h insn-config.h real.h expr.h
+getpwd.o : getpwd.c $(CONFIG_H)
 
 integrate.o : integrate.c $(CONFIG_H) $(RTL_H) $(TREE_H) flags.h integrate.h \
    insn-flags.h insn-config.h expr.h real.h function.h
@@ -292,7 +293,7 @@ cccp.o: cccp.c pcp.h version.c
 
 proto: config.status protoize unprotoize SYSCALLS.c.X protoize.1 unprotoize.1
 
-protoize: protoize.o getopt.o getopt1.o $(MALLOC)
+protoize: protoize.o getopt.o getopt1.o getpwd.o $(MALLOC)
 	gcc -B./ $(GCC_CFLAGS) $(LDFLAGS) protoize.o getopt.o getopt1.o \
 	  $(MALLOC) -o $@
 protoize.o:	protoize.c cc1 cpp getopt.h
@@ -303,7 +304,7 @@ protoize.o:	protoize.c cc1 cpp getopt.h
 	  -DSTD_PROTO_DIR=\"$(libsubdir)\" \
 	  protoize.c -I$(srcdir)
 
-unprotoize: unprotoize.o getopt.o getopt1.o $(MALLOC)
+unprotoize: unprotoize.o getopt.o getopt1.o getpwd.o $(MALLOC)
 	gcc -B./ $(GCC_CFLAGS) $(LDFLAGS) unprotoize.o getopt.o getopt1.o \
 	  $(MALLOC) -o $@
 unprotoize.o:	protoize.c cc1 cpp getopt.h
@@ -329,9 +330,13 @@ unprotoize.1:	proto-man ./cpp
 		| grep -v '^#' \
 			| awk 'NF > 0 {print}' > unprotoize.1
 
-SYSCALLS.c.X:	SYSCALLS.c gcc ./cc1 ./cpp
-	gcc -B./ $(GCC_CFLAGS) $(CPPFLAGS) $(INCLUDES) -fgen-aux-info \
-	  -S -o /dev/null SYSCALLS.c
+SYSCALLS.c : $(srcdir)/sys-types.h $(srcdir)/sys-protos.h
+	cat $(srcdir)/sys-types.h $(srcdir)/sys-protos.h >$@
+
+# This info describes the target machine, so compile with GCC just built.
+SYSCALLS.c.X:	SYSCALLS.c $(GCC_PASSES)
+	$(GCC_FOR_TARGET) $(GCC_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
+	  -aux-info $@ -S -o /dev/null SYSCALLS.c
 
 test-protoize:
 	-rm -f tmp-protoize.*
@@ -356,15 +361,18 @@ force:
 # for otherwise the system Make on SunOS 4.1 never tries
 # to recompile insn-*.o.
 
-insn-config.h: md genconfig
+insn-config.h: tmp-config.h
+tmp-config.h: md genconfig
 	go32 genconfig md > tmp-config.h
 	update tmp-config.h insn-config.h
 
-insn-flags.h: md genflags
+insn-flags.h: tmp-flags.h
+tmp-flags.h: md genflags
 	go32 genflags md > tmp-flags.h
 	update tmp-flags.h insn-flags.h
 
-insn-codes.h: md gencodes
+insn-codes.h: tmp-codes.h
+tmp-codes.h: md gencodes
 	go32 gencodes md > tmp-codes.h
 	update tmp-codes.h insn-codes.h
 
@@ -380,21 +388,24 @@ insn-recog.o : insn-recog.c $(CONFIG_H) $(RTL_H) insn-config.h recog.h \
   real.h output.h flags.h
 	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) -c insn-recog.c
 
-insn-recog.c: md genrecog
+insn-recog.c: tmp-recog.c
+tmp-recog.c: md genrecog
 	go32 genrecog md > tmp-recog.c
 	update tmp-recog.c insn-recog.c
 
 insn-extract.o : insn-extract.c $(CONFIG_H) $(RTL_H)
 	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) -c insn-extract.c
 
-insn-extract.c: md genextract
+insn-extract.c: tmp-extract.c
+tmp-extract.c: md genextract
 	go32 genextract md > tmp-extract.c
 	update tmp-extract.c insn-extract.c
 
 insn-peep.o : insn-peep.c $(CONFIG_H) $(RTL_H) regs.h output.h real.h
 	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) -c insn-peep.c
 
-insn-peep.c: md genpeep
+insn-peep.c: tmp-peep.c
+tmp-peep.c: md genpeep
 	go32 genpeep md > tmp-peep.c
 	update tmp-peep.c insn-peep.c
 
@@ -402,11 +413,13 @@ insn-attrtab.o : insn-attrtab.c $(CONFIG_H) $(RTL_H) regs.h real.h output.h \
      insn-attr.h insn-config.h
 	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) -c insn-attrtab.c
 
-insn-attr.h: md genattr
+insn-attr.h: tmp-attr.h
+tmp-attr.h: md genattr
 	go32 genattr md > tmp-attr.h
 	update tmp-attr.h insn-attr.h
 
-insn-attrtab.c: md genattrtab
+insn-attrtab.c: tmp-attrtab.c
+tmp-attrtab.c: md genattrtab
 	go32 genattrtab md > tmp-attrtab.c
 	update tmp-attrtab.c insn-attrtab.c
 
@@ -415,7 +428,8 @@ insn-output.o : insn-output.c $(CONFIG_H) $(RTL_H) regs.h real.h conditions.h \
     insn-codes.h
 	gcc $(ALL_CFLAGS) $(CPPFLAGS) $(INCLUDES) -c insn-output.c
 
-insn-output.c: md genoutput
+insn-output.c: tmp-output.c
+tmp-output.c: md genoutput
 	go32 genoutput md > tmp-output.c
 	update tmp-output.c insn-output.c
 

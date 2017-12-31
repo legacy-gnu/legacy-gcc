@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -52,7 +52,7 @@ to report bugs.  It corresponds to GNU CC version 2.0.
 * Passes::          Order of passes, what they do, and what each file is for.
 * RTL::             The intermediate representation that most passes work on.
 * Machine Desc::    How to write machine description instruction patterns.
-* Machine Macros::  How to write the machine description C macros.
+* Target Macros::   How to write the machine description C macros.
 * Config::          Writing the `xm-MACHINE.h' file.
 * Index::	    Index of concepts and symbol names.
 
@@ -435,7 +435,7 @@ Contributors to GNU CC
 of GNU CC.
 
    * The idea of using RTL and some of the optimization ideas came
-     from the U. of Arizona Portable Optimizer, written by Jack
+     from the program PO written at the University of Arizona by Jack
      Davidson and Christopher Fraser.  See "Register Allocation and
      Exhaustive Peephole Optimization", Software Practice and
      Experience 14 (9), Sept. 1984, 857-866.
@@ -523,6 +523,10 @@ of GNU CC.
      support for System V Release 4.  He has also worked heavily on
      the Intel 386 and 860 support.
 
+   * Torbjorn Granlund of the Swedish Institute of Computer Science
+     implemented multiply-by-constant optimization and better long long
+     support, and improved leaf function register allocation.
+
 
 File: gcc.info,  Node: Boycott,  Next: Invoking GCC,  Prev: Contributors,  Up: Top
 
@@ -534,10 +538,12 @@ Protect Your Freedom--Fight "Look And Feel"
      as an expression of support for the League on the part of the
      Free Software Foundation.
 
-   Apple, Lotus and Xerox are trying to create a new form of legal
-monopoly: a copyright on a class of user interfaces.  These monopolies
-would cause serious problems for users and developers of computer
-software and systems.
+   Apple and Lotus are trying to create a new form of legal monopoly: a
+copyright on a class of user interfaces.  These monopolies would cause
+serious problems for users and developers of computer software and
+systems.  Xerox, too, has tried to make a monopoly for itself on window
+systems; their suit against Apple was thrown out on a technicality, but
+Xerox has not said anything to indicate it wouldn't try again.
 
    Until a few years ago, the law seemed clear: no one could restrict
 others from using a user interface; programmers were free to implement
@@ -555,8 +561,8 @@ have considered it "enough" when they made their decision to do so.  It
 seems they are not satisfied with the opportunity to continue to
 compete in the marketplace--not even with a head start.
 
-   If Xerox, Lotus, and Apple are permitted to make law through the
-courts, the precedent will hobble the software industry:
+   If companies like Xerox, Lotus, and Apple are permitted to make law
+through the courts, the precedent will hobble the software industry:
 
    * Gratuitous incompatibilities will burden users.  Imagine if each
      car manufacturer had to arrange the pedals in a different order.
@@ -704,8 +710,9 @@ Explanations are in the following sections.
           -fsyntax-only  -pedantic  -pedantic-errors
           -w  -W  -Wall  -Waggregate-return
           -Wcast-align  -Wcast-qual  -Wcomment  -Wconversion  -Werror
-          -Wformat  -Wid-clash-LEN  -Wimplicit  -Wmissing-prototypes
-          -Wno-parentheses  -Wpointer-arith  -Wreturn-type  -Wshadow
+          -Wformat  -Wid-clash-LEN  -Wimplicit  -Wimport
+          -Winline -Wmissing-prototypes
+          -Wparentheses  -Wpointer-arith  -Wreturn-type  -Wshadow
           -Wstrict-prototypes  -Wswitch  -Wtraditional  -Wtrigraphs
           -Wuninitialized  -Wunused  -Wwrite-strings  -Wchar-subscripts
 
@@ -713,7 +720,8 @@ Explanations are in the following sections.
      *Note Options for Debugging Your Program or GCC: Debugging
      Options.
           -a  -dLETTERS  -fpretend-float
-          -g  -ggdb  -gdwarf  -gstabs  -gstabs+  -gcoff
+          -g  -gLEVEL -ggdb  -gdwarf
+          -gstabs  -gstabs+  -gcoff -gxcoff
           -p  -pg  -save-temps
 
 *Optimization Options*
@@ -757,7 +765,7 @@ Explanations are in the following sections.
           -mg -mgnu -munix
           
           *SPARC Options*
-          -mfpu -mno-epilogue
+          -mforce-align -mfpu -mno-epilogue
           
           *Convex Options*
           -margcount -mc1 -mc2 -mnoargcount
@@ -788,7 +796,10 @@ Explanations are in the following sections.
           -mmips-as -mgas -mrnames -mno-rnames -mgpopt -mno-gpopt -mstats
           -mno-stats -mmemcpy -mno-memcpy -mno-mips-tfile -mmips-tfile
           -msoft-float -mhard-float -mabicalls -mno-abicalls -mhalf-pic
-          -mno-half-pic -G NUM
+          -mno-half-pic -G NUM -nocpp
+          
+          *i386 Options*
+          -m486 -msoft-float
 
 *Code Generation Options*
      *Note Options for Code Generation Conventions: Code Gen Options.

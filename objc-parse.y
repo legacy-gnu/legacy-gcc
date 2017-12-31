@@ -102,8 +102,9 @@ void yyerror ();
 %token ELLIPSIS
 
 /* the reserved words */
+/* SCO include files test "ASM", so use something else. */
 %token SIZEOF ENUM STRUCT UNION IF ELSE WHILE DO FOR SWITCH CASE DEFAULT
-%token BREAK CONTINUE RETURN GOTO ASM TYPEOF ALIGNOF ALIGN
+%token BREAK CONTINUE RETURN GOTO ASM_KEYWORD TYPEOF ALIGNOF ALIGN
 %token ATTRIBUTE EXTENSION LABEL
 
 /* Add precedence rules to solve dangling else s/r conflict */
@@ -235,7 +236,7 @@ extdef:
 	fndef
 	| datadef
 	| objcdef
-	| ASM '(' string ')' ';'
+	| ASM_KEYWORD '(' string ')' ';'
 		{ if (pedantic)
 		    pedwarn ("ANSI C forbids use of `asm' keyword");
 		  if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
@@ -774,7 +775,7 @@ notype_initdecls:
 maybeasm:
 	  /* empty */
 		{ $$ = NULL_TREE; }
-	| ASM '(' string ')'
+	| ASM_KEYWORD '(' string ')'
 		{ if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  $$ = $3;
 		  if (pedantic)
@@ -1460,13 +1461,13 @@ stmt:
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  c_expand_return ($2); }
-	| ASM maybe_type_qual '(' string ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
 		  expand_asm ($4); }
 	/* This is the case with just output operands.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
@@ -1474,7 +1475,7 @@ stmt:
 					 $2 == ridpointers[(int)RID_VOLATILE],
 					 input_filename, lineno); }
 	/* This is the case with input operands as well.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ':' asm_operands ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
@@ -1482,7 +1483,7 @@ stmt:
 					 $2 == ridpointers[(int)RID_VOLATILE],
 					 input_filename, lineno); }
 	/* This is the case with clobbered registers as well.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ':'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ':'
   	  asm_operands ':' asm_clobbers ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
@@ -2072,7 +2073,7 @@ reservedwords:
 	| CONTINUE { $$ = get_identifier (token_buffer); }
 	| RETURN  { $$ = get_identifier (token_buffer); }
 	| GOTO { $$ = get_identifier (token_buffer); }
-	| ASM { $$ = get_identifier (token_buffer); }
+	| ASM_KEYWORD { $$ = get_identifier (token_buffer); }
         | SIZEOF { $$ = get_identifier (token_buffer); }
 	| TYPEOF { $$ = get_identifier (token_buffer); }
 	| ALIGNOF { $$ = get_identifier (token_buffer); }

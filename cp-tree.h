@@ -125,8 +125,8 @@ extern tree identifier_typedecl_value ();
 
 #define IDENTIFIER_TYPENAME_P(NODE)	\
   (! strncmp (IDENTIFIER_POINTER (NODE),			\
-	      IDENTIFIER_POINTER (ansi_opname[TYPE_EXPR]),	\
-	      IDENTIFIER_LENGTH (ansi_opname[TYPE_EXPR])))
+	      IDENTIFIER_POINTER (ansi_opname[(int) TYPE_EXPR]),	\
+	      IDENTIFIER_LENGTH (ansi_opname[(int) TYPE_EXPR])))
 
 /* Nonzero means reject anything that ANSI standard C forbids.  */
 extern int pedantic;
@@ -173,7 +173,7 @@ extern tree poplevel ();
 
 extern tree groktypename(), lookup_name();
 
-extern tree lookup_label(), define_label();
+extern tree lookup_label(), define_label(), shadow_label ();
 
 extern tree implicitly_declare(), getdecls(), gettags ();
 
@@ -190,6 +190,10 @@ extern tree build_enumerator();
 extern tree make_index_type ();
 extern tree make_anon_name ();
 
+#if 0 /* not yet, should get fixed properly later */
+extern tree make_type_decl ();
+
+#endif
 /* Functions in c-common.c: */
 
 /* Concatenate a list of STRING_CST nodes into one STRING_CST.  */
@@ -709,7 +713,7 @@ struct lang_type
 
 /* This is the total size of the baseclasses defined for this type.
    Needed because it is desirable to layout such information
-   before begining to process the class itself, and we
+   before beginning to process the class itself, and we
    don't want to compute it second time when actually laying
    out the type for real.  */
 #define CLASSTYPE_SIZE(NODE) (TYPE_LANG_SPECIFIC(NODE)->size)
@@ -728,7 +732,7 @@ struct lang_type
 
    Member initialization: <FIELD_DECL, TYPE>
    Base class construction: <NULL_TREE, BASETYPE>
-   Base class initialization: <BASE_INITIALIZAION, THESE_INITIALIZATIONS>
+   Base class initialization: <BASE_INITIALIZATION, THESE_INITIALIZATIONS>
    Whole type: <MEMBER_INIT, BASE_INIT>.  */
 #define CLASSTYPE_BASE_INIT_LIST(NODE) (TYPE_LANG_SPECIFIC(NODE)->base_init_list)
 
@@ -974,7 +978,7 @@ struct lang_decl
 /* Nonzero for _DECL means that this decl appears in (or will appear
    in) as a member in a RECORD_TYPE or UNION_TYPE node.  It is also for
    detecting circularity in case members are multiply defined.  In the
-   case of a VAR_DECL, it is also used to determince how program storage
+   case of a VAR_DECL, it is also used to determine how program storage
    should be allocated.  */
 #define DECL_IN_AGGR_P(NODE) (DECL_LANG_FLAG_3(NODE))
 
@@ -1071,6 +1075,10 @@ struct lang_decl
 /* Record whether a typedef for type `int' was actually `signed int'.  */
 #define C_TYPEDEF_EXPLICITLY_SIGNED(exp) DECL_LANG_FLAG_1 ((exp))
 
+/* Mark which labels are explicitly declared.
+   These may be shadowed, and may be referenced from nested functions.  */
+#define C_DECLARED_LABEL_FLAG(label) TREE_LANG_FLAG_1 (label)
+
 /* Record whether a type or decl was written with nonconstant size.
    Note that TYPE_SIZE may have simplified to a constant.  */
 #define C_TYPE_VARIABLE_SIZE(type) TREE_LANG_FLAG_4 (type)
@@ -1133,7 +1141,7 @@ struct lang_decl
    still have a decl node used to access the virtual function
    table (so that variables of this type can initialize their
    virtual function table pointers by name).  When such thievery
-   is commited, know exactly which base class's virtual function
+   is committed, know exactly which base class's virtual function
    table is the one being stolen.  This effectively computes the
    transitive closure.  */
 #define DECL_VPARENT(NODE) ((NODE)->decl.arguments)
@@ -1307,6 +1315,8 @@ extern tree layout_basetypes ();
 extern tree copy_to_permanent ();
 extern tree get_decl_list ();
 extern tree break_out_cleanups ();
+extern tree array_type_nelts_total ();
+extern tree array_type_nelts_top ();
 
 /* in cp-except.c */
 extern tree current_exception_type;
@@ -1381,7 +1391,7 @@ extern int current_function_parms_stored;
 
 /* Cannot use '$' up front, because this confuses gdb.
    Note that any format of this kind *must* make the
-   format for `this' lexicgraphically less than any other
+   format for `this' lexicographically less than any other
    parameter name, i.e. "$this" is less than anything else can be.
 
    Note that all forms in which the '$' is significant are long enough
@@ -1557,7 +1567,8 @@ extern tree hack_operator (), hack_wrapper ();
 
 extern int flag_all_virtual;
 
-/* Nonzero means that we cannot make optimizing assumptions about `this'.  */
+/* Positive values means that we cannot make optimizing assumptions about
+   `this'.  Negative values means we know `this' to be of static type.  */
 
 extern int flag_this_is_variable;
 
@@ -1618,7 +1629,7 @@ extern tree current_class_type;	/* _TYPE: the type of the current class */
    LOOKUP_HAS_IN_CHARGE means that the "in charge" variable is already
      in the parameter list.
    LOOKUP_PROTECTED_OK means that even if the constructor we find appears
-     to be non-visibile to current scope, call it anyway.
+     to be non-visible to current scope, call it anyway.
    LOOKUP_DYNAMIC means call dynamic functions, a la SOS.
    LOOKUP_NO_CONVERSION means that user-defined conversions are not
      permitted.  Built-in conversions are permitted.

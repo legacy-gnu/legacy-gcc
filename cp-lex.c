@@ -406,128 +406,128 @@ init_lex ()
   bzero (assignop_tab, (int)LAST_CPLUS_TREE_CODE * sizeof (char *));
 
   ansi_opname[0] = get_identifier ("<invalid operator>");
-  for (i = 0; i < LAST_CPLUS_TREE_CODE; i++)
+  for (i = 0; i < (int) LAST_CPLUS_TREE_CODE; i++)
     {
       ansi_opname[i] = ansi_opname[0];
       ansi_assopname[i] = ansi_opname[0];
     }
 
-  ansi_opname[MULT_EXPR] = get_identifier ("__ml");
-  IDENTIFIER_OPNAME_P (ansi_opname[MULT_EXPR]) = 1;
-  ansi_opname[INDIRECT_REF] = ansi_opname[MULT_EXPR];
-  ansi_assopname[MULT_EXPR] = get_identifier ("__aml");
-  IDENTIFIER_OPNAME_P (ansi_assopname[MULT_EXPR]) = 1;
-  ansi_assopname[INDIRECT_REF] = ansi_assopname[MULT_EXPR];
-  ansi_opname[TRUNC_MOD_EXPR] = get_identifier ("__md");
-  IDENTIFIER_OPNAME_P (ansi_opname[TRUNC_MOD_EXPR]) = 1;
-  ansi_assopname[TRUNC_MOD_EXPR] = get_identifier ("__amd");
-  IDENTIFIER_OPNAME_P (ansi_assopname[TRUNC_MOD_EXPR]) = 1;
-  ansi_opname[CEIL_MOD_EXPR] = ansi_opname[TRUNC_MOD_EXPR];
-  ansi_opname[FLOOR_MOD_EXPR] = ansi_opname[TRUNC_MOD_EXPR];
-  ansi_opname[ROUND_MOD_EXPR] = ansi_opname[TRUNC_MOD_EXPR];
-  ansi_opname[MINUS_EXPR] = get_identifier ("__mi");
-  IDENTIFIER_OPNAME_P (ansi_opname[MINUS_EXPR]) = 1;
-  ansi_opname[NEGATE_EXPR] = ansi_opname[MINUS_EXPR];
-  ansi_assopname[MINUS_EXPR] = get_identifier ("__ami");
-  IDENTIFIER_OPNAME_P (ansi_assopname[MINUS_EXPR]) = 1;
-  ansi_assopname[NEGATE_EXPR] = ansi_assopname[MINUS_EXPR];
-  ansi_opname[RSHIFT_EXPR] = get_identifier ("__rs");
-  IDENTIFIER_OPNAME_P (ansi_opname[RSHIFT_EXPR]) = 1;
-  ansi_assopname[RSHIFT_EXPR] = get_identifier ("__ars");
-  IDENTIFIER_OPNAME_P (ansi_assopname[RSHIFT_EXPR]) = 1;
-  ansi_opname[NE_EXPR] = get_identifier ("__ne");
-  IDENTIFIER_OPNAME_P (ansi_opname[NE_EXPR]) = 1;
-  ansi_opname[GT_EXPR] = get_identifier ("__gt");
-  IDENTIFIER_OPNAME_P (ansi_opname[GT_EXPR]) = 1;
-  ansi_opname[GE_EXPR] = get_identifier ("__ge");
-  IDENTIFIER_OPNAME_P (ansi_opname[GE_EXPR]) = 1;
-  ansi_opname[BIT_IOR_EXPR] = get_identifier ("__or");
-  IDENTIFIER_OPNAME_P (ansi_opname[BIT_IOR_EXPR]) = 1;
-  ansi_assopname[BIT_IOR_EXPR] = get_identifier ("__aor");
-  IDENTIFIER_OPNAME_P (ansi_assopname[BIT_IOR_EXPR]) = 1;
-  ansi_opname[TRUTH_ANDIF_EXPR] = get_identifier ("__aa");
-  IDENTIFIER_OPNAME_P (ansi_opname[TRUTH_ANDIF_EXPR]) = 1;
-  ansi_opname[TRUTH_NOT_EXPR] = get_identifier ("__nt");
-  IDENTIFIER_OPNAME_P (ansi_opname[TRUTH_NOT_EXPR]) = 1;
-  ansi_opname[PREINCREMENT_EXPR] = get_identifier ("__pp");
-  IDENTIFIER_OPNAME_P (ansi_opname[PREINCREMENT_EXPR]) = 1;
-  ansi_opname[POSTINCREMENT_EXPR] = ansi_opname[PREINCREMENT_EXPR];
-  ansi_opname[MODIFY_EXPR] = get_identifier ("__as");
-  IDENTIFIER_OPNAME_P (ansi_opname[MODIFY_EXPR]) = 1;
-  ansi_assopname[NOP_EXPR] = ansi_opname[MODIFY_EXPR];
-  ansi_opname[COMPOUND_EXPR] = get_identifier ("__cm");
-  IDENTIFIER_OPNAME_P (ansi_opname[COMPOUND_EXPR]) = 1;
-  ansi_opname[EXACT_DIV_EXPR] = get_identifier ("__dv");
-  IDENTIFIER_OPNAME_P (ansi_opname[EXACT_DIV_EXPR]) = 1;
-  ansi_assopname[EXACT_DIV_EXPR] = get_identifier ("__adv");
-  IDENTIFIER_OPNAME_P (ansi_assopname[EXACT_DIV_EXPR]) = 1;
-  ansi_opname[TRUNC_DIV_EXPR] = ansi_opname[EXACT_DIV_EXPR];
-  ansi_opname[CEIL_DIV_EXPR] = ansi_opname[EXACT_DIV_EXPR];
-  ansi_opname[FLOOR_DIV_EXPR] = ansi_opname[EXACT_DIV_EXPR];
-  ansi_opname[ROUND_DIV_EXPR] = ansi_opname[EXACT_DIV_EXPR];
-  ansi_opname[PLUS_EXPR] = get_identifier ("__pl");
-  ansi_assopname[TRUNC_DIV_EXPR] = ansi_assopname[EXACT_DIV_EXPR];
-  ansi_assopname[CEIL_DIV_EXPR] = ansi_assopname[EXACT_DIV_EXPR];
-  ansi_assopname[FLOOR_DIV_EXPR] = ansi_assopname[EXACT_DIV_EXPR];
-  ansi_assopname[ROUND_DIV_EXPR] = ansi_assopname[EXACT_DIV_EXPR];
-  ansi_opname[PLUS_EXPR] = get_identifier ("__pl");
-  IDENTIFIER_OPNAME_P (ansi_opname[PLUS_EXPR]) = 1;
-  ansi_assopname[PLUS_EXPR] = get_identifier ("__apl");
-  IDENTIFIER_OPNAME_P (ansi_assopname[PLUS_EXPR]) = 1;
-  ansi_opname[CONVERT_EXPR] = ansi_opname[PLUS_EXPR];
-  ansi_assopname[CONVERT_EXPR] = ansi_assopname[PLUS_EXPR];
-  ansi_opname[LSHIFT_EXPR] = get_identifier ("__ls");
-  IDENTIFIER_OPNAME_P (ansi_opname[LSHIFT_EXPR]) = 1;
-  ansi_assopname[LSHIFT_EXPR] = get_identifier ("__als");
-  IDENTIFIER_OPNAME_P (ansi_assopname[LSHIFT_EXPR]) = 1;
-  ansi_opname[EQ_EXPR] = get_identifier ("__eq");
-  IDENTIFIER_OPNAME_P (ansi_opname[EQ_EXPR]) = 1;
-  ansi_opname[LT_EXPR] = get_identifier ("__lt");
-  IDENTIFIER_OPNAME_P (ansi_opname[LT_EXPR]) = 1;
-  ansi_opname[LE_EXPR] = get_identifier ("__le");
-  IDENTIFIER_OPNAME_P (ansi_opname[LE_EXPR]) = 1;
-  ansi_opname[BIT_AND_EXPR] = get_identifier ("__ad");
-  IDENTIFIER_OPNAME_P (ansi_opname[BIT_AND_EXPR]) = 1;
-  ansi_assopname[BIT_AND_EXPR] = get_identifier ("__aad");
-  IDENTIFIER_OPNAME_P (ansi_assopname[BIT_AND_EXPR]) = 1;
-  ansi_opname[ADDR_EXPR] = ansi_opname[BIT_AND_EXPR];
-  ansi_assopname[ADDR_EXPR] = ansi_assopname[BIT_AND_EXPR];
-  ansi_opname[BIT_XOR_EXPR] = get_identifier ("__er");
-  IDENTIFIER_OPNAME_P (ansi_opname[BIT_XOR_EXPR]) = 1;
-  ansi_assopname[BIT_XOR_EXPR] = get_identifier ("__aer");
-  IDENTIFIER_OPNAME_P (ansi_assopname[BIT_XOR_EXPR]) = 1;
-  ansi_opname[TRUTH_ORIF_EXPR] = get_identifier ("__oo");
-  IDENTIFIER_OPNAME_P (ansi_opname[TRUTH_ORIF_EXPR]) = 1;
-  ansi_opname[BIT_NOT_EXPR] = get_identifier ("__co");
-  IDENTIFIER_OPNAME_P (ansi_opname[BIT_NOT_EXPR]) = 1;
-  ansi_opname[PREDECREMENT_EXPR] = get_identifier ("__mm");
-  IDENTIFIER_OPNAME_P (ansi_opname[PREDECREMENT_EXPR]) = 1;
-  ansi_opname[POSTDECREMENT_EXPR] = ansi_opname[PREDECREMENT_EXPR];
-  ansi_opname[COMPONENT_REF] = get_identifier ("__rf");
-  IDENTIFIER_OPNAME_P (ansi_opname[COMPONENT_REF]) = 1;
-  ansi_opname[MEMBER_REF] = get_identifier ("__rm");
-  IDENTIFIER_OPNAME_P (ansi_opname[MEMBER_REF]) = 1;
-  ansi_opname[CALL_EXPR] = get_identifier ("__cl");
-  IDENTIFIER_OPNAME_P (ansi_opname[CALL_EXPR]) = 1;
-  ansi_opname[ARRAY_REF] = get_identifier ("__vc");
-  IDENTIFIER_OPNAME_P (ansi_opname[ARRAY_REF]) = 1;
-  ansi_opname[NEW_EXPR] = get_identifier ("__nw");
-  IDENTIFIER_OPNAME_P (ansi_opname[NEW_EXPR]) = 1;
-  ansi_opname[DELETE_EXPR] = get_identifier ("__dl");
-  IDENTIFIER_OPNAME_P (ansi_opname[DELETE_EXPR]) = 1;
-  ansi_opname[TYPE_EXPR] = get_identifier ("__op");
-  IDENTIFIER_OPNAME_P (ansi_opname[TYPE_EXPR]) = 1;
+  ansi_opname[(int) MULT_EXPR] = get_identifier ("__ml");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MULT_EXPR]) = 1;
+  ansi_opname[(int) INDIRECT_REF] = ansi_opname[(int) MULT_EXPR];
+  ansi_assopname[(int) MULT_EXPR] = get_identifier ("__aml");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) MULT_EXPR]) = 1;
+  ansi_assopname[(int) INDIRECT_REF] = ansi_assopname[(int) MULT_EXPR];
+  ansi_opname[(int) TRUNC_MOD_EXPR] = get_identifier ("__md");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) TRUNC_MOD_EXPR]) = 1;
+  ansi_assopname[(int) TRUNC_MOD_EXPR] = get_identifier ("__amd");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) TRUNC_MOD_EXPR]) = 1;
+  ansi_opname[(int) CEIL_MOD_EXPR] = ansi_opname[(int) TRUNC_MOD_EXPR];
+  ansi_opname[(int) FLOOR_MOD_EXPR] = ansi_opname[(int) TRUNC_MOD_EXPR];
+  ansi_opname[(int) ROUND_MOD_EXPR] = ansi_opname[(int) TRUNC_MOD_EXPR];
+  ansi_opname[(int) MINUS_EXPR] = get_identifier ("__mi");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MINUS_EXPR]) = 1;
+  ansi_opname[(int) NEGATE_EXPR] = ansi_opname[(int) MINUS_EXPR];
+  ansi_assopname[(int) MINUS_EXPR] = get_identifier ("__ami");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) MINUS_EXPR]) = 1;
+  ansi_assopname[(int) NEGATE_EXPR] = ansi_assopname[(int) MINUS_EXPR];
+  ansi_opname[(int) RSHIFT_EXPR] = get_identifier ("__rs");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) RSHIFT_EXPR]) = 1;
+  ansi_assopname[(int) RSHIFT_EXPR] = get_identifier ("__ars");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) RSHIFT_EXPR]) = 1;
+  ansi_opname[(int) NE_EXPR] = get_identifier ("__ne");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) NE_EXPR]) = 1;
+  ansi_opname[(int) GT_EXPR] = get_identifier ("__gt");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) GT_EXPR]) = 1;
+  ansi_opname[(int) GE_EXPR] = get_identifier ("__ge");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) GE_EXPR]) = 1;
+  ansi_opname[(int) BIT_IOR_EXPR] = get_identifier ("__or");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) BIT_IOR_EXPR]) = 1;
+  ansi_assopname[(int) BIT_IOR_EXPR] = get_identifier ("__aor");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) BIT_IOR_EXPR]) = 1;
+  ansi_opname[(int) TRUTH_ANDIF_EXPR] = get_identifier ("__aa");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) TRUTH_ANDIF_EXPR]) = 1;
+  ansi_opname[(int) TRUTH_NOT_EXPR] = get_identifier ("__nt");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) TRUTH_NOT_EXPR]) = 1;
+  ansi_opname[(int) PREINCREMENT_EXPR] = get_identifier ("__pp");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) PREINCREMENT_EXPR]) = 1;
+  ansi_opname[(int) POSTINCREMENT_EXPR] = ansi_opname[(int) PREINCREMENT_EXPR];
+  ansi_opname[(int) MODIFY_EXPR] = get_identifier ("__as");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MODIFY_EXPR]) = 1;
+  ansi_assopname[(int) NOP_EXPR] = ansi_opname[(int) MODIFY_EXPR];
+  ansi_opname[(int) COMPOUND_EXPR] = get_identifier ("__cm");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) COMPOUND_EXPR]) = 1;
+  ansi_opname[(int) EXACT_DIV_EXPR] = get_identifier ("__dv");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) EXACT_DIV_EXPR]) = 1;
+  ansi_assopname[(int) EXACT_DIV_EXPR] = get_identifier ("__adv");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) EXACT_DIV_EXPR]) = 1;
+  ansi_opname[(int) TRUNC_DIV_EXPR] = ansi_opname[(int) EXACT_DIV_EXPR];
+  ansi_opname[(int) CEIL_DIV_EXPR] = ansi_opname[(int) EXACT_DIV_EXPR];
+  ansi_opname[(int) FLOOR_DIV_EXPR] = ansi_opname[(int) EXACT_DIV_EXPR];
+  ansi_opname[(int) ROUND_DIV_EXPR] = ansi_opname[(int) EXACT_DIV_EXPR];
+  ansi_opname[(int) PLUS_EXPR] = get_identifier ("__pl");
+  ansi_assopname[(int) TRUNC_DIV_EXPR] = ansi_assopname[(int) EXACT_DIV_EXPR];
+  ansi_assopname[(int) CEIL_DIV_EXPR] = ansi_assopname[(int) EXACT_DIV_EXPR];
+  ansi_assopname[(int) FLOOR_DIV_EXPR] = ansi_assopname[(int) EXACT_DIV_EXPR];
+  ansi_assopname[(int) ROUND_DIV_EXPR] = ansi_assopname[(int) EXACT_DIV_EXPR];
+  ansi_opname[(int) PLUS_EXPR] = get_identifier ("__pl");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) PLUS_EXPR]) = 1;
+  ansi_assopname[(int) PLUS_EXPR] = get_identifier ("__apl");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) PLUS_EXPR]) = 1;
+  ansi_opname[(int) CONVERT_EXPR] = ansi_opname[(int) PLUS_EXPR];
+  ansi_assopname[(int) CONVERT_EXPR] = ansi_assopname[(int) PLUS_EXPR];
+  ansi_opname[(int) LSHIFT_EXPR] = get_identifier ("__ls");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) LSHIFT_EXPR]) = 1;
+  ansi_assopname[(int) LSHIFT_EXPR] = get_identifier ("__als");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) LSHIFT_EXPR]) = 1;
+  ansi_opname[(int) EQ_EXPR] = get_identifier ("__eq");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) EQ_EXPR]) = 1;
+  ansi_opname[(int) LT_EXPR] = get_identifier ("__lt");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) LT_EXPR]) = 1;
+  ansi_opname[(int) LE_EXPR] = get_identifier ("__le");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) LE_EXPR]) = 1;
+  ansi_opname[(int) BIT_AND_EXPR] = get_identifier ("__ad");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) BIT_AND_EXPR]) = 1;
+  ansi_assopname[(int) BIT_AND_EXPR] = get_identifier ("__aad");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) BIT_AND_EXPR]) = 1;
+  ansi_opname[(int) ADDR_EXPR] = ansi_opname[(int) BIT_AND_EXPR];
+  ansi_assopname[(int) ADDR_EXPR] = ansi_assopname[(int) BIT_AND_EXPR];
+  ansi_opname[(int) BIT_XOR_EXPR] = get_identifier ("__er");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) BIT_XOR_EXPR]) = 1;
+  ansi_assopname[(int) BIT_XOR_EXPR] = get_identifier ("__aer");
+  IDENTIFIER_OPNAME_P (ansi_assopname[(int) BIT_XOR_EXPR]) = 1;
+  ansi_opname[(int) TRUTH_ORIF_EXPR] = get_identifier ("__oo");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) TRUTH_ORIF_EXPR]) = 1;
+  ansi_opname[(int) BIT_NOT_EXPR] = get_identifier ("__co");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) BIT_NOT_EXPR]) = 1;
+  ansi_opname[(int) PREDECREMENT_EXPR] = get_identifier ("__mm");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) PREDECREMENT_EXPR]) = 1;
+  ansi_opname[(int) POSTDECREMENT_EXPR] = ansi_opname[(int) PREDECREMENT_EXPR];
+  ansi_opname[(int) COMPONENT_REF] = get_identifier ("__rf");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) COMPONENT_REF]) = 1;
+  ansi_opname[(int) MEMBER_REF] = get_identifier ("__rm");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MEMBER_REF]) = 1;
+  ansi_opname[(int) CALL_EXPR] = get_identifier ("__cl");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) CALL_EXPR]) = 1;
+  ansi_opname[(int) ARRAY_REF] = get_identifier ("__vc");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) ARRAY_REF]) = 1;
+  ansi_opname[(int) NEW_EXPR] = get_identifier ("__nw");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) NEW_EXPR]) = 1;
+  ansi_opname[(int) DELETE_EXPR] = get_identifier ("__dl");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) DELETE_EXPR]) = 1;
+  ansi_opname[(int) TYPE_EXPR] = get_identifier ("__op");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) TYPE_EXPR]) = 1;
 
   /* This is not true: these operators are not defined in ANSI,
      but we need them anyway.  */
-  ansi_opname[MIN_EXPR] = get_identifier ("__mn");
-  IDENTIFIER_OPNAME_P (ansi_opname[MIN_EXPR]) = 1;
-  ansi_opname[MAX_EXPR] = get_identifier ("__mx");
-  IDENTIFIER_OPNAME_P (ansi_opname[MAX_EXPR]) = 1;
-  ansi_opname[COND_EXPR] = get_identifier ("__cn");
-  IDENTIFIER_OPNAME_P (ansi_opname[COND_EXPR]) = 1;
-  ansi_opname[METHOD_CALL_EXPR] = get_identifier ("__wr");
-  IDENTIFIER_OPNAME_P (ansi_opname[METHOD_CALL_EXPR]) = 1;
+  ansi_opname[(int) MIN_EXPR] = get_identifier ("__mn");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MIN_EXPR]) = 1;
+  ansi_opname[(int) MAX_EXPR] = get_identifier ("__mx");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) MAX_EXPR]) = 1;
+  ansi_opname[(int) COND_EXPR] = get_identifier ("__cn");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) COND_EXPR]) = 1;
+  ansi_opname[(int) METHOD_CALL_EXPR] = get_identifier ("__wr");
+  IDENTIFIER_OPNAME_P (ansi_opname[(int) METHOD_CALL_EXPR]) = 1;
 
   init_method ();
   gcc_obstack_init (&inline_text_obstack);
@@ -731,7 +731,7 @@ init_lex ()
   if (! flag_handle_exceptions)
     {
       /* Easiest way to not recognize exception
-	 handling extentions...  */
+	 handling extensions...  */
       UNSET_RESERVED_WORD ("all");
       UNSET_RESERVED_WORD ("except");
       UNSET_RESERVED_WORD ("exception");
@@ -744,7 +744,7 @@ init_lex ()
   else if (flag_ansi_exceptions)
     {
       /* Easiest way to not recognize exception
-	 handling extentions...  */
+	 handling extensions...  */
       UNSET_RESERVED_WORD ("exception");
       UNSET_RESERVED_WORD ("all");
       UNSET_RESERVED_WORD ("except");
@@ -3649,6 +3649,15 @@ build_lang_decl (code, name, type)
     DECL_LANGUAGE (t) = lang_c;
   else abort ();
 
+#if 0 /* not yet, should get fixed properly later */
+  if (code == TYPE_DECL)
+    {
+      tree id;
+      id = get_identifier (build_overload_name (type, 1, 1));
+      DECL_ASSEMBLER_NAME (t) = id;
+    }
+
+#endif
 #ifdef GATHER_STATISTICS
   tree_node_counts[(int)lang_decl] += 1;
   tree_node_sizes[(int)lang_decl] += sizeof(struct lang_decl);
@@ -3668,6 +3677,15 @@ build_lang_field_decl (code, name, type)
   struct obstack *obstack = current_obstack;
   register int i = sizeof (struct lang_decl_flags) / sizeof (int);
   register int *pi;
+#if 0 /* not yet, should get fixed properly later */
+
+  if (code == TYPE_DECL)
+    {
+      tree id;
+      id = get_identifier (build_overload_name (type, 1, 1));
+      DECL_ASSEMBLER_NAME (t) = id;
+    }
+#endif
 
   if (! TREE_PERMANENT (t))
     obstack = saveable_obstack;

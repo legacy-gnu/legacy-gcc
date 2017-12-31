@@ -19,7 +19,7 @@ since it can't really be used until GAS and the converted libraries
 are installed.
 
 Now you must copy `cc1' and `cpp' and `gnulib' into the directory
-`/usr/local/lib/gcc/i386-sysv-gas/VERSION', where VERSION stands for
+`/usr/local/lib/gcc-lib/i386-sysv-gas/VERSION', where VERSION stands for
 the GCC version number.  Also install `gcc' in a directory in your
 path.
 
@@ -27,7 +27,7 @@ Now, make the GNU assembler:
 
 	cd .../gas
 	make a386
-	cp a386 /usr/local/lib/gcc/i386-sysv-gas/VERSION
+	cp a386 /usr/local/lib/gcc-lib/i386-sysv-gas/VERSION
 
 Now, make the other utilities:
 
@@ -36,7 +36,7 @@ Now, make the other utilities:
 edit Makefile to turn on the CFLAGS for USG using COFF_ENCAPSULATE
 
 	make
-	cp ld /usr/local/lib/gcc/i386-sysv-gas/VERSION
+	cp ld /usr/local/lib/gcc-lib/i386-sysv-gas/VERSION
 
 Put the other programs (size nm strip ar objdump and ranlib) somewhere
 handy, but don't clobber your usg programs.  I put them all in
@@ -53,7 +53,7 @@ Convert the libraries to the encapsulated format:
 
 	cp .../gcc/gnulib usg-gnulib
 	make gnulib
-	cp gnulib /usr/local/lib/gcc/i386-sysv-gas/VERSION
+	cp gnulib /usr/local/lib/gcc-lib/i386-sysv-gas/VERSION
 
 	robotussin /lib/crt0.o /usr/local/lib/gcc-crt0.o
 
@@ -63,7 +63,7 @@ and install the complete `gnulib' in place of the partial one.
 	cp gnulib .../gcc
 	cd .../gcc
 	make rest.encap
-	cp gnulib /usr/local/lib/gcc/i386-sysv-gas/VERSION
+	cp gnulib /usr/local/lib/gcc-lib/i386-sysv-gas/VERSION
 
 Now, you should be able to use 'gcc' to compile programs.
 If you want to bootstrap GCC with itself, this can now be done.

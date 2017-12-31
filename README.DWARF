@@ -25,14 +25,14 @@ standards for numbering registers for various target architectures.
 for notes on other known interoperability problems applicable to the
 combination of GCC and svr4 SDB.)  Note however that it is currently
 believed that the register numbering conventions used by GCC (in Dwarf
-output) are consistant with those used by the svr4 SDB debuggers provided
+output) are consistent with those used by the svr4 SDB debuggers provided
 with the System V Release 4 reference ports for the m88k, i386, and i860
 processors.
 
 The Dwarf generation enhancement for GCC has been generously donated
 by Network Computing Devices to the Free Software Foundation.  The
 additional code involved is covered under the GNU General Public
-Licence (aka `copyleft') just as the rest of GCC is.
+License (aka `copyleft') just as the rest of GCC is.
 
 If you have questions or comments about the Dwarf generation feature
 of GCC, please send mail to me <rfg@ncd.com>.  I will be happy to
@@ -48,8 +48,8 @@ standards in the GNU implementation of Dwarf.
 If you are interested in obtaining more information about Dwarf or in
 participating in the continuing evolution of Dwarf within the UI/PLSIG
 group, please contact either myself or the UI/PLSIG chairman, Dan Oldman
-<oldman@dg-rtp.dg.com>.  The UI/PLSIG welcomes and encourages the partici-
-pation of new members who might be interested in discussing debugging
+<oldman@dg-rtp.dg.com>.  The UI/PLSIG welcomes and encourages the
+participation of new members who might be interested in discussing debugging
 issues in general, and Dwarf in particular.  There are no dues and you
 DO NOT have to be a UI member in order to join the UI/PLSIG.  The UI/PLSIG
 operates an E-mail mailing list and holds regular meeting in various cities.
@@ -180,7 +180,7 @@ Each subsequent .line entry should also be assumed to have been produced
 as a result of compiling yet more lines from the same file.  The end of
 any given LEC is easily found by looking at the first 4-byte pointer in
 the *next* .debug_srcinfo entry.  That next .debug_srcinfo entry points
-to a new and different LEC, so the preceeding LEC (implicitly) must have
+to a new and different LEC, so the preceding LEC (implicitly) must have
 ended with the last .line section entry which occurs at the 2 1/2 words
 just before the address given in the first pointer of the new .debug_srcinfo
 entry.
@@ -245,7 +245,7 @@ should be interpreted (by debuggers) as follows:
 		space) of the .text section for this compilation unit.
 
 	(5)	The date/time (in seconds since midnight 1/1/70) at which the
-		compilation of this compilation unit occured.  This value
+		compilation of this compilation unit occurred.  This value
 		should be interpreted as an unsigned quantity because gcc
 		might be configured to generate a default value of 0xffffffff
 		in this field (in cases where it is desired to have object
@@ -253,7 +253,7 @@ should be interpreted (by debuggers) as follows:
 		be byte-for-byte identical).
 
 Note that the first string placed into the .debug_sfnames section for each
-compilation unit is the name of the directory in which compilation occured.
+compilation unit is the name of the directory in which compilation occurred.
 This string ends with a `/' (to help indicate that it is the pathname of a
 directory).  Thus, the second word of each specialized initial .debug_srcinfo
 entry for each compilation unit may be used as a pointer to the (string)
@@ -371,7 +371,7 @@ ANSI C when it comes to declarations.  These are (1) inline functions,
 and (2) dynamic arrays, and (3) incomplete enum types.  (See the GCC
 manual for more information on these GNU extensions to ANSI C.)  When
 used, these GNU C extensions are represented (in the generated Dwarf
-output of GCC) in the most natural and intutively obvious ways.
+output of GCC) in the most natural and intuitively obvious ways.
 
 In the case of inline functions, the Dwarf representation is exactly as
 called for (in the current UI/PLSIG Dwarf draft specification) for an

@@ -265,7 +265,7 @@ gen_rtx (va_alist)
       /* In case the MD file explicitly references the frame pointer, have
 	 all such references point to the same frame pointer.  This is used
 	 during frame pointer elimination to distinguish the explicit
-	 references to these registers from psuedos that happened to be
+	 references to these registers from pseudos that happened to be
 	 assigned to them.
 
 	 If we have eliminated the frame pointer or arg pointer, we will
@@ -2604,7 +2604,7 @@ init_emit_once (line_numbers)
 	  const_tiny_rtx[i][(int) mode] = tem;
 	}
 
-      const_tiny_rtx[i][VOIDmode] = gen_rtx (CONST_INT, VOIDmode, i);
+      const_tiny_rtx[i][(int) VOIDmode] = gen_rtx (CONST_INT, VOIDmode, i);
 
       for (mode = GET_CLASS_NARROWEST_MODE (MODE_INT); mode != VOIDmode;
 	   mode = GET_MODE_WIDER_MODE (mode))

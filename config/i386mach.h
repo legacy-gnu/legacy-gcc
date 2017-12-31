@@ -9,6 +9,10 @@
 
 /* Defines to be able to build libgcc.a with GCC.  */
 
+/* It might seem that these are not important, since gcc 2 will never
+   call libgcc for these functions.  But programs might be linked with
+   code compiled by gcc 1, and then these will be used.  */
+
 #define perform_udivsi3(a,b)						\
 {									\
   register int dx asm("dx");						\
@@ -20,7 +24,7 @@
   return ax;								\
 }
 
-#define perform_divsi3(a,b)							\
+#define perform_divsi3(a,b)						\
 {									\
   register int dx asm("dx");						\
   register int ax asm("ax");						\
@@ -41,7 +45,7 @@
   return dx;								\
 }
 
-#define perform_modsi3(a,b)							\
+#define perform_modsi3(a,b)						\
 {									\
   register int dx asm("dx");						\
   register int ax asm("ax");						\
@@ -51,7 +55,7 @@
   return dx;								\
 }
 
-#define perform_fix_truncdfsi2(a)						\
+#define perform_fixdfsi(a)						\
 {									\
   auto unsigned short ostatus;						\
   auto unsigned short nstatus;						\
@@ -66,7 +70,7 @@
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
   asm volatile ("fldl %0" : /* no outputs */ : "m" (a));		\
   asm volatile ("fistpl %0" : "=m" (ret));				\
-  asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
+  asm volatile ("fldcw %0" : /* no outputs */ : "m" (ostatus));		\
 									\
   return ret;								\
 }

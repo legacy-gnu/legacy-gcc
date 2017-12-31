@@ -23,7 +23,7 @@
 #ifdef __GNUC__
 #define alloca __builtin_alloca
 #else /* not __GNUC__ */
-#ifdef sparc
+#if defined(sparc) && !defined(USG) && !defined(SVR4) && !defined(__svr4__)
 #include <alloca.h>
 #else
 #ifdef _AIX
@@ -46,6 +46,7 @@ char *alloca ();
 #ifdef	__GNU_LIBRARY__
 #undef	alloca
 #include <stdlib.h>
+#include <string.h>
 #else	/* Not GNU C library.  */
 #define	__alloca	alloca
 #endif	/* GNU C library.  */

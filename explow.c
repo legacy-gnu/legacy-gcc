@@ -158,35 +158,36 @@ plus_constant_for_output (x, c)
 rtx
 eliminate_constant_term (x, constptr)
      rtx x;
-     int *constptr;
+     rtx *constptr;
 {
-  int c;
   register rtx x0, x1;
+  rtx tem;
 
   if (GET_CODE (x) != PLUS)
     return x;
 
   /* First handle constants appearing at this level explicitly.  */
-  if (GET_CODE (XEXP (x, 0)) == CONST_INT)
+  if (GET_CODE (XEXP (x, 1)) == CONST_INT
+      && 0 != (tem = simplify_binary_operation (PLUS, GET_MODE (x), *constptr,
+						XEXP (x, 1)))
+      && GET_CODE (tem) == CONST_INT)
     {
-      *constptr += INTVAL (XEXP (x, 0));
-      return eliminate_constant_term (XEXP (x, 1), constptr);
-    }
-
-  if (GET_CODE (XEXP (x, 1)) == CONST_INT)
-    {
-      *constptr += INTVAL (XEXP (x, 1));
+      *constptr = tem;
       return eliminate_constant_term (XEXP (x, 0), constptr);
     }
 
-  c = 0;
-  x0 = eliminate_constant_term (XEXP (x, 0), &c);
-  x1 = eliminate_constant_term (XEXP (x, 1), &c);
-  if (x1 != XEXP (x, 1) || x0 != XEXP (x, 0))
+  tem = const0_rtx;
+  x0 = eliminate_constant_term (XEXP (x, 0), &tem);
+  x1 = eliminate_constant_term (XEXP (x, 1), &tem);
+  if ((x1 != XEXP (x, 1) || x0 != XEXP (x, 0))
+      && 0 != (tem = simplify_binary_operation (PLUS, GET_MODE (x),
+						*constptr, tem))
+      && GET_CODE (tem) == CONST_INT)
     {
-      *constptr += c;
+      *constptr = tem;
       return gen_rtx (PLUS, GET_MODE (x), x0, x1);
     }
+
   return x;
 }
 
@@ -376,13 +377,13 @@ memory_address (mode, x)
      in registers often become common subexpressions.  */
   if (GET_CODE (x) == PLUS)
     {
-      int constant_term = 0;
+      rtx constant_term = const0_rtx;
       rtx y = eliminate_constant_term (x, &constant_term);
-      if (constant_term == 0
+      if (constant_term == const0_rtx
 	  || ! memory_address_p (mode, y))
 	return force_operand (x, 0);
 
-      y = plus_constant (copy_to_reg (y), constant_term);
+      y = gen_rtx (PLUS, GET_MODE (x), copy_to_reg (y), constant_term);
       if (! memory_address_p (mode, y))
 	return force_operand (x, 0);
       return y;
@@ -467,10 +468,13 @@ stabilize (x)
       if (GET_CODE (temp) != REG)
 	temp = copy_to_reg (temp);
       mem = gen_rtx (MEM, GET_MODE (x), temp);
-      /* Mark returned memref with in_struct
-	 if it's in an array or structure. */
-      if (GET_CODE (addr) == PLUS || MEM_IN_STRUCT_P (x))
-	MEM_IN_STRUCT_P (mem) = 1;
+
+      /* Mark returned memref with in_struct if it's in an array or
+	 structure.  Copy const and volatile from original memref.  */
+
+      MEM_IN_STRUCT_P (mem) = MEM_IN_STRUCT_P (x) || GET_CODE (addr) == PLUS;
+      RTX_UNCHANGING_P (mem) = RTX_UNCHANGING_P (x);
+      MEM_VOLATILE_P (mem) = MEM_VOLATILE_P (x);
       return mem;
     }
   return x;
@@ -577,27 +581,19 @@ force_not_mem (x)
 
 /* Copy X to TARGET (if it's nonzero and a reg)
    or to a new temp reg and return that reg.
-
-   If we need to make a temp reg, try getting the mode from
-   both X and TARGET.  */
+   MODE is the mode to use for X in case it is a constant.  */
 
 rtx
-copy_to_suggested_reg (x, target)
+copy_to_suggested_reg (x, target, mode)
      rtx x, target;
+     enum machine_mode mode;
 {
   register rtx temp;
 
   if (target && GET_CODE (target) == REG)
     temp = target;
   else
-    {
-      enum machine_mode mode = GET_MODE (x);
-
-      if (mode == VOIDmode && target != 0)
-	mode = GET_MODE (target);
-
-      temp = gen_reg_rtx (mode);
-    }
+    temp = gen_reg_rtx (mode);
 
   emit_move_insn (temp, x);
   return temp;

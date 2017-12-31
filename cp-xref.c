@@ -34,6 +34,8 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include <strings.h>
 #endif
 
+char *getpwd ();
+
 /* The character(s) used to join a directory specification (obtained with
    getwd or equivalent) with a non-absolute file name.  */
 
@@ -73,7 +75,10 @@ typedef char *	String;
 #define PALLOC(typ) ((typ *) calloc(1,sizeof(typ)))
 
 
-#define SALLOC(str) ((String) ((str == NULL) ? NULL : (strcpy((String)malloc(strlen(str)+1),str))))
+/* Return a malloc'd copy of STR.  */
+#define SALLOC(str) \
+ ((String) ((str) == NULL ? NULL	\
+	    : strcpy ((String) malloc (strlen ((str)) + 1), (str))))
 #define SFREE(str) (str != NULL && (free(str),0))
 
 #define STREQL(s1,s2) (strcmp((s1),(s2)) == 0)
@@ -206,7 +211,6 @@ GNU_xref_file (name)
    String name;
 {
   XREF_FILE xf;
-  char wdbuf[1024],nmbuf[2048];
 
   if (!doing_xref || name == NULL) return;
 
@@ -228,28 +232,24 @@ GNU_xref_file (name)
   all_files = xf;
 
   if (wd_name == NULL)
-    {
-#if defined(USG) || defined(VMS)
-      getcwd(wdbuf, sizeof(wdbuf));
-#else
-      getwd(wdbuf);
-#endif
-      wd_name = SALLOC (wdbuf);
-    }
+    wd_name = getpwd ();
 
-  if (FILE_NAME_ABSOLUTE_P (name))
+  if (FILE_NAME_ABSOLUTE_P (name) || ! wd_name)
     xf->outname = xf->name;
   else
     {
-      sprintf (nmbuf,"%s%s%s", wd_name, FILE_NAME_JOINER, name);
+      char *nmbuf
+	= (char *) malloc (strlen (wd_name) + strlen (FILE_NAME_JOINER)
+			   + strlen (name) + 1);
+      sprintf (nmbuf, "%s%s%s", wd_name, FILE_NAME_JOINER, name);
       name = nmbuf;
-      xf->outname = SALLOC (name);
+      xf->outname = nmbuf;
     }
 
   fprintf (xref_file, "FIL %s %s 0\n", name, wd_name);
 
-  filename(xf);
-  fctname(NULL);
+  filename (xf);
+  fctname (NULL);
 }
 
 /* Start a scope identified at level ID.  */

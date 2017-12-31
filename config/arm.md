@@ -520,7 +520,7 @@
   return (arm_output_asm_insn (\"mvfs\\t%0, %1\", operands));
 ")
 
-;; Zero extention instructions.
+;; Zero extension instructions.
 
 (define_expand "zero_extendhisi2"
   [(set (match_operand:SI 0 "register_operand" "")

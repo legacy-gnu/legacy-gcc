@@ -24,7 +24,7 @@
 ; Original port made at the University of Buffalo by Devon Bowen,
 ; Dale Wiles and Kevin Zachmann.
 ;
-; Piet van Oostrum (piet@cs.ruu.nl) made adaptions for HCX/UX, fixed
+; Piet van Oostrum (piet@cs.ruu.nl) made changes for HCX/UX, fixed
 ; some bugs and made some improvements (hopefully).
 ;
 ; Mail bugs reports or fixes to:	gcc@cs.buffalo.edu
@@ -462,7 +462,7 @@
 
 ; Subtraction from the sp (needed by the built in alloc funtion) needs
 ; to be different since the sp cannot be directly read on the tahoe.
-; If it's a simple constant, you just use displacment.  Otherwise, you
+; If it's a simple constant, you just use displacement.  Otherwise, you
 ; push the sp, and then do the subtraction off the stack.
 
 (define_insn "subsi3"

@@ -82,7 +82,7 @@ struct induction
   unsigned combined_with : 1;	/* 1 if this giv has been combined with.  It
 				   then cannot combine with any other giv.  */
   unsigned maybe_dead : 1;	/* 1 if this giv might be dead.  In that case,
-				   we won't use it to elminate a biv, it
+				   we won't use it to eliminate a biv, it
 				   would probably lose. */
   int lifetime;			/* Length of life of this giv */
   int times_used;		/* # times this giv is used. */

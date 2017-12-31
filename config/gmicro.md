@@ -770,7 +770,7 @@
 ;; M.Yuhara 89.08.24
 ;; experiment on the built-in strcpy (__builtin_smov)
 ;;
-;; len = 0 means unkown string length.
+;; len = 0 means unknown string length.
 ;;
 ;; mem:SI is dummy. Necessary so as not to be deleted by optimization.
 ;; Use of BLKmode would be better...
@@ -2180,7 +2180,7 @@
 ;; On the Gmicro/300,
 ;; bitfield instructions are not applicable to registers ;-<
 ;; But I write the register cases, because without them the gcc
-;; seems to use "and" instructon with some other instructions
+;; seems to use "and" instruction with some other instructions
 ;; instead of using a shift instruction.
 ;; It is because on many processors shift instructions are slower.
 ;; On the Gmicro/300 which has a barrel shifter,

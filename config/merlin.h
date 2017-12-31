@@ -53,7 +53,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #undef ASM_OUTPUT_ALIGN_CODE
 
-/* Assember pseudo-op for shared data segment. */
+/* Assembler pseudo-op for shared data segment. */
 #define SHARED_SECTION_ASM_OP ".shdata"
 
 /* %$ means print the prefix for an immediate operand. */

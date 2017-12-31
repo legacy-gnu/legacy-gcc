@@ -42,15 +42,17 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define ASM_SPEC "\
 %{!mgas: \
-	%{!mrnames: -nocpp} \
+	%{!mrnames: %{!.s:-nocpp} %{.s: %{cpp} %{nocpp}}} \
 	%{pipe: %e-pipe is not supported.} \
+	%{mips1} %{mips2} %{mips3} \
 	%{O:-O2} %{O1:-O2} %{O2:-O2} %{O3:-O3} \
 	%{g} %{g0} %{g1} %{g2} %{g3} %{v} %{K}} \
 %{G*}"
 
 #define LINK_SPEC "\
 %{G*} \
-%{!mgas: %{bestGnum}}"
+%{!mgas: %{mips1} %{mips2} %{mips3} \
+	 %{bestGnum}}"
 
 /* Always use 1 for .file number.  I [meissner@osf.org] wonder why
    IRIS needs this.  */
@@ -68,5 +70,18 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   if (SIZE.constant < 32)						\
     SIZE.constant = 32;                                                 \
 }
+
+/* Define this macro to control use of the character `$' in
+   identifier names.  The value should be 0, 1, or 2.  0 means `$'
+   is not allowed by default; 1 means it is allowed by default if
+   `-traditional' is used; 2 means it is allowed by default provided
+   `-ansi' is not used.  1 is the default; there is no need to
+   define this macro in that case. */
+
+#define DOLLARS_IN_IDENTIFIERS 0
+
+/* Tell G++ not to create constructors or destructors with $'s in them.  */
+
+#define NO_DOLLAR_IN_LABEL 1
 
 #include "mips.h"

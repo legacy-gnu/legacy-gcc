@@ -1,5 +1,6 @@
 #!/bin/sh
 # Compile programs, treating .c files as C++.
+: || exec /bin/sh -f $0 $argv:q
 
 newargs=
 quote=no

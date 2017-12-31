@@ -236,7 +236,7 @@ int reload_in_progress = 0;
 enum insn_code reload_in_optab[NUM_MACHINE_MODES];
 enum insn_code reload_out_optab[NUM_MACHINE_MODES];
 
-/* This obstack is used for allocation of rtl during register elmination.
+/* This obstack is used for allocation of rtl during register elimination.
    The allocated storage can be freed once find_reloads has processed the
    insn.  */
 
@@ -702,7 +702,7 @@ reload (first, global, dumpfile)
     if (reg_renumber[i] == -1 && reg_n_refs[i] != 0)
       break;
 
-  if (i == max_regno && num_eliminable = 0 && ! caller_save_needed)
+  if (i == max_regno && num_eliminable == 0 && ! caller_save_needed)
     return;
 #endif
 
@@ -744,7 +744,7 @@ reload (first, global, dumpfile)
   /* This loop scans the entire function each go-round
      and repeats until one repetition spills no additional hard regs.  */
 
-  /* This flag is set when a psuedo reg is spilled,
+  /* This flag is set when a pseudo reg is spilled,
      to require another pass.  Note that getting an additional reload
      reg does not necessarily imply any pseudo reg was spilled;
      sometimes we find a reload reg that no pseudo reg was allocated in.  */
@@ -880,7 +880,7 @@ reload (first, global, dumpfile)
 	      }
 	  }
 
-      /* If we allocated another psuedo to the stack, redo elimination
+      /* If we allocated another pseudo to the stack, redo elimination
 	 bookkeeping.  */
       if (something_changed)
 	continue;
@@ -1188,7 +1188,7 @@ reload (first, global, dumpfile)
 		 of that class should be quite rare.
 
 		 If a group is needed, the size and mode of the group will
-		 have been set up at the begining of this loop.  */
+		 have been set up at the beginning of this loop.  */
 
 	      if (GET_CODE (insn) == CALL_INSN
 		  && caller_save_spill_class != NO_REGS)
@@ -1366,6 +1366,20 @@ reload (first, global, dumpfile)
 		}
 	    }
 	}
+
+      /* See if anything that happened changes which eliminations are valid.
+	 For example, on the Sparc, whether or not the frame pointer can
+	 be eliminated can depend on what registers have been used.  We need
+	 not check some conditions again (such as flag_omit_frame_pointer)
+	 since they can't have changed.  */
+
+      for (ep = reg_eliminate; ep < &reg_eliminate[NUM_ELIMINABLE_REGS]; ep++)
+	if ((ep->from == FRAME_POINTER_REGNUM && FRAME_POINTER_REQUIRED)
+#ifdef ELIMINABLE_REGS
+	    || ! CAN_ELIMINATE (ep->from, ep->to)
+#endif
+	    )
+	  ep->can_eliminate = 0;
 
       /* Look for the case where we have discovered that we can't replace
 	 register A with register B and that means that we will now be
@@ -2157,7 +2171,7 @@ set_label_offsets (x, insn, initial_p)
 	}
 
       /* Otherwise, if this is the definition of a label and it is
-	 preceeded by a BARRIER, set our offsets to the known offset of
+	 preceded by a BARRIER, set our offsets to the known offset of
 	 that label.  */
 
       else if (x == insn
@@ -2169,7 +2183,9 @@ set_label_offsets (x, insn, initial_p)
 	    {
 	      reg_eliminate[i].offset = reg_eliminate[i].previous_offset
 		= offsets_at[CODE_LABEL_NUMBER (x)][i];
-	      if (reg_eliminate[i].offset != reg_eliminate[i].initial_offset)
+	      if (reg_eliminate[i].can_eliminate
+		  && (reg_eliminate[i].offset
+		      != reg_eliminate[i].initial_offset))
 		num_not_at_initial_offset++;
 	    }
 	}
@@ -2563,7 +2579,7 @@ eliminate_regs (x, mem_mode, insn)
 
     case CLOBBER:
       /* If clobbering a register that is the replacement register for an
-	 elimination we still think can be peformed, note that it cannot
+	 elimination we still think can be performed, note that it cannot
 	 be performed.  Otherwise, we need not be concerned about it.  */
       for (ep = reg_eliminate; ep < &reg_eliminate[NUM_ELIMINABLE_REGS]; ep++)
 	if (ep->to_rtx == XEXP (x, 0))
@@ -3215,7 +3231,7 @@ reload_as_needed (first, live_known)
       register rtx next = NEXT_INSN (insn);
 
       /* Notice when we move to a new basic block.  */
-      if (live_known && basic_block_needs && this_block + 1 < n_basic_blocks
+      if (live_known && this_block + 1 < n_basic_blocks
 	  && insn == basic_block_head[this_block+1])
 	++this_block;
 
@@ -3228,7 +3244,9 @@ reload_as_needed (first, live_known)
 	    {
 	      reg_eliminate[i].offset = reg_eliminate[i].previous_offset
 		= offsets_at[CODE_LABEL_NUMBER (insn)][i];
-	      if (reg_eliminate[i].offset != reg_eliminate[i].initial_offset)
+	      if (reg_eliminate[i].can_eliminate
+		  && (reg_eliminate[i].offset
+		      != reg_eliminate[i].initial_offset))
 		num_not_at_initial_offset++;
 	    }
 	}
@@ -3259,6 +3277,16 @@ reload_as_needed (first, live_known)
 	      after_call = 0;
 	    }
 #endif /* SMALL_REGISTER_CLASSES */
+
+	  /* If this is a USE and CLOBBER of a MEM, ensure that any
+	     references to eliminable registers have been removed.  */
+
+	  if ((GET_CODE (PATTERN (insn)) == USE
+	       || GET_CODE (PATTERN (insn)) == CLOBBER)
+	      && GET_CODE (XEXP (PATTERN (insn), 0)) == MEM)
+	    XEXP (XEXP (PATTERN (insn), 0), 0)
+	      = eliminate_regs (XEXP (XEXP (PATTERN (insn), 0), 0),
+				GET_MODE (XEXP (PATTERN (insn), 0)), 0);
 
 	  /* If we need to do register elimination processing, do so.
 	     This might delete the insn, in which case we are done.  */
@@ -4296,8 +4324,8 @@ choose_reload_regs (insn, avoid_return_reg)
 	    {
 	      int s = reload_order[i];
 
-	      if ((reload_in[s] == 0 && reload_out[s] == 0 &&
-		   ! reload_secondary_p[s])
+	      if ((reload_in[s] == 0 && reload_out[s] == 0
+		   && ! reload_secondary_p[s])
 		  || reload_optional[s])
 		continue;
 
@@ -4451,7 +4479,7 @@ emit_reload_insns (insn)
   /* Values to be put in spill_reg_store are put here first.  */
   rtx new_spill_reg_store[FIRST_PSEUDO_REGISTER];
 
-  /* If this is a CALL_INSN preceeded by USE insns, any reload insns
+  /* If this is a CALL_INSN preceded by USE insns, any reload insns
      must go in front of the first USE insn, not in front of INSN.  */
 
   if (GET_CODE (insn) == CALL_INSN && GET_CODE (PREV_INSN (insn)) == INSN
@@ -4708,6 +4736,22 @@ emit_reload_insns (insn)
 	      if (reload_secondary_reload[j] >= 0)
 		{
 		  int secondary_reload = reload_secondary_reload[j];
+		  rtx real_oldequiv = oldequiv;
+		  rtx real_old = old;
+
+		  /* If OLDEQUIV is a pseudo with a MEM, get the real MEM
+		     and similarly for OLD.
+		     See comments in find_secondary_reload in reload.c.  */
+		  if (GET_CODE (oldequiv) == REG
+		      && REGNO (oldequiv) >= FIRST_PSEUDO_REGISTER
+		      && reg_equiv_mem[REGNO (oldequiv)] != 0)
+		    real_oldequiv = reg_equiv_mem[REGNO (oldequiv)];
+
+		  if (GET_CODE (old) == REG
+		      && REGNO (old) >= FIRST_PSEUDO_REGISTER
+		      && reg_equiv_mem[REGNO (old)] != 0)
+		    real_old = reg_equiv_mem[REGNO (old)];
+
 		  second_reload_reg = reload_reg_rtx[secondary_reload];
 		  icode = reload_secondary_icode[j];
 
@@ -4716,7 +4760,7 @@ emit_reload_insns (insn)
 		    {
 		      enum reg_class new_class
 			= SECONDARY_INPUT_RELOAD_CLASS (reload_reg_class[j],
-							mode, oldequiv);
+							mode, real_oldequiv);
 
 		      if (new_class == NO_REGS)
 			second_reload_reg = 0;
@@ -4727,7 +4771,7 @@ emit_reload_insns (insn)
 
 			  if (! TEST_HARD_REG_BIT (reg_class_contents[(int) new_class],
 						   REGNO (second_reload_reg)))
-			    oldequiv = old;
+			    oldequiv = old, real_oldequiv = real_old;
 			  else
 			    {
 			      new_icode = reload_in_optab[(int) mode];
@@ -4737,7 +4781,7 @@ emit_reload_insns (insn)
 					     (reloadreg, mode)))
 				      || (insn_operand_predicate[(int) new_icode][1]
 					  && ! ((*insn_operand_predicate[(int) new_icode][1])
-						(oldequiv, mode)))))
+						(real_oldequiv, mode)))))
 				new_icode = CODE_FOR_nothing;
 
 			      if (new_icode == CODE_FOR_nothing)
@@ -4749,7 +4793,7 @@ emit_reload_insns (insn)
 				{
 				  if (!HARD_REGNO_MODE_OK (REGNO (second_reload_reg),
 							   new_mode))
-				    oldequiv = old;
+				    oldequiv = old, real_oldequiv = real_old;
 				  else
 				    second_reload_reg
 				      = gen_reg_rtx (REG, new_mode,
@@ -4761,14 +4805,18 @@ emit_reload_insns (insn)
 
 		  /* If we still need a secondary reload register, check
 		     to see if it is being used as a scratch or intermediate
-		     register and generate code appropriately.  */
+		     register and generate code appropriately.  If we need
+		     a scratch register, use REAL_OLDEQUIV since the form of
+		     the insn may depend on the actual address if it is 
+		     a MEM.  */
 
 		  if (second_reload_reg)
 		    {
 		      if (icode != CODE_FOR_nothing)
 			{
 			  reload_insn = emit_insn_before (GEN_FCN (icode)
-							  (reloadreg, oldequiv,
+							  (reloadreg,
+							   real_oldequiv,
 							   second_reload_reg),
 							  where);
 			  if (this_reload_insn == 0)
@@ -4790,7 +4838,7 @@ emit_reload_insns (insn)
 			      reload_insn
 				= emit_insn_before ((GEN_FCN (tertiary_icode)
 						     (second_reload_reg,
-						      oldequiv,
+						      real_oldequiv,
 						      third_reload_reg)),
 						    where);
 			      if (this_reload_insn == 0)
@@ -5076,46 +5124,55 @@ emit_reload_insns (insn)
 	     one, since it will be stored into OUT.  We might need a secondary
 	     register only for an input reload, so check again here.  */
 
-	  if (reload_secondary_reload[j] >= 0
-	      && (SECONDARY_OUTPUT_RELOAD_CLASS (reload_reg_class[j],
-						 mode, old)
-		  != NO_REGS))
+	  if (reload_secondary_reload[j] >= 0)
 	    {
-	      second_reloadreg = reloadreg;
-	      reloadreg = reload_reg_rtx[reload_secondary_reload[j]];
+	      rtx real_old = old;
 
-	      /* See if RELOADREG is to be used as a scratch register
-		 or as an intermediate register.  */
-	      if (reload_secondary_icode[j] != CODE_FOR_nothing)
+	      if (GET_CODE (old) == REG && REGNO (old) >= FIRST_PSEUDO_REGISTER
+		  && reg_equiv_mem[REGNO (old)] != 0)
+		real_old = reg_equiv_mem[REGNO (old)];
+
+	      if((SECONDARY_OUTPUT_RELOAD_CLASS (reload_reg_class[j],
+						 mode, real_old)
+		  != NO_REGS))
 		{
-		  emit_insn_before ((GEN_FCN (reload_secondary_icode[j])
-				     (old, second_reloadreg, reloadreg)),
-				    first_output_reload_insn);
-		  special = 1;
-		}
-	      else
-		{
-		  /* See if we need both a scratch and intermediate reload
-		     register.  */
-		  int secondary_reload = reload_secondary_reload[j];
-		  enum insn_code tertiary_icode
-		    = reload_secondary_icode[secondary_reload];
-		  rtx pat;
+		  second_reloadreg = reloadreg;
+		  reloadreg = reload_reg_rtx[reload_secondary_reload[j]];
 
-		  if (GET_MODE (reloadreg) != mode)
-		    reloadreg = gen_rtx (REG, mode, REGNO (reloadreg));
-
-		  if (tertiary_icode != CODE_FOR_nothing)
+		  /* See if RELOADREG is to be used as a scratch register
+		     or as an intermediate register.  */
+		  if (reload_secondary_icode[j] != CODE_FOR_nothing)
 		    {
-		      rtx third_reloadreg
-			= reload_reg_rtx[reload_secondary_reload[secondary_reload]];
-		      pat = (GEN_FCN (tertiary_icode)
-			     (reloadreg, second_reloadreg, third_reloadreg));
+		      emit_insn_before ((GEN_FCN (reload_secondary_icode[j])
+					 (real_old, second_reloadreg,
+					  reloadreg)),
+					first_output_reload_insn);
+		      special = 1;
 		    }
 		  else
-		    pat = gen_move_insn (reloadreg, second_reloadreg);
+		    {
+		      /* See if we need both a scratch and intermediate reload
+			 register.  */
+		      int secondary_reload = reload_secondary_reload[j];
+		      enum insn_code tertiary_icode
+			= reload_secondary_icode[secondary_reload];
+		      rtx pat;
 
-		  emit_insn_before (pat, first_output_reload_insn);
+		      if (GET_MODE (reloadreg) != mode)
+			reloadreg = gen_rtx (REG, mode, REGNO (reloadreg));
+
+		      if (tertiary_icode != CODE_FOR_nothing)
+			{
+			  rtx third_reloadreg
+			    = reload_reg_rtx[reload_secondary_reload[secondary_reload]];
+			  pat = (GEN_FCN (tertiary_icode)
+				 (reloadreg, second_reloadreg, third_reloadreg));
+			}
+		      else
+			pat = gen_move_insn (reloadreg, second_reloadreg);
+
+		      emit_insn_before (pat, first_output_reload_insn);
+		    }
 		}
 	    }
 #endif
@@ -5367,9 +5424,9 @@ gen_input_reload (reloadreg, in, before_insn)
 	 is recognized and matches its constraints.  If so, it can be used.
 
 	 It might be better not to actually emit the insn unless it is valid,
-	 but we need to pass the insn as an operand to `recog' and it is
-	 simpler to emit and then delete the insn if not valid than to
-	 dummy things up.  */
+	 but we need to pass the insn as an operand to `recog' and
+	 `insn_extract'and it is simpler to emit and then delete the insn if
+	 not valid than to dummy things up.  */
 
       rtx move_operand, other_operand, insn;
       int code;
@@ -5414,6 +5471,7 @@ gen_input_reload (reloadreg, in, before_insn)
 	 we emit below.  */
 
       if (CONSTANT_P (XEXP (in, 1))
+	  || GET_CODE (XEXP (in, 1)) == MEM
 	  || (GET_CODE (XEXP (in, 1)) == REG
 	      && REGNO (XEXP (in, 1)) >= FIRST_PSEUDO_REGISTER))
 	move_operand = XEXP (in, 1), other_operand = XEXP (in, 0);
@@ -5563,6 +5621,10 @@ inc_for_reload (reloadreg, value, inc_amount, insn)
   rtx incloc = XEXP (value, 0);
   /* Nonzero if increment after copying.  */
   int post = (GET_CODE (value) == POST_DEC || GET_CODE (value) == POST_INC);
+  rtx prev = PREV_INSN (insn);
+  rtx inc;
+  rtx add_insn;
+  enum insn_code code;
 
   /* No hard register is equivalent to this register after
      inc/dec operation.  If REG_LAST_RELOAD_REG were non-zero,
@@ -5574,78 +5636,71 @@ inc_for_reload (reloadreg, value, inc_amount, insn)
   if (GET_CODE (value) == PRE_DEC || GET_CODE (value) == POST_DEC)
     inc_amount = - inc_amount;
 
-  /* First handle preincrement, which is simpler.  */
+  inc = gen_rtx (CONST_INT, VOIDmode, inc_amount);
+
+  /* If this is post-increment, first copy the location to the reload reg.  */
+  if (post)
+    emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
+
+  /* See if we can directly increment INCLOC.  Use a method similar to that
+     in gen_input_reload.  */
+
+  add_insn = emit_insn_before (gen_rtx (SET, VOIDmode, incloc,
+					gen_rtx (PLUS, GET_MODE (incloc),
+						 incloc, inc)), insn);
+							  
+  code = recog_memoized (add_insn);
+  if (code >= 0)
+    {
+      insn_extract (add_insn);
+      if (constrain_operands (code, 1))
+	{
+	  /* If this is a pre-increment and we have incremented the value
+	     where it lives, copy the incremented value to RELOADREG to
+	     be used as an address.  */
+
+	  if (! post)
+	    emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
+	  return NEXT_INSN (prev);
+	}
+    }
+
+  if (PREV_INSN (add_insn))
+    NEXT_INSN (PREV_INSN (add_insn)) = NEXT_INSN (add_insn);
+  if (NEXT_INSN (add_insn))
+    PREV_INSN (NEXT_INSN (add_insn)) = PREV_INSN (add_insn);
+
+  /* If couldn't do the increment directly, must increment in RELOADREG.
+     The way we do this depends on whether this is pre- or post-increment.
+     For pre-increment, copy INCLOC to the reload register, increment it
+     there, then save back.  */
+
   if (! post)
     {
-      /* If incrementing a register, assume we can
-	 output an insn to increment it directly.  */
-      if (GET_CODE (incloc) == REG &&
-	  (REGNO (incloc) < FIRST_PSEUDO_REGISTER
-	   || reg_renumber[REGNO (incloc)] >= 0))
-	{
-	  rtx first_new
-	    = emit_insn_before (gen_add2_insn (incloc,
-					       gen_rtx (CONST_INT, VOIDmode,
-							inc_amount)),
-				insn);
-	  emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
-	  return first_new;
-	}
-      else
-	/* Else we must not assume we can increment the location directly
-	   (even though on many target machines we can);
-	   copy it to the reload register, increment there, then save back.  */
-	{
-	  rtx first_new
-	    = emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
-	  emit_insn_before (gen_add2_insn (reloadreg,
-					   gen_rtx (CONST_INT, VOIDmode,
-						    inc_amount)),
-			    insn);
-	  emit_insn_before (gen_move_insn (incloc, reloadreg), insn);
-	  return first_new;
-	}
+      emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
+      emit_insn_before (gen_add2_insn (reloadreg, inc), insn);
+      emit_insn_before (gen_move_insn (incloc, reloadreg), insn);
     }
-  /* Postincrement.
-     Because this might be a jump insn or a compare, and because RELOADREG
-     may not be available after the insn in an input reload,
-     we must do the incrementation before the insn being reloaded for.  */
   else
     {
-      /* Copy the value, then increment it.  */
-      rtx first_new
-	= emit_insn_before (gen_move_insn (reloadreg, incloc), insn);
+      /* Postincrement.
+	 Because this might be a jump insn or a compare, and because RELOADREG
+	 may not be available after the insn in an input reload, we must do
+	 the incrementation before the insn being reloaded for.
 
-      /* If incrementing a register, assume we can
-	 output an insn to increment it directly.  */
-      if (GET_CODE (incloc) == REG &&
-	  (REGNO (incloc) < FIRST_PSEUDO_REGISTER
-	   || reg_renumber[REGNO (incloc)] >= 0))
-	{
-	  emit_insn_before (gen_add2_insn (incloc,
-					   gen_rtx (CONST_INT, VOIDmode,
-						    inc_amount)),
-			    insn);
-	}
-      else
-	/* Else we must not assume we can increment INCLOC
-	   (even though on many target machines we can);
-	   increment the copy in the reload register,
-	   save that back, then decrement the reload register
-	   so it has the original value.  */
-	{
-	  emit_insn_before (gen_add2_insn (reloadreg,
-					   gen_rtx (CONST_INT, VOIDmode,
-						    inc_amount)),
-			    insn);
-	  emit_insn_before (gen_move_insn (incloc, reloadreg), insn);
-	  emit_insn_before (gen_sub2_insn (reloadreg,
-					   gen_rtx (CONST_INT, VOIDmode,
-						    inc_amount)),
-			    insn);
-	}
-      return first_new;
+	 We have already copied INCLOC to RELOADREG.  Increment the copy in
+	 RELOADREG, save that back, then decrement RELOADREG so it has
+	 the original value.  */
+
+      emit_insn_before (gen_add2_insn (reloadreg, inc), insn);
+      emit_insn_before (gen_move_insn (incloc, reloadreg), insn);
+      emit_insn_before (gen_add2_insn (reloadreg,
+				       gen_rtx (CONST_INT, VOIDmode,
+						-inc_amount)),
+			insn);
     }
+
+  return NEXT_INSN (prev);
 }
 
 /* Return 1 if we are certain that the constraint-string STRING allows

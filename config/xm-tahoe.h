@@ -23,7 +23,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
  * Original port made at the University of Buffalo by Devon Bowen,
  * Dale Wiles and Kevin Zachmann.
  *
- * Adaptions for HCX by Piet van Oostrum,
+ * Changes for HCX by Piet van Oostrum,
  * University of Utrecht, The Netherlands (piet@cs.ruu.nl)
  *
  * Mail bugs reports or fixes to:	gcc@cs.buffalo.edu

@@ -67,8 +67,9 @@ in the following sections.
 -fsyntax-only  -pedantic  -pedantic-errors
 -w  -W  -Wall  -Waggregate-return 
 -Wcast-align  -Wcast-qual  -Wcomment  -Wconversion  -Werror
--Wformat  -Wid-clash-@var{len}  -Wimplicit  -Wmissing-prototypes
--Wno-parentheses  -Wpointer-arith  -Wreturn-type  -Wshadow
+-Wformat  -Wid-clash-@var{len}  -Wimplicit  -Wimport
+-Winline -Wmissing-prototypes
+-Wparentheses  -Wpointer-arith  -Wreturn-type  -Wshadow
 -Wstrict-prototypes  -Wswitch  -Wtraditional  -Wtrigraphs
 -Wuninitialized  -Wunused  -Wwrite-strings  -Wchar-subscripts
 @end example
@@ -77,7 +78,8 @@ in the following sections.
 @xref{Debugging Options,,Options for Debugging Your Program or GCC}.
 @example
 -a  -d@var{letters}  -fpretend-float 
--g  -ggdb  -gdwarf  -gstabs  -gstabs+  -gcoff
+-g  -g@var{level} -ggdb  -gdwarf
+-gstabs  -gstabs+  -gcoff -gxcoff
 -p  -pg  -save-temps
 @end example
 
@@ -133,7 +135,7 @@ in the following sections.
 -mg -mgnu -munix
 
 @emph{SPARC Options}
--mfpu -mno-epilogue
+-mforce-align -mfpu -mno-epilogue
 
 @emph{Convex Options}
 -margcount -mc1 -mc2 -mnoargcount
@@ -164,7 +166,10 @@ in the following sections.
 -mmips-as -mgas -mrnames -mno-rnames -mgpopt -mno-gpopt -mstats
 -mno-stats -mmemcpy -mno-memcpy -mno-mips-tfile -mmips-tfile
 -msoft-float -mhard-float -mabicalls -mno-abicalls -mhalf-pic
--mno-half-pic -G @var{num}
+-mno-half-pic -G @var{num} -nocpp
+
+@emph{i386 Options}
+-m486 -msoft-float
 @end example
 
 @item Code Generation Options
@@ -519,6 +524,9 @@ Check the code for syntax errors, but don't emit any output.
 @item -w
 Inhibit all warning messages.
 
+@item -Wno_import
+Inhibit warning messages about the use of @samp{#import}.
+
 @item -pedantic
 Issue all the warnings demanded by strict ANSI standard C; reject
 all programs that use forbidden extensions.  
@@ -689,6 +697,9 @@ Some spurious warnings can be avoided if you declare as
 @code{volatile} all the functions you use that never return.
 @xref{Function Attributes}.
 
+@item -Wparentheses
+Warn if parentheses are omitted in certain contexts.
+
 @item -Wall
 All of the above @samp{-W} options combined.  These are all the
 options which pertain to usage that we recommend avoiding and that we
@@ -783,8 +794,9 @@ cases where multiple declaration is valid and changes nothing.
 @item -Wnested-externs
 Warn if an @code{extern} declaration is encountered within an function.
 
-@item -Wno-parentheses
-Disable warnings that parentheses are suggested around an expression.
+@item -Winline
+Warn if a function can not be inlined, and either it was declared as inline,
+or else the @samp{-finline-functions} option was given.
 
 @item -Werror
 Make all warnings into errors.
@@ -801,7 +813,8 @@ either your program or GCC:
 @table @code
 @item -g
 Produce debugging information in the operating system's native format
-(stabs or COFF or DWARF).  GDB can work with this debugging information.
+(stabs, COFF, XCOFF, or DWARF).  GDB can work with this debugging
+information.
 
 On most systems that use stabs format, @samp{-g} enables use of extra
 debugging information that only GDB can use; this extra information
@@ -842,6 +855,10 @@ crash or refuse to read the program.
 Produce debugging information in COFF format (if that is supported).
 This is the format used by SDB on COFF systems.
 
+@item -gxcoff
+Produce debugging information in XCOFF format (if that is supported).
+This is the format used on IBM RS/6000 systems.
+
 @item -gdwarf
 Produce debugging information in DWARF format (if that is supported).
 This is the format used by SDB on systems that use DWARF.
@@ -850,6 +867,7 @@ This is the format used by SDB on systems that use DWARF.
 @itemx -ggdb@var{level}
 @itemx -gstabs@var{level}
 @itemx -gcoff@var{level}
+@itemx -gxcoff@var{level}
 @itemx -gdwarf@var{level}
 Request debugging information and also use @var{level} to specify how
 much information.  The default level is 2.
@@ -956,7 +974,7 @@ the target machine.
 Store the usual ``temporary'' intermediate files permanently; place them
 in the current directory and name them based on the source file.  Thus,
 compiling @file{foo.c} with @samp{-c -save-temps} would produce files
-@file{foo.cpp} and @file{foo.s}, as well as @file{foo.o}.
+@file{foo.i} and @file{foo.s}, as well as @file{foo.o}.
 @end table
 
 @node Optimize Options, Preprocessor Options, Debugging Options, Invoking GCC
@@ -990,14 +1008,14 @@ When @samp{-O} is specified, @samp{-fthread-jumps} and
 flags may also be turned on.
 
 @item -O2
-Highly optimize.  All supported optimizations that do not involve a
-space-speed tradeoff are performed.  As compared to @samp{-O}, this
-option will increase both compilation time and the performance of the
+Optimize even more.  Nearly all supported optimizations that do not
+involve a space-speed tradeoff are performed.  As compared to @samp{-O},
+this option increases both compilation time and the performance of the
 generated code.
 
-All @samp{-f@var{flag}} options that control optimization are turned on
-when @samp{-O2} is specified, except for @samp{-funroll-loops} and
-@samp{-funroll-all-loops}.
+@samp{-O2} turns on all @samp{-f@var{flag}} options that enable more
+optimization, except for @samp{-funroll-loops},
+@samp{-funroll-all-loops} and @samp{-fomit-frame-pointer}.
 @end table
 
 Options of the form @samp{-f@var{flag}} specify machine-independent
@@ -1327,7 +1345,7 @@ Search the library named @var{library} when linking.
 
 It makes a difference where in the command you write this option; the
 linker searches processes libraries and object files in the order they
-are specified.  Thus, @samp{foo.o -lz bar.o} seaches library @samp{z}
+are specified.  Thus, @samp{foo.o -lz bar.o} searches library @samp{z}
 after file @file{foo.o} but before @file{bar.o}.  If @file{bar.o} refers
 to functions in @samp{z}, those functions may not be loaded.
 
@@ -1355,10 +1373,6 @@ Only the files you specify will be passed to the linker.
 On systems that support dynamic linking, this prevents linking with the shared
 libraries.  On other systems, this
 option has no effect.
-
-@item -dynamic
-On systems that support dynamic linking, you can use this option to
-request it explicitly.
 
 @item -shared
 Produce a shared object which can then be linked with other objects to
@@ -1435,7 +1449,7 @@ without @samp{@var{machine}/@var{version}/} (@pxref{Target Options}).
 For each subprogram to be run, the compiler driver first tries the
 @samp{-B} prefix, if any.  If that name is not found, or if @samp{-B}
 was not specified, the driver tries two standard prefixes, which are
-@file{/usr/lib/gcc/} and @file{/usr/local/lib/gcc/}.  If neither of
+@file{/usr/lib/gcc/} and @file{/usr/local/lib/gcc-lib/}.  If neither of
 those results in a file name that is found, the unmodified program
 name is searched for using the directories specified in your
 @samp{PATH} environment variable.
@@ -1501,13 +1515,13 @@ is recommended for general use.
 The @samp{-b} and @samp{-V} options actually work by controlling part of
 the file name used for the executable files and libraries used for
 compilation.  A given version of GNU CC, for a given target machine, is
-normally kept in the directory @file{/usr/local/lib/gcc/@var{machine}/@var{version}}.@refill
+normally kept in the directory @file{/usr/local/lib/gcc-lib/@var{machine}/@var{version}}.@refill
 
 It follows that sites can customize the effect of @samp{-b} or @samp{-V}
 either by changing the names of these directories or adding
 alternate names (or symbolic links).  Thus, if
-@file{/usr/local/lib/gcc/80386} is a link to
-@file{/usr/local/lib/gcc/i386v}, then @samp{-b 80386} will be an alias
+@file{/usr/local/lib/gcc-lib/80386} is a link to
+@file{/usr/local/lib/gcc-lib/i386v}, then @samp{-b 80386} will be an alias
 for @samp{-b i386v}.@refill
 
 In one respect, the @samp{-b} or @samp{-V} do not completely change
@@ -1570,6 +1584,7 @@ that macro, which enables you to change the defaults.
 * RS/6000 Options::
 * RT Options::
 * MIPS Options::
+* i386 Options::
 @end menu
 
 @node M680x0 Options, Vax Options, Submodel Options, Submodel Options
@@ -1683,10 +1698,12 @@ Normally the facilities of the machine's usual C compiler are used, but
 this can't be done directly in cross-compilation.  You must make your
 own arrangements to provide suitable library functions for
 cross-compilation.
-
-@item -malign
-This doesn't completely work yet.
 @end ignore
+
+@item -mforce-align
+Make sure all objects of type @code{double} are 8-byte aligned in memory
+and use double-word instructions to reference them.
+
 @item -mno-epilogue
 Generate separate return instructions for @code{return} statements.
 This has both advantages and disadvantages; I don't recall what they
@@ -2007,7 +2024,7 @@ IBM-supplied compilers, use either @samp{-fpcc-struct-return} or
 @samp{-mhc-struct-return}.
 @end table
 
-@node MIPS Options, , RT Options, Submodel Options
+@node MIPS Options, i386 Options, RT Options, Submodel Options
 @subsection MIPS Options
 @cindex MIPS options
 
@@ -2016,7 +2033,7 @@ These @samp{-m} options are defined for the MIPS family of computers:
 @table @code
 @item -mcpu=@var{cpu type}
 Assume the defaults for the machine type @var{cpu type} when
-scheduling insturctions.  The default @var{cpu type} is
+scheduling instructions.  The default @var{cpu type} is
 @samp{default}, which picks the longest cycles times for any of the
 machines, in order that the code run at reasonable rates on all MIPS
 cpu's.  Other choices for @var{cpu type} are @samp{r2000},
@@ -2064,9 +2081,9 @@ run the MIPS C preprocessor over the source file.  The
 @item -mgpopt
 @itemx -mno-gpopt
 The @samp{-mgpopt} switch says to write all of the data declarations
-before the instructions in the text section, to all the MIPS assembler
-to generate one word memory references instead of using two words for
-short global or static data items.  This is on by default if
+before the instructions in the text section, this allows the MIPS
+assembler to generate one word memory references instead of using two
+words for short global or static data items.  This is on by default if
 optimization is selected.
 
 @item -mstats
@@ -2091,7 +2108,9 @@ after the MIPS assembler has generated it to add debug support.  If
 available to the debugger.  In addition, @file{stage2} and
 @file{stage3} objects will have the temporary file names passed to the
 assembler embedded in the object file, which means the objects will
-not compare the same.
+not compare the same.  The @samp{-mno-mips-tfile} switch should only
+be used when there are bugs in the @file{mips-tfile} program that
+prevents compilation.
 
 @item -msoft-float
 Generate output containing library calls for floating point.
@@ -2137,7 +2156,12 @@ instructions based on the global pointer (@var{gp} or @var{$28}),
 instead of the normal two words used.  By default, @var{num} is 8 when
 the MIPS assembler is used, and 0 when the GNU assembler is used.  The
 @samp{-G @var{num}} switch is also passed to the assembler and linker.
-All modules should be compiled with the same @samp{-G @var{num}} value.
+All modules should be compiled with the same @samp{-G @var{num}}
+value.
+
+@item -nocpp
+Tell the MIPS assembler to not run it's preprocessor over user
+assembler files (with a @samp{.s} suffix) when assembling them.
 @end table
 
 @ifset INTERNALS
@@ -2146,6 +2170,32 @@ These options are defined by the macro
 options is also defined by that macro, which enables you to change the
 defaults.
 @end ifset
+
+@node i386 Options, , MIPS Options, Submodel Options
+@subsection Intel 386 Options
+@cindex i386 Options
+@cindex Intel 386 Options
+
+These @samp{-m} options are defined for the i386 family of computers:
+
+@table @code
+@item -m486
+@itemx -mno486
+Control whether or not code is optimized for a 486 instead of an
+386.  Code generated for an 486 will run on a 386 and vice versa.
+
+@item -msoft-float
+Generate output containing library calls for floating point.
+@strong{Warning:} the requisite libraries are not part of GNU CC.
+Normally the facilities of the machine's usual C compiler are used, but
+this can't be done directly in cross-compilation.  You must make your
+own arrangements to provide suitable library functions for
+cross-compilation.
+
+On machines where a function returnings float point results in the 80387
+register stack, some floating point opcodes may be emitted even if
+@samp{-msoft-float} is used.
+@end table
 
 @node Code Gen Options, Environment Variables, Submodel Options, Invoking GCC
 @section Options for Code Generation Conventions
@@ -2227,6 +2277,11 @@ no such limit.)
 Position-independent code requires special support, and therefore works
 only on certain machines.  Code generated for the IBM RS/6000 is always
 position-independent.
+
+The GNU assembler does not fully support PIC.  Currently, you must use
+some other assembler in order for PIC to work.  We would welcome
+volunteers to upgrade GAS to handle this; the first part of the job is
+to figure out what the assembler must do differently.
 
 @item -fPIC
 If supported for the target machine, emit position-independent code,
@@ -2328,7 +2383,7 @@ used for linking.
 
 In addition, the prefix is used in an unusual way in finding the
 directories to search for header files.  For each of the standard
-directories whose name normally begins with @samp{/usr/local/lib/gcc}
+directories whose name normally begins with @samp{/usr/local/lib/gcc-lib}
 (more precisely, with the value of @code{GCC_INCLUDE_DIR}), GNU CC tries
 replacing that beginning with the specified prefix to produce an
 alternate directory name.  Thus, with @samp{-Bfoo/}, GNU CC will search
@@ -2353,12 +2408,12 @@ directories when searching for ordinary libraries for the @samp{-l}
 option (but directories specified with @samp{-L} come first).
 
 @item C_INCLUDE_PATH
-@itemx C++_INCLUDE_PATH
+@itemx CPLUS_INCLUDE_PATH
 @itemx OBJC_INCLUDE_PATH
 @findex C_INCLUDE_PATH
-@findex C++_INCLUDE_PATH
+@findex CPLUS_INCLUDE_PATH
 @findex OBJC_INCLUDE_PATH
-@c @itemx OBJC++_INCLUDE_PATH
+@c @itemx OBJCPLUS_INCLUDE_PATH
 These environment variables pertain to particular languages.  Each
 variable's value is a colon-separated list of directories, much like
 @code{PATH}.  When GNU CC searches for header files, it tries the

@@ -88,15 +88,15 @@ extern int target_flags;
      scheduling.  Note that this only saves compilation time; it doesn't
      matter for the final code.  */
 #ifdef riscos
-#define TARGET_WHEN_DEBUGING  3
+#define TARGET_WHEN_DEBUGGING  3
 #else
-#define TARGET_WHEN_DEBUGING  1
+#define TARGET_WHEN_DEBUGGING  1
 #endif
 
 #define OVERRIDE_OPTIONS  \
 {								\
   if (write_symbols != NO_DEBUG)				\
-    target_flags |= TARGET_WHEN_DEBUGING;			\
+    target_flags |= TARGET_WHEN_DEBUGGING;			\
   else if (TARGET_POKE_FUNCTION_NAME)				\
     target_flags |= 1;						\
   if (TARGET_FPE)						\
@@ -125,7 +125,7 @@ extern int target_flags;
    numbered.  */
 #define WORDS_BIG_ENDIAN  0
 
-/* Number of bits in an addressible storage unit */
+/* Number of bits in an addressable storage unit */
 #define BITS_PER_UNIT  8
 
 #define BITS_PER_WORD  32
@@ -332,13 +332,13 @@ enum reg_class
    This macro defines what the ranges are.
    C is the letter, and VALUE is a constant value.
    Return 1 if VALUE is in the range specified by C.
-	I: immediate arithmetic operand (i.e. 8 bits shifted as requried).
+	I: immediate arithmetic operand (i.e. 8 bits shifted as required).
 	J: valid indexing constants.  */
 #define CONST_OK_FOR_LETTER_P(VALUE, C)  \
   ((C) == 'I' ? const_ok_for_arm (VALUE) :		\
    (C) == 'J' ? (abs (VALUE) < 4096) : 0)
 
-/* Constaint letter 'G' for the FPU immediate constants. */
+/* Constant letter 'G' for the FPU immediate constants. */
 #define CONST_DOUBLE_OK_FOR_LETTER_P(X,C)	\
     ((C) == 'G' ? const_double_rtx_ok_for_fpu (X) : 0)
 
@@ -974,8 +974,8 @@ do \
 #define ASM_APP_OFF  ""
 
 /* Switch to the text or data segment.  */
-#define TEXT_SECTION_ASM_OP  "\n\t.text\n"
-#define DATA_SECTION_ASM_OP  "\n\t.data\n"
+#define TEXT_SECTION_ASM_OP  ".text"
+#define DATA_SECTION_ASM_OP  ".data"
 
 /* The assembler's names for the registers.  RFP need not always be used as
    the Real framepointer; it can also be used as a normal general register.
@@ -1166,7 +1166,7 @@ do \
     extern char *arm_condition_codes[];				      \
     int i;							      \
 								      \
-    fflush (STREAM);	    /* XXX for dubugging only.  */	      \
+    fflush (STREAM);	    /* XXX for debugging only.  */	      \
     if (arm_ccfsm_state == 1 || arm_ccfsm_state == 2)   	      \
       {				                        	      \
 	fprintf (STREAM, "@ \t");				      \

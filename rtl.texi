@@ -836,7 +836,7 @@ customarily accessed with the macro @code{CONST_DOUBLE_MEM} and the
 chain field via @code{CONST_DOUBLE_CHAIN}.@refill
 
 @findex CONST_DOUBLE_LOW
-If @var{m} is @code{VOIDmode}, the bit of the value are stored in
+If @var{m} is @code{VOIDmode}, the bits of the value are stored in
 @var{i0} and @var{i1}.  @var{i0} is customarily accessed with the macro
 @code{CONST_DOUBLE_LOW} and @var{i1} with @code{CONST_DOUBLE_HIGH}.
 
@@ -870,12 +870,15 @@ used only for insn attributes (@pxref{Insn Attributes}) since constant
 strings in C are placed in memory.
 
 @findex symbol_ref
-@item (symbol_ref @var{symbol})
+@item (symbol_ref:@var{mode} @var{symbol})
 Represents the value of an assembler label for data.  @var{symbol} is
 a string that describes the name of the assembler label.  If it starts
 with a @samp{*}, the label is the rest of @var{symbol} not including
 the @samp{*}.  Otherwise, the label is @var{symbol}, usually prefixed
 with @samp{_}.
+
+The @code{symbol_ref} contains a mode, which is usually @code{Pmode}.
+Usually that is the only mode for which a symbol is directly valid.
 
 @findex label_ref
 @item (label_ref @var{label})
@@ -1365,7 +1368,7 @@ of @var{c} is @code{QImode} regardless of @var{m}.
 @cindex left shift
 @cindex logical shift
 @item (lshift:@var{m} @var{x} @var{c})
-Like @code{lshift} but for arithmetic left shift.  @code{ashift} and
+Like @code{ashift} but for logical left shift.  @code{ashift} and
 @code{lshift} are identical operations; we customarily use @code{ashift}
 for both.
 
@@ -1934,13 +1937,13 @@ Represents literal assembler code as described by the string @var{s}.
 @findex unspec
 @findex unspec_volatile
 @item (unspec [@var{operands} @dots{}] @var{index})
-@itemx (unspec [@var{operands} @dots{}] @var{index})
+@itemx (unspec_volatile [@var{operands} @dots{}] @var{index})
 Represents a machine-specific operation on @var{operands}.  @var{index}
-selects between multiple macine-specific operations.
+selects between multiple machine-specific operations.
 @code{unspec_volatile} is used for volatile operations and operations
 that may trap; @code{unspec} is used for other operations.
 
-These codes may appear themselves inside a @code{pattern} of an
+These codes may appear inside a @code{pattern} of an
 insn, inside a @code{parallel}, or inside an expression.
 
 @findex addr_vec
@@ -2181,7 +2184,7 @@ function calls.  It is important to distinguish these instructions because
 they imply that certain registers and memory locations may be altered
 unpredictably.
 
-A @code{call_insn} insn may be preceeded by insns that contain a single
+A @code{call_insn} insn may be preceded by insns that contain a single
 @code{use} expression and be followed by insns the contain a single
 @code{clobber} expression.  If so, these @code{use} and @code{clobber}
 expressions are treated as being part of the function call.

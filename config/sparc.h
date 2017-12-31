@@ -23,9 +23,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define LIB_SPEC "%{!p:%{!pg:-lc}}%{p:-lc_p}%{pg:-lc_p} %{g:-lg}"
 
-/* Provide required defaults for linker -e and -d switches.
-   Also, it is hard to debug with shared libraries,
-   so don't use them if going to debug.  */
+/* Provide required defaults for linker -e and -d switches.  */
 
 #define LINK_SPEC "%{!e*:-e start} -dc -dp %{static:-Bstatic} %{assert*}"
 
@@ -33,24 +31,24 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define ASM_SPEC " %{pipe:-} %{fpic:-k} %{fPIC:-k}"
 
-/* Prevent error on `-dalign', `-sun4' and `-target sun4' options.  */
-/* Also, make it easy to specify interesting optimization options.  */
+/* Prevent error on `-sun4' and `-target sun4' options.  */
+/* This used to translate -dalign to -malign, but that is no good
+   because it can't turn off the usual meaning of making debugging dumps.  */
 
-#define CC1_SPEC "%{dalign:-malign} %{sun4:} %{target:}"
+#define CC1_SPEC "%{sun4:} %{target:}"
 
 #define PTRDIFF_TYPE "int"
 #define SIZE_TYPE "int"
 #define WCHAR_TYPE "short unsigned int"
 #define WCHAR_TYPE_SIZE 16
 
-/* Omit frame pointer and enable caller-saves at high optimization levels.  */
+/* Omit frame pointer at high optimization levels.  */
   
 #define OPTIMIZATION_OPTIONS(OPTIMIZE) \
 {  								\
   if (OPTIMIZE >= 2) 						\
     {								\
       flag_omit_frame_pointer = 1;				\
-      flag_caller_saves = 1;					\
     }								\
 }
 
@@ -59,7 +57,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define WORD_SWITCH_TAKES_ARG(STR)				\
  (!strcmp (STR, "Tdata") || !strcmp (STR, "include")		\
   || !strcmp (STR, "imacros") || !strcmp (STR, "target")	\
-  || !strcmp (STR, "assert"))
+  || !strcmp (STR, "assert") || !strcmp (STR, "aux-info"))
 
 /* Names to predefine in the preprocessor for this target machine.  */
 
@@ -88,9 +86,13 @@ extern int target_flags;
    pc-relative range.  Useful with -fomit-frame-pointer.  */
 #define TARGET_TAIL_CALL (target_flags & 8)
 
-/* Nonzero means that references to doublewords are guaranteed
-   aligned...if not, its a bug in the users program!  */
-#define TARGET_ALIGN (target_flags & 16)
+/* Nonzero means that reference doublewords as if they were guaranteed
+   to be aligned...if they aren't, too bad for the user!
+   Like -fast in Sun cc.  */
+#define TARGET_HOPE_ALIGN (target_flags & 16)
+
+/* Nonzero means that make sure all doubles are on 8-byte boundaries.  */
+#define TARGET_FORCE_ALIGN (target_flags & 32)
 
 /* Macro to define tables used to set the flags.
    This is a list in braces of pairs in braces,
@@ -104,8 +106,9 @@ extern int target_flags;
     {"epilogue", 2},		\
     {"no-epilogue", -2},	\
     {"tail-call", 8},		\
-    {"align", 16},		\
-   { "", TARGET_DEFAULT}}
+    {"hope-align", 16},		\
+    {"force-align", 48},	\
+    { "", TARGET_DEFAULT}}
 
 #define TARGET_DEFAULT 3
 
@@ -125,7 +128,7 @@ extern int target_flags;
    matters when cross-compiling.  */
 #define WORDS_BIG_ENDIAN 1
 
-/* number of bits in an addressible storage unit */
+/* number of bits in an addressable storage unit */
 #define BITS_PER_UNIT 8
 
 /* Width in bits of a "word", which is the contents of a machine register.
@@ -174,9 +177,9 @@ extern int target_flags;
    && TYPE_MODE (TREE_TYPE (TYPE)) == QImode	\
    && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
 
-/* Define this if move instructions will actually fail to work
+/* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
-#define STRICT_ALIGNMENT
+#define STRICT_ALIGNMENT 1
 
 /* Things that must be doubleword aligned cannot go in the text section,
    because the linker fails to align the text section enough!
@@ -425,9 +428,9 @@ enum reg_class { NO_REGS, GENERAL_REGS, FP_REGS, ALL_REGS, LIM_REG_CLASSES };
 /* This is the order in which to allocate registers
    normally.  */
 #define REG_ALLOC_ORDER \
-{ 8, 9, 10, 11, 12, 13, 2, 15,		\
-  16, 17, 18, 19, 20, 21, 22, 23,	\
-  24, 25, 26, 27, 28, 29, 3, 31,	\
+{ 8, 9, 10, 11, 12, 13, 2, 3, 		\
+  15, 16, 17, 18, 19, 20, 21, 22, 	\
+  23, 24, 25, 26, 27, 28, 29, 31,	\
   32, 33, 34, 35, 36, 37, 38, 39,	\
   40, 41, 42, 43, 44, 45, 46, 47,	\
   48, 49, 50, 51, 52, 53, 54, 55,	\
@@ -574,7 +577,7 @@ extern char leaf_reg_backmap[];
 #define REG_PARM_STACK_SPACE(DECL) (NPARM_REGS * UNITS_PER_WORD)
 
 /* Keep the stack pointer constant throughout the function.
-   This is both an optimization and a neccessity: longjmp
+   This is both an optimization and a necessity: longjmp
    doesn't behave itself when the stack pointer moves within
    the function!  */
 #define ACCUMULATE_OUTGOING_ARGS
@@ -642,7 +645,14 @@ extern char leaf_reg_backmap[];
 #define CUMULATIVE_ARGS int
 
 #define ROUND_ADVANCE(SIZE)	\
-  ((SIZE + UNITS_PER_WORD - 1)/UNITS_PER_WORD)
+  ((SIZE + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
+
+/* Round a register number up to a proper boundary for an arg of mode MODE.
+   Note that we need an odd/even pair for a two-word arg,
+   since that will become 8-byte aligned when stored in memory.  */
+#define ROUND_REG(X, MODE) 					\
+ (TARGET_FORCE_ALIGN && GET_MODE_UNIT_SIZE ((MODE)) > 4		\
+  ? ((X) + ! ((X) & 1)) : (X))
 
 /* Initialize a variable CUM of type CUMULATIVE_ARGS
    for a call to a function whose data type is FNTYPE.
@@ -658,9 +668,10 @@ extern char leaf_reg_backmap[];
    (TYPE is null for libcalls where that information may not be available.)  */
 
 #define FUNCTION_ARG_ADVANCE(CUM, MODE, TYPE, NAMED)	\
- ((CUM) += ((MODE) != BLKmode				\
-	    ? ROUND_ADVANCE (GET_MODE_SIZE (MODE))	\
-	    : ROUND_ADVANCE (int_size_in_bytes (TYPE))))
+ ((CUM) = (ROUND_REG ((CUM), (MODE))			\
+	   + ((MODE) != BLKmode				\
+	      ? ROUND_ADVANCE (GET_MODE_SIZE (MODE))	\
+	      : ROUND_ADVANCE (int_size_in_bytes (TYPE)))))
 
 /* Determine where to put an argument to a function.
    Value is zero to push the argument on the stack,
@@ -680,19 +691,25 @@ extern char leaf_reg_backmap[];
    is at least partially passed in a register unless its data type forbids.  */
 
 #define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)				\
-((CUM) < NPARM_REGS							\
+(ROUND_REG ((CUM), (MODE)) < NPARM_REGS					\
  && ((TYPE)==0 || ! TREE_ADDRESSABLE ((tree)(TYPE)))			\
- && ((TYPE)==0 || (MODE) != BLKmode || (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))	\
- ? gen_rtx (REG, (MODE), BASE_PASSING_ARG_REG (MODE) + (CUM)) : 0)
+ && ((TYPE)==0 || (MODE) != BLKmode					\
+     || (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))			\
+ ? gen_rtx (REG, (MODE),						\
+	    (BASE_PASSING_ARG_REG (MODE) + ROUND_REG ((CUM), (MODE))))	\
+ : 0)
 
 /* Define where a function finds its arguments.
    This is different from FUNCTION_ARG because of register windows.  */
 
 #define FUNCTION_INCOMING_ARG(CUM, MODE, TYPE, NAMED)			\
-((CUM) < NPARM_REGS							\
+(ROUND_REG ((CUM), (MODE)) < NPARM_REGS					\
  && ((TYPE)==0 || ! TREE_ADDRESSABLE ((tree)(TYPE)))			\
- && ((MODE) != BLKmode || (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))	\
- ? gen_rtx (REG, (MODE), BASE_INCOMING_ARG_REG (MODE) + (CUM)) : 0)
+ && ((TYPE)==0 || (MODE) != BLKmode					\
+     || (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))			\
+ ? gen_rtx (REG, (MODE),						\
+	    (BASE_INCOMING_ARG_REG (MODE) + ROUND_REG ((CUM), (MODE))))	\
+ : 0)
 
 /* For an arg passed partly in registers and partly in memory,
    this is the number of registers used.
@@ -701,22 +718,39 @@ extern char leaf_reg_backmap[];
    needs partial registers on the Sparc.  */
 
 #define FUNCTION_ARG_PARTIAL_NREGS(CUM, MODE, TYPE, NAMED) 		\
-  (((CUM) < NPARM_REGS							\
+  ((ROUND_REG ((CUM), (MODE)) < NPARM_REGS				\
     && ((TYPE)==0 || ! TREE_ADDRESSABLE ((tree)(TYPE)))			\
-    && ((TYPE)==0 || (MODE) != BLKmode || (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))\
-    && ((CUM)								\
+    && ((TYPE)==0 || (MODE) != BLKmode					\
+	|| (TYPE_ALIGN ((TYPE)) % PARM_BOUNDARY == 0))			\
+    && (ROUND_REG ((CUM), (MODE))					\
 	+ ((MODE) == BLKmode						\
 	   ? ROUND_ADVANCE (int_size_in_bytes (TYPE))			\
-	   : ROUND_ADVANCE (GET_MODE_SIZE (MODE)))) - NPARM_REGS > 0)		\
-   ? (NPARM_REGS - (CUM))						\
+	   : ROUND_ADVANCE (GET_MODE_SIZE (MODE)))) - NPARM_REGS > 0)	\
+   ? (NPARM_REGS - ROUND_REG ((CUM), (MODE)))				\
    : 0)
 
 /* The SPARC ABI stipulates passing struct arguments (of any size)
    by invisible reference.  */
-/* Must pass by reference if this is a structure/union type, and this is not
-   target gnu or the address of this structure is needed somewhere.  */
 #define FUNCTION_ARG_PASS_BY_REFERENCE(CUM, MODE, TYPE, NAMED)		\
   (TYPE && (TREE_CODE (TYPE) == RECORD_TYPE || TREE_CODE (TYPE) == UNION_TYPE))
+
+/* If defined, a C expression that gives the alignment boundary, in
+   bits, of an argument with the specified mode and type.  If it is
+   not defined,  `PARM_BOUNDARY' is used for all arguments.
+
+   This definition does nothing special unless TARGET_FORCE_ALIGN;
+   in that case, it aligns each arg to the natural boundary.  */
+
+#define FUNCTION_ARG_BOUNDARY(MODE, TYPE)			\
+ (! TARGET_FORCE_ALIGN						\
+  ? PARM_BOUNDARY						\
+  : (((TYPE) != 0)						\
+     ? (TYPE_ALIGN (TYPE) <= PARM_BOUNDARY			\
+	? PARM_BOUNDARY						\
+	: TYPE_ALIGN (TYPE))					\
+     : (GET_MODE_ALIGNMENT (MODE) <= PARM_BOUNDARY		\
+	? PARM_BOUNDARY						\
+	: GET_MODE_ALIGNMENT (MODE))))
 
 /* Define the information needed to generate branch and scc insns.  This is
    stored from the compare operation.  Note that we can't use "rtx" here
@@ -1190,6 +1224,9 @@ extern struct rtx_def *legitimize_pic_address ();
    between pointers and any other objects of this machine mode.  */
 #define Pmode SImode
 
+/* Generate calls to memcpy, memcmp and memset.  */
+#define TARGET_MEM_FUNCTIONS
+
 /* Add any extra modes needed to represent the condition code.
 
    On the Sparc, we have a "no-overflow" mode which is used when an add or
@@ -1394,11 +1431,15 @@ extern struct rtx_def *legitimize_pic_address ();
 
 /* This is how to output an assembler line defining a `double' constant.  */
 
+/* Assemblers (both gas 1.35 and as in 4.0.3)
+   seem to treat -0.0 as if it were 0.0.
+   They reject 99e9999, but accept inf.  */
 #define ASM_OUTPUT_DOUBLE(FILE,VALUE)					\
   {									\
     if (REAL_VALUE_ISINF (VALUE))					\
-      fprintf (FILE, "\t.double 0r%s99e999\n", (VALUE) > 0 ? "" : "-");	\
-    else if (isnan (VALUE))						\
+      fprintf (FILE, "\t.double 0r%sinf\n", (VALUE) > 0 ? "" : "-");	\
+    else if (REAL_VALUE_ISNAN (VALUE)					\
+	     || REAL_VALUE_MINUS_ZERO (VALUE))				\
       {									\
 	union { double d; long l[2];} t;				\
 	t.d = (VALUE);							\
@@ -1413,8 +1454,9 @@ extern struct rtx_def *legitimize_pic_address ();
 #define ASM_OUTPUT_FLOAT(FILE,VALUE)					\
   {									\
     if (REAL_VALUE_ISINF (VALUE))					\
-      fprintf (FILE, "\t.single 0r%s99e999\n", (VALUE) > 0 ? "" : "-");	\
-    else if (isnan (VALUE))						\
+      fprintf (FILE, "\t.single 0r%sinf\n", (VALUE) > 0 ? "" : "-");	\
+    else if (REAL_VALUE_ISNAN (VALUE)					\
+	     || REAL_VALUE_MINUS_ZERO (VALUE))				\
       {									\
 	union { float f; long l;} t;					\
 	t.f = (VALUE);							\

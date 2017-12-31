@@ -81,15 +81,16 @@ void init_init_processing ()
   tree op_id;
   tree fields[2];
 
-  BIN = default_conversion (TREE_VALUE (lookup_name (get_identifier ("__builtin_new"), 0)));
+  /* Define implicit `operator new' and `operator delete' functions.  */
+  BIN = default_conversion (TREE_VALUE (IDENTIFIER_GLOBAL_VALUE (ansi_opname[(int) NEW_EXPR])));
   TREE_USED (TREE_OPERAND (BIN, 0)) = 0;
-  BID = default_conversion (TREE_VALUE (lookup_name (get_identifier ("__builtin_delete"), 0)));
+  BID = default_conversion (TREE_VALUE (IDENTIFIER_GLOBAL_VALUE (ansi_opname[(int) DELETE_EXPR])));
   TREE_USED (TREE_OPERAND (BID, 0)) = 0;
   minus_one = build_int_2 (-1, -1);
 
-  op_id = ansi_opname[NEW_EXPR];
+  op_id = ansi_opname[(int) NEW_EXPR];
   IDENTIFIER_GLOBAL_VALUE (op_id) = BIN;
-  op_id = ansi_opname[DELETE_EXPR];
+  op_id = ansi_opname[(int) DELETE_EXPR];
   IDENTIFIER_GLOBAL_VALUE (op_id) = BID;
 
 #ifdef SOS
@@ -340,7 +341,7 @@ emit_base_init (t, immediately)
 	      && TREE_CHAIN (first_arg) != NULL_TREE)
 	    {
 	      /* If there are virtual baseclasses without initialization
-		 specified, and this is a default X(X&) construcotr,
+		 specified, and this is a default X(X&) constructor,
 		 build the initialization list so that each virtual baseclass
 		 of the new object is initialized from the virtual baseclass
 		 of the incoming arg.  */
@@ -595,7 +596,7 @@ check_base_init (t)
    the pointer DECL.  It is a one-ply initialization.
 
    TYPE is the exact type that DECL is supposed to be.  In
-   muliple inheritance, this might mean "C's A" if C : A, B.  */
+   multiple inheritance, this might mean "C's A" if C : A, B.  */
 tree
 build_virtual_init (main_binfo, binfo, decl)
      tree main_binfo, binfo;
@@ -627,12 +628,8 @@ build_virtual_init (main_binfo, binfo, decl)
       assert (BINFO_TYPE (main_binfo) == BINFO_TYPE (binfo));
       vtbl = BINFO_VTABLE (main_binfo);
 #endif /* 1 */
-      if (TREE_USED (vtbl) == 0)
-	{
-	  if (TREE_EXTERNAL (vtbl))
-	    assemble_external (vtbl);
-	  TREE_USED (vtbl) = 1;
-	}
+      assemble_external (vtbl);
+      TREE_USED (vtbl) = 1;
       vtbl = build1 (ADDR_EXPR, TYPE_POINTER_TO (TREE_TYPE (vtbl)), vtbl);
     }
   vtype = DECL_CONTEXT (CLASSTYPE_VFIELD (type));
@@ -990,7 +987,7 @@ expand_member_init (exp, name, init)
    is to be stored in EXP, or it is a parameter list
    to go to a constructor, which will operate on EXP.
    If `init' is a CONSTRUCTOR, then we emit a warning message,
-   explaining that such initializaitions are illegal.
+   explaining that such initializations are illegal.
 
    ALIAS_THIS is nonzero iff we are initializing something which is
    essentially an alias for C_C_D.  In this case, the base constructor
@@ -1166,7 +1163,7 @@ expand_aggr_init_1 (binfo, true_exp, exp, init, alias_this, flags)
 #endif
 	      )
 	    {
-	      /* A CALL_EXPR is a legitmate form of initialization, so
+	      /* A CALL_EXPR is a legitimate form of initialization, so
 		 we should not print this warning message.  */
 #if 0
 	      /* Should have gone away due to 5/11/89 change.  */
@@ -1571,8 +1568,9 @@ is_aggr_typedef (name, or_else)
   type = IDENTIFIER_TYPE_VALUE (name);
   if (! IS_AGGR_TYPE (type))
     {
-      fatal ("type `%s' is of non-aggregate type",
-	     IDENTIFIER_POINTER (name));
+      if (or_else)
+	error ("type `%s' is of non-aggregate type",
+	       IDENTIFIER_POINTER (name));
       return 0;
     }
   return 1;
@@ -1765,6 +1763,19 @@ build_offset_ref (cname, name)
   if (fields == error_mark_node)
     return error_mark_node;
 
+  if (current_class_type == 0
+      || get_base_distance (type, current_class_type, 0, &basetypes) == -1)
+    {
+      basetypes = TYPE_BINFO (type);
+      decl = build1 (NOP_EXPR,
+		     IDENTIFIER_TYPE_VALUE (cname),
+		     error_mark_node);
+    }
+  else if (current_class_decl == 0)
+    decl = build1 (NOP_EXPR, TREE_TYPE (TREE_TYPE (cname)),
+		   error_mark_node);
+  else decl = C_C_D;
+
   if (fnfields)
     {
       basetypes = TREE_PURPOSE (fnfields);
@@ -1816,7 +1827,7 @@ build_offset_ref (cname, name)
 		  return error_mark_node;
 		}
 	      assemble_external (t);
-	      return build (OFFSET_REF, TREE_TYPE (t), NULL_TREE, t);
+	      return build (OFFSET_REF, TREE_TYPE (t), decl, t);
 	    }
 
 	  /* overloaded functions may need more work.  */
@@ -1842,7 +1853,7 @@ build_offset_ref (cname, name)
 		  || ! allocation_temporary_p ()))
 	    fnfields = copy_list (fnfields);
 	  t = build_tree_list (error_mark_node, fnfields);
-	  TREE_TYPE (t) = build_member_type (type, unknown_type_node);
+	  TREE_TYPE (t) = build_offset_type (type, unknown_type_node);
 	  return t;
 	}
     }
@@ -1850,19 +1861,6 @@ build_offset_ref (cname, name)
   /* Now that we know we are looking for a field, see if we
      have access to that field.  Lookup_field will give us the
      error message.  */
-
-  if (current_class_type == 0
-      || get_base_distance (type, current_class_type, 0, &basetypes) == -1)
-    {
-      basetypes = TYPE_BINFO (type);
-      decl = build1 (NOP_EXPR,
-		     IDENTIFIER_TYPE_VALUE (cname),
-		     error_mark_node);
-    }
-  else if (current_class_decl == 0)
-    decl = build1 (NOP_EXPR, TREE_TYPE (TREE_TYPE (cname)),
-		   error_mark_node);
-  else decl = C_C_D;
 
   t = lookup_field (basetypes, name, 1);
 
@@ -1873,7 +1871,7 @@ build_offset_ref (cname, name)
     {
       char *print_name;
 
-      if (name == ansi_opname[TYPE_EXPR])
+      if (name == ansi_opname[(int) TYPE_EXPR])
 	{
 	  error ("type conversion operator not a member of type `%s'",
 		 IDENTIFIER_POINTER (cname));
@@ -1911,7 +1909,7 @@ build_offset_ref (cname, name)
 
   /* In member functions, the form `cname::name' is no longer
      equivalent to `this->cname::name'.  */
-  return build (OFFSET_REF, build_member_type (type, TREE_TYPE (t)), decl, t);
+  return build (OFFSET_REF, build_offset_type (type, TREE_TYPE (t)), decl, t);
 }
 
 /* Given an object EXP and a member function reference MEMBER,
@@ -1970,7 +1968,7 @@ get_member_function (exp_addr_ptr, exp, member)
 
       /* This is really hairy: if the function pointer is a pointer
 	 to a non-virtual member function, then we can't go mucking
-	 with the `this' pointer (any more than we aleady have to
+	 with the `this' pointer (any more than we already have to
 	 this point).  If it is a pointer to a virtual member function,
 	 then we have to adjust the `this' pointer according to
 	 what the virtual function table tells us.  */
@@ -2024,7 +2022,8 @@ resolve_offset_ref (exp)
       base = TREE_OPERAND (exp, 0);
     }
 
-  if (TREE_STATIC (member))
+  if (TREE_CODE (member) == VAR_DECL
+      || TREE_CODE (TREE_TYPE (member)) == FUNCTION_TYPE)
     {
       /* These were static members.  */
       if (mark_addressable (member) == 0)
@@ -2079,11 +2078,13 @@ resolve_offset_ref (exp)
 	}
       abort ();
     }
+
   /* If this is a reference to a member function, then return
      the address of the member function (which may involve going
      through the object's vtable), otherwise, return an expression
-     for the derefernced pointer-to-member construct.  */
+     for the dereferenced pointer-to-member construct.  */
   addr = build_unary_op (ADDR_EXPR, base, 0);
+
   if (TREE_CODE (TREE_TYPE (member)) == METHOD_TYPE)
     {
       basetype = DECL_CLASS_CONTEXT (member);
@@ -2242,7 +2243,7 @@ add_friend (type, decl)
   DECL_FRIENDLIST (typedecl)
     = tree_cons (DECL_NAME (decl), build_tree_list (error_mark_node, decl),
 		 DECL_FRIENDLIST (typedecl));
-  if (DECL_NAME (decl) == ansi_opname[MODIFY_EXPR])
+  if (DECL_NAME (decl) == ansi_opname[(int) MODIFY_EXPR])
     {
       tree parmtypes = TYPE_ARG_TYPES (TREE_TYPE (decl));
       TYPE_HAS_ASSIGNMENT (TREE_TYPE (typedecl)) = 1;
@@ -2297,8 +2298,8 @@ add_friends (type, name, friend_type)
 	       build_tree_list (friend_type, NULL_TREE),
 	       DECL_FRIENDLIST (typedecl));
   if (! strncmp (IDENTIFIER_POINTER (name),
-		 IDENTIFIER_POINTER (ansi_opname[MODIFY_EXPR]),
-		 strlen (IDENTIFIER_POINTER (ansi_opname[MODIFY_EXPR]))))
+		 IDENTIFIER_POINTER (ansi_opname[(int) MODIFY_EXPR]),
+		 strlen (IDENTIFIER_POINTER (ansi_opname[(int) MODIFY_EXPR]))))
     {
       TYPE_HAS_ASSIGNMENT (TREE_TYPE (typedecl)) = 1;
       TYPE_GETS_ASSIGNMENT (TREE_TYPE (typedecl)) = 1;
@@ -2490,8 +2491,7 @@ do_friend (ctype, declarator, decl, parmdecls, flags, quals)
 	 Note that because classes all wind up being top-level
 	 in their scope, their friend wind up in top-level scope as well.  */
       DECL_ASSEMBLER_NAME (decl)
-	= build_decl_overload (IDENTIFIER_POINTER (declarator),
-			       TYPE_ARG_TYPES (TREE_TYPE (decl)),
+	= build_decl_overload (declarator, TYPE_ARG_TYPES (TREE_TYPE (decl)),
 			       TREE_CODE (TREE_TYPE (decl)) == METHOD_TYPE);
       DECL_ARGUMENTS (decl) = parmdecls;
 
@@ -2610,11 +2610,8 @@ build_builtin_call (type, node, arglist)
 {
   tree rval = build (CALL_EXPR, type, node, arglist, 0);
   TREE_SIDE_EFFECTS (rval) = 1;
-  if (! TREE_USED (TREE_OPERAND (node, 0)))
-    {
-      assemble_external (TREE_OPERAND (node, 0));
-      TREE_USED (TREE_OPERAND (node, 0)) = 1;
-    }
+  assemble_external (TREE_OPERAND (node, 0));
+  TREE_USED (TREE_OPERAND (node, 0)) = 1;
   return rval;
 }
 
@@ -2626,7 +2623,7 @@ build_builtin_call (type, node, arglist)
    for this instance.
 
    For types with constructors, the data returned is initialized
-   by the approriate constructor.
+   by the appropriate constructor.
 
    Whether the type has a constructor or not, if it has a pointer
    to a virtual function table, then that pointer is set up
@@ -2775,8 +2772,7 @@ build_new (placement, decl, init, use_global_new)
      it has.  */
   while (TREE_CODE (type) == ARRAY_TYPE)
     {
-      tree this_nelts = build_binary_op (PLUS_EXPR, integer_one_node,
-					 TYPE_MAX_VALUE (TYPE_DOMAIN (type)));
+      tree this_nelts = array_type_nelts_top (type);
       if (nelts == integer_one_node)
 	{
 	  has_array = 1;
@@ -2914,7 +2910,7 @@ build_new (placement, decl, init, use_global_new)
 	  rval = build_opfncall (NEW_EXPR, LOOKUP_GLOBAL|LOOKUP_COMPLAIN, ptr_type_node, size, placement);
 	  rval = convert (TYPE_POINTER_TO (true_type), rval);
 	}
-      else if (flag_this_is_variable
+      else if (flag_this_is_variable > 0
 	       && TYPE_HAS_CONSTRUCTOR (true_type) && init != void_type_node)
 	{
 	  if (init == NULL_TREE || TREE_CODE (init) == TREE_LIST)
@@ -3220,14 +3216,12 @@ expand_vec_init (decl, base, maxindex, init, from_array)
       return rval;
     }
 
-  while (TREE_CODE (type) == ARRAY_TYPE)
-    type = TREE_TYPE (type);
-
   size = size_in_bytes (type);
 
   /* Set to zero in case size is <= 0.  Optimizer will delete this if
      it is not needed.  */
-  rval = get_temp_regvar (TYPE_POINTER_TO (type), null_pointer_node);
+  rval = get_temp_regvar (TYPE_POINTER_TO (type), convert (TYPE_POINTER_TO (type),
+							   null_pointer_node));
   base = default_conversion (base);
   base = convert (TYPE_POINTER_TO (type), base);
   expand_assignment (rval, base, 0, 0);
@@ -3633,7 +3627,7 @@ build_delete (type, addr, auto_delete, flags, use_global_delete, maybe_adjust)
     }
   else
     {
-      /* This can get visibilties wrong.  */
+      /* This can get visibilities wrong.  */
       tree binfos = BINFO_BASETYPES (TYPE_BINFO (type));
       int i, n_baseclasses = binfos ? TREE_VEC_LENGTH (binfos) : 0;
       tree child = n_baseclasses > 0 ? TREE_VEC_ELT (binfos, 0) : NULL_TREE;
@@ -3780,13 +3774,13 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
   tree type;
   tree rval;
   /* Temporary variables used by the loop.  */
-  tree tbase, size_exp;
+  tree tbase, size_exp, tbase_init;
 
   /* This is the body of the loop that implements the deletion of a
      single element, and moves temp variables to next elements.  */
   tree body;
 
-  /* This is the LOOP_EXPR that governs the deletetion of the elements.  */
+  /* This is the LOOP_EXPR that governs the deletion of the elements.  */
   tree loop;
 
   /* This is the thing that governs what to do after the loop has run.  */
@@ -3816,25 +3810,10 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
     }
   else if (TREE_CODE (ptype) == ARRAY_TYPE)
     {
-      /* If we're passed an array, the maxindex we're passed is for the
-	 first dimension we'll be looking at.  So start our loop on the
-	 second dimension (if any).
-
-	 We could as easily extract it by calling array_type_nelts here,
-	 and eliminating maxindex as an argument to this function.  */
-      assert (array_type_nelts (ptype) == maxindex);
-      maxindex = fold (build (PLUS_EXPR, integer_type_node,
-			      maxindex, integer_one_node));
-      ptype = TREE_TYPE (ptype);
+      /* get the total number of things in the array, maxindex is a bad name */
+      maxindex = array_type_nelts_total (ptype);
       while (TREE_CODE (ptype) == ARRAY_TYPE)
-	{
-	  /* array_type_nelts actually returns
-	     the max index, so add 1.  */
-	  tree n = fold (build (PLUS_EXPR, integer_type_node,
-				array_type_nelts (ptype), integer_one_node));
-	  maxindex = fold (build (MULT_EXPR, integer_type_node, maxindex, n));
-	  ptype = TREE_TYPE (ptype);
-	}
+	ptype = TREE_TYPE (ptype);
       base = build_unary_op (ADDR_EXPR, base, 1);
     }
   else
@@ -3853,11 +3832,13 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
 
   size_exp = size_in_bytes (type);
   tbase = build_decl (VAR_DECL, NULL_TREE, ptype);
+  tbase_init = build_modify_expr (tbase, NOP_EXPR,
+				  fold (build (PLUS_EXPR, ptype,
+					       base,
+					       size_binop (MULT_EXPR,
+							   size_exp,
+							   maxindex))));
   TREE_REGDECL (tbase) = 1;
-  DECL_INITIAL (tbase) = fold (build (PLUS_EXPR, ptype, base,
-				      size_binop (MULT_EXPR, size_exp,
-						  maxindex)));
-
   controller = build (BIND_EXPR, void_type_node, tbase, 0, 0);
   TREE_SIDE_EFFECTS (controller) = 1;
   block = build_block (tbase, 0, 0, 0, 0);
@@ -3896,6 +3877,10 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
 
   loop = build (LOOP_EXPR, void_type_node, build_compound_expr (body));
 
+  loop = tree_cons (NULL_TREE, tbase_init,
+		    tree_cons (NULL_TREE, loop, NULL_TREE));
+  loop = build_compound_expr (loop);
+
  no_destructor:
   /* If the delete flag is one, or anything else with the low bit set,
      delete the storage.  */
@@ -3929,6 +3914,11 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
     }
   else
     body = loop;
+
+  /* Outermost wrapper: If pointer is null, punt.  */
+  body = build (COND_EXPR, void_type_node,
+		build (NE_EXPR, integer_type_node, base, integer_zero_node),
+		body, integer_zero_node);
 
   if (controller)
     {

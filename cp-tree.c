@@ -41,6 +41,12 @@ lvalue_p (ref)
   if (language_lvalue_valid (ref))
     switch (code)
       {
+	/* preincrements and predecrements are valid lvals, provided
+	   what they refer to are valid lvals. */
+      case PREINCREMENT_EXPR:
+      case PREDECREMENT_EXPR:
+      case POSTINCREMENT_EXPR:
+      case POSTDECREMENT_EXPR:
       case COMPONENT_REF:
 	return lvalue_p (TREE_OPERAND (ref, 0));
 
@@ -125,18 +131,21 @@ build_cplus_new (type, init, with_cleanup_p)
   tree slot = build (VAR_DECL, type);
   tree rval = build (NEW_EXPR, type,
 		     TREE_OPERAND (init, 0), TREE_OPERAND (init, 1), slot);
+  TREE_SIDE_EFFECTS (rval) = 1;
   TREE_ADDRESSABLE (rval) = 1;
   rval = build (TARGET_EXPR, type, slot, rval, 0);
   TREE_SIDE_EFFECTS (rval) = 1;
   TREE_ADDRESSABLE (rval) = 1;
 
   if (with_cleanup_p && TYPE_NEEDS_DESTRUCTOR (type))
-    rval = build (WITH_CLEANUP_EXPR, type, rval, 0,
-		  build_delete (TYPE_POINTER_TO (type),
-				build_unary_op (ADDR_EXPR, slot, 0),
-				integer_two_node,
-				LOOKUP_NORMAL|LOOKUP_DESTRUCTOR, 0, 0));
-  TREE_SIDE_EFFECTS (rval) = 1;
+    {
+      rval = build (WITH_CLEANUP_EXPR, type, rval, 0,
+		    build_delete (TYPE_POINTER_TO (type),
+				  build_unary_op (ADDR_EXPR, slot, 0),
+				  integer_two_node,
+				  LOOKUP_NORMAL|LOOKUP_DESTRUCTOR, 0, 0));
+      TREE_SIDE_EFFECTS (rval) = 1;
+    }
   return rval;
 }
 
@@ -194,7 +203,7 @@ build_cplus_method_type (basetype, rettype, argtypes)
 
   TYPE_METHOD_BASETYPE (t) = TYPE_MAIN_VARIANT (basetype);
   TREE_TYPE (t) = rettype;
-  ptype = build_type_variant (ptype, !flag_this_is_variable, 0);
+  ptype = build_type_variant (ptype, flag_this_is_variable <= 0, 0);
 
   /* The actual arglist for this function includes a "hidden" argument
      which is "this".  Put it into the list of argument types.  */
@@ -268,28 +277,6 @@ build_cplus_array_type (elt_type, index_type)
   TYPE_NEEDS_DESTRUCTOR (t) = TYPE_NEEDS_DESTRUCTOR (TYPE_MAIN_VARIANT (elt_type));
   current_obstack = ambient_obstack;
   saveable_obstack = ambient_saveable_obstack;
-  return t;
-}
-
-/* This is temporary until later.  */
-/* Construct, lay out and return the type of objects which are of type TYPE
-   as members of type BASETYPE.  If that type exists already, reuse it.  */
-tree
-build_member_type (basetype, type)
-     tree basetype, type;
-{
-  register tree t;
-  int hashcode;
-
-  assert (TREE_CODE (type) != FUNCTION_TYPE);
-
-  /* Make a node of the sort we want.  */
-  t = make_node (OFFSET_TYPE);
-  TYPE_OFFSET_BASETYPE (t) = basetype;
-  TREE_TYPE (t) = type;
-  hashcode = TYPE_HASH (basetype) + TYPE_HASH (type);
-  t = type_hash_canon (hashcode, t);
-
   return t;
 }
 
@@ -596,8 +583,9 @@ layout_basetypes (rec, binfos)
 	    {
 	      warning_with_decl (TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0),
 				 "destructor `%s' non-virtual");
-	      warning ("in inheritance relationship `%s: virtual %s'",
+	      warning ("in inheritance relationship `%s:%s %s'",
 		       TYPE_NAME_STRING (rec),
+		       TREE_VIA_VIRTUAL (child) ? " virtual" : "",
 		       TYPE_NAME_STRING (basetype));
 	    }
 	}
@@ -1580,34 +1568,6 @@ copy_to_permanent (t)
   return t;
 }
 
-int
-lang_simple_cst_equal (t1, t2)
-     tree t1, t2;
-{
-  register enum tree_code code1, code2;
-  int cmp;
-
-  if (t1 == t2)
-    return 1;
-  if (t1 == 0 || t2 == 0)
-    return 0;
-
-  code1 = TREE_CODE (t1);
-  code2 = TREE_CODE (t2);
-
-  switch (code1)
-    {
-    case NEW_EXPR:
-      cmp = simple_cst_equal (TREE_OPERAND (t1, 0), TREE_OPERAND (t2, 0));
-      if (cmp <= 0)
-	return cmp;
-      return simple_cst_list_equal (TREE_OPERAND (t1, 1), TREE_OPERAND (t2, 1));
-
-    default:
-      return -1;
-    }
-}
-
 void
 print_lang_statistics ()
 {
@@ -1638,4 +1598,36 @@ __eprintf (string, expression, line, filename)
   fprintf (stderr, string, expression, line, filename);
   fflush (stderr);
   abort ();
+}
+
+/* Return, as an INTEGER_CST node, the number of elements for
+   TYPE (which is an ARRAY_TYPE).  This counts only elements of the top array. */
+
+tree
+array_type_nelts_top (type)
+     tree type;
+{
+  return fold (build (PLUS_EXPR, integer_type_node,
+		      array_type_nelts (type),
+		      integer_one_node));
+}
+
+/* Return, as an INTEGER_CST node, the number of elements for
+   TYPE (which is an ARRAY_TYPE).  This one is a recursive count of all
+   ARRAY_TYPEs that are clumped together. */
+
+tree
+array_type_nelts_total (type)
+     tree type;
+{
+  tree index_type = TYPE_DOMAIN (type);
+  tree sz = array_type_nelts_top (type);
+  type = TREE_TYPE (type);
+  while (TREE_CODE (type) == ARRAY_TYPE)
+    {
+      tree n = array_type_nelts_top (type);
+      sz = fold (build (MULT_EXPR, integer_type_node, sz, n));
+      type = TREE_TYPE (type);
+    }
+  return sz;
 }

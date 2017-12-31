@@ -38,7 +38,7 @@
 ;; * Fix true frame pointer omission.
 ;; * Make the jump tables contain branches, not addresses!  This would
 ;;   save us one instruction.
-;; * Could the compilcated scheme for compares be simplyfied, if we had
+;; * Could the complicated scheme for compares be simplified, if we had
 ;;   no named cmpqi or cmphi patterns, and instead anonymous patterns for
 ;;   the less-than-word compare cases pyr can handle???
 ;; * The jump insn seems to accept more than just IR addressing.  Would
@@ -678,7 +678,7 @@
 
 ;; If the destination is a memory operand, indexed source operands are
 ;; disallowed.  Big DImode constants are always loaded into a reg pair,
-;; although offsetable memory addresses really could be dealt with.
+;; although offsettable memory addresses really could be dealt with.
 
 (define_insn ""
   [(set (match_operand:DI 0 "memory_operand" "=m")
@@ -1203,14 +1203,15 @@
 	(match_operand:SI 3 "general_operand" "g"))]
   "movdi_possible (operands)"
   "*
+{
   output_asm_insn (\"# COMBINE movw %1,%0\", operands);
   output_asm_insn (\"# COMBINE movw %3,%2\", operands);
   movdi_possible (operands);
   if (CONSTANT_P (operands[1]))
-    return (swap_operands) ? \"movl %3,%0\" : \"movl %1,%2\";
+    return (swap_operands ? \"movl %3,%0\" : \"movl %1,%2\");
 
-  return (swap_operands) ? \"movl %1,%0\" : \"movl %3,%2\";
-")
+  return (swap_operands ? \"movl %1,%0\" : \"movl %3,%2\");
+}")
 
 ;; Optimize certain tests after memory stores.
 
@@ -1360,6 +1361,12 @@
   output_asm_insn (\"xorw %1,%0\", xoperands);
   return \"xorw %2,%0\";
 }")
+
+;; My version, modelled after Jonathan Stone's and "tablejump" - S.P.
+(define_insn "indirect_jump"
+  [(set (pc) (match_operand:SI 0 "general_operand" "r"))]
+  ""
+  "jump (%0)")
 
 ;;- Local variables:
 ;;- mode:emacs-lisp

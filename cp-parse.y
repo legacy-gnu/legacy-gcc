@@ -107,7 +107,7 @@ empty_parms ()
 
 %start program
 
-%union {long itype; tree ttype; enum tree_code code; }
+%union {long itype; tree ttype; char *strtype; enum tree_code code; }
 
 /* All identifiers that are not reserved words
    and are not declared typedefs in the current block */
@@ -145,9 +145,10 @@ empty_parms ()
 %token ELLIPSIS
 
 /* the reserved words */
+/* SCO include files test "ASM", so use something else. */
 %token SIZEOF ENUM /* STRUCT UNION */ IF ELSE WHILE DO FOR SWITCH CASE DEFAULT
-%token BREAK CONTINUE RETURN GOTO ASM TYPEOF ALIGNOF HEADOF CLASSOF
-%token ATTRIBUTE
+%token BREAK CONTINUE RETURN GOTO ASM_KEYWORD TYPEOF ALIGNOF HEADOF CLASSOF
+%token ATTRIBUTE EXTENSION LABEL
 
 /* the reserved words... C++ extensions */
 %token <ttype> AGGR
@@ -221,6 +222,7 @@ empty_parms ()
 %type <ttype> enumlist enumerator
 %type <ttype> typename absdcl absdcl1 type_quals abs_or_notype_decl
 %type <ttype> xexpr see_typename parmlist parms parm bad_parm
+%type <ttype> identifiers identifiers_or_typenames
 
 /* C++ extensions */
 %type <ttype> TYPENAME_SCOPE
@@ -255,6 +257,8 @@ empty_parms ()
 %type <ttype> named_class_head_sans_basetype_defn 
 %type <ttype> identifier_defn IDENTIFIER_DEFN TYPENAME_DEFN PTYPENAME_DEFN
 
+%type <strtype> .pushlevel
+
 /* cp-spew.c depends on this being the last token.  Define
    any new tokens before this one!  */
 %token END_OF_SAVED_INPUT
@@ -284,6 +288,11 @@ int undeclared_variable_notice;	/* 1 if we explained undeclared var errors.  */
 
 int yylex ();
 
+static
+#ifdef __GNUC__
+__inline
+#endif
+void yyprint ();
 #define YYPRINT(FILE,YYCHAR,YYLVAL) yyprint(FILE,YYCHAR,YYLVAL)
 %}
 
@@ -320,7 +329,7 @@ extdef:
 	| template_def
 		{ if (pending_inlines) do_pending_inlines (); }
 	| overloaddef
-	| ASM '(' string ')' ';'
+	| ASM_KEYWORD '(' string ')' ';'
 		{ if (pedantic)
 		    warning ("ANSI C forbids use of `asm' keyword");
 		  if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
@@ -365,20 +374,20 @@ template_parm:
 	   declarations.  */
 	  aggr identifier
 		{
-		  if ((enum tag_types) TREE_INT_CST_LOW ($1) != class_type)
+		  if ($1 != class_type_node)
 		    error ("template type parameter must use keyword `class'");
 		  $$ = build_tree_list ($2, NULL_TREE);
 		}
 	| aggr identifier_defn ':' base_class.1
 		{
-		  if ((enum tag_types) TREE_INT_CST_LOW ($1) != class_type)
+		  if ($1 != class_type_node)
 		    error ("template type parameter must use keyword `class'");
 		  warning ("restricted template type parameters not yet implemented");
 		  $$ = build_tree_list ($2, $4);
 		}
 	| aggr TYPENAME_COLON base_class.1
 		{
-		  if ((enum tag_types) TREE_INT_CST_LOW ($1) != class_type)
+		  if ($1 != class_type_node)
 		    error ("template type parameter must use keyword `class'");
 		  warning ("restricted template type parameters not yet implemented");
 		  $$ = build_tree_list ($2, $3);
@@ -436,7 +445,6 @@ template_def:
 		{
 		  tree d;
 		  int momentary;
-/*		  current_declspecs = $<ttype>0;*/
 		  momentary = suspend_momentary ();
 		  d = start_decl ($2, /*current_declspecs*/0, 0, $3);
 		  finish_decl (d, NULL_TREE, $4);
@@ -482,6 +490,9 @@ template_def:
 		  if ($4 != ';')
 		    reinit_parse_for_template ($4, $1, d);
 		}
+	/* Try to recover from syntax errors in templates.  */
+	| template_header error '}'	{ end_template_decl ($1, 0, 0); }
+	| template_header error ';'	{ end_template_decl ($1, 0, 0); }
 	;
 
 fn_tmpl_end: '{'		{ $$ = '{'; }
@@ -768,6 +779,10 @@ member_init: '(' nonnull_exprlist ')'
 		}
 	| identifier LEFT_RIGHT
 		{ expand_member_init (C_C_D, $<ttype>$, void_type_node); }
+	| template_type_name '(' nonnull_exprlist ')'
+		{ expand_member_init (C_C_D, $<ttype>$, $3); }
+	| template_type_name LEFT_RIGHT
+		{ expand_member_init (C_C_D, $<ttype>$, void_type_node); }
 	| scoped_id identifier '(' nonnull_exprlist ')'
 		{
 		  do_member_init ($<ttype>$, $2, $4);
@@ -956,6 +971,13 @@ unary_expr:
 		  if (TREE_CODE ($$) == TYPE_EXPR)
 		    $$ = build_component_type_expr (C_C_D, $$, NULL_TREE, 1);
 		}
+	/* __extension__ turns off -pedantic for following primary.  */
+	| EXTENSION
+		{ $<itype>1 = pedantic;
+		  pedantic = 0; }
+	  cast_expr	  %prec UNARY
+		{ $$ = $3;
+		  pedantic = $<itype>1; }
 	| '*' cast_expr   %prec UNARY
 		{ $$ = build_x_indirect_ref ($2, "unary *"); }
 	| '&' cast_expr   %prec UNARY
@@ -1717,7 +1739,7 @@ notype_initdecls:
 maybeasm:
 	  /* empty */
 		{ $$ = NULL_TREE; }
-	| ASM '(' string ')'
+	| ASM_KEYWORD '(' string ')'
 		{ if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  $$ = $3;
 		  if (pedantic)
@@ -1800,11 +1822,20 @@ attrib
 		   IDENTIFIER_POINTER ($$)); }
     ;
 
+/* A nonempty list of identifiers.  */
 identifiers:
 	  IDENTIFIER
-		{ }
+		{ $$ = build_tree_list (NULL_TREE, $1); }
 	| identifiers ',' IDENTIFIER
-		{ }
+		{ $$ = chainon ($1, build_tree_list (NULL_TREE, $3)); }
+	;
+
+/* A nonempty list of identifiers, including typenames.  */
+identifiers_or_typenames:
+	identifier
+		{ $$ = build_tree_list (NULL_TREE, $1); }
+	| identifiers_or_typenames ',' identifier
+		{ $$ = chainon ($1, build_tree_list (NULL_TREE, $3)); }
 	;
 
 init:
@@ -2054,7 +2085,7 @@ base_class_visibility_list:
 		      else if ($1 == visibility_default_virtual)
 			$$ = visibility_public_virtual;
 		    }
-		  else /* $2 == visibility_priavte */
+		  else /* $2 == visibility_private */
 		    {
 		      if ($1 == visibility_public)
 			goto mixed;
@@ -2316,7 +2347,7 @@ type_quals:
 	;
 
 /* These rules must follow the rules for function declarations
-   and component declarations.  That way, longer rules are prefered.  */
+   and component declarations.  That way, longer rules are preferred.  */
 
 /* An expression which will not live on the momentary obstack.  */
 nonmomentary_expr:
@@ -2466,7 +2497,13 @@ notype_declarator:
 	;
 
 scoped_id:	TYPENAME_SCOPE
-		{ $$ = resolve_scope_to_name (NULL_TREE, $$); }
+		{ $$ = resolve_scope_to_name (NULL_TREE, $$);
+		  if ($$ == NULL_TREE)
+		    {
+		      error ("undefined explicitly scoped type");
+		      $$ = error_mark_node; 
+		    }
+		}
 	| template_type SCOPE try_for_typename %prec EMPTY
 		{
                   if ($$ == error_mark_node)
@@ -2474,6 +2511,11 @@ scoped_id:	TYPENAME_SCOPE
                   else
 		    {
 		      $$ = resolve_scope_to_name (NULL_TREE, TYPE_IDENTIFIER ($$));
+		      if ($$ == NULL_TREE)
+			{
+			  error ("undefined explicitly scoped type");
+			  $$ = error_mark_node; 
+			}
 		    }
                   if ($3) popclass (1);
 		}
@@ -2599,12 +2641,38 @@ errstmt:  error ';'
   set up to point at this one.  */
 
 .pushlevel:  /* empty */
-		{
+		{ emit_line_note (input_filename, lineno);
 		  pushlevel (0);
 		  clear_last_expr ();
 		  push_momentary ();
 		  expand_start_bindings (0);
-		  stmt_decl_msg = 0;
+		  $$ = stmt_decl_msg;
+		  stmt_decl_msg = 0; }
+	;
+
+/* Read zero or more forward-declarations for labels
+   that nested functions can jump to.  */
+maybe_label_decls:
+	  /* empty */
+	| label_decls
+		{ if (pedantic)
+		    pedwarn ("ANSI C forbids label declarations"); }
+	;
+
+label_decls:
+	  label_decl
+	| label_decls label_decl
+	;
+
+label_decl:
+	  LABEL identifiers_or_typenames ';'
+		{ tree link;
+		  for (link = $2; link; link = TREE_CHAIN (link))
+		    {
+		      tree label = shadow_label (TREE_VALUE (link));
+		      C_DECLARED_LABEL_FLAG (label) = 1;
+		      declare_nonlocal_label (label);
+		    }
 		}
 	;
 
@@ -2618,13 +2686,15 @@ compstmt_or_error:
 
 compstmt: '{' '}'
 		{ $$ = convert (void_type_node, integer_zero_node); }
-	| '{' .pushlevel stmts '}'
+	| '{' .pushlevel maybe_label_decls stmts '}'
 		{ pop_implicit_try_blocks (NULL_TREE);
+		  stmt_decl_msg = $2;
 		  expand_end_bindings (getdecls (), kept_level_p (), 1);
 		  $$ = poplevel (kept_level_p (), 1, 0);
 		  pop_momentary (); }
-	| '{' .pushlevel error '}'
+	| '{' .pushlevel maybe_label_decls error '}'
 		{ pop_implicit_try_blocks (NULL_TREE);
+		  stmt_decl_msg = $2;
 		  expand_end_bindings (getdecls (), kept_level_p (), 1);
 		  $$ = poplevel (kept_level_p (), 0, 0);
 		  pop_momentary (); }
@@ -2925,14 +2995,14 @@ stmt:
 		  c_expand_return ($2);
 		  finish_stmt ();
 		}
-	| ASM maybe_type_qual '(' string ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ')' ';'
 		{ if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
 		  emit_line_note (input_filename, lineno);
 		  expand_asm ($4);
 		  finish_stmt ();
 		}
 	/* This is the case with just output operands.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ')' ';'
 		{ if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
 		  emit_line_note (input_filename, lineno);
 		  c_expand_asm_operands ($4, $6, NULL_TREE, NULL_TREE,
@@ -2941,7 +3011,7 @@ stmt:
 		  finish_stmt ();
 		}
 	/* This is the case with input operands as well.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ':' asm_operands ')' ';'
 		{ if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
 		  emit_line_note (input_filename, lineno);
 		  c_expand_asm_operands ($4, $6, $8, NULL_TREE,
@@ -2950,7 +3020,7 @@ stmt:
 		  finish_stmt ();
 		}
 	/* This is the case with clobbered registers as well.  */
-	| ASM maybe_type_qual '(' string ':' asm_operands ':'
+	| ASM_KEYWORD maybe_type_qual '(' string ':' asm_operands ':'
   	  asm_operands ':' asm_clobbers ')' ';'
 		{ if (TREE_CHAIN ($4)) $4 = combine_strings ($4);
 		  emit_line_note (input_filename, lineno);
@@ -2974,7 +3044,7 @@ stmt:
 	| ';'
 		{ finish_stmt (); }
 
-	/* Exception handling extentions.  */
+	/* Exception handling extensions.  */
 	| ANSI_THROW ';' { cplus_expand_throw (NULL_TREE); }
 	| ANSI_THROW expr ';' { cplus_expand_throw ($2); }
 	| THROW raise_identifier '(' nonnull_exprlist ')' ';'
@@ -3729,6 +3799,12 @@ operator_name:
 
 %%
 
+tree
+get_current_declspecs ()
+{
+  return current_declspecs;
+}
+
 #if YYDEBUG != 0
 db_yyerror (s, yyps, yychar)
      char *s;
@@ -3941,7 +4017,7 @@ print_parse_statistics ()
 }
 
 
-/* Sets the value of the 'yydebug' varable to VALUE.
+/* Sets the value of the 'yydebug' variable to VALUE.
    This is a function so we don't have to have YYDEBUG defined
    in order to build the compiler.  */
 void

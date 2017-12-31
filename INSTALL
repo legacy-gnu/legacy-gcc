@@ -12,9 +12,17 @@ Installing GNU CC
 
    Here is the procedure for installing GNU CC on a Unix system.
 
+* Menu:
+
+* Other Dir::     Compiling in a separate directory (not where the source is).
+* Sun Install::   See below for installation on the Sun.
+* 3B1 Install::   See below for installation on the 3B1.
+* VMS Install::   See below for installation on VMS.
+* Unos Install::  See below for installation on Unos (from CRDS).
+
   1. If you have built GNU CC previously in the same directory for a
-     different target machine, do `make cleanconfig' to delete all
-     files that might be invalid.
+     different target machine, do `make distclean' to delete all files
+     that might be invalid.
 
   2. On a Sequent system, go to the Berkeley universe.
 
@@ -46,9 +54,9 @@ Installing GNU CC
         You can also replace parts of the configuration by nicknames
      or aliases.  For example, `sun3' stands for `m68k-sun', so
      `sun3-sunos4.1' is another way to specify a Sun 3.  You can also
-     use simply `sun3-sunos', since the version of Sunos is assumed by
+     use simply `sun3-sunos', since the version of SunOS is assumed by
      default to be version 4.  `sun3-bsd' also works, since
-     `configure' knows that the only BSD variant on a Sun 3 is Sunos.
+     `configure' knows that the only BSD variant on a Sun 3 is SunOS.
 
         You can specify a version number after any of the system
      types, and some of the CPU types.  In most cases, the version is
@@ -59,9 +67,6 @@ Installing GNU CC
 
           a29k, arm, cN, hppa, i386, i860, m68000, m68k, m88k, mips,
           ns32k, romp, rs6000, sparc, vax.
-
-        Note that the type hppa currently works only with Berkeley
-     systems, not with HP/UX.
 
         Here are the recognized company names.  As you can see,
      customary abbreviations are used rather than the longer official
@@ -78,19 +83,31 @@ Installing GNU CC
 
         Here is a list of system types:
 
-          bsd, sysv, mach, minix, genix, ultrix, vms, sco, esix, isc,
-          aix, sunos, hpux, unos, luna, dgux, newsos, osfrose, osf,
-          dynix, aos, ctix.
+          bsd, sysv, mach, minix, genix, ultrix, vms, sco, isc, aix,
+          sunos, hpux, unos, luna, dgux, newsos, osfrose, osf, dynix,
+          aos, ctix.
 
      You can omit the system type; then `configure' guesses the
      operating system from the CPU and company.
 
-        Often a particular model of machine has a name.  Many of these
-     names are recognized as an alias for a CPU/company combination. 
-     The alias `sun3', mentioned above, is an example of this: it
-     stands for `m68k-sun'.  Sometimes we accept a company name as a
-     machine name, when the name is popularly used for a particular
-     machine.  Here is a table of the known machine names:
+        You can add a version number to the system type; this may or
+     may not make a difference.  For example, you can write `bsd4.3' or
+     `bsd4.4' to distinguish versions of BSD.  In practice, the version
+     number is most needed for `sysv3' and `sysv4', which are often
+     treated differently.
+
+        If you specify an impossible combination such as `i860-dg-vms',
+     then you may get an error message from `configure', or it may
+     ignore part of the information and do the best it can with the
+     rest.  `configure' always prints the canonical name for the
+     alternative that it used.
+
+        Often a particular model of machine has a name.  Many machine
+     names are recognized as aliases for CPU/company combinations. 
+     Thus, the machine name `sun3', mentioned above, is an alias for
+     `m68k-sun'.  Sometimes we accept a company name as a machine
+     name, when the name is popularly used for a particular machine. 
+     Here is a table of the known machine names:
 
           3300, 3b1, 7300, altos3068, altos, apollo68, att-7300,
           balance, convex-cN, crds, decstation-3100, decstation-dec,
@@ -100,11 +117,8 @@ Installing GNU CC
           next, pbd, pc532, pmax, ps2, risc-news, rtpc, sun2, sun386i,
           sun386, sun3, sun4, symmetry, tower-32, tower.
 
-        If you specify an impossible combination such as `i860-dg-vms',
-     then you may get an error message from `configure', or it may
-     ignore part of the information and do the best it can with the
-     rest.  `configure' always prints the canonical name for the
-     alternative that it used.
+     Remember that a machine name specifies both the cpu type and the
+     company name.
 
         On certain systems, you must specify whether you want GNU CC
      to work with the usual compilation tools or with the GNU
@@ -130,7 +144,18 @@ Installing GNU CC
      `m68k-local.md', `m68k-local.h', `m68k-local.c',
      `xm-m68k-local.h', `t-m68k-local', and `x-m68k-local'.
 
-        Here is a list of configurations that have special treatment:
+        Here is a list of configurations that have special treatment
+     or special things you must know:
+
+    `hppa-hp-hpux'
+          HP precision architecture, running HP-UX.  `-g' does not work
+          on this configuration, since the system uses a peculiar
+          debugging format which GNU CC does not know about.
+
+    `i386-*-sco'
+          Compilation with RCC is recommended, but it produces lots of
+          spurious warnings.  They do not necessarily indicate that
+          anything is wrong.
 
     `m68000-att'
           AT&T 3b1, a.k.a. 7300 PC.  Special procedures are needed to
@@ -150,11 +175,13 @@ Installing GNU CC
           kernel bug.  Details in the file `ALTOS-README'.
 
     `m68k-hp-hpux'
-          HP 9000 series 200 or 300 running HPUX.  GNU CC does not
-          support the special symbol table used by HP's debugger, but
-          you can debug programs with GDB if you specify `--gas' to
-          use the GNU tools instead.  In order to use the GNU tools,
-          you must install a library conversion program called `hpxt'.
+          HP 9000 series 300 or 400 running HP-UX.  HP-UX version 8.0
+          has a bug in the assembler that prevents compilation of GNU
+          CC.  To fix it, get patch PHCO_0800 from HP.
+
+          In addition, `--gas' does not currently work with this
+          configuration.  Changes in HP-UX have broken the library
+          conversion tool and the linker.
 
     `m68k-sun'
           Sun 3.  We do not provide a configuration file to use the
@@ -169,6 +196,13 @@ Installing GNU CC
           this command:
 
                eval `sde-target m88kbcs`
+
+    `mips-mips-bsd'
+          MIPS machines running the MIPS operating system in BSD mode.
+           It's possible that some old versions of the system lack the
+          functions `memcpy', `memcmp', and `memset'.  If your system
+          lacks these, you must remove or undo the definition of
+          `TARGET_MEM_FUNCTIONS' in `mips-bsd.h'.
 
     `ns32k-encore'
           Encore ns32000 system.  Encore systems are supported only
@@ -185,10 +219,10 @@ Installing GNU CC
           `tektronix!reed!mason' to get binaries of GNU CC for
           bootstrapping.
 
-    `rs6000-ibm'
-          IBM PowerStation/6000 machines.  Due to the nonstandard
-          debugging information required for this machine, `-g' is not
-          available in this configuration.
+    `pyramid'
+          The Pyramid C compler is reported to be unable to compile
+          GNU CC.  You must use an older version of GNU CC for
+          bootstrapping.
 
     `vax-dec-ultrix'
           Don't try compiling with Vax C (`vcc').  It produces
@@ -333,9 +367,11 @@ Installing GNU CC
      therefore a potentially serious bug which you should investigate
      and report (*note Bugs::.).
 
-        On systems that use COFF object files, bytes 5 to 8 will
-     always be different, since it is a timestamp.  On these systems,
-     you can do the comparison as follows (in Bourne shell):
+        On systems that use COFF object files, or an object file
+     format that is a superset of COFF (such as ECOFF or XCOFF), bytes
+     5 to 8 will always be different, since it is a timestamp.  On
+     these systems, you can do the comparison as follows (in Bourne
+     shell):
 
           for file in *.o; do
           tail +10c $file > foo1
@@ -343,13 +379,9 @@ Installing GNU CC
           cmp foo1 foo2 || echo $file
           done
 
-        On MIPS machines, you need to use the shell script `ecoff-cmp'
-     to compare two object files if you have built the compiler with
-     the `-mno-mips-tfile' option.  Thus, do this:
-
-          for file in *.o; do
-          ecoff-cmp $file stage2/$file
-          done
+        If you have built the compiler with the `-mno-mips-tfile'
+     option on MIPS machines, you will not be able to compare the
+     files.
 
  11. Install the compiler driver, the compiler's passes and run-time
      support.  You can use the following command:
@@ -361,10 +393,10 @@ Installing GNU CC
 
         This copies the files `cc1', `cpp' and `libgcc.a' to files
      `cc1', `cpp' and `libgcc.a' in directory
-     `/usr/local/lib/gcc/TARGET/VERSION', which is where the compiler
-     driver program looks for them.  Here TARGET is the target machine
-     type specified when you ran `configure', and VERSION is the
-     version number of GNU CC.  This naming scheme permits various
+     `/usr/local/lib/gcc-lib/TARGET/VERSION', which is where the
+     compiler driver program looks for them.  Here TARGET is the target
+     machine type specified when you ran `configure', and VERSION is
+     the version number of GNU CC.  This naming scheme permits various
      versions and/or cross-compilers to coexist.
 
         It also copies the driver program `gcc' into the directory
@@ -372,9 +404,14 @@ Installing GNU CC
      paths.
 
         *Warning: there is a bug in `alloca' in the Sun library.  To
-     avoid this bug, install the binaries of GNU CC that were compiled
-     by GNU CC.  They use `alloca' as a built-in function and never
-     the one in the library.*
+     avoid this bug, be sure to install the executables of GNU CC that
+     were compiled by GNU CC.  (That is, the executables from stage 2
+     or 3, not stage 1.)  They use `alloca' as a built-in function and
+     never the one in the library.*
+
+        (It is usually better to install GNU CC executables from stage
+     2 or 3, since they usually run faster than the ones compiled with
+     some other compiler.)
 
  12. If you will be using C++ or Objective C, and your operating
      system does not handle constructors, then you must build and
@@ -451,7 +488,13 @@ do differently:
      feature.  (GNU Make supports it, as do Make versions on most BSD
      systems.)
 
-  2. Go to that directory before running `configure':
+  2. If you have ever run `configure' in the source directory, you
+     must undo the configuration.  Do this by running:
+
+          make cleanconfig
+
+  3. Go to the directory in which you want to build the compiler before
+     running `configure':
 
           mkdir gcc-sun3
           cd gcc-sun3
@@ -459,7 +502,7 @@ do differently:
         On systems that do not support symbolic links, this directory
      must be on the same file system as the source code directory.
 
-  3. Specify where to find `configure' when you run it:
+  4. Specify where to find `configure' when you run it:
 
           ../gcc-2.00/configure ...
 
@@ -530,33 +573,6 @@ following procedure might work.  We are unable to test it.
      normal fashion.
 
 
-Installing GNU CC on SCO System V 3.2
-=====================================
-
-   The compiler that comes with this system does not work properly with
-`-O'.  Therefore, you should redefine the Make variable `CCLIBFLAGS'
-not to use `-O'.
-
-   In addition, the compiler produces incorrect output when compiling
-parts of GNU CC; the resulting executable `cc1' does not work properly
-when it is used with `-O'.
-
-   Therefore, what you must do after building the first stage is use
-GNU CC to compile itself without optimization.  Here is how:
-
-     make -k cc1 CC="./gcc -B./"
-
-   You can think of this as "stage 1.1" of the installation process. 
-However, using this command has the effect of discarding the faulty
-stage 1 executable for `cc1' and replacing it with stage 1.1.  You can
-then proceed with `make stage1' and the rest of installation.
-
-   On Xenix, the same thing is necessary; in addition, you may have to
-remove `-g' from the options used with `cc', and you may have to
-simplify complicated statements in the sources of GNU CC to get them
-to compile.
-
-
 Installing GNU CC on Unos
 =========================
 
@@ -603,8 +619,10 @@ VMS CLD file for GNU CC as follows:
      `gcc-cc1', etc.) and the C include files are kept.  This should
      be done with the commands:
 
-          $ assign /super /system disk:[gcc.] gnu_cc
-          $ assign /super /system disk:[gcc.include.] gnu_cc_include
+          $ assign /system /translation=concealed -
+            disk:[gcc.] gnu_cc
+          $ assign /system /translation=concealed -
+            disk:[gcc.include.] gnu_cc_include
 
      with the appropriate disk and directory names.  These commands
      can be placed in your system startup file so they will be
@@ -614,7 +632,9 @@ VMS CLD file for GNU CC as follows:
 
   2. Install the `GCC' command with the command line:
 
-          $ set command /table=sys$library:dcltables gnu_cc:[000000]gcc
+          $ set command /table=sys$common:[syslib]dcltables -
+            /output=sys$common:[syslib]dcltables gnu_cc:[000000]gcc
+          $ install replace sys$common:[syslib]dcltables
 
   3. To install the help file, do the following:
 
@@ -631,24 +651,15 @@ perform the following steps:
      directory where the preprocessor will search for the C++ header
      files.  This can be done with the command:
 
-          $ assign /super /system disk:[gcc.gxx_include.] gnu_gxx_include
+          $ assign /system /translation=concealed -
+            disk:[gcc.gxx_include.] gnu_gxx_include
 
      with the appropriate disk and directory name.  If you are going
-     to be using libg++, you should place the libg++ header files in
-     the directory that this logical name points to.
+     to be using libg++, this is where the libg++ install procedure
+     will install the libg++ header files.
 
   2. Obtain the file `gcc-cc1plus.exe', and place this in the same
      directory that `gcc-cc1.exe' is kept.
-
-  3. You will need several library functions which are used to call the
-     constructors and destructors for global objects.  These functions
-     are part of the libg++ distribution, and you will automatically
-     get them if you install libg++.
-
-        If you are not planning to install libg++, you will need to
-     obtain the files `gxx-startup-1.mar' and `gstart.cc' from the
-     libg++ distribution, compile them, and supply them to the linker
-     whenever you link a C++ program.
 
         The GNU C++ compiler can be invoked with a command like `gcc
      /plus /verbose file.cc', which is equivalent to the command `g++
@@ -674,20 +685,47 @@ get to recompile the sources.  If you must recompile, here is how:
      to the directories where the Bison executable is kept.  This
      should be done with the command:
 
-          $ assign /super /system disk:[bison.] gnu_bison
+          $ assign /system /translation=concealed -
+            disk:[bison.] gnu_bison
 
         You may, if you choose, use the `INSTALL_BISON.COM' script in
      the `[BISON]' directory.
 
   3. Install the `BISON' command with the command line:
 
-          $ set command /table=sys$library:dcltables gnu_bison:[000000]bison
+          $ set command /table=sys$common:[syslib]dcltables -
+            /output=sys$common:[syslib]dcltables -
+            gnu_bison:[000000]bison
+          $ install replace sys$common:[syslib]dcltables
 
   4. Type `@make-gcc' to recompile everything (alternatively, you may
      submit the file `make-gcc.com' to a batch queue).  If you wish to
      build the GNU C++ compiler as well as the GNU CC compiler, you
      must first edit `make-gcc.com' and follow the instructions that
      appear in the comments.
+
+  5. In order to use GCC, you need a library of functions which GCC
+     compiled code will call to perform certain tasks, and these
+     functions are defined in the file `libgcc2.c'.  To compile this
+     you should use the command procedure `make-l2.com', which will
+     generate the library `libgcc2.olb'.  `libgcc2.olb' should be
+     built using the compiler built from the same distribution that
+     `libgcc2.c' came from, and `make-gcc.com' will automatically do
+     all of this for you.
+
+        To install the library, use the following commands:
+
+          $ lib gnu_cc:[000000]gcclib/delete=(new,eprintf)
+          $ lib libgcc2/extract=*/output=libgcc2.obj
+          $ lib gnu_cc:[000000]gcclib libgcc2.obj
+
+        The first command simply removes old modules that will be
+     replaced with modules from libgcc2.  If the VMS librarian
+     complains about those modules not being present, simply ignore
+     the message and continue on with the next command.
+
+        Whenever you update the compiler on your system, you should
+     also update the library with the above procedure.
 
         *If you are building GNU CC with a previous version of GNU CC,
      you also should check to see that you have the newest version of
@@ -732,3 +770,4 @@ version 5.4-1, which is the most recent version as of this writing.
    The executables that are generated by `make-cc1.com' and
 `make-cccp.com' use the nonshared version of `VAXCRTL' (and thus use
 the `qsort' and `strncat' routines from `gcclib.olb').
+

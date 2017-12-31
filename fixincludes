@@ -2,8 +2,6 @@
 # Install modified versions of certain ANSI-incompatible system header files
 # which are fixed to work correctly with ANSI C
 # and placed in a directory that GNU C will search.
-# This works properly on a Sun in system version 3.4;
-# for other versions, you had better check.
 
 # See README-fixinc for more information.
 
@@ -45,11 +43,9 @@ fi
 
 echo 'Making directories:'
 cd ${INPUT}
-if $LINKS; then
-  files=`ls -LR | sed -n s/:$//p`
-else
-  files=`find . -type d -print | sed '/^.$/d'`
-fi
+# Find all directories and all symlinks that point to directories.
+files=`	find . -type d -print | sed '/^.$/d'
+	$LINKS && find . -type l -exec test -d '{}' \; -print`
 for file in $files; do
   rm -rf $LIB/$file
   if [ ! -d $LIB/$file ]
@@ -112,14 +108,21 @@ while [ $# != 0 ]; do
   for file in $files; do
 # This call to egrep is essential, since checking a file with egrep
 # is much faster than actually trying to fix it.
+# It is also essential that most files *not* match!
+# Thus, matching every #endif is unacceptable.
 # But the argument to egrep must be kept small, or many versions of egrep
 # won't be able to handle it.
+# rms: I removed `|#[el].*if.*[^/ 	]' because it made egrep fail.
     if egrep '[ 	_]_IO|CTRL|#define.NULL|#[el]*if.*([0-9]|sparc|vax|sun|pyr)' $file > /dev/null; then
       echo Fixing $file
       if [ -r $file ]; then
 	cp $file $2/$file >/dev/null 2>&1	\
 	|| echo "Can't copy $file"
 	chmod +w $2/$file
+# Following two lines removed.
+#	  s%^\([ 	]*#[ 	]*endif[ 	]*\)\([^/ 	].*\)$%\1/* \2 */%
+#	  s%^\([ 	]*#[ 	]*else[ 	]*\)\([^/ 	].*\)$%\1/* \2 */%
+
 	sed -e '
 				   :loop
 	  /\\$/			N
@@ -132,22 +135,17 @@ while [ $# != 0 ]; do
 	  /#define.CTRL/		s/'\''c'\''/c/g
 	  /#define._CTRL/		s/'\''c'\''/c/g
 	  /#define.BSD43_CTRL/		s/'\''c'\''/c/g
-	  /#[a-z]*if.*[ (]m68k/		s/m68k/__m68k__/g
-	  /#[a-z]*if.*[ (]__i386/	s/__i386/__i386__/g
-	  /#[a-z]*if.*[ (]i386/		s/i386/__i386__/g
-	  /#[a-z]*if.*[ (]sparc/	s/sparc/__sparc__/g
-	  /#[a-z]*if.*[ (]mc68000/	s/mc68000/__mc68000__/g
-	  /#[a-z]*if.*[ (]vax/		s/vax/__vax__/g
-	  /#[a-z]*if.*[ (]sun3x/	s/sun3x/__sun3x__/g
-	  /#[a-z]*if.*[ (]sun3/		s/sun3/__sun3__/g
-	  /#[a-z]*if.*[ (]sun2/		s/sun2/__sun2__/g
-	  /#[a-z]*if.*[ (]sun4c/	s/sun4c/__sun4c__/g
-	  /#[a-z]*if.*[ (]sun4/		s/sun4/__sun4__/g
-	  /#[a-z]*if.*[ (]sun/		s/sun/__sun__/g
-	  /#[a-z]*if.*[ (]ns32000/	s/ns32000/__ns32000__/g
-	  /#[a-z]*if.*[ (]pyr/		s/pyr/__pyr__/g
-	  /#[a-z]*if.*[ (]is68k/	s/is68k/__is68k__/g
-	  /#[a-z]*if.*[ (]sun386/	s/sun386/__sun386__/g
+	  /#[a-z]*if.*[	 (]m68k/		s/\([^_]\)m68k/\1__m68k__/g
+	  /#[a-z]*if.*[	 (]__i386/	s/__i386/__i386__/g
+	  /#[a-z]*if.*[	 (]i386/		s/\([^_]\)i386/\1__i386__/g
+	  /#[a-z]*if.*[	 (]sparc/	s/\([^_]\)sparc/\1__sparc__/g
+	  /#[a-z]*if.*[	 (]mc68000/	s/\([^_]\)mc68000/\1__mc68000__/g
+	  /#[a-z]*if.*[	 (]vax/		s/\([^_]\)vax/\1__vax__/g
+	  /#[a-z]*if.*[	 (]sun/		s/\([^_]\)\(sun[a-z0-9]*\)\([^a-z0-9_]\)/\1__\2__\3/g
+	  /#[a-z]*if.*[	 (]sun/		s/\([^_]\)\(sun[a-z0-9]*\)$/\1__\2__/g
+	  /#[a-z]*if.*[	 (]ns32000/	s/\([^_]\)ns32000/\1__ns32000__/g
+	  /#[a-z]*if.*[	 (]pyr/		s/\([^_]\)pyr/\1__pyr__/g
+	  /#[a-z]*if.*[	 (]is68k/	s/\([^_]\)is68k/\1__is68k__/g
 	  /#define.NULL[ 	]/	i\
 		#undef NULL
 	' $2/$file > $2/$file.sed
@@ -166,12 +164,10 @@ cd ${INPUT}
 
 # Fix one other error in this file: a mismatched quote not inside a C comment.
 file=sundev/vuid_event.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/sundev 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -187,23 +183,19 @@ EOF
 fi
 
 # Fix this Sun file to avoid intefering with stddef.h.
-
 file=sys/stdtypes.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
-  echo Fixing $file comment
+  echo Fixing $file
   ex ${LIB}/$file <<EOF
   /size_t.*;/
   i
-#ifndef _SIZE_T
-#define _SIZE_T
+#ifndef _GCC_SIZE_T
+#define _GCC_SIZE_T
 .
   /size_t/+1
   i
@@ -211,8 +203,8 @@ if [ -r ${LIB}/$file ]; then
 .
   /ptrdiff_t.*;/
   i
-#ifndef _PTRDIFF_T
-#define _PTRDIFF_T
+#ifndef _GCC_PTRDIFF_T
+#define _GCC_PTRDIFF_T
 .
   /ptrdiff_t/+1
   i
@@ -220,8 +212,8 @@ if [ -r ${LIB}/$file ]; then
 .
   /wchar_t.*;/
   i
-#ifndef _WCHAR_T
-#define _WCHAR_T
+#ifndef _GCC_WCHAR_T
+#define _GCC_WCHAR_T
 .
   /wchar_t/+1
   i
@@ -236,23 +228,19 @@ EOF
 fi
 
 # Fix this file to avoid intefering with stddef.h.
-
 file=sys/types.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
-  echo Fixing $file comment
+  echo Fixing $file
   ex ${LIB}/$file <<EOF
   /size_t.*;/
   i
-#ifndef _SIZE_T
-#define _SIZE_T
+#ifndef _GCC_SIZE_T
+#define _GCC_SIZE_T
 .
   /size_t/+1
   i
@@ -269,12 +257,10 @@ fi
 # Fix an error in this file: a missing semi-colon at the end of the statsswtch
 # structure definition.
 file=rpcsvc/rstat.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/rpcsvc 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -292,12 +278,10 @@ fi
 # Fix an error in this file: a missing semi-colon at the end of the nodeent
 # structure definition.
 file=netdnet/dnetdb.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/netdnet 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -313,15 +297,10 @@ EOF
 fi
 
 # Check for bad #ifdef line (in Ultrix 4.1)
-
 file=sys/file.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/rpcsvc 2>&-
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -337,16 +316,30 @@ EOF
   fi
 fi
 
-# Check for superfluous `static' (in Ultrix 4.2)
+# Remove nested comments created by #endifs in a comment (Ultrix 4.1)
+# Only needed if commenting out junk after #endif.
+#file=signal.h
+#if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+#  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+#  chmod +w ${LIB}/$file 2>/dev/null
+#fi
+#
+#if [ -r ${LIB}/$file ]; then
+#  echo Fixing $file, nested comments
+#  sed -e 's/#endif.*/#endif/' ${LIB}/$file > ${LIB}/${file}.sed
+#  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+#  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+#    echo Deleting ${LIB}/$file\; no fixes were needed.
+#    rm -f ${LIB}/$file
+#  fi
+#fi
 
+# Check for superfluous `static' (in Ultrix 4.2)
 file=machine/cpu.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/machine 2>&-
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/machine 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -368,15 +361,12 @@ EOF
   fi
 fi
 
-# Deal with yet another challenge, this in X11/Xmu.h
+# Incorrect sprintf declaration in X11/Xmu.h
 file=X11/Xmu.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/X11 2>&-
-    cp $file ${LIB}/$file >/dev/null 2>&1	\
-    || echo "Can't copy $file"
-    chmod +w ${LIB}/$file
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/X11 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
 
 if [ -r ${LIB}/$file ]; then
@@ -396,149 +386,194 @@ EOF
 fi
 
 # Check for missing ';' in struct
-
 file=netinet/ip.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/netinet 2>&-
-    sed -e '/^struct/,/^};/s/}$/};/' $file > ${LIB}/$file
-    cmp $file ${LIB}/$file >/dev/null 2>&1 && rm -f ${LIB}/$file
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/netinet 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file
+  sed -e '/^struct/,/^};/s/}$/};/' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
   fi
 fi
 
-# Fix the CAT macro in memvar.h.
-
+# Fix the CAT macro in SunOS memvar.h.
 file=pixrect/memvar.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/pixrect 2>&-
-    sed -e '/^#define.CAT(a,b)/ i\
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/pixrect 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file
+  sed -e '/^#define.CAT(a,b)/ i\
 #ifdef __STDC__ \
 #define CAT(a,b) a##b\
 #else
 /^#define.CAT(a,b)/ a\
 #endif
-' $file > ${LIB}/$file
-    cmp $file ${LIB}/$file >/dev/null 2>&1 && rm -f ${LIB}/$file
+' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
   fi
 fi
 
 # Check for yet more missing ';' in struct (in SunOS 4.0.x)
-
 file=rpcsvc/rusers.h
-if [ -r $file ]; then
-  if [ ! -r ${LIB}/$file ]; then
-    mkdir ${LIB}/rpcsvc 2>&-
-    sed -e '/^struct/,/^};/s/_cnt$/_cnt;/' $file > ${LIB}/$file
-    cmp $file ${LIB}/$file >/dev/null 2>&1 && rm -f ${LIB}/$file
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/rpcsvc 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file
+  sed -e '/^struct/,/^};/s/_cnt$/_cnt;/' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
   fi
 fi
 
 # Fix return type of exit and abort in <stdlib.h> on SunOS 4.1.
-
 file=stdlib.h
-base=`basename $file`
-if [ -r ${LIB}/$file ]; then
-  file_to_fix=${LIB}/$file
-else
-  if [ -r ${INPUT}/$file ]; then
-    file_to_fix=${INPUT}/$file
-  else
-    file_to_fix=""
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
-if [ \! -z "$file_to_fix" ]; then
-  echo Checking $file_to_fix
-  sed 's/int	abort/void	abort/g' $file_to_fix \
-    |  sed 's/int	exit/void	exit/g' > /tmp/$base
-  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
-    echo No change needed in $file_to_fix
-  else
-    echo Fixed $file_to_fix
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file
+  sed -e 's/int	abort/void	abort/g' \
+  -e 's/int	exit/void	exit/g' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
-    cp /tmp/$base ${LIB}/$file
   fi
-  rm -f /tmp/$base
 fi
 
 # Fix bogus comment in <locale.h> on SunOS 4.1.
-
 file=locale.h
-base=`basename $file`
-if [ -r ${LIB}/$file ]; then
-  file_to_fix=${LIB}/$file
-else
-  if [ -r ${INPUT}/$file ]; then
-    file_to_fix=${INPUT}/$file
-  else
-    file_to_fix=""
-  fi
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
 fi
-if [ \! -z "$file_to_fix" ]; then
-  echo Checking $file_to_fix
-  sed 's%#endif / \*%#endif /\* %g' $file_to_fix > /tmp/$base
-  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
-    echo No change needed in $file_to_fix
-  else
-    echo Fixed $file_to_fix
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file
+  sed -e 's%#endif / \*%#endif /\* %g' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
-    cp /tmp/$base ${LIB}/$file
   fi
-  rm -f /tmp/$base
 fi
 
 # Fix bogus #ifdef in <hsfs/hsfs_spec.h> on SunOS 4.1.
-
 file=hsfs/hsfs_spec.h
-base=`basename $file`
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/hsfs 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
 if [ -r ${LIB}/$file ]; then
-  file_to_fix=${LIB}/$file
-  echo Checking $file_to_fix
-  sed 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' $file_to_fix > /tmp/$base
-  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
-    echo No change needed in $file_to_fix
-  else
-    echo Fixed $file_to_fix
+  echo Fixing $file
+  sed -e 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' \
+    ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
-    cp /tmp/$base ${LIB}/$file
   fi
-  rm -f /tmp/$base
 fi
 
 # Fix bogus #ifdef in <hsfs/hsnode.h> on SunOS 4.1.
-
 file=hsfs/hsnode.h
-base=`basename $file`
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/hsfs 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
 if [ -r ${LIB}/$file ]; then
-  file_to_fix=${LIB}/$file
-  echo Checking $file_to_fix
-  sed 's/\#ifdef __i386__ || __sun4c__/\#if __i386__ || __sun4c__/g' $file_to_fix > /tmp/$base
-  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
-    echo No change needed in $file_to_fix
-  else
-    echo Fixed $file_to_fix
+  echo Fixing $file
+  sed -e 's/\#ifdef __i386__ || __sun4c__/\#if __i386__ || __sun4c__/g' \
+    ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
-    cp /tmp/$base ${LIB}/$file
   fi
-  rm -f /tmp/$base
 fi
 
 # Fix bogus #ifdef in <hsfs/iso_spec.h> on SunOS 4.1.
-
 file=hsfs/iso_spec.h
-base=`basename $file`
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/hsfs 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
 if [ -r ${LIB}/$file ]; then
-  file_to_fix=${LIB}/$file
-  echo Checking $file_to_fix
-  sed 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' $file_to_fix > /tmp/$base
-  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
-    echo No change needed in $file_to_fix
-  else
-    echo Fixed $file_to_fix
+  echo Fixing $file
+  sed -e 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' \
+    ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
-    cp /tmp/$base ${LIB}/$file
   fi
-  rm -f /tmp/$base
+fi
+
+# Incorrect #include in Sony News-OS 3.2.
+file=machine/machparam.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/machine 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file, incorrect \#include
+  sed -e 's@"../machine/endian.h"@<machine/endian.h>@' \
+    ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
+  fi
+fi
+
+# Multiline comment after typedef on IRIX 4.0.1.
+file=sys/types.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/sys 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file, comment in the middle of \#ifdef
+  sed -e 's@type of the result@type of the result */@' \
+    -e 's@of the sizeof@/* of the sizeof@' \
+    ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
+  fi
 fi
 
 echo 'Removing unneeded directories:'

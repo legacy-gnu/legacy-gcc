@@ -876,7 +876,7 @@ Such unfortunate choices of formal parameter names are discouraged.
 #endif
 .PP
 Bugs (and requests for reasonable enhancements) should be reported to
-rfg@ics.uci.edu.  Bugs may actually be fixed if they can be easily
+bug-gcc@prep.ai.mit.edu.  Bugs may actually be fixed if they can be easily
 reproduced, so it is in your interest to report them
 in such a way that reproduction is easy.
 .SH COPYING

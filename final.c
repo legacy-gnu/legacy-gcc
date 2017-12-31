@@ -63,13 +63,17 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #endif
 
 /* Get N_SLINE and N_SOL from stab.h if we can expect the file to exist.  */
-#ifdef DBX_DEBUGGING_INFO
-#ifdef USG
+#if defined (DBX_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
+#if defined (USG) || defined (NO_STAB_H)
 #include "gstab.h"  /* If doing DBX on sysV, use our own stab.h.  */
 #else
 #include <stab.h>  /* On BSD, use the system's stab.h.  */
 #endif /* not USG */
-#endif /* DBX_DEBUGGING_INFO */
+#endif /* DBX_DEBUGGING_INFO || XCOFF_DEBUGGING_INFO */
+
+#ifdef XCOFF_DEBUGGING_INFO
+#include "xcoffout.h"
+#endif
 
 /* .stabd code for line number.  */
 #ifndef N_SLINE
@@ -526,7 +530,7 @@ shorten_branches (first)
 	     and delay slots, the ROMP, branch-with-execute is the same size
 	     as the maximum branch anyway).  So we only have to handle normal
 	     insns (actually, reorg never puts ASM insns in a delay slot, but
-	     we don't take advantage of that knowlege here).  */
+	     we don't take advantage of that knowledge here).  */
 	  for (i = 0; i < XVECLEN (body, 0); i++)
 	    {
 	      rtx inner_insn = XVECEXP (body, 0, i);
@@ -652,6 +656,13 @@ final_start_function (first, file, optimize)
 	   (sdb_begin_function_line is not set,
 	   and other compilers don't do it.)  */
 	last_linenum = NOTE_LINE_NUMBER (first);
+#ifdef XCOFF_DEBUGGING_INFO
+      else if (write_symbols == XCOFF_DEBUG)
+	{
+	  last_linenum = NOTE_LINE_NUMBER (first);
+	  xcoffout_output_first_source_line (file, last_linenum);
+	}
+#endif	  
       else
 	output_source_line (file, first);
     }
@@ -673,8 +684,8 @@ final_start_function (first, file, optimize)
   FUNCTION_PROLOGUE (file, get_frame_size ());
 #endif
 
-#ifdef SDB_DEBUGGING_INFO
-  if (write_symbols == SDB_DEBUG)
+#if defined (SDB_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
+  if (write_symbols == SDB_DEBUG || write_symbols == XCOFF_DEBUG)
     next_block_index = 1;
 #endif
 
@@ -776,6 +787,11 @@ final_end_function (first, file, optimize)
     sdbout_end_function (last_linenum);
 #endif
 
+#ifdef XCOFF_DEBUGGING_INFO
+  if (write_symbols == XCOFF_DEBUG)
+    xcoffout_end_function (file, last_linenum);
+#endif
+
 #ifdef FUNCTION_EPILOGUE
   /* Finally, output the function epilogue:
      code to restore the stack frame and return to the caller.  */
@@ -790,6 +806,11 @@ final_end_function (first, file, optimize)
 #ifdef DWARF_DEBUGGING_INFO
   if (write_symbols == DWARF_DEBUG)
     dwarfout_end_epilogue ();
+#endif
+
+#ifdef XCOFF_DEBUGGING_INFO
+  if (write_symbols == XCOFF_DEBUG)
+    xcoffout_end_epilogue (file);
 #endif
 
   /* If FUNCTION_EPILOGUE is not defined, then the function body
@@ -913,6 +934,10 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	  if (write_symbols == SDB_DEBUG)
 	    sdbout_begin_function (last_linenum);
 #endif
+#ifdef XCOFF_DEBUGGING_INFO
+	  if (write_symbols == XCOFF_DEBUG)
+	    xcoffout_begin_function (file, last_linenum);
+#endif
 	  break;
 	}
       if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_DELETED)
@@ -945,6 +970,10 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	  if (write_symbols == SDB_DEBUG)
 	    sdbout_begin_block (file, last_linenum, next_block_index);
 #endif
+#ifdef XCOFF_DEBUGGING_INFO
+	  if (write_symbols == XCOFF_DEBUG)
+	    xcoffout_begin_block (file, last_linenum, next_block_index);
+#endif
 #ifdef DBX_DEBUGGING_INFO
 	  if (write_symbols == DBX_DEBUG)
 	    ASM_OUTPUT_INTERNAL_LABEL (file, "LBB", next_block_index);
@@ -965,6 +994,10 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 
 	  --block_depth;
 
+#ifdef XCOFF_DEBUGGING_INFO
+	  if (write_symbols == XCOFF_DEBUG && block_depth >= 0)
+	    xcoffout_end_block (file, last_linenum, pending_blocks[block_depth]);
+#endif
 #ifdef DBX_DEBUGGING_INFO
 	  if (write_symbols == DBX_DEBUG && block_depth >= 0)
 	    ASM_OUTPUT_INTERNAL_LABEL (file, "LBE",
@@ -1563,8 +1596,8 @@ output_source_line (file, insn)
 	}
 #endif
 
-#ifdef DBX_DEBUGGING_INFO
-      if (write_symbols == DBX_DEBUG)
+#if defined (DBX_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
+      if (write_symbols == DBX_DEBUG || write_symbols == XCOFF_DEBUG)
 	{
 	  dbxout_source_file (file, filename);
 
@@ -1575,7 +1608,7 @@ output_source_line (file, insn)
 		   N_SLINE, NOTE_LINE_NUMBER (insn));
 #endif
 	}
-#endif /* DBX_DEBUGGING_INFO */
+#endif /* DBX_DEBUGGING_INFO || XCOFF_DEBUGGING_INFO */
 
 #ifdef DWARF_DEBUGGING_INFO
       if (write_symbols == DWARF_DEBUG)
@@ -2082,6 +2115,7 @@ output_addr_const (file, x)
    %L prints the value of LOCAL_LABEL_PREFIX.
    %U prints the value of USER_LABEL_PREFIX.
    %I prints the value of IMMEDIATE_PREFIX.
+   %O runs ASM_OUTPUT_OPCODE to transform what follows in the string.
    Also supported are %d, %x, %s, %e, %f, %g and %%.  */
 
 void
@@ -2136,6 +2170,12 @@ asm_fprintf (va_alist)
 	    *q++ = c;
 	    *q = 0;
 	    fprintf (file, buf, va_arg (argptr, char *));
+	    break;
+
+	  case 'O':
+#ifdef ASM_OUTPUT_OPCODE
+	    ASM_OUTPUT_OPCODE (asm_out_file, p);
+#endif
 	    break;
 
 	  case 'R':
@@ -2345,7 +2385,7 @@ leaf_renumber_regs_insn (in_rtx)
 	return;
 
       newreg = REGNO (in_rtx);
-      /* Don't try to renumber pseudo regs.  It is possible for a psuedo reg
+      /* Don't try to renumber pseudo regs.  It is possible for a pseudo reg
 	 to reach here as part of a REG_NOTE.  */
       if (newreg >= FIRST_PSEUDO_REGISTER)
 	{

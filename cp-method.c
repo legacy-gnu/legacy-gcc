@@ -1,5 +1,5 @@
 /* Handle the hair of processing (but not expanding) inline functions.
-   Also manage function and varaible name overloading.
+   Also manage function and variable name overloading.
    Copyright (C) 1987, 1989, 1992 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
@@ -152,8 +152,13 @@ dump_aggr_type (t)
 
   if (TREE_CODE (name) == TYPE_DECL)
     {
+#if 0 /* not yet, should get fixed properly later */
+      if (DECL_CONTEXT (name))
+	context_string = TYPE_NAME_STRING (DECL_CONTEXT (name));
+#else
       if (DECL_LANG_SPECIFIC (name) && DECL_CLASS_CONTEXT (name))
 	context_string = TYPE_NAME_STRING (DECL_CLASS_CONTEXT (name));
+#endif
       name = DECL_NAME (name);
     }
 
@@ -161,7 +166,7 @@ dump_aggr_type (t)
   OB_PUTC (' ');
   if (context_string)
     {
-      obstack_grow (&scratch_obstack, context_string, strlen (context_string)-1);
+      obstack_grow (&scratch_obstack, context_string, strlen (context_string));
       OB_PUTC2 (':', ':');
     }
   OB_PUTID (name);
@@ -631,7 +636,7 @@ dump_decl (t)
       break;
 
     case IDENTIFIER_NODE:
-      if (t == ansi_opname[TYPE_EXPR])
+      if (t == ansi_opname[(int) TYPE_EXPR])
 	{
 	  OB_PUTS ("operator ");
 	  /* Not exactly IDENTIFIER_TYPE_VALUE.  */
@@ -901,7 +906,17 @@ dump_init (t)
       return;
 
     case INDIRECT_REF:
-      dump_unary_op ("*", t, 1);
+      if (TREE_HAS_CONSTRUCTOR (t))
+	{
+	  t = TREE_OPERAND (t, 0);
+	  assert (TREE_CODE (t) == CALL_EXPR);
+	  dump_init (TREE_OPERAND (t, 0));
+	  OB_PUTC ('(');
+	  dump_init_list (TREE_CHAIN (TREE_OPERAND (t, 1)));
+	  OB_PUTC (')');
+	}
+      else
+	dump_unary_op ("*", t, 1);
       return;
 
     case NEGATE_EXPR:
@@ -1136,7 +1151,7 @@ type_as_string (buf, typ)
   return (char *)obstack_base (&scratch_obstack);
 }
 
-/* Move inline function defintions out of structure so that they
+/* Move inline function definitions out of structure so that they
    can be processed normally.  CNAME is the name of the class
    we are working from, METHOD_LIST is the list of method lists
    of the structure.  We delete friend methods here, after
@@ -1273,7 +1288,7 @@ report_type_mismatch (cp, parmtypes, name_kind, err_name)
     {
       enum tree_code code = TREE_CODE (TREE_TYPE (TREE_VALUE (tta)));
       if (code == ERROR_MARK)
-	OB_PUTS ("(failed type instatiation)");
+	OB_PUTS ("(failed type instantiation)");
       else
 	{
 	  i = (code == FUNCTION_TYPE || code == METHOD_TYPE);
@@ -1299,7 +1314,7 @@ static tree *typevec;
 /* Number of types interned by `build_overload_name' so far.  */
 static int maxtype;
 
-/* Number of occurances of last type seen.  */
+/* Number of occurrences of last type seen.  */
 static int nrepeats;
 
 /* Nonzero if we should not try folding parameter types.  */
@@ -1630,9 +1645,17 @@ build_overload_name (parmtypes, begin, end)
 	    tree length;
 
 	    OB_PUTC ('A');
-	    length = array_type_nelts (parmtype);
-	    if (TREE_CODE (length) == INTEGER_CST)
-	      icat (TREE_INT_CST_LOW (length) + 1);
+	    if (TYPE_DOMAIN (parmtype) == NULL_TREE)
+	      {
+		error ("parameter type with unspecified array bounds invalid");
+		icat (1);
+	      }
+	    else
+	      {
+		length = array_type_nelts (parmtype);
+		if (TREE_CODE (length) == INTEGER_CST)
+		  icat (TREE_INT_CST_LOW (length) + 1);
+	      }
 	    OB_PUTC ('_');
 	    goto more;
 	  }
@@ -1684,7 +1707,7 @@ build_overload_name (parmtypes, begin, end)
 		if (volatilep)
 		  OB_PUTC ('V');
 
-		/* For cfront 2.0 compatability.  */
+		/* For cfront 2.0 compatibility.  */
 		OB_PUTC ('F');
 
 		if (firstarg == NULL_TREE)
@@ -1882,11 +1905,26 @@ cplus_exception_name (type)
    for a method, rather than a function type.  It is 2 if
    this overload is being performed for a constructor.  */
 tree
-build_decl_overload (name, parms, for_method)
-     char *name;
+build_decl_overload (dname, parms, for_method)
+     tree dname;
      tree parms;
      int for_method;
 {
+  char *name = IDENTIFIER_POINTER (dname);
+
+  if (dname == ansi_opname[(int) NEW_EXPR]
+      && parms != NULL_TREE
+      && TREE_CODE (parms) == TREE_LIST
+      && TREE_VALUE (parms) == sizetype
+      && TREE_CHAIN (parms) == void_list_node)
+    return get_identifier ("__builtin_new");
+  else if (dname == ansi_opname[(int) DELETE_EXPR]
+	   && parms != NULL_TREE
+	   && TREE_CODE (parms) == TREE_LIST
+	   && TREE_VALUE (parms) == ptr_type_node
+	   && TREE_CHAIN (parms) == void_list_node)
+    return get_identifier ("__builtin_delete");
+
   OB_INIT ();
   if (for_method != 2)
     OB_PUTCP (name);
@@ -1938,7 +1976,7 @@ build_typename_overload (type)
      tree type;
 {
   OB_INIT ();
-  OB_PUTID (ansi_opname[TYPE_EXPR]);
+  OB_PUTID (ansi_opname[(int) TYPE_EXPR]);
 
 #if 0
   /* We can get away without doing this--it really gets
@@ -1979,7 +2017,7 @@ build_t_desc_overload (type)
 	    changed = 1;
 	    *p = tolower (*p);
 	  }
-      /* If there's no change, we have an innappropriate T_DESC_FORMAT.  */
+      /* If there's no change, we have an inappropriate T_DESC_FORMAT.  */
       assert (changed != 0);
     }
 #endif
@@ -1990,7 +2028,7 @@ build_t_desc_overload (type)
 
 /* Top-level interface to explicit overload requests. Allow NAME
    to be overloaded. Error if NAME is already declared for the current
-   scope. Warning if function is redundanly overloaded. */
+   scope. Warning if function is redundantly overloaded. */
 
 void
 declare_overloaded (name)
@@ -2129,7 +2167,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
 	   if we are in a constructor (destructor), and we are
 	   allocating for that constructor's (destructor's) type.  */
 
-	fnname = ansi_opname[NEW_EXPR];
+	fnname = ansi_opname[(int) NEW_EXPR];
 	if (flags & LOOKUP_GLOBAL)
 	  return build_overload_call (fnname, tree_cons (NULL_TREE, xarg2, arg3),
 				      flags & LOOKUP_COMPLAIN, 0);
@@ -2156,7 +2194,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
       {
 	/* See comment above.  */
 
-	fnname = ansi_opname[DELETE_EXPR];
+	fnname = ansi_opname[(int) DELETE_EXPR];
 	if (flags & LOOKUP_GLOBAL)
 	  return build_overload_call (fnname, build_tree_list (NULL_TREE, xarg1),
 				      flags & LOOKUP_COMPLAIN, 0);
@@ -2258,7 +2296,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
   if (code == MODIFY_EXPR)
     fnname = ansi_assopname[(int)arg3];
   else
-    fnname = ansi_opname[code];
+    fnname = ansi_opname[(int) code];
 
   global_fn = IDENTIFIER_GLOBAL_VALUE (fnname);
 
@@ -2277,7 +2315,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
      that... There is no way that normal semantics of these
      operators will succeed.  */
 
-  /* This argument may be an uncommited OFFSET_REF.  This is
+  /* This argument may be an uncommitted OFFSET_REF.  This is
      the case for example when dealing with static class members
      which are referenced from their class name rather than
      from a class instance.  */
@@ -2465,8 +2503,7 @@ hack_identifier (value, name, yychar)
 	}
       if (TREE_CODE (value) == VAR_DECL && ! TREE_USED (value))
 	{
-	  if (TREE_EXTERNAL (value))
-	    assemble_external (value);
+	  assemble_external (value);
 	  TREE_USED (value) = 1;
 	}
       return value;

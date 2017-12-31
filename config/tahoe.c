@@ -35,7 +35,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
  * Original port made at the University of Buffalo by Devon Bowen,
  * Dale Wiles and Kevin Zachmann.
  *
- * Adaptions for HCX by Piet van Oostrum,
+ * Changes for HCX by Piet van Oostrum,
  * University of Utrecht, The Netherlands (piet@cs.ruu.nl)
  *
  * Speed tweaks by Michael Tiemann (tiemann@lurch.stanford.edu).
@@ -344,7 +344,7 @@ output_move_double (operands)
 
 	/* YUCK! Indexed addressing!! If the address is considered   */
 	/* offsettable, go use the offset in the high part. Otherwise */
-	/* find what exactly is being added to the mutiplication. If */
+	/* find what exactly is being added to the multiplication. If */
 	/* it's a mem reference, increment that with the high part   */
 	/* being unchanged to cause the shift. If it's a reg, do the */
 	/* same. If you can't identify it, abort. Remember that the  */

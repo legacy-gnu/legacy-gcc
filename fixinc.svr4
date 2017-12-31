@@ -60,7 +60,7 @@ export TERM
 
 echo 'Building fixincludes in ' ${LIB}
 
-# Determine whether this system has symbolic links.
+# Determine whether this filesystem has symbolic links.
 if ln -s X $LIB/ShouldNotExist 2>/dev/null; then
   rm -f $LIB/ShouldNotExist
   LINKS=true
@@ -148,29 +148,24 @@ while [ $# != 0 ]; do
 # The change of u_char, etc, to u_int
 # applies to bit fields.
 	sed -e '
-	  s%^[ 	]*#else[ 	][ 	]*\([^/ 	].*\)%#else /* \1 */%
-	  s%^[ 	]*#endif[ 	][ 	]*\([^/ 	].*\)%#endif /* \1 */%
+	  s%^\([ 	]*#[ 	]*endif[ 	]*\)\([^/ 	].*\)$%\1/* \2 */%
+	  s%^\([ 	]*#[ 	]*else[ 	]*\)\([^/ 	].*\)$%\1/* \2 */%
   	  s/#lint(on)/defined(lint)/g
   	  s/#lint(off)/!defined(lint)/g
   	  s/#machine(\([^)]*\))/defined(__\1__)/g
   	  s/#system(\([^)]*\))/defined(__\1__)/g
   	  s/#cpu(\([^)]*\))/defined(__\1__)/g
-	  /#[a-z]*if.*[ (]m68k/		s/m68k/__m68k__/g
-	  /#[a-z]*if.*[ (]__i386/	s/__i386/__i386__/g
-	  /#[a-z]*if.*[ (]i386/		s/i386/__i386__/g
-	  /#[a-z]*if.*[ (]sparc/	s/sparc/__sparc__/g
-	  /#[a-z]*if.*[ (]mc68000/	s/mc68000/__mc68000__/g
-	  /#[a-z]*if.*[ (]vax/		s/vax/__vax__/g
-	  /#[a-z]*if.*[ (]sun3x/	s/sun3x/__sun3x__/g
-	  /#[a-z]*if.*[ (]sun3/		s/sun3/__sun3__/g
-	  /#[a-z]*if.*[ (]sun2/		s/sun2/__sun2__/g
-	  /#[a-z]*if.*[ (]sun4c/	s/sun4c/__sun4c__/g
-	  /#[a-z]*if.*[ (]sun4/		s/sun4/__sun4__/g
-	  /#[a-z]*if.*[ (]sun/		s/sun/__sun__/g
-	  /#[a-z]*if.*[ (]ns32000/	s/ns32000/__ns32000__/g
-	  /#[a-z]*if.*[ (]pyr/		s/pyr/__pyr__/g
-	  /#[a-z]*if.*[ (]is68k/	s/is68k/__is68k__/g
-	  /#[a-z]*if.*[ (]sun386/	s/sun386/__sun386__/g
+	  /#[a-z]*if.*[	 (]m68k/		s/\([^_]\)m68k/\1__m68k__/g
+	  /#[a-z]*if.*[	 (]__i386/	s/__i386/__i386__/g
+	  /#[a-z]*if.*[	 (]i386/		s/\([^_]\)i386/\1__i386__/g
+	  /#[a-z]*if.*[	 (]sparc/	s/\([^_]\)sparc/\1__sparc__/g
+	  /#[a-z]*if.*[	 (]mc68000/	s/\([^_]\)mc68000/\1__mc68000__/g
+	  /#[a-z]*if.*[	 (]vax/		s/\([^_]\)vax/\1__vax__/g
+	  /#[a-z]*if.*[	 (]sun/		s/\([^_]\)\(sun[a-z0-9]*\)\([^a-z0-9_]\)/\1__\2__\3/g
+	  /#[a-z]*if.*[	 (]sun/		s/\([^_]\)\(sun[a-z0-9]*\)$/\1__\2__/g
+	  /#[a-z]*if.*[	 (]ns32000/	s/\([^_]\)ns32000/\1__ns32000__/g
+	  /#[a-z]*if.*[	 (]pyr/		s/\([^_]\)pyr/\1__pyr__/g
+	  /#[a-z]*if.*[	 (]is68k/	s/\([^_]\)is68k/\1__is68k__/g
 	  s/u_char\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
 	  s/u_short\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
 	  s/ushort\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
@@ -814,6 +809,77 @@ if [ \! -z "$file_to_fix" ]; then
     rm -f ${LIB}/$file
     cp /tmp/$base ${LIB}/$file
     rm -f /tmp/$base
+  fi
+fi
+
+# Sony NEWSOS 5.0 does not support the complete ANSI C standard.
+
+if [ -x /bin/sony ]; then
+  if /bin/sony; then
+
+    # Change <stdio.h> to not define __filbuf, __flsbuf, and __iob
+
+    file=stdio.h
+    base=`basename $file`
+    if [ -r ${LIB}/$file ]; then
+      file_to_fix=${LIB}/$file
+    else
+      if [ -r ${INPUT}/$file ]; then
+        file_to_fix=${INPUT}/$file
+      else
+        file_to_fix=""
+      fi
+    fi
+    if [ \! -z "$file_to_fix" ]; then
+      echo Checking $file_to_fix
+      cp $file_to_fix /tmp/$base
+      chmod +w /tmp/$base
+      sed -e '
+        s/__filbuf/_filbuf/g
+        s/__flsbuf/_flsbuf/g
+        s/__iob/_iob/g
+      ' /tmp/$base > /tmp/$base.sed
+      mv /tmp/$base.sed /tmp/$base
+      if cmp $file_to_fix /tmp/$base.sed >/dev/null 2>&1; then
+        echo No change needed in $file_to_fix
+      else
+        echo Fixed $file_to_fix
+        rm -f ${LIB}/$file
+        cp /tmp/$base ${LIB}/$file
+      fi
+      rm -f /tmp/$base
+    fi
+
+    # Change <ctype.h> to not define __ctype
+
+    file=ctype.h
+    base=`basename $file`
+    if [ -r ${LIB}/$file ]; then
+      file_to_fix=${LIB}/$file
+    else
+      if [ -r ${INPUT}/$file ]; then
+        file_to_fix=${INPUT}/$file
+      else
+        file_to_fix=""
+      fi
+    fi
+    if [ \! -z "$file_to_fix" ]; then
+      echo Checking $file_to_fix
+      cp $file_to_fix /tmp/$base
+      chmod +w /tmp/$base
+      sed -e '
+        s/__ctype/_ctype/g
+      ' /tmp/$base > /tmp/$base.sed
+      mv /tmp/$base.sed /tmp/$base
+      if cmp $file_to_fix /tmp/$base.sed >/dev/null 2>&1; then
+        echo No change needed in $file_to_fix
+      else
+        echo Fixed $file_to_fix
+        rm -f ${LIB}/$file
+        cp /tmp/$base ${LIB}/$file
+      fi
+      rm -f /tmp/$base
+    fi
   fi
 fi
 

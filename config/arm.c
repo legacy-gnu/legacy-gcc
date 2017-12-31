@@ -170,7 +170,7 @@ power_of_two_operand (op, mode)
 } /* power_of_two_operand */
 
 /* Return TRUE for a valid operand of a DImode operation.
-   Either: REG, CONST_DOUBLE or MEM(offsetable).
+   Either: REG, CONST_DOUBLE or MEM(offsettable).
    Note that this disallows MEM(REG+REG).  */
 
 int
@@ -332,7 +332,7 @@ output_mov_double_arm_from_fpu (operands)
 
 /* Output a move between double words.
    It must be REG<-REG, REG<-CONST_DOUBLE, REG<-CONST_INT, REG<-MEM
-   or MEM<-REG and all MEMs must be offsetable addresses.  */
+   or MEM<-REG and all MEMs must be offsettable addresses.  */
 
 char *
 output_move_double (operands)
@@ -393,7 +393,7 @@ output_move_double (operands)
 	  else
 	    {
 	      otherops[1] = adj_offsettable_operand (operands[1], 4);
-	      /* Take care of overlaping base/data reg.  */
+	      /* Take care of overlapping base/data reg.  */
 	      if (reg_mentioned_p (operands[0], operands[1]))
 		{
 		  arm_output_asm_insn ("ldr\t%0, %1", otherops);
@@ -1084,7 +1084,7 @@ arm_output_llc (operands)
    directive hence this hack, which works by reserving some `.space' in the
    bss segment directly.
 
-   XXX This is a severe hack, which is garanteed NOT to work since it doesn't
+   XXX This is a severe hack, which is guaranteed NOT to work since it doesn't
    define STATIC COMMON space but merely STATIC BSS space.  */
 
 void
@@ -1103,7 +1103,7 @@ output_lcomm_directive (stream, name, size, rounded)
 } /* output_lcomm_directive */
 
 /* A finite state machine takes care of noticing whether or not instructions
-   can be conditionaly executed, and thus decrease execution time and code
+   can be conditionally executed, and thus decrease execution time and code
    size by deleting branch instructions.  The fsm is controlled by
    final_prescan_insn, and controls the actions of ASM_OUTPUT_OPCODE.  */
 

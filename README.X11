@@ -3,12 +3,20 @@ How to compile X11R5 (patch level 9) with GCC version 2:
 The patches include support for building the shared libraries with GCC 2 on 
 the Sparc and 68k machines.
 
+Sun forgot to include a static version of libdl.a with some versions
+of SunOS (4.1 mainly).  If you see undefined symbols _dlopen, _dlsym,
+or _dlclose when linking with -lX11, compile and link against the file
+mit/util/misc/dlsym.c in the MIT X11R5 distribution.
+
 mit/config/Imake.tmpl -- Do not set -fstrength-reduce if we have GCC 2.  If
 -fstrength-reduce (or any other -f option) is a major win, then it will
 most likely be turned on by -O2 optimization.
 
 mit/config/sunLib.rules -- If HasGcc2 is defined, then use -fpic to 
-generate PIC code.
+generate PIC code.  Make sure that gcc does not use gas (the GNU assembler)
+when compiling PIC code; gas does not assemble it correctly.  If you
+have gas installed where gcc uses it by default, you might have to add
+-B/bin/ to the PositionIndependentCFlags.
 
 mit/config/site.def -- Define HasGcc2 to be YES.
 

@@ -96,7 +96,7 @@ extern CC_STATUS cc_status;
 
 /* Nonzero if we must invert the sense of the following branch, i.e.
    change EQ to NE.  This is not safe for IEEE floating point operations!
-   It is intended for use only when a combination of arithmentic
+   It is intended for use only when a combination of arithmetic
    or logical insns can leave the condition codes set in a fortuitous
    (though inverted) state.  */
 #define CC_INVERTED 0100

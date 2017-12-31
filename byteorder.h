@@ -62,7 +62,9 @@ htons (__arg)
   return __result;
 }
 
-#elif defined (__i860__) || defined (__ns32k__) || defined (__vax__) || defined (__spur__) || defined (__arm__)
+#elif ((defined (__i860__) && !defined (__i860_big_endian__))	\
+       || defined (__ns32k__) || defined (__vax__)		\
+       || defined (__spur__) || defined (__arm__))
 
 /* For other little-endian machines, using C code is just as efficient as
    using assembly code.  */
@@ -86,7 +88,7 @@ htonl (__arg)
 
 __STATIC __inline__ unsigned short
 htons (__arg)
-     unsigned short __arg;
+     unsigned int __arg;
 {
   register unsigned short __result;
 
@@ -110,7 +112,7 @@ htonl (__arg)
 
 __STATIC __inline__ unsigned short
 htons (__arg)
-     unsigned short __arg;
+     unsigned int __arg;
 {
   return __arg;
 }

@@ -180,8 +180,9 @@ in the following sections.
 \-Wformat
 .RI \-Wid\-clash\- len
 \-Wimplicit
+\-Winline
 \-Wmissing\-prototypes
-\-Wno\-parentheses
+\-Wparentheses
 \-Wpointer\-arith
 \-Wreturn\-type
 \-Wshadow
@@ -256,7 +257,6 @@ in the following sections.
 
 .TP
 .B Linker Options
-\-dynamic
 .RI \-l library
 \-nostdlib
 \-static
@@ -386,6 +386,12 @@ in the following sections.
 \-mhalf\-pic
 \-mno\-half\-pic
 \-G \fInum\fP
+
+.I i386 Options
+.br
+\-m486
+\-mno486
+\-msoft\-float
 
 .TP
 .B Code Generation Options
@@ -726,38 +732,6 @@ Support ANSI C trigraphs.  The `\|\c
 Attempt to support some aspects of traditional C compilers.
 
 Specifically, for both C and C++ programs:
-.TP
-\ \ \ \(bu
-In the preprocessor, comments convert to nothing at all, rather than
-to a space.  This allows traditional token concatenation.
-.TP
-\ \ \ \(bu
-In the preprocessor, macro arguments are recognized within string
-constants in a macro definition (and their values are stringified,
-though without additional quote marks, when they appear in such a
-context).  The preprocessor always considers a string constant to end
-at a newline.
-.TP
-\ \ \ \(bu
-The preprocessor does not predefine the macro \c
-.B __STDC__\c
-\& when you use
-`\|\c
-.B \-traditional\c
-\&\|', but still predefines\c
-.B __GNUC__\c
-\& (since the GNU extensions indicated by 
-.B __GNUC__\c
-\& are not affected by
-`\|\c
-.B \-traditional\c
-\&\|').  If you need to write header files that work
-differently depending on whether `\|\c
-.B \-traditional\c
-\&\|' is in use, by
-testing both of these predefined macros you can distinguish four
-situations: GNU C, traditional GNU C, other ANSI C compilers, and
-other old C compilers.
 .TP
 \ \ \ \(bu
 In the preprocessor, comments convert to nothing at all, rather than
@@ -1272,10 +1246,6 @@ distinguished from libraries by the linker according to the file
 contents.)  If GCC does a link step, these object files are used as input
 to the linker.
 .TP
-.B \-dynamic
-On systems that support dynamic linking, you can use this option to
-request it explicitly.
-.TP
 .BI \-l library\c
 \&
 Use the library named \c
@@ -1445,7 +1415,7 @@ was not specified, the driver tries two standard prefixes, which are
 `\|\c
 .B /usr/lib/gcc/\c
 \&\|' and `\|\c
-.B /usr/local/lib/gcc/\c
+.B /usr/local/lib/gcc-lib/\c
 \&\|'.  If neither of
 those results in a file name that is found, the compiler driver
 searches for the unmodified program
@@ -1526,9 +1496,6 @@ Like `\|\c
 .B \-pedantic\c
 \&\|', except that errors are produced rather than
 warnings.
-.TP
-.B \-Werror
-Treat warnings as errors; abort compilation after any warning.
 .TP
 .B \-W
 Print extra warning messages for these events:
@@ -1632,11 +1599,6 @@ Warn whenever a comment-start sequence `\|\c
 .B \-Wtrigraphs
 Warn if any trigraphs are encountered (assuming they are enabled).
 .TP
-.B \-Waggregate\-return
-Warn if any functions that return structures or unions are defined or
-called.  (In languages where you can return an array, this also elicits
-a warning.)
-.TP
 .B \-Wformat
 Check calls to \c
 .B printf\c
@@ -1737,17 +1699,8 @@ Some spurious warnings can be avoided if you declare as
 .B volatile\c
 \& all the functions you use that never return.
 .TP
-.B \-Wstrict\-prototypes
-Warn if a function is declared or defined without specifying the
-argument types.  (An old-style function definition is permitted without
-a warning if preceded by a declaration which specifies the argument
-types.)
-.TP
-.B \-Wmissing\-prototypes
-Warn if a global function is defined without a previous prototype
-declaration.  This warning is issued even if the definition itself
-provides a prototype.  The aim is to detect global functions that fail
-to be declared in header files.
+.B \-Wparentheses
+Warn if parentheses are omitted in certain contexts.
 .TP
 .B \-Wall
 All of the above `\|\c
@@ -1854,12 +1807,26 @@ includes conversions of fixed point to floating and vice versa, and
 conversions changing the width or signedness of a fixed point argument
 except when the same as the default promotion.
 .TP
+.B \-Waggregate\-return
+Warn if any functions that return structures or unions are defined or
+called.  (In languages where you can return an array, this also elicits
+a warning.)
+.TP
+.B \-Wstrict\-prototypes
+Warn if a function is declared or defined without specifying the
+argument types.  (An old-style function definition is permitted without
+a warning if preceded by a declaration which specifies the argument
+types.)
+.TP
+.B \-Wmissing\-prototypes
+Warn if a global function is defined without a previous prototype
+declaration.  This warning is issued even if the definition itself
+provides a prototype.  The aim is to detect global functions that fail
+to be declared in header files.
+.TP
 .B \-Wenum\-clash
 .I (C++ only.)
 Warn when converting between different enumeration types.
-.TP
-.B \-Wno\-parentheses
-Disable warnings that parentheses are suggested around an expression.
 .TP
 .B \-Woverloaded\-virtual
 .I (C++ only.)
@@ -1870,6 +1837,15 @@ function that may be an erroneous attempt to define a virtual
 function: that is, warn when a function with the same name as a
 virtual function in the base class, but with a type signature that
 doesn't match any virtual functions from the base class.
+.TP
+.B \-Winline
+Warn if a function can not be inlined, and either it was declared as inline,
+or else the
+.B \-finline\-functions
+option was given.
+.TP
+.B \-Werror
+Treat warnings as errors; abort compilation after any warning.
 .PP
 
 .SH DEBUGGING OPTIONS
@@ -3058,7 +3034,7 @@ Generate code for the MIPS assembler, and invoke
 .B mips\-tfile
 to add normal debug information.  This is the default for all
 platforms except for the OSF/1 reference platform, using the OSF/rose
-object format.  If the any of the
+object format.  If any of the
 .BR \-ggdb ,
 .BR \-gstabs ,
 or

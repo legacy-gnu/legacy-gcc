@@ -23,7 +23,7 @@
 
    Modified for g++ 1.90.06 (December 31 version).
 
-   Modified for g++ 1.95.03 (November 13 verison).  */
+   Modified for g++ 1.95.03 (November 13 version).  */
 
 /* This file exports one function
 
@@ -165,6 +165,7 @@ static struct {
   "compound", ",",		/* old */
   "cm", ",",			/* ansi */
   "nop", "",			/* old (for operator=) */
+  "as", "=",			/* ansi */
 };
 
 /* Beware: these aren't '\0' terminated. */

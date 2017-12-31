@@ -49,21 +49,20 @@ enum cmp_type				/* comparison type */
 #define LINK_SPEC "-u main"
 #endif
 
-/* Don't schedule insns unless explicitly asked...
-   it messes with debugging too much.  Don't follow jumps except at
-   higher optimizations levels, since it's so slow to do so.  */
-#define OPTIMIZATION_OPTIONS(OPTIMIZE) \
-  (flag_omit_frame_pointer = (optimize >= 2),		\
-   flag_cse_follow_jumps = (optimize >= 3),		\
-   flag_schedule_insns = (optimize >= 4),		\
-   flag_schedule_insns_after_reload = (optimize >= 5))	\
-
+/* Omit frame pointer at high optimization levels.  */
   
+#define OPTIMIZATION_OPTIONS(OPTIMIZE) \
+{  								\
+  if (OPTIMIZE >= 2) 						\
+    flag_omit_frame_pointer = 1;				\
+}
+
 /* These compiler options take an argument.  We ignore -target for now.  */
 
 #define WORD_SWITCH_TAKES_ARG(STR)			\
  (!strcmp (STR, "Tdata") || !strcmp (STR, "include")	\
-  || !strcmp (STR, "imacros") || !strcmp (STR, "target"))
+  || !strcmp (STR, "imacros") || !strcmp (STR, "target")\
+  || !strcmp (STR, "aux-info"))
 
 /* Names to predefine in the preprocessor for this target machine.  */
 
@@ -109,12 +108,13 @@ extern int target_flags;
 /* That is true on the hp9k8.  */
 #define BYTES_BIG_ENDIAN 1
 
-/* Define this if most significant word of a multiword number is numbered.  */
+/* Define this if most significant word of a multiword number is lowest
+   numbered.  */
 /* For the hp9k800 we can decide arbitrarily
    since there are no machine instructions for them.  */
 #define WORDS_BIG_ENDIAN 1
 
-/* number of bits in an addressible storage unit */
+/* number of bits in an addressable storage unit */
 #define BITS_PER_UNIT 8
 
 /* Width in bits of a "word", which is the contents of a machine register.
@@ -134,7 +134,7 @@ extern int target_flags;
 #define PARM_BOUNDARY 32
 
 /* Largest alignment required for any stack parameter, in bits.
-   Don't define this if it is equal to PARM_BOUNDRY */
+   Don't define this if it is equal to PARM_BOUNDARY */
 #define MAX_PARM_BOUNDARY 64
 
 /* Boundary (in *bits*) on which stack pointer should be aligned.  */
@@ -166,9 +166,9 @@ extern int target_flags;
    && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
 
 
-/* Define this if move instructions will actually fail to work
+/* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
-#define STRICT_ALIGNMENT
+#define STRICT_ALIGNMENT 1
 
 /* Generate calls to memcpy, memcmp and memset.  */
 #define TARGET_MEM_FUNCTIONS
@@ -191,7 +191,7 @@ extern int target_flags;
    registers. However, the floating point registers behave
    differently: the left and right halves of registers are addressable
    as 32 bit registers. So, we will set things up like the 68k which
-   has different fp units: define seperate register sets for the 1.0
+   has different fp units: define separate register sets for the 1.0
    and 1.1 fp units. */
 
 #define FIRST_PSEUDO_REGISTER 113  /* 32 + 16 1.0 regs + 64 1.1 regs + */
@@ -283,12 +283,15 @@ extern int target_flags;
 /* Make sure everything's fine if we *don't* have a given processor.
    This assumes that putting a register in fixed_regs will keep the
    compiler's mitts completely off it.  We don't bother to zero it out
-   of register classes. */
+   of register classes. 
+
+   Make register 27 global for now.  We'll undo this kludge after 2.1.  */
 
 #define CONDITIONAL_REGISTER_USAGE \
 {						\
   int i;					\
   HARD_REG_SET x;				\
+  global_regs[27] = 1;				\
   if (!TARGET_SNAKE)				\
     {						\
       COPY_HARD_REG_SET (x, reg_class_contents[(int)SNAKE_FP_REGS]);\
@@ -390,7 +393,7 @@ extern int leaf_function;
    it's not, there's no point in trying to eliminate the
    frame pointer.  If it is a leaf function, we guessed right!  */
 #define INITIAL_FRAME_POINTER_OFFSET(VAR) \
-  do { (VAR) = compute_frame_size (get_frame_size (), 1); } while (0)
+  do { (VAR) = -compute_frame_size (get_frame_size (), 1) - 32; } while (0)
 
 /* Base register for access to arguments of the function.  */
 #define ARG_POINTER_REGNUM 4
@@ -595,7 +598,7 @@ HP9000/800 immediate field sizes:
 #define OUTGOING_REG_PARM_STACK_SPACE
 
 /* Keep the stack pointer constant throughout the function.
-   This is both an optimization and a neccessity: longjmp
+   This is both an optimization and a necessity: longjmp
    doesn't behave itself when the stack pointer moves within
    the function!  */
 #define ACCUMULATE_OUTGOING_ARGS
@@ -758,49 +761,51 @@ extern enum cmp_type hppa_branch_type;
   do { fprintf (FILE, ",ARGW%d=FU", (ARG0));		\
        fprintf (FILE, ",ARGW%d=FR", (ARG1));} while (0)
 #endif
-
 #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL) \
     do { tree fntype = DECL_RESULT (DECL);	 			\
 	 tree tree_type = TREE_TYPE (DECL);				\
 	 tree parm;							\
 	 int i;								\
-	 fputs ("\t.EXPORT ", FILE); assemble_name (FILE, NAME);	\
-	 fputs (",PRIV_LEV=3", FILE);					\
-	 for (parm = DECL_ARGUMENTS (DECL), i = 0; parm && i < 4;	\
-	      parm = TREE_CHAIN (parm), i++)				\
+	 if (TREE_PUBLIC (DECL))					\
 	   {								\
-	     if (TYPE_MODE (DECL_ARG_TYPE (parm)) == SFmode)		\
-	       fprintf (FILE, ",ARGW%d=FR", i);				\
-	     else if (TYPE_MODE (DECL_ARG_TYPE (parm)) == DFmode)	\
+	     fputs ("\t.EXPORT ", FILE); assemble_name (FILE, NAME);	\
+	     fputs (",PRIV_LEV=3", FILE);				\
+	     for (parm = DECL_ARGUMENTS (DECL), i = 0; parm && i < 4;	\
+		  parm = TREE_CHAIN (parm), i++)			\
 	       {							\
-	         if (i == 0 || i == 2)					\
-	           {							\
-		     ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i);		\
-	           }							\
-	         else if (i == 1)					\
-	           {							\
-		     ASM_DOUBLE_ARG_DESCRIPTORS (FILE, ++i, ++i);	\
-	           }							\
+		 if (TYPE_MODE (DECL_ARG_TYPE (parm)) == SFmode)	\
+		   fprintf (FILE, ",ARGW%d=FR", i);			\
+		 else if (TYPE_MODE (DECL_ARG_TYPE (parm)) == DFmode)	\
+		   {							\
+		     if (i == 0 || i == 2)				\
+		       {						\
+			 ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i);	\
+		       }						\
+		     else if (i == 1)					\
+		       {						\
+			 ASM_DOUBLE_ARG_DESCRIPTORS (FILE, ++i, ++i);	\
+		       }						\
+		   }							\
+		 else							\
+		   fprintf (FILE, ",ARGW%d=GR", i);			\
 	       }							\
-	     else							\
-	       fprintf (FILE, ",ARGW%d=GR", i);				\
+	     /* anonymous args */					\
+	     if (TYPE_ARG_TYPES (tree_type) != 0			\
+		 && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (tree_type)))\
+		     != void_type_node))				\
+	       {							\
+		 for (; i < 4; i++)					\
+		   fprintf (FILE, ",ARGW%d=GR", i);			\
+	       }							\
+	     if (TYPE_MODE (fntype) == DFmode)				\
+	       fprintf (FILE, ",RTNVAL=FR");				\
+	     else if (TYPE_MODE (fntype) == SFmode)			\
+	       fprintf (FILE, ",RTNVAL=FU");				\
+	     else if (fntype != void_type_node)				\
+	       fprintf (FILE, ",RTNVAL=GR");				\
+	     fputs ("\n", FILE);					\
 	   }								\
-	   /* anonymous args */						\
-	   if (TYPE_ARG_TYPES (tree_type) != 0				\
-	       && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (tree_type)))	\
-		   != void_type_node))					\
-	     {								\
-	       for (; i < 4; i++)					\
-	         fprintf (FILE, ",ARGW%d=GR", i);			\
-	     }								\
-	   if (TYPE_MODE (fntype) == DFmode)				\
-	     fprintf (FILE, ",RTNVAL=FR");				\
-	   else if (TYPE_MODE (fntype) == SFmode)			\
-	     fprintf (FILE, ",RTNVAL=FU");				\
-	   else if (fntype != void_type_node)				\
-	     fprintf (FILE, ",RTNVAL=GR");				\
-	   fputs ("\n", FILE);						\
-	   ASM_OUTPUT_LABEL (FILE, NAME);} while (0)
+	 ASM_OUTPUT_LABEL (FILE, NAME);} while (0)
 
 /* Two views of the size of the current frame.  */
 extern int actual_fsize;
@@ -814,7 +819,7 @@ extern int apparent_fsize;
    is ever used in the function.  This macro is responsible for
    knowing which registers should not be saved even if used.  */
 
-/* On SPARC, move-double insns between fpu and cpu need an 8-byte block
+/* On HP-PA, move-double insns between fpu and cpu need an 8-byte block
    of memory.  If any fpu reg is used in the function, we allocate
    such a block here, at the bottom of the frame, just in case it's needed.
 
@@ -899,6 +904,7 @@ extern union tree_node *current_function_decl;
    _builtin_saveregs, so we must make this explicit.  */
 
 
+#if 0
 #define EXPAND_BUILTIN_SAVEREGS(ARGLIST)				\
   (emit_insn (gen_rtx (USE, VOIDmode, gen_rtx (REG, TImode, 23))),	\
    (TARGET_SNAKE ?							\
@@ -910,7 +916,8 @@ extern union tree_node *current_function_decl;
      emit_insn (gen_rtx (USE, VOIDmode, gen_rtx (REG, DFmode, 37))),	\
      emit_insn (gen_rtx (USE, VOIDmode, gen_rtx (REG, DFmode, 38))),	\
      emit_insn (gen_rtx (USE, VOIDmode, gen_rtx (REG, DFmode, 39))))))
-
+#endif
+#define EXPAND_BUILTIN_SAVEREGS(ARGLIST) (rtx)hppa_builtin_saveregs (ARGLIST)
 
 
 /* Addressing modes, and classification of registers for them.  */
@@ -976,7 +983,7 @@ extern union tree_node *current_function_decl;
    After reload, it makes no difference, since pseudo regs have
    been eliminated by then.  */
 
-/* Optional extra constraints for this machine. Borrowed from tm-sparc.h.
+/* Optional extra constraints for this machine. Borrowed from sparc.h.
 
    For the HPPA, `Q' means that this is a memory operand but not a
    symbolic memory operand.  Note that an unassigned pseudo register
@@ -1064,11 +1071,11 @@ extern union tree_node *current_function_decl;
 
 #define GO_IF_LEGITIMATE_ADDRESS(MODE, X, ADDR)  \
 {							\
-  if (REG_P (X) && REG_OK_FOR_BASE_P (X)		\
+  if ((REG_P (X) && REG_OK_FOR_BASE_P (X))		\
       || ((GET_CODE (X) == PRE_DEC || GET_CODE (X) == POST_DEC		\
 	   || GET_CODE (X) == PRE_INC || GET_CODE (X) == POST_INC)	\
-	   && REG_P (XEXP (X, 0))			\
-	   && REG_OK_FOR_BASE_P (XEXP (X, 0))))		\
+	  && REG_P (XEXP (X, 0))			\
+	  && REG_OK_FOR_BASE_P (XEXP (X, 0))))		\
     goto ADDR;						\
   else if (GET_CODE (X) == PLUS)			\
     {							\
@@ -1149,7 +1156,7 @@ extern union tree_node *current_function_decl;
     goto WIN;							\
   if (flag_pic) (X) = legitimize_pic_address (X, MODE, gen_reg_rtx (Pmode));\
   else if ((GET_CODE (X) == SYMBOL_REF & read_only_operand (X))	\
-	    || GET_CODE (X) == CONST || GET_CODE (X) == LABEL_REF)\
+	    || GET_CODE (X) == LABEL_REF)			\
     (X) = gen_rtx (LO_SUM, Pmode,				\
 		   copy_to_mode_reg (Pmode, gen_rtx (HIGH, Pmode, X)), X); \
   else if (GET_CODE (X) == SYMBOL_REF)				\
@@ -1178,7 +1185,7 @@ extern union tree_node *current_function_decl;
    function named by the symbol (such as what section it is in).
 
    The macro definition, if any, is executed immediately after the
-   rtl for DECL has been created and stored in `DECL_RTL (DECL)'. 
+   rtl for DECL or other node is created.
    The value of the rtl will be a `mem' whose address is a
    `symbol_ref'.
 
@@ -1188,7 +1195,7 @@ extern union tree_node *current_function_decl;
    information).
 
    On the PA-RISC we use this to indicate if a symbol is in text or
-   data space.*/
+   data space.  */
 
 #define ENCODE_SECTION_INFO(DECL)\
 do									\
@@ -1197,11 +1204,11 @@ do									\
       SYMBOL_REF_FLAG (XEXP (DECL_RTL (DECL), 0)) = 1;			\
     else								\
       {									\
-	rtx decl_rtl = (*tree_code_type[(int)TREE_CODE (DECL)] == 'c') ?\
-	  TREE_CST_RTL (DECL) : DECL_RTL (DECL);			\
-	if (RTX_UNCHANGING_P (decl_rtl) && !MEM_VOLATILE_P (decl_rtl)	\
+	rtx rtl = (TREE_CODE_CLASS (TREE_CODE (DECL)) != 'd'		\
+		   ? TREE_CST_RTL (DECL) : DECL_RTL (DECL));		\
+	if (RTX_UNCHANGING_P (rtl) && !MEM_VOLATILE_P (rtl)		\
 	    && !flag_pic)						\
-	  SYMBOL_REF_FLAG (XEXP (decl_rtl, 0)) = 1;			\
+	  SYMBOL_REF_FLAG (XEXP (rtl, 0)) = 1;				\
       }									\
   }									\
 while (0)
@@ -1308,6 +1315,21 @@ while (0)
   (((CLASS1 == FP_REGS && CLASS2 == GENERAL_REGS) \
     || (CLASS1 == GENERAL_REGS && CLASS2 == FP_REGS)) ? 6 : 2)
 
+/* Provide the costs of a rtl expression.  This is in the body of a
+   switch on CODE.  The purpose for the cost of MULT is to encourage
+   `synth_mult' to find a synthetic multiply when reasonable.  */
+
+#define RTX_COSTS(X,CODE)				\
+  case MULT:						\
+    return COSTS_N_INSNS (20);				\
+  case DIV:						\
+  case UDIV:						\
+  case MOD:						\
+  case UMOD:						\
+    return COSTS_N_INSNS (60);				\
+   case PLUS: /* this includes shNadd insns */		\
+    return COSTS_N_INSNS (1) + 2;
+
 /* Conditional branches with empty delay slots have a length of two.  */
 #define ADJUST_INSN_LENGTH(INSN, LENGTH)	\
   if (GET_CODE (INSN) == CALL_INSN					\
@@ -1345,10 +1367,12 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 /* Output before code.  */
 
+/* Supposedly the assembler rejects the command if there is no tab!  */
 #define TEXT_SECTION_ASM_OP "\t.SPACE $TEXT$\n\t.SUBSPA $CODE$\n"
 
 /* Output before writable data.  */
 
+/* Supposedly the assembler rejects the command if there is no tab!  */
 #define DATA_SECTION_ASM_OP "\t.SPACE $PRIVATE$\n\t.SUBSPA $DATA$\n"
 
 /* How to refer to registers in assembler output.
@@ -1368,7 +1392,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
  "16", "16R", "17", "17R", "18", "18R", "19", "19R",		\
  "20", "20R", "21", "21R", "22", "22R", "23", "23R",		\
  "24", "24R", "25", "25R", "26", "26R", "27", "27R",		\
- "28", "28R", "29", "29R", "30", "30R", "31", "31R"}
+ "28", "28R", "29", "29R", "30", "30R", "31", "31R", "SAR"}
 
 /* How to renumber registers for dbx and gdb.  */
 
@@ -1610,7 +1634,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 
 #define SMALL_INT(OP) INT_14_BITS (OP)
-/* Define functions in out-sparc.c and used in insn-output.c.  */
+/* Define functions in hp800.c and used in insn-output.c.  */
 
 extern char *output_move_double ();
 extern char *output_fp_move_double ();

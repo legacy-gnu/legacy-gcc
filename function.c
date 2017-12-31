@@ -553,18 +553,6 @@ assign_stack_local (mode, size, align)
   else
     alignment = align / BITS_PER_UNIT;
 
-#if 0 /* Let's see if this is really needed--rms.  */
-#ifdef STRICT_ALIGNMENT
-  /* Supposedly sub-word sized units may later be accessed
-     with word intructions.  It's not certain this is really true.  */
-  if (mode != BLKmode && align == 0 && alignment < UNITS_PER_WORD)
-    alignment = UNITS_PER_WORD;
-
-  /* This is in case we just made the alignment bigger than the size.  */
-  size = CEIL_ROUND (size, alignment);
-#endif
-#endif
-
   /* Round frame offset to that alignment.
      We must be careful here, since FRAME_OFFSET might be negative and
      division with a negative dividend isn't as well defined as we might
@@ -641,18 +629,6 @@ assign_outer_stack_local (mode, size, align, function)
     }
   else
     alignment = align / BITS_PER_UNIT;
-
-#if 0 /* Let's see if this is really needed--rms.  */
-#ifdef STRICT_ALIGNMENT
-  /* Sub-word sized units may later be accessed with word intructions.
-     This results from (SUBREG (MEM ...) ...).  */
-  if (mode != BLKmode && align == 0 && alignment < UNITS_PER_WORD)
-    alignment = UNITS_PER_WORD;
-
-  /* This is in case we just made the alignment bigger than the size.  */
-  size = CEIL_ROUND (size, alignment);
-#endif
-#endif
 
   /* Round frame offset to that alignment.  */
 #ifdef FRAME_GROWS_DOWNWARD
@@ -1052,7 +1028,7 @@ fixup_var_refs_insns (var, insn, toplevel)
 
 		      /* We can not separate USE insns from the CALL_INSN
 			 that they belong to.  If this is a CALL_INSN, insert
-			 the move insn before the USE insns preceeding it
+			 the move insn before the USE insns preceding it
 			 instead of immediately before the insn.  */
 		      if (GET_CODE (insn) == CALL_INSN)
 			{
@@ -1928,7 +1904,7 @@ instantiate_decls (fndecl, valid_only)
       if (DECL_RTL (decl) && GET_CODE (DECL_RTL (decl)) == MEM)
 	instantiate_virtual_regs_1 (&XEXP (DECL_RTL (decl), 0),
 				    valid_only ? DECL_RTL (decl) : 0, 0);
-#if 0 /* This is probably correct, but it seems to require fixes
+#if 1 /* This is probably correct, but it seems to require fixes
 	 elsewhere in order to work.  Let's fix them in 2.1.  */
       if (DECL_INCOMING_RTL (decl)
 	  && GET_CODE (DECL_INCOMING_RTL (decl)) == MEM)
@@ -2191,7 +2167,7 @@ instantiate_virtual_regs_1 (loc, object, extra_insns)
       /* Most cases of MEM that convert to valid addresses have already been
 	 handled by our scan of regno_reg_rtx.  The only special handling we
 	 need here is to make a copy of the rtx to ensure it isn't being
-	 shared if we have to change it to a psuedo. 
+	 shared if we have to change it to a pseudo. 
 
 	 If the rtx is a simple reference to an address via a virtual register,
 	 it can potentially be shared.  In such cases, first try to make it
@@ -2234,9 +2210,17 @@ instantiate_virtual_regs_1 (loc, object, extra_insns)
 
 	     Note that we cannot pass X as the object in the recursive call
 	     since the insn being processed may not allow all valid
-	     addresses.  */
+	     addresses.  However, if we were not passed on object, we can
+	     only modify X without copying it if X will have a valid
+	     address.
 
-	  if (instantiate_virtual_regs_1 (&XEXP (x, 0), object, 0))
+	     ??? Also note that this can still lose if OBJECT is an insn that
+	     has less restrictions on an address that some other insn.
+	     In that case, we will modify the shared address.  This case
+	     doesn't seem very likely, though.  */
+
+	  if (instantiate_virtual_regs_1 (&XEXP (x, 0),
+					  object ? object : x, 0))
 	    return 1;
 
 	  /* Otherwise make a copy and process that copy.  We copy the entire
@@ -2802,7 +2786,7 @@ assign_parms (fndecl, second_time)
 #if 0 /* This change was turned off because it makes compilation bigger.  */
 		  !optimize
 #else /* It's not clear why the following was replaced.  */
-		  /* Obsoleted by preceeding line. */
+		  /* Obsoleted by preceding line. */
 		  (obey_regdecls && ! TREE_REGDECL (parm)
 		   && ! TREE_INLINE (fndecl))
 #endif
@@ -2834,7 +2818,21 @@ assign_parms (fndecl, second_time)
 
 	  /* Copy the value into the register.  */
 	  if (GET_MODE (parmreg) != GET_MODE (entry_parm))
-	    convert_move (parmreg, validize_mem (entry_parm), 0);
+	    {
+	      /* If ENTRY_PARM is a hard register, it might be in a register
+		 not valid for operating in its mode (e.g., an odd-numbered
+		 register for a DFmode).  In that case, moves are the only
+		 thing valid, so we can't do a convert from there.  This
+		 occurs when the calling sequence allow such misaligned
+		 usages.  */
+	      if (GET_CODE (entry_parm) == REG
+		  && REGNO (entry_parm) < FIRST_PSEUDO_REGISTER
+		  && ! HARD_REGNO_MODE_OK (REGNO (entry_parm),
+					   GET_MODE (entry_parm)))
+		convert_move (parmreg, copy_to_reg (entry_parm));
+	      else
+		convert_move (parmreg, validize_mem (entry_parm), 0);
+	    }
 	  else
 	    emit_move_insn (parmreg, validize_mem (entry_parm));
 
@@ -2875,8 +2873,15 @@ assign_parms (fndecl, second_time)
 	     during function execution.  */
 
 	  if (passed_mode != nominal_mode)
-	    /* Conversion is required.  */
-	    entry_parm = convert_to_mode (nominal_mode, entry_parm, 0);
+	    {
+	      /* Conversion is required.   */
+	      if (GET_CODE (entry_parm) == REG
+		  && REGNO (entry_parm) < FIRST_PSEUDO_REGISTER
+		  && ! HARD_REGNO_MODE_OK (REGNO (entry_parm), passed_mode))
+		entry_parm = copy_to_reg (entry_parm);
+
+	      entry_parm = convert_to_mode (nominal_mode, entry_parm, 0);
+	    }
 
 	  if (entry_parm != stack_parm)
 	    {
@@ -3215,6 +3220,12 @@ setjmp_protect (block)
 	 || TREE_CODE (decl) == PARM_DECL)
 	&& DECL_RTL (decl) != 0
 	&& GET_CODE (DECL_RTL (decl)) == REG
+	/* If this variable came from an inline function, it must be
+	   that it's life doesn't overlap the setjmp.  If there was a
+	   setjmp in the function, it would already be in memory.  We
+	   must exclude such variable because their DECL_RTL might be
+	   set to strange things such as virtual_stack_vars_rtx.  */
+	&& ! DECL_FROM_INLINE (decl)
 	&& (
 #ifdef NON_SAVING_SETJMP
 	    /* If longjmp doesn't restore the registers,
@@ -3338,6 +3349,7 @@ fix_lexical_addr (addr, var)
       base = copy_to_reg (gen_rtx (MEM, Pmode, addr));
 #else
       displacement += (FIRST_PARM_OFFSET (context) - STARTING_FRAME_OFFSET);
+      base = lookup_static_chain (var);
 #endif
     }
 
@@ -3625,10 +3637,10 @@ mark_varargs ()
 void
 expand_main_function ()
 {
-#ifndef INIT_SECTION_ASM_OP
+#if !defined (INIT_SECTION_ASM_OP) || defined (INVOKE__main)
   emit_library_call (gen_rtx (SYMBOL_REF, Pmode, "__main"), 0,
 		     VOIDmode, 0);
-#endif /* not INIT_SECTION_ASM_OP */
+#endif /* not INIT_SECTION_ASM_OP or INVOKE__main */
 }
 
 /* Start the RTL for a new function, and set variables used for
@@ -3847,8 +3859,12 @@ expand_function_end (filename, line)
       /* First make sure this compilation has a template for
 	 initializing trampolines.  */
       if (initial_trampoline == 0)
-	initial_trampoline
-	  = gen_rtx (MEM, BLKmode, assemble_trampoline_template ());
+	{
+	  end_temporary_allocation ();
+	  initial_trampoline
+	    = gen_rtx (MEM, BLKmode, assemble_trampoline_template ());
+	  resume_temporary_allocation ();
+	}
 
       /* Generate insns to initialize the trampoline.  */
       start_sequence ();

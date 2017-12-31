@@ -54,6 +54,65 @@ extern int errno;
 #define generic void
 #endif
 
+#ifdef USG
+#define vfork fork
+#endif
+
+#ifndef R_OK
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+#endif
+
+/* On MSDOS, write temp files in current dir
+   because there's no place else we can expect to use.  */
+#if __MSDOS__
+#ifndef P_tmpdir
+#define P_tmpdir "./"
+#endif
+#endif
+
+/* On certain systems, we have code that works by scanning the object file
+   directly.  But this code uses system-specific header files and library
+   functions, so turn it off in a cross-compiler.  */
+
+#ifdef CROSS_COMPILE
+#undef OBJECT_FORMAT_COFF
+#undef OBJECT_FORMAT_ROSE
+#endif
+
+/* If we can't use a special method, use the ordinary one:
+   run nm to find what symbols are present.
+   In a cross-compiler, this means you need a cross nm,
+   but that isn't quite as unpleasant as special headers.  */
+
+#if !defined (OBJECT_FORMAT_COFF) && !defined (OBJECT_FORMAT_ROSE)
+#define OBJECT_FORMAT_NONE
+#endif
+
+#ifdef OBJECT_FORMAT_COFF
+
+#include <a.out.h>
+#include <ar.h>
+
+#ifdef UMAX
+#include <sgs.h>
+#endif
+
+#ifdef _AIX
+#define ISCOFF(magic) \
+  ((magic) == U802WRMAGIC || (magic) == U802ROMAGIC || (magic) == U802TOCMAGIC)
+#endif
+
+#if defined (_AIX) || defined (USG)
+#undef FREAD
+#undef FWRITE
+#endif
+
+#include <ldfcn.h>
+
+#endif /* OBJECT_FORMAT_COFF */
+
 #ifdef OBJECT_FORMAT_ROSE
 
 #ifdef _OSF_SOURCE
@@ -69,25 +128,17 @@ extern int errno;
 #include <mach_o_header.h>
 #include <mach_o_vals.h>
 #include <mach_o_types.h>
+
 #endif /* OBJECT_FORMAT_ROSE */
+
+#ifdef OBJECT_FORMAT_NONE
 
 /* Default flags to pass to nm.  */
 #ifndef NM_FLAGS
 #define NM_FLAGS "-p"
 #endif
 
-#ifdef USG
-#define vfork fork
-#endif
-
-/* On MSDOS, write temp files in current dir
-   because there's no place else we can expect to use.  */
-#if __MSDOS__
-#ifndef P_tmpdir
-#define P_tmpdir "./"
-#endif
-#endif
-
+#endif /* OBJECT_FORMAT_NONE */
 
 /* Linked lists of constructor and destructor names. */
 
@@ -112,7 +163,9 @@ enum pass {
   PASS_SECOND				/* with constructors linked in */
 };
 
+#ifndef NO_SYS_SIGLIST
 extern char *sys_siglist[];
+#endif
 extern char *version_string;
 
 static int vflag;			/* true if -v */
@@ -148,7 +201,8 @@ generic *xmalloc ();
 
 #if !defined(HAVE_STRERROR) && !defined(_OSF_SOURCE)
 
-char *strerror (e)
+char *
+strerror (e)
      int e;
 {
   extern char *sys_errlist[];
@@ -174,10 +228,10 @@ static void
 my_exit (status)
      int status;
 {
-  if (c_file[0])
+  if (c_file != 0 && c_file[0])
     maybe_unlink (c_file);
 
-  if (o_file[0])
+  if (o_file != 0 && o_file[0])
     maybe_unlink (o_file);
 
   exit (status);
@@ -336,6 +390,62 @@ xmalloc (size)
   return (generic *)0;
 }
 
+/* Make a copy of a string INPUT with size SIZE.  */
+
+char *
+savestring (input, size)
+     char *input;
+     int size;
+{
+  char *output = (char *) xmalloc (size + 1);
+  strcpy (output, input);
+  return output;
+}
+
+/* Decide whether the given symbol is:
+   a constructor (1), a destructor (2), or neither (0).  */
+
+static int
+is_ctor_dtor (s)
+     char *s;
+{
+  struct names { char *name; int len; int ret; int two_underscores; };
+
+  register struct names *p;
+  register int ch;
+  register char *orig_s = s;
+
+  static struct names special[] = {
+#ifdef NO_DOLLAR_IN_LABEL
+    { "GLOBAL_.I.", sizeof ("GLOBAL_.I.")-1, 1, 0 },
+    { "GLOBAL_.D.", sizeof ("GLOBAL_.D.")-1, 2, 0 },
+#else
+    { "GLOBAL_$I$", sizeof ("GLOBAL_$I$")-1, 1, 0 },
+    { "GLOBAL_$D$", sizeof ("GLOBAL_$I$")-1, 2, 0 },
+#endif
+    { "sti__", sizeof ("sti__")-1, 1, 1 },
+    { "std__", sizeof ("std__")-1, 2, 1 },
+    { NULL, 0, 0, 0 }
+  };
+
+  while ((ch = *s) == '_')
+    ++s;
+
+  if (s == orig_s)
+    return 0;
+
+  for (p = &special[0]; p->len > 0; p++)
+    {
+      if (ch == p->name[0]
+	  && (!p->two_underscores || ((s - orig_s) >= 2))
+	  && strncmp(s, p->name, p->len) == 0)
+	{
+	  return p->ret;
+	}
+    }
+  return 0;
+}
+
 
 /* Compute a string to use as the base of all temporary file names.
    It is substituted for %g.  */
@@ -385,16 +495,16 @@ main (argc, argv)
   FILE *outf;
   char *ld_file_name;
   char *c_file_name;
-  char *B_option;
   char *p;
   char *prefix;
-  char **c_argv		= (char **) xcalloc (sizeof (char *), argc+7);
-  char **c_ptr		= c_argv;
+  char **c_argv;
+  char **c_ptr;
   char **ld1_argv	= (char **) xcalloc (sizeof (char *), argc+2);
   char **ld1		= ld1_argv;
   char **ld2_argv	= (char **) xcalloc (sizeof (char *), argc+5);
   char **ld2		= ld2_argv;
   int first_file;
+  int num_c_args	= argc+7;
   int len;
   int clen;
 
@@ -402,6 +512,21 @@ main (argc, argv)
   debug = 1;
   vflag = 1;
 #endif
+
+  p = (char *) getenv ("COLLECT_GCC_OPTIONS");
+  if (p)
+    while (*p)
+      {
+	char *q = p;
+	while (*q && *q != ' ') q++;
+	if (*p == '-' && (p[1] == 'm' || p[1] == 'f'))
+	  num_c_args++;
+
+	if (*q) q++;
+	p = q;
+      }
+
+  c_ptr = c_argv = (char **) xcalloc (sizeof (char *), num_c_args);
 
   if (argc < 2)
     fatal ("no arguments");
@@ -463,9 +588,7 @@ main (argc, argv)
 #endif
 
   ld_file_name = xcalloc (len + sizeof ("real-ld"), 1);
-  c_file_name  = xcalloc (clen + sizeof ("gcc"), 1);
   nm_file_name = xcalloc (len + sizeof ("gnm"), 1);
-  B_option     = xcalloc (len + sizeof ("-B"), 1);
 
   memcpy (ld_file_name, prefix, len);
   strcpy (ld_file_name + len, "real-ld");
@@ -483,23 +606,28 @@ main (argc, argv)
 	}
     }
 
-  memcpy (c_file_name, prefix, len);
-  strcpy (c_file_name + len, "gcc");
-  if (access (c_file_name, X_OK) < 0)
+  c_file_name = getenv ("COLLECT_GCC");
+  if (c_file_name == 0 || c_file_name[0] != '/')
     {
-#ifdef STANDARD_BIN_PREFIX
-      strcpy (c_file_name, STANDARD_BIN_PREFIX);
-      strcat (c_file_name, "gcc");
+      c_file_name = xcalloc (clen + sizeof ("gcc"), 1);
+      memcpy (c_file_name, prefix, len);
+      strcpy (c_file_name + len, "gcc");
       if (access (c_file_name, X_OK) < 0)
-#endif
 	{
-#ifdef STANDARD_EXEC_PREFIX
-	  strcpy (c_file_name, STANDARD_EXEC_PREFIX);
+#ifdef STANDARD_BIN_PREFIX
+	  strcpy (c_file_name, STANDARD_BIN_PREFIX);
 	  strcat (c_file_name, "gcc");
 	  if (access (c_file_name, X_OK) < 0)
 #endif
 	    {
-	      strcpy (c_file_name, "gcc");
+#ifdef STANDARD_EXEC_PREFIX
+	      strcpy (c_file_name, STANDARD_EXEC_PREFIX);
+	      strcat (c_file_name, "gcc");
+	      if (access (c_file_name, X_OK) < 0)
+#endif
+		{
+		  strcpy (c_file_name, "gcc");
+		}
 	    }
 	}
     }
@@ -520,9 +648,6 @@ main (argc, argv)
 	}
     }
 
-  strcpy (B_option, "-B");
-  strcpy (B_option + sizeof ("-B") - 1, prefix);
-
   *ld1++ = *ld2++ = "ld";
 
   /* Make temp file names. */
@@ -531,13 +656,21 @@ main (argc, argv)
   o_file = xcalloc (temp_filename_length + sizeof (".o"), 1);
   sprintf (c_file, "%s.c", temp_filename);
   sprintf (o_file, "%s.o", temp_filename);
-  *c_ptr++ = "gcc";
+  *c_ptr++ = c_file_name;
   *c_ptr++ = "-c";
   *c_ptr++ = "-o";
   *c_ptr++ = o_file;
 
+  /* !!! When GCC calls collect2,
+     it does not know whether it is calling collect2 or ld.
+     So collect2 cannot meaningfully understand any options
+     except those ld understands.
+     If you propose to make GCC pass some other option,
+     just imagine what will happen if ld is really ld!!!  */
+
   /* Parse arguments.  Remember output file spec, pass the rest to ld. */
-  /* After the first file, put in the c++ rt0 */
+  /* After the first file, put in the c++ rt0.  */
+
   first_file = 1;
   while ((arg = *++argv) != (char *)0)
     {
@@ -553,22 +686,6 @@ main (argc, argv)
 		  vflag = 1;
 		  ld1--;
 		  ld2--;
-		}
-	      break;
-
-	      /* pass -f<xxx>, -B<xxx>, -b<xxx>, -V<xxx>, and -m<xxx>
-		 options to gcc.  This allows options to be passed
-		 that affect search rules, and the size of pointers. */
-	    case 'b':
-	    case 'B':
-	    case 'f':
-	    case 'm':
-	    case 'V':
-	      if (arg[1] != '\0')
-		{
-		  ld1--;
-		  ld2--;
-		  *c_ptr++ = arg;
 		}
 	      break;
 
@@ -596,13 +713,26 @@ main (argc, argv)
 	}
     }
 
-  *c_ptr++ = B_option;
+  /* Get any options that the upper GCC wants to pass to the sub-GCC.  */
+  p = (char *) getenv ("COLLECT_GCC_OPTIONS");
+  if (p)
+    while (*p)
+      {
+	char *q = p;
+	while (*q && *q != ' ') q++;
+	if (*p == '-' && (p[1] == 'm' || p[1] == 'f'))
+	  *c_ptr++ = savestring (p, q - p);
+
+	if (*q) q++;
+	p = q;
+      }
+
   *c_ptr++ = c_file;
   *c_ptr = *ld1 = *ld2 = (char *)0;
 
   if (vflag)
     {
-      fprintf (stderr, "GNU COLLECT2 version %s", version_string);
+      fprintf (stderr, "collect2 version %s", version_string);
 #ifdef TARGET_VERSION
       TARGET_VERSION;
 #endif
@@ -611,13 +741,31 @@ main (argc, argv)
 
   if (debug)
     {
-      fprintf (stderr, "prefix       = %s\n", prefix);
-      fprintf (stderr, "ld_file_name = %s\n", ld_file_name);
-      fprintf (stderr, "c_file_name  = %s\n", c_file_name);
-      fprintf (stderr, "nm_file_name = %s\n", nm_file_name);
-      fprintf (stderr, "B_option     = %s\n", B_option);
-      fprintf (stderr, "c_file       = %s\n", c_file);
-      fprintf (stderr, "o_file       = %s\n", o_file);
+      char *ptr;
+      fprintf (stderr, "prefix              = %s\n", prefix);
+      fprintf (stderr, "ld_file_name        = %s\n", ld_file_name);
+      fprintf (stderr, "c_file_name         = %s\n", c_file_name);
+      fprintf (stderr, "nm_file_name        = %s\n", nm_file_name);
+      fprintf (stderr, "c_file              = %s\n", c_file);
+      fprintf (stderr, "o_file              = %s\n", o_file);
+
+      ptr = getenv ("COLLECT_GCC_OPTIONS");
+      if (ptr)
+	fprintf (stderr, "COLLECT_GCC_OPTIONS = %s\n", ptr);
+
+      ptr = getenv ("COLLECT_GCC");
+      if (ptr)
+	fprintf (stderr, "COLLECT_GCC         = %s\n", ptr);
+
+      ptr = getenv ("COMPILER_PATH");
+      if (ptr)
+	fprintf (stderr, "COMPILER_PATH       = %s\n", ptr);
+
+      ptr = getenv ("LIBRARY_PATH");
+      if (ptr)
+	fprintf (stderr, "LIBRARY_PATH        = %s\n", ptr);
+
+      fprintf (stderr, "\n");
     }
 
   /* Load the program, searching all libraries.
@@ -690,11 +838,18 @@ do_wait (prog)
 
       if (sig != -1 && sig != 0)
 	{
+#ifdef NO_SYS_SIGLIST
+	  error ("%s terminated with signal %d %s",
+		 prog,
+		 sig,
+		 (status & 0200) ? ", core dumped" : "");
+#else
 	  error ("%s terminated with signal %d [%s]%s",
 		 prog,
 		 sig,
 		 sys_siglist[sig],
 		 (status & 0200) ? ", core dumped" : "");
+#endif
 
 	  my_exit (127);
 	}
@@ -848,11 +1003,10 @@ write_c_file (stream, name)
 }
 
 
-#ifndef OBJECT_FORMAT_ROSE
+#ifdef OBJECT_FORMAT_NONE
 
-/* OSF/rose specific version to scan the name list of the loaded
-   program for the symbols g++ uses for static constructors and
-   destructors.
+/* Generic version to scan the name list of the loaded program for
+   the symbols g++ uses for static constructors and destructors.
 
    The constructor table begins at __CTOR_LIST__ and contains a count
    of the number of pointers (or -1 if the constructors are built in a
@@ -942,8 +1096,7 @@ scan_prog_file (prog_name, which_pass)
   while (fgets (buf, sizeof buf, inf) != (char *)0)
     {
       int ch, ch2;
-      char *start;
-      char *end;
+      char *name, *end;
 
       /* If it contains a constructor or destructor name, add the name
 	 to the appropriate list. */
@@ -953,44 +1106,28 @@ scan_prog_file (prog_name, which_pass)
 
       if (ch == '\0' || ch == '\n')
 	continue;
-
-      /* Record where the symbol name starts.  */
-      start = p;
-
-      while ((ch = *p) == '_')	/* Skip any extra '_' inserted.  */
-	p++;
-
-      /* Find end of symbol name and null-terminate it.  */
-      for (end = p; (ch2 = *end) != '\0' && !isspace (ch2); end++)
-	;
-      *end = '\0';
-
-      if (ch == 'G')
-	{
-	  if (! strncmp (p, "GLOBAL_$I$", 10))
-	    add_to_list (&constructors, start);
-
-	  else if (! strncmp (p, "GLOBAL_$D$", 10))
-	    add_to_list (&destructors, start);
-
-	  else				/* not a constructor or destructor */
-	    continue;
-	}
-
-      else if (ch == 's' && (p - start) >= 2)
-	{
-	  if (! strncmp (p, "sti__", 5))
-	    add_to_list (&constructors, start);
-
-	  else if (! strncmp (p, "std__", 5))
-	    add_to_list (&destructors, start);
-
-	  else				/* not a constructor or destructor */
-	    continue;
-	}
-
-      else
+  
+      name = p;
+      /* Find the end of the symbol name.
+	 Don't include `|', because Encore nm can tack that on the end.  */
+      for (end = p; (ch2 = *end) != '\0' && !isspace (ch2) && ch2 != '|';
+	   end++)
 	continue;
+
+      *end = '\0';
+      switch (is_ctor_dtor (name))
+	{
+	case 1:
+	  add_to_list (&constructors, name);
+	  break;
+
+	case 2:
+	  add_to_list (&destructors, name);
+	  break;
+
+	default:		/* not a constructor or destructor */
+	  continue;
+	}
 
       if (debug)
 	fprintf (stderr, "\t%s\n", buf);
@@ -1008,7 +1145,115 @@ scan_prog_file (prog_name, which_pass)
   signal (SIGQUIT, quit_handler);
 }
 
-#endif /* !OBJECT_FORMAT_ROSE */
+#endif /* OBJECT_FORMAT_NONE */
+
+
+/*
+ * COFF specific stuff.
+ */
+
+#ifdef OBJECT_FORMAT_COFF
+
+#if defined(EXTENDED_COFF)
+#   define GCC_SYMBOLS(X) (SYMHEADER(X).isymMax+SYMHEADER(X).iextMax)
+#   define GCC_SYMENT SYMR
+#   define GCC_OK_SYMBOL(X) ((X).st == stProc && (X).sc == scText)
+#   define GCC_SYMINC(X) (1)
+#   define GCC_SYMZERO(X) (SYMHEADER(X).isymMax)
+#else
+#   define GCC_SYMBOLS(X) (HEADER(ldptr).f_nsyms)
+#   define GCC_SYMENT SYMENT
+#   define GCC_OK_SYMBOL(X) \
+     (((X).n_sclass == C_EXT) && \
+        (((X).n_type & N_TMASK) == (DT_NON << N_BTSHFT) || \
+         ((X).n_type & N_TMASK) == (DT_FCN << N_BTSHFT)))
+#   define GCC_SYMINC(X) ((X).n_numaux+1)
+#   define GCC_SYMZERO(X) 0
+#endif
+
+extern char *ldgetname ();
+
+/* COFF version to scan the name list of the loaded program for
+   the symbols g++ uses for static constructors and destructors.
+
+   The constructor table begins at __CTOR_LIST__ and contains a count
+   of the number of pointers (or -1 if the constructors are built in a
+   separate section by the linker), followed by the pointers to the
+   constructor functions, terminated with a null pointer.  The
+   destructor table has the same format, and begins at __DTOR_LIST__.  */
+
+static void
+scan_prog_file (prog_name, which_pass)
+     char *prog_name;
+     enum pass which_pass;
+{
+  LDFILE *ldptr;
+  int sym_index, sym_count;
+
+  if (which_pass != PASS_FIRST)
+    return;
+
+  if ((ldptr = ldopen (prog_name, ldptr)) == NULL)
+    fatal ("%s: can't open as COFF file", prog_name);
+      
+  if (!ISCOFF (HEADER(ldptr).f_magic))
+    fatal ("%s: not a COFF file", prog_name);
+
+  sym_count = GCC_SYMBOLS (ldptr);
+  sym_index = GCC_SYMZERO (ldptr);
+  while (sym_index < sym_count)
+    {
+      GCC_SYMENT symbol;
+
+      if (ldtbread (ldptr, sym_index, &symbol) <= 0)
+	break;
+      sym_index += GCC_SYMINC (symbol);
+
+      if (GCC_OK_SYMBOL (symbol))
+	{
+	  char *name;
+
+	  if ((name = ldgetname (ldptr, &symbol)) == NULL)
+	    continue;		/* should never happen */
+
+#ifdef _AIX
+	  /* All AIX function names begin with a dot. */
+	  if (*name++ != '.')
+	    continue;
+#endif
+
+	  switch (is_ctor_dtor (name))
+	    {
+	    case 1:
+	      add_to_list (&constructors, name);
+	      break;
+
+	    case 2:
+	      add_to_list (&destructors, name);
+	      break;
+
+	    default:		/* not a constructor or destructor */
+	      continue;
+	    }
+
+#if !defined(EXTENDED_COFF)
+	  if (debug)
+	    fprintf (stderr, "\tsec=%d class=%d type=%s%o %s\n",
+		     symbol.n_scnum, symbol.n_sclass,
+		     (symbol.n_type ? "0" : ""), symbol.n_type,
+		     name);
+#else
+	  if (debug)
+	    fprintf (stderr, "\tiss = %5d, value = %5d, index = %5d, name = %s\n",
+		     symbol.iss, symbol.value, symbol.index, name);
+#endif
+	}
+    }
+
+  (void) ldclose(ldptr);
+}
+
+#endif /* OBJECT_FORMAT_COFF */
 
 
 /*
@@ -1023,7 +1268,7 @@ typedef union load_union
 {
   ldc_header_t			hdr;	/* common header */
   load_cmd_map_command_t	map;	/* map indexing other load cmds */
-  interpreter_command_t		iprtr;	/* interpereter pathname */
+  interpreter_command_t		iprtr;	/* interpreter pathname */
   strings_command_t		str;	/* load commands strings section */
   region_command_t		region;	/* region load command */
   reloc_command_t		reloc;	/* relocation section */
@@ -1193,7 +1438,7 @@ scan_prog_file (prog_name, which_pass)
 
 	  if (debug)
 	    {
-	      char *kind = "uknown";
+	      char *kind = "unknown";
 
 	      switch (load_hdr->sym.symc_kind)
 		{
@@ -1221,49 +1466,36 @@ scan_prog_file (prog_name, which_pass)
 	    {
 	      symbol_info_t *sym = ((symbol_info_t *) load_cmd->section) + i;
 	      char *name = sym->si_name.symbol_name + str_sect;
-	      char *name_start = name;
 
 	      if (name[0] != '_')
 		continue;
 
-	      while (*++name == '_')	/* skip any extra '_' inserted */
-		;
-
 	      if (rw)
 		{
-		  if (*name != 'm' || (name - name_start) < 2
-		      || strcmp (name, "main"))
+		  char *n = name;
+		  while (*n == '_')
+		    ++n;
+		  if (*n != 'm' || (n - name) < 2 || strcmp (n, "main"))
 		    continue;
 
 		  main_sym = sym;
 		}
-
-	      else if (*name == 'G')
-		{
-		  if (! strncmp (name, "GLOBAL_$I$", 10))
-		    add_to_list (&constructors, name_start);
-
-		  else if (! strncmp (name, "GLOBAL_$D$", 10))
-		    add_to_list (&destructors, name_start);
-
-		  else		/* not a constructor or destructor */
-		    continue;
-		}
-
-	      else if (*name == 's' && (name - name_start) > 2)
-		{
-		  if (! strncmp (name, "sti__", 5))
-		    add_to_list (&constructors, name_start);
-
-		  else if (! strncmp (name, "std__", 5))
-		    add_to_list (&destructors, name_start);
-
-		  else		/* not a constructor or destructor */
-		    continue;
-		}
-
 	      else
-		continue;
+		{
+		  switch (is_ctor_dtor (name))
+		    {
+		    case 1:
+		      add_to_list (&constructors, name);
+		      break;
+
+		    case 2:
+		      add_to_list (&destructors, name);
+		      break;
+
+		    default:	/* not a constructor or destructor */
+		      continue;
+		    }
+		}
 
 	      if (debug)
 		fprintf (stderr, "\ttype = 0x%.4x, sc = 0x%.2x, flags = 0x%.8x, name = %.30s\n",
@@ -1359,7 +1591,7 @@ scan_prog_file (prog_name, which_pass)
 
 
 /* Add a function table to the load commands to call a function
-   on initition or termination of the process.  */
+   on initiation or termination of the process.  */
 
 static void
 add_func_table (hdr_p, load_array, sym, type)

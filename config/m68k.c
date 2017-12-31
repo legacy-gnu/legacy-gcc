@@ -50,11 +50,11 @@ rtx legitimize_pic_address ();
 
 /* Emit a (use pic_offset_table_rtx) if we used PIC relocation in the 
    function at any time during the compilation process.  In the future 
-   we should try and eliminate the USE if we can easily deterine that 
+   we should try and eliminate the USE if we can easily determine that 
    all PIC references were deleted from the current function.  That would 
    save an address register */
    
-finalize_pic()
+finalize_pic ()
 {
   if (flag_pic && current_function_uses_pic_offset_table)
     emit_insn (gen_rtx (USE, VOIDmode, pic_offset_table_rtx));
@@ -92,30 +92,30 @@ output_function_prologue (stream, size)
       if (fsize < 0x8000 && !TARGET_68040)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tlink.w %s,%I%d\n",
+	  asm_fprintf (stream, "\tlink.w %s,%0I%d\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #else
-	  asm_fprintf (stream, "\tlink %s,%I%d\n",
+	  asm_fprintf (stream, "\tlink %s,%0I%d\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #endif
 	}
       else if (TARGET_68020)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tlink.l %s,%I%d\n",
+	  asm_fprintf (stream, "\tlink.l %s,%0I%d\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #else
-	  asm_fprintf (stream, "\tlink %s,%I%d\n",
+	  asm_fprintf (stream, "\tlink %s,%0I%d\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #endif
 	}
       else
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tlink.w %s,%I0\n\tadd.l %I%d,%Rsp\n",
+	  asm_fprintf (stream, "\tlink.w %s,%0I0\n\tadd.l %0I%d,%Rsp\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #else
-	  asm_fprintf (stream, "\tlink %s,%I0\n\taddl %I%d,%Rsp\n",
+	  asm_fprintf (stream, "\tlink %s,%0I0\n\taddl %0I%d,%Rsp\n",
 		       reg_names[FRAME_POINTER_REGNUM], -fsize);
 #endif
 	}
@@ -126,17 +126,17 @@ output_function_prologue (stream, size)
       if (fsize + 4 < 0x8000)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tadd.w %I%d,%Rsp\n", - (fsize + 4));
+	  asm_fprintf (stream, "\tadd.w %0I%d,%Rsp\n", - (fsize + 4));
 #else
-	  asm_fprintf (stream, "\taddw %I%d,%Rsp\n", - (fsize + 4));
+	  asm_fprintf (stream, "\taddw %0I%d,%Rsp\n", - (fsize + 4));
 #endif
 	}
       else
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tadd.l %I%d,%Rsp\n", - (fsize + 4));
+	  asm_fprintf (stream, "\tadd.l %0I%d,%Rsp\n", - (fsize + 4));
 #else
-	  asm_fprintf (stream, "\taddl %I%d,%Rsp\n", - (fsize + 4));
+	  asm_fprintf (stream, "\taddl %0I%d,%Rsp\n", - (fsize + 4));
 #endif
 	}
     }
@@ -159,9 +159,9 @@ output_function_prologue (stream, size)
   if ((mask & 0xff) != 0)
     {
 #ifdef MOTOROLA
-      asm_fprintf (stream, "\tfmovm %I0x%x,-(%Rsp)\n", mask & 0xff);
+      asm_fprintf (stream, "\tfmovm %0I0x%x,-(%Rsp)\n", mask & 0xff);
 #else
-      asm_fprintf (stream, "\tfmovem %I0x%x,%Rsp@-\n", mask & 0xff);
+      asm_fprintf (stream, "\tfmovem %0I0x%x,%Rsp@-\n", mask & 0xff);
 #endif
     }
   mask = 0;
@@ -190,7 +190,7 @@ output_function_prologue (stream, size)
         if (mask & (1 << i))
           asm_fprintf (stream,
 #ifdef MOTOROLA
-		       "\tmov.l %s,-(%Rsp)\n",
+		       "\t%Omove.l %s,-(%Rsp)\n",
 #else
 		       "\tmovel %s,%Rsp@-\n",
 #endif
@@ -199,21 +199,21 @@ output_function_prologue (stream, size)
   else if (mask)
     {
 #ifdef MOTOROLA
-      asm_fprintf (stream, "\tmovm.l %I0x%x,-(%Rsp)\n", mask);
+      asm_fprintf (stream, "\tmovm.l %0I0x%x,-(%Rsp)\n", mask);
 #else
-      asm_fprintf (stream, "\tmoveml %I0x%x,%Rsp@-\n", mask);
+      asm_fprintf (stream, "\tmoveml %0I0x%x,%Rsp@-\n", mask);
 #endif
     }
   if (flag_pic && current_function_uses_pic_offset_table)
     {
 #ifdef MOTOROLA
-      asm_fprintf (stream, "\tmov.l %I__GLOBAL_OFFSET_TABLE_, %s\n",
+      asm_fprintf (stream, "\t%Omove.l %0I__GLOBAL_OFFSET_TABLE_, %s\n",
 		   reg_names[PIC_OFFSET_TABLE_REGNUM]);
       asm_fprintf (stream, "\tlea.l (%Rpc,%s.l),%s\n",
 		   reg_names[PIC_OFFSET_TABLE_REGNUM],
 		   reg_names[PIC_OFFSET_TABLE_REGNUM]);
 #else
-      asm_fprintf (stream, "\tmovel %I__GLOBAL_OFFSET_TABLE_, %s\n",
+      asm_fprintf (stream, "\tmovel %0I__GLOBAL_OFFSET_TABLE_, %s\n",
 		   reg_names[PIC_OFFSET_TABLE_REGNUM]);
       asm_fprintf (stream, "\tlea %Rpc@(0,%s:l),%s\n",
 		   reg_names[PIC_OFFSET_TABLE_REGNUM],
@@ -268,7 +268,12 @@ output_function_epilogue (stream, size)
   if (GET_CODE (insn) == NOTE)
     insn = prev_nonnote_insn (insn);
   if (insn && GET_CODE (insn) == BARRIER)
-    return;
+    {
+      /* Output just a no-op so that debuggers don't get confused
+	 about which function the pc is in at this address.  */
+      asm_fprintf (stream, "\tnop\n");
+      return;
+    }
 
 #ifdef FUNCTION_EXTRA_EPILOGUE
   FUNCTION_EXTRA_EPILOGUE (stream, size);
@@ -303,9 +308,9 @@ output_function_epilogue (stream, size)
       && (mask || fmask || fpoffset))
     {
 #ifdef MOTOROLA
-      asm_fprintf (stream, "\tmov.l %I%d,%Ra0\n", -fsize);
+      asm_fprintf (stream, "\t%Omove.l %0I%d,%Ra0\n", -fsize);
 #else
-      asm_fprintf (stream, "\tmovel %I%d,%Ra0\n", -fsize);
+      asm_fprintf (stream, "\tmovel %0I%d,%Ra0\n", -fsize);
 #endif
       fsize = 0, big = 1;
     }
@@ -325,7 +330,7 @@ output_function_epilogue (stream, size)
             if (big)
 	      {
 #ifdef MOTOROLA
-		asm_fprintf (stream, "\tmov.l -%d(%s,%Ra0.l),%s\n",
+		asm_fprintf (stream, "\t%Omove.l -%d(%s,%Ra0.l),%s\n",
 			     offset + fsize,
 			     reg_names[FRAME_POINTER_REGNUM],
 			     reg_names[i]);
@@ -338,7 +343,7 @@ output_function_epilogue (stream, size)
             else if (! frame_pointer_needed)
 	      {
 #ifdef MOTOROLA
-		asm_fprintf (stream, "\tmov.l (%Rsp)+,%s\n",
+		asm_fprintf (stream, "\t%Omove.l (%Rsp)+,%s\n",
 			     reg_names[i]);
 #else
 		asm_fprintf (stream, "\tmovel %Rsp@+,%s\n",
@@ -348,7 +353,7 @@ output_function_epilogue (stream, size)
             else
 	      {
 #ifdef MOTOROLA
-		asm_fprintf (stream, "\tmov.l -%d(%s),%s\n",
+		asm_fprintf (stream, "\t%Omove.l -%d(%s),%s\n",
 			     offset + fsize,
 			     reg_names[FRAME_POINTER_REGNUM],
 			     reg_names[i]);
@@ -366,12 +371,12 @@ output_function_epilogue (stream, size)
       if (big)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tmovm.l -%d(%s,%Ra0.l),%I0x%x\n",
+	  asm_fprintf (stream, "\tmovm.l -%d(%s,%Ra0.l),%0I0x%x\n",
 		       offset + fsize,
 		       reg_names[FRAME_POINTER_REGNUM],
 		       mask);
 #else
-	  asm_fprintf (stream, "\tmoveml %s@(-%d,%Ra0:l),%I0x%x\n",
+	  asm_fprintf (stream, "\tmoveml %s@(-%d,%Ra0:l),%0I0x%x\n",
 		       reg_names[FRAME_POINTER_REGNUM],
 		       offset + fsize, mask);
 #endif
@@ -379,20 +384,20 @@ output_function_epilogue (stream, size)
       else if (! frame_pointer_needed)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tmovm.l (%Rsp)+,%I0x%x\n", mask);
+	  asm_fprintf (stream, "\tmovm.l (%Rsp)+,%0I0x%x\n", mask);
 #else
-	  asm_fprintf (stream, "\tmoveml %Rsp@+,%I0x%x\n", mask);
+	  asm_fprintf (stream, "\tmoveml %Rsp@+,%0I0x%x\n", mask);
 #endif
 	}
       else
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tmovm.l -%d(%s),%I0x%x\n",
+	  asm_fprintf (stream, "\tmovm.l -%d(%s),%0I0x%x\n",
 		       offset + fsize,
 		       reg_names[FRAME_POINTER_REGNUM],
 		       mask);
 #else
-	  asm_fprintf (stream, "\tmoveml %s@(-%d),%I0x%x\n",
+	  asm_fprintf (stream, "\tmoveml %s@(-%d),%0I0x%x\n",
 		       reg_names[FRAME_POINTER_REGNUM],
 		       offset + fsize, mask);
 #endif
@@ -403,12 +408,12 @@ output_function_epilogue (stream, size)
       if (big)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tfmovm -%d(%s,%Ra0.l),%I0x%x\n",
+	  asm_fprintf (stream, "\tfmovm -%d(%s,%Ra0.l),%0I0x%x\n",
 		       foffset + fsize,
 		       reg_names[FRAME_POINTER_REGNUM],
 		       fmask);
 #else
-	  asm_fprintf (stream, "\tfmovem %s@(-%d,%Ra0:l),%I0x%x\n",
+	  asm_fprintf (stream, "\tfmovem %s@(-%d,%Ra0:l),%0I0x%x\n",
 		       reg_names[FRAME_POINTER_REGNUM],
 		       foffset + fsize, fmask);
 #endif
@@ -416,20 +421,20 @@ output_function_epilogue (stream, size)
       else if (! frame_pointer_needed)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tfmovm (%Rsp)+,%I0x%x\n", fmask);
+	  asm_fprintf (stream, "\tfmovm (%Rsp)+,%0I0x%x\n", fmask);
 #else
-	  asm_fprintf (stream, "\tfmovem %Rsp@+,%I0x%x\n", fmask);
+	  asm_fprintf (stream, "\tfmovem %Rsp@+,%0I0x%x\n", fmask);
 #endif
 	}
       else
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tfmovm -%d(%s),%I0x%x\n",
+	  asm_fprintf (stream, "\tfmovm -%d(%s),%0I0x%x\n",
 		       foffset + fsize,
 		       reg_names[FRAME_POINTER_REGNUM],
 		       fmask);
 #else
-	  asm_fprintf (stream, "\tfmovem %s@(-%d),%I0x%x\n",
+	  asm_fprintf (stream, "\tfmovem %s@(-%d),%0I0x%x\n",
 		       reg_names[FRAME_POINTER_REGNUM],
 		       foffset + fsize, fmask);
 #endif
@@ -485,22 +490,22 @@ output_function_epilogue (stream, size)
       if (fsize + 4 < 0x8000)
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tadd.w %I%d,%Rsp\n", fsize + 4);
+	  asm_fprintf (stream, "\tadd.w %0I%d,%Rsp\n", fsize + 4);
 #else
-	  asm_fprintf (stream, "\taddw %I%d,%Rsp\n", fsize + 4);
+	  asm_fprintf (stream, "\taddw %0I%d,%Rsp\n", fsize + 4);
 #endif
 	}
       else
 	{
 #ifdef MOTOROLA
-	  asm_fprintf (stream, "\tadd.l %I%d,%Rsp\n", fsize + 4);
+	  asm_fprintf (stream, "\tadd.l %0I%d,%Rsp\n", fsize + 4);
 #else
-	  asm_fprintf (stream, "\taddl %I%d,%Rsp\n", fsize + 4);
+	  asm_fprintf (stream, "\taddl %0I%d,%Rsp\n", fsize + 4);
 #endif
 	}
     }
   if (current_function_pops_args)
-    asm_fprintf (stream, "\trtd %I%d\n", current_function_pops_args);
+    asm_fprintf (stream, "\trtd %0I%d\n", current_function_pops_args);
   else
     fprintf (stream, "\trts\n");
 }
@@ -513,6 +518,155 @@ not_sp_operand (op, mode)
      enum machine_mode mode;
 {
   return op != stack_pointer_rtx && general_operand (op, mode);
+}
+
+/* Return TRUE if X is a valid comparison operator for the dbcc 
+   instruction.  
+
+   Note it rejects floating point comparison operators.
+   (In the future we could use Fdbcc).
+
+   It also rejects some comparisons when CC_NO_OVERFLOW is set.  */
+   
+int
+valid_dbcc_comparison_p (x, mode)
+     rtx x;
+     enum machine_mode mode;
+{
+  /* We could add support for these in the future */
+  if (cc_prev_status.flags & CC_IN_68881)
+    return 0;
+
+  switch (GET_CODE (x))
+    {
+
+      case EQ: case NE: case GTU: case LTU:
+      case GEU: case LEU:
+        return 1;
+
+      /* Reject some when CC_NO_OVERFLOW is set.  This may be over
+         conservative */
+      case GT: case LT: case GE: case LE:
+        return ! (cc_prev_status.flags & CC_NO_OVERFLOW);
+      default:
+        return 0;
+    }
+}
+
+/* Output a dbCC; jCC sequence.  Note we do not handle the 
+   floating point version of this sequence (Fdbcc).  We also
+   do not handle alternative conditions when CC_NO_OVERFLOW is
+   set.  It is assumed that valid_dbcc_comparison_p will kick
+   those out before we get here.  */
+
+output_dbcc_and_branch (operands)
+     rtx *operands;
+{
+ 
+  switch (GET_CODE (operands[3]))
+    {
+      case EQ:
+#ifdef MOTOROLA
+        output_asm_insn ("dbeq %0,%l1\n\tjbeq %l2", operands);
+#else
+        output_asm_insn ("dbeq %0,%l1\n\tjeq %l2", operands);
+#endif
+        break;
+
+      case NE:
+#ifdef MOTOROLA
+        output_asm_insn ("dbne %0,%l1\n\tjbne %l2", operands);
+#else
+        output_asm_insn ("dbne %0,%l1\n\tjne %l2", operands);
+#endif
+        break;
+
+      case GT:
+#ifdef MOTOROLA
+        output_asm_insn ("dbgt %0,%l1\n\tjbgt %l2", operands);
+#else
+        output_asm_insn ("dbgt %0,%l1\n\tjgt %l2", operands);
+#endif
+        break;
+
+      case GTU:
+#ifdef MOTOROLA
+        output_asm_insn ("dbhi %0,%l1\n\tjbhi %l2", operands);
+#else
+        output_asm_insn ("dbhi %0,%l1\n\tjhi %l2", operands);
+#endif
+        break;
+
+      case LT:
+#ifdef MOTOROLA
+        output_asm_insn ("dblt %0,%l1\n\tjblt %l2", operands);
+#else
+        output_asm_insn ("dblt %0,%l1\n\tjlt %l2", operands);
+#endif
+        break;
+
+      case LTU:
+#ifdef MOTOROLA
+        output_asm_insn ("dbcs %0,%l1\n\tjbcs %l2", operands);
+#else
+        output_asm_insn ("dbcs %0,%l1\n\tjcs %l2", operands);
+#endif
+        break;
+
+      case GE:
+#ifdef MOTOROLA
+        output_asm_insn ("dbge %0,%l1\n\tjbge %l2", operands);
+#else
+        output_asm_insn ("dbge %0,%l1\n\tjge %l2", operands);
+#endif
+        break;
+
+      case GEU:
+#ifdef MOTOROLA
+        output_asm_insn ("dbcc %0,%l1\n\tjbcc %l2", operands);
+#else
+        output_asm_insn ("dbcc %0,%l1\n\tjcc %l2", operands);
+#endif
+        break;
+
+      case LE:
+#ifdef MOTOROLA
+        output_asm_insn ("dble %0,%l1\n\tjble %l2", operands);
+#else
+        output_asm_insn ("dble %0,%l1\n\tjle %l2", operands);
+#endif
+        break;
+
+      case LEU:
+#ifdef MOTOROLA
+        output_asm_insn ("dbls %0,%l1\n\tjbls %l2", operands);
+#else
+        output_asm_insn ("dbls %0,%l1\n\tjls %l2", operands);
+#endif
+        break;
+
+      default:
+	abort ();
+    }
+
+  /* If the decrement is to be done in SImode, then we have
+     to compensate for the fact that dbcc decrements in HImode. */
+  switch (GET_MODE (operands[0]))
+    {
+      case SImode:
+#ifdef MOTOROLA
+        output_asm_insn ("clr%.w %0\n\tsubq%.l %#1,%0\n\tjbpl %l1", operands);
+#else
+        output_asm_insn ("clr%.w %0\n\tsubq%.l %#1,%0\n\tjpl %l1", operands);
+#endif
+        break;
+
+      case HImode:
+        break;
+
+      default:
+        abort ();
+    }
 }
 
 char *
@@ -697,7 +851,7 @@ singlemove_string (operands)
       && INTVAL (operands[1]) < 128
       && INTVAL (operands[1]) >= -128)
     {
-#if defined(MOTOROLA) && !defined(CRDS)
+#if defined (MOTOROLA) && !defined (CRDS)
       return "moveq%.l %1,%0";
 #else
       return "moveq %1,%0";
@@ -1018,7 +1172,7 @@ output_move_const_double (operands)
      rtx *operands;
 {
 #ifdef SUPPORT_SUN_FPA
-  if (TARGET_FPA && FPA_REG_P(operands[0]))
+  if (TARGET_FPA && FPA_REG_P (operands[0]))
     {
       int code = standard_sun_fpa_constant_p (operands[1]);
 
@@ -1244,7 +1398,7 @@ standard_sun_fpa_constant_p (x)
 /*
  * Stuff that looks different if it's single or double
  */
-  if (GET_MODE(x) == SFmode)
+  if (GET_MODE (x) == SFmode)
     {
       if (d == S_E)
 	return 0x8;
@@ -1376,7 +1530,7 @@ print_operand (file, op, letter)
     }
   else if (letter == '#')
     {
-      asm_fprintf (file, "%I");
+      asm_fprintf (file, "%0I");
     }
   else if (letter == '-')
     {
@@ -1404,11 +1558,7 @@ print_operand (file, op, letter)
     }
   else if (letter == '!')
     {
-#ifdef MOTOROLA
-      asm_fprintf (file, "(%Rcc)");
-#else
-      asm_fprintf (file, "%Rcc");
-#endif
+      asm_fprintf (file, "%Rfpcr");
     }
   else if (letter == '$')
     {
@@ -1452,7 +1602,7 @@ print_operand (file, op, letter)
     }
 #ifdef SUPPORT_SUN_FPA
   else if ((letter == 'y' || letter == 'w')
-	   && GET_CODE(op) == CONST_DOUBLE
+	   && GET_CODE (op) == CONST_DOUBLE
 	   && (i = standard_sun_fpa_constant_p (op)))
     {
       fprintf (file, "%%%d", i & 0x1ff);
@@ -1474,7 +1624,7 @@ print_operand (file, op, letter)
     }
   else
     {
-      asm_fprintf (file, "%I"); output_addr_const (file, op);
+      asm_fprintf (file, "%0I"); output_addr_const (file, op);
     }
 }
 

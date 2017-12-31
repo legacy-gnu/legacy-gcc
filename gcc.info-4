@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -24,6 +24,39 @@ approved by the Free Software Foundation instead of in the original
 English.
 
 
+File: gcc.info,  Node: Unos Install,  Next: VMS Install,  Prev: 3b1 Install,  Up: Installation
+
+Installing GNU CC on Unos
+=========================
+
+   Use `configure unos' for building on Unos.
+
+   The Unos assembler is named `casm' instead of `as'.  For some
+strange reason linking `/bin/as' to `/bin/casm' changes the behavior,
+and does not work.  So, when installing GNU CC, you should install the
+following script as `as' in the subdirectory where the passes of GCC
+are installed:
+
+     #!/bin/sh
+     casm $*
+
+   The default Unos library is named `libunos.a' instead of `libc.a'. 
+To allow GNU CC to function, either change all references to `-lc' in
+`gcc.c' to `-lunos' or link `/lib/libc.a' to `/lib/libunos.a'.
+
+   When compiling GNU CC with the standard compiler, to overcome bugs
+in the support of `alloca', do not use `-O' when making stage 2.  Then
+use the stage 2 compiler with `-O' to make the stage 3 compiler.  This
+compiler will have the same characteristics as the usual stage 2
+compiler on other systems.  Use it to make a stage 4 compiler and
+compare that with stage 3 to verify proper compilation.
+
+   Unos uses memory segmentation instead of demand paging, so you will
+need a lot of memory.  5 Mb is barely enough if no other tasks are
+running.  If linking `cc1' fails, try putting the object files into a
+library and linking from that library.
+
+
 File: gcc.info,  Node: VMS Install,  Prev: Unos Install,  Up: Installation
 
 Installing GNU CC on VMS
@@ -41,8 +74,10 @@ VMS CLD file for GNU CC as follows:
      `gcc-cc1', etc.) and the C include files are kept.  This should
      be done with the commands:
 
-          $ assign /super /system disk:[gcc.] gnu_cc
-          $ assign /super /system disk:[gcc.include.] gnu_cc_include
+          $ assign /system /translation=concealed -
+            disk:[gcc.] gnu_cc
+          $ assign /system /translation=concealed -
+            disk:[gcc.include.] gnu_cc_include
 
      with the appropriate disk and directory names.  These commands
      can be placed in your system startup file so they will be
@@ -52,7 +87,9 @@ VMS CLD file for GNU CC as follows:
 
   2. Install the `GCC' command with the command line:
 
-          $ set command /table=sys$library:dcltables gnu_cc:[000000]gcc
+          $ set command /table=sys$common:[syslib]dcltables -
+            /output=sys$common:[syslib]dcltables gnu_cc:[000000]gcc
+          $ install replace sys$common:[syslib]dcltables
 
   3. To install the help file, do the following:
 
@@ -69,24 +106,15 @@ perform the following steps:
      directory where the preprocessor will search for the C++ header
      files.  This can be done with the command:
 
-          $ assign /super /system disk:[gcc.gxx_include.] gnu_gxx_include
+          $ assign /system /translation=concealed -
+            disk:[gcc.gxx_include.] gnu_gxx_include
 
      with the appropriate disk and directory name.  If you are going
-     to be using libg++, you should place the libg++ header files in
-     the directory that this logical name points to.
+     to be using libg++, this is where the libg++ install procedure
+     will install the libg++ header files.
 
   2. Obtain the file `gcc-cc1plus.exe', and place this in the same
      directory that `gcc-cc1.exe' is kept.
-
-  3. You will need several library functions which are used to call the
-     constructors and destructors for global objects.  These functions
-     are part of the libg++ distribution, and you will automatically
-     get them if you install libg++.
-
-        If you are not planning to install libg++, you will need to
-     obtain the files `gxx-startup-1.mar' and `gstart.cc' from the
-     libg++ distribution, compile them, and supply them to the linker
-     whenever you link a C++ program.
 
         The GNU C++ compiler can be invoked with a command like `gcc
      /plus /verbose file.cc', which is equivalent to the command `g++
@@ -112,20 +140,47 @@ get to recompile the sources.  If you must recompile, here is how:
      to the directories where the Bison executable is kept.  This
      should be done with the command:
 
-          $ assign /super /system disk:[bison.] gnu_bison
+          $ assign /system /translation=concealed -
+            disk:[bison.] gnu_bison
 
         You may, if you choose, use the `INSTALL_BISON.COM' script in
      the `[BISON]' directory.
 
   3. Install the `BISON' command with the command line:
 
-          $ set command /table=sys$library:dcltables gnu_bison:[000000]bison
+          $ set command /table=sys$common:[syslib]dcltables -
+            /output=sys$common:[syslib]dcltables -
+            gnu_bison:[000000]bison
+          $ install replace sys$common:[syslib]dcltables
 
   4. Type `@make-gcc' to recompile everything (alternatively, you may
      submit the file `make-gcc.com' to a batch queue).  If you wish to
      build the GNU C++ compiler as well as the GNU CC compiler, you
      must first edit `make-gcc.com' and follow the instructions that
      appear in the comments.
+
+  5. In order to use GCC, you need a library of functions which GCC
+     compiled code will call to perform certain tasks, and these
+     functions are defined in the file `libgcc2.c'.  To compile this
+     you should use the command procedure `make-l2.com', which will
+     generate the library `libgcc2.olb'.  `libgcc2.olb' should be
+     built using the compiler built from the same distribution that
+     `libgcc2.c' came from, and `make-gcc.com' will automatically do
+     all of this for you.
+
+        To install the library, use the following commands:
+
+          $ lib gnu_cc:[000000]gcclib/delete=(new,eprintf)
+          $ lib libgcc2/extract=*/output=libgcc2.obj
+          $ lib gnu_cc:[000000]gcclib libgcc2.obj
+
+        The first command simply removes old modules that will be
+     replaced with modules from libgcc2.  If the VMS librarian
+     complains about those modules not being present, simply ignore
+     the message and continue on with the next command.
+
+        Whenever you update the compiler on your system, you should
+     also update the library with the above procedure.
 
         *If you are building GNU CC with a previous version of GNU CC,
      you also should check to see that you have the newest version of
@@ -182,6 +237,25 @@ installing or using GNU CC.
 
    * On certain systems, defining certain environment variables such as
      `CC' can interfere with the functioning of `make'.
+
+   * If you encounter seemingly strange errors when trying to build the
+     compiler in a directory other than the source directory, make
+     sure you have done all the necessary preparations.  *Note Other
+     Dir::.
+
+   * In previous versions of GNU CC, the `gcc' driver program looked
+     for `as' and `ld' in various places such as files beginning with
+     `/usr/local/lib/gcc-'.  GNU CC version 2 looks for them in the
+     directory `/usr/local/lib/gcc/TARGET/VERSION'.
+
+     Thus, to use a version of `as' or `ld' that is not the system
+     default, for example `gas' or GNU `ld', you must put them in that
+     directory (or make links to them from that directory).
+
+   * Some commands executed when making the compiler may fail (return a
+     non-zero status) and be ignored by `make'.  These failes, which
+     are often due to files that were not found, are expected, and can
+     safely be ignored.
 
    * Cross compilation can run into trouble for certain machines
      because some target machines' assemblers require floating point
@@ -245,6 +319,17 @@ installing or using GNU CC.
      It's not worth being incompatible with ANSI C just to avoid an
      error for the example shown above.
 
+   * Programs that use preprocessor directives in the middle of macro
+     arguments do not work with GNU CC.  For example, a program like
+     this will not work:
+
+          foobar (
+          #define luser
+                  hack)
+
+     ANSI C does not permit such a construct, and it does not seem
+     worth the trouble of implementing, given that it is not required.
+
    * Certain local variables aren't recognized by debuggers when you
      compile with optimization.
 
@@ -264,10 +349,24 @@ installing or using GNU CC.
      (following the ANSI C rules) its data type is `unsigned long int'. 
      Negating this value yields 2147483648 again.
 
+   * The GNU assembler (GAS) does not support PIC.  To generate PIC
+     code, you must use some other assembler, such as `/bin/as'.
+
    * Sometimes on a Sun 4 you may observe a crash in the program
-     `genflags' while building GCC.  This is said to be due to a bug in
-     `sh'.  You can probably get around it by running `genflags'
-     manually and then retrying the `make'.
+     `genflags' or `genoutput' while building GCC.  This is said to be
+     due to a bug in `sh'.  You can probably get around it by running
+     `genflags' or `genoutput' manually and then retrying the `make'.
+
+   * On a Sun, linking using GNU CC fails to find a shared library and
+     reports that the library doesn't exist at all.
+
+     This happens if you are using the GNU linker, because it does only
+     static linking and looks only for unshared libraries.  If you
+     have a shared library with no unshared counterpart, the GNU
+     linker won't find anything.
+
+     We hope to make a linker which supports Sun shared libraries, but
+     please don't ask when it will be finished--we don't know.
 
    * On some versions of Ultrix, the system supplied compiler cannot
      compile `cp-parse.c' because it cannot handle so many cases in a
@@ -277,6 +376,51 @@ installing or using GNU CC.
    * On some BSD systems including some versions of Ultrix, use of
      profiling causes static variable destructors (currently used only
      in C++) not to be run.
+
+   * On HP 9000 series 300 or 400 running HP-UX release 8.0, there is
+     a bug in the assembler that must be fixed before GNU CC can be
+     built.  This bug manifests itself during the first stage of
+     compilation, while building `libgcc2.a':
+
+          _floatdisf
+          cc1: warning: `-g' option not supported on this version of GCC
+          cc1: warning: `-g1' option not supported on this version of GCC
+          ./gcc: Internal compiler error: program as got fatal signal 11
+
+     A patched version of the assembler is available by anonymous ftp
+     from `altdorf.ai.mit.edu' as the file
+     `archive/cph/hpux-8.0-assembler'.  If you have HP software
+     support, the patch can also be obtained directly from HP, as
+     described in the following note:
+
+          This is the patched assembler, to patch SR#1653-010439,
+          where the assembler aborts on floating point constants.
+
+          The bug is not really in the assembler, but in the shared
+          library version of the function "cvtnum(3c)".  The bug on
+          "cvtnum(3c)" is SR#4701-078451.  Anyway, the attached
+          assembler uses the archive library version of "cvtnum(3c)"
+          and thus does not exhibit the bug.
+
+     This patch is also known as PHCO_0800.
+
+   * The current version of the assembler (`/bin/as') for the RS/6000
+     has certain problems that prevent the `-g' option in GCC from
+     working.
+
+     IBM has produced a fixed version of the assembler.  The
+     replacement assembler is not a standard component of either AIX
+     3.1.5 or AIX 3.2, but is expected to become standard in a future
+     distribution.  This assembler is available from IBM as APAR
+     IX22829.  See the file `README.RS6000' for more details on how to
+     obtain this assembler.
+
+   * Sun forgot to include a static version of `libdl.a' with some
+     versions of SunOS (mainly 4.1).  This results in undefined
+     symbols when linking static binaries (that is, if you use
+     `-static').  If you see undefined symbols `_dlclose', `_dlsym' or
+     `_dlopen' when linking, compile and link against the file
+     `mit/util/misc/dlsym.c' from the MIT version of X windows.
 
    * On the IBM RS/6000, compiling code of the form
 
@@ -290,6 +434,11 @@ installing or using GNU CC.
      Although this behavior differs from most other systems, it is not
      a bug because redefining an `extern' variable as `static' is
      undefined in ANSI C.
+
+   * On VMS, GAS versions 1.38.1 and earlier may cause spurious warning
+     messages from the linker.  These warning messages complain of
+     mismatched psect attributes.  You can ignore them.  *Note VMS
+     Install::.
 
    For additional common problems, see *Note Incompatibilities::.
 
@@ -928,7 +1077,7 @@ number belongs:
 
    This is quite different from what `(int)f = 1' would do--that would
 convert 1 to floating point and store it.  Rather than cause this
-inconsistancy, we think it is better to prohibit use of `&' on a cast.
+inconsistency, we think it is better to prohibit use of `&' on a cast.
 
    If you really do want an `int *' pointer with the address of `f',
 you can simply write `(int *)&f'.
@@ -1130,186 +1279,5 @@ example of an initializer with run-time varying elements:
        float beat_freqs[2] = { f-g, f+g };
        ...
      }
-
-
-File: gcc.info,  Node: Constructors,  Next: Labeled Elements,  Prev: Initializers,  Up: Extensions
-
-Constructor Expressions
-=======================
-
-   GNU C supports constructor expressions.  A constructor looks like a
-cast containing an initializer.  Its value is an object of the type
-specified in the cast, containing the elements specified in the
-initializer.
-
-   Usually, the specified type is a structure.  Assume that `struct
-foo' and `structure' are declared as shown:
-
-     struct foo {int a; char b[2];} structure;
-
-Here is an example of constructing a `struct foo' with a constructor:
-
-     structure = ((struct foo) {x + y, 'a', 0});
-
-This is equivalent to writing the following:
-
-     {
-       struct foo temp = {x + y, 'a', 0};
-       structure = temp;
-     }
-
-   You can also construct an array.  If all the elements of the
-constructor are (made up of) simple constant expressions, suitable for
-use in initializers, then the constructor is an lvalue and can be
-coerced to a pointer to its first element, as shown here:
-
-     char **foo = (char *[]) { "x", "y", "z" };
-
-   Array constructors whose elements are not simple constants are not
-very useful, because the constructor is not an lvalue.  There are only
-two valid ways to use it: to subscript it, or initialize an array
-variable with it.  The former is probably slower than a `switch'
-statement, while the latter does the same thing an ordinary C
-initializer would do.  Here is an example of subscripting an array
-constructor:
-
-     output = ((int[]) { 2, x, 28 }) [input];
-
-   Constructor expressions for scalar types and union types are is
-also allowed, but then the constructor expression is equivalent to a
-cast.
-
-
-File: gcc.info,  Node: Labeled Elements,  Next: Cast to Union,  Prev: Constructors,  Up: Extensions
-
-Labeled Elements in Initializers
-================================
-
-   Standard C requires the elements of an initializer to appear in a
-fixed order, the same as the order of the elements in the array or
-structure being initialized.
-
-   In GNU C you can give the elements in any order, specifying the
-array indices or structure field names they apply to.
-
-   To specify an array index, write `[INDEX]' before the element
-value.  For example,
-
-     int a[6] = { [4] 29, [2] 15 };
-
-is equivalent to
-
-     int a[6] = { 0, 0, 15, 0, 29, 0 };
-
-The index values must be constant expressions, even if the array being
-initialized is automatic.
-
-   In a structure initializer, specify the name of a field to
-initialize with `FIELDNAME:' before the element value.  For example,
-given the following structure,
-
-     struct point { int x, y; };
-
-the following initialization
-
-     struct point p = { y: yvalue, x: xvalue };
-
-is equivalent to
-
-     struct point p = { xvalue, yvalue };
-
-   You can also use an element label when initializing a union, to
-specify which element of the union should be used.  For example,
-
-     union foo { int i; double d; };
-     
-     union foo f = { d: 4 };
-
-will convert 4 to a `double' to store it in the union using the second
-element.  By contrast, casting 4 to type `union foo' would store it
-into the union as the integer `i', since it is an integer.  (*Note
-Cast to Union::.)
-
-   You can combine this technique of naming elements with ordinary C
-initialization of successive elements.  Each initializer element that
-does not have a label applies to the next consecutive element of the
-array or structure.  For example,
-
-     int a[6] = { [1] v1, v2, [4] v4 };
-
-is equivalent to
-
-     int a[6] = { 0, v1, v2, 0, v4, 0 };
-
-   Labeling the elements of an array initializer is especially useful
-when the indices are characters or belong to an `enum' type.  For
-example:
-
-     int whitespace[256]
-       = { [' '] 1, ['\t'] 1, ['\h'] 1,
-           ['\f'] 1, ['\n'] 1, ['\r'] 1 };
-
-
-File: gcc.info,  Node: Case Ranges,  Next: Function Attributes,  Prev: Cast to Union,  Up: Extensions
-
-Case Ranges
-===========
-
-   You can specify a range of consecutive values in a single `case'
-label, like this:
-
-     case LOW ... HIGH:
-
-This has the same effect as the proper number of individual `case'
-labels, one for each integer value from LOW to HIGH, inclusive.
-
-   This feature is especially useful for ranges of ASCII character
-codes:
-
-     case 'A' ... 'Z':
-
-   *Be careful:* Write spaces around the `...', for otherwise it may
-be parsed wrong when you use it with integer values.  For example,
-write this:
-
-     case 1 ... 5:
-
-rather than this:
-
-     case 1...5:
-
-
-File: gcc.info,  Node: Cast to Union,  Next: Case Ranges,  Prev: Labeled Elements,  Up: Extensions
-
-Cast to a Union Type
-====================
-
-   A cast to union type is like any other cast, except that the type
-specified is a union type.  You can specify the type either with
-`union TAG' or with a typedef name.
-
-   The types that may be cast to the union type are those of the
-members of the union.  Thus, given the following union and variables:
-
-     union foo { int i; double d; };
-     int x;
-     double y;
-
-both `x' and `y' can be cast to type `union' foo.
-
-   Using the cast as the right-hand side of an assignment to a
-variable of union type is equivalent to storing in a member of the
-union:
-
-     union foo u;
-     ...
-     u = (union foo) x  ==  u.i = x
-     u = (union foo) y  ==  u.d = y
-
-   You can also use the union cast as a function argument:
-
-     void hack (union foo);
-     ...
-     hack ((union foo) x);
 
 

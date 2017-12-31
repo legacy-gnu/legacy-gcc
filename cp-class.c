@@ -89,7 +89,7 @@ static tree prev_class_type;	/* _TYPE: the previous type that was a class */
 static tree get_vtable_name (), get_vfield_name ();
 tree the_null_vtable_entry;
 
-/* Way of stacking langauge names.  */
+/* Way of stacking language names.  */
 tree *current_lang_base, *current_lang_stack;
 static int current_lang_stacksize;
 
@@ -256,7 +256,7 @@ build_vbase_path (code, type, expr, path, alias_this)
 
   /* A pointer to a virtual base member of a non-null object
      is non-null.  Therefore, we only need to test for zeroness once.
-     Make EXPR the cannonical expression to deal with here.  */
+     Make EXPR the canonical expression to deal with here.  */
   if (null_expr)
     {
       TREE_OPERAND (expr, 2) = nonnull_expr;
@@ -302,7 +302,7 @@ build_vbase_path (code, type, expr, path, alias_this)
 	 case of constructors need we worry, and in those cases,
 	 it will be zero, or initialized to some legal value to
 	 which we may add.  */
-      if (nonnull == 0 && (alias_this == 0 || flag_this_is_variable))
+      if (nonnull == 0 && (alias_this == 0 || flag_this_is_variable > 0))
 	{
 	  if (null_expr)
 	    TREE_TYPE (null_expr) = type;
@@ -368,8 +368,17 @@ build_vtable_entry (delta, pfn)
 			  tree_cons (NULL_TREE, integer_zero_node,
 				     build_tree_list (NULL_TREE, pfn)));
   tree entry = build (CONSTRUCTOR, vtable_entry_type, NULL_TREE, elems);
-  if (! int_fits_type_p (delta, short_integer_type_node))
-    sorry ("object size exceedes built-in limit for virtual function table implementation");
+
+  /* DELTA is constructed by `size_int', which means it may be an
+     unsigned quantity on some platforms.  Therefore, we cannot use
+     `int_fits_type_p', because when DELTA is really negative,
+     `force_fit_type' will make it look like a very large number.  */
+
+  if ((TREE_INT_CST_LOW (TYPE_MAX_VALUE (short_integer_type_node))
+       < TREE_INT_CST_LOW (delta))
+      || (TREE_INT_CST_LOW (delta)
+	  < TREE_INT_CST_LOW (TYPE_MIN_VALUE (short_integer_type_node))))
+    sorry ("object size exceeds built-in limit for virtual function table implementation");
 
   TREE_CONSTANT (entry) = 1;
   TREE_STATIC (entry) = 1;
@@ -460,9 +469,9 @@ build_vfn_ref (ptr_to_instptr, instance, index)
 }
 
 /* Build a virtual function for type TYPE.
-   If BINFO is non-NULL, build the vtable starting with the intial
+   If BINFO is non-NULL, build the vtable starting with the initial
    approximation that it is the same as the one which is the head of
-   the assocation list.  */
+   the association list.  */
 static tree
 build_vtable (binfo, type)
      tree binfo, type;
@@ -1122,12 +1131,13 @@ add_method (type, fields, method)
 	      if (obstack_room (ob) < sizeof (tree))
 		{
 		  obstack_blank (ob, sizeof (struct tree_common)
-				 + tree_code_length[TREE_VEC] * sizeof (char *)
+				 + tree_code_length[(int) TREE_VEC]
+				   * sizeof (char *)
 				 + len * sizeof (tree));
 		  tmp_vec = (tree) obstack_base (ob);
 		  bcopy (method_vec, tmp_vec,
 			 (sizeof (struct tree_common)
-			  + tree_code_length[TREE_VEC] * sizeof (char *)
+			  + tree_code_length[(int) TREE_VEC] * sizeof (char *)
 			  + (len-1) * sizeof (tree)));
 		  method_vec = tmp_vec;
 		}
@@ -2080,6 +2090,7 @@ duplicate_tag_error (t)
       CLASSTYPE_BINFO_AS_LIST (t) = binfo_as_list;
       CLASSTYPE_INTERFACE_ONLY (t) = interface_only;
       CLASSTYPE_INTERFACE_UNKNOWN (t) = interface_unknown;
+      CLASSTYPE_VBASE_SIZE (t) = integer_zero_node;
       TYPE_REDEFINED (t) = 1;
     }
   TYPE_SIZE (t) = NULL_TREE;
@@ -2135,7 +2146,7 @@ duplicate_tag_error (t)
 
 	Class A's vtbl:			Class B's vtbl:
     --------------------------------------------------------------------
-   | A's virtual functions|		| B's virtual funcitions	|
+   | A's virtual functions|		| B's virtual functions		|
    |			  |		| (may inherit some from A).	|
     --------------------------------------------------------------------
    | All of A's functions |		| All of A's functions		|
@@ -2149,7 +2160,7 @@ duplicate_tag_error (t)
 					 -------------------------------
 
    this allows the program to make references to any function, virtual
-   or otherwise in a type-consistant manner.  */
+   or otherwise in a type-consistent manner.  */
 
 tree
 finish_struct (t, list_of_fieldlists, empty, warn_anon)
@@ -2350,14 +2361,14 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
           if (TREE_CODE (x) == TYPE_DECL
               && TREE_CODE (TREE_TYPE (x)) == RECORD_TYPE)
             {
-              /* @@ Um.  This doesn't seem to be handled properly, at
-                 least in my PT test cases.  Not sure if it's really
-                 supposed to work for non-PT cases.  Let's find out.  */
+	      /* @@ Um.  This doesn't seem to be handled properly, at
+		 least in my PT test cases.  Not sure if it's really
+		 supposed to work for non-PT cases.  Let's find out.  */
               static tree t, d;
               d = DECL_NAME (x);
               t = DECL_NAME (TYPE_NAME (TREE_TYPE (x)));
-              if (d == t) continue;
-              assert (IDENTIFIER_TEMPLATE (t) != NULL_TREE);
+	      if (d == t) continue;
+	      assert (IDENTIFIER_TEMPLATE (t) != NULL_TREE);
               t = DECL_NAME (TREE_PURPOSE (IDENTIFIER_TEMPLATE (t)));
               assert (t == d);
               continue;
@@ -2727,7 +2738,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
     {
       method_vec = 0;
 
-      /* Just in case these got accidently
+      /* Just in case these got accidentally
 	 filled in by syntax errors.  */
       TYPE_HAS_CONSTRUCTOR (t) = 0;
       TYPE_HAS_DESTRUCTOR (t) = 0;
@@ -3334,7 +3345,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 #endif
 
   /* If the type has methods, we want to think about cutting down
-     the amout of symbol table stuff we output.  The value stored in
+     the amount of symbol table stuff we output.  The value stored in
      the TYPE_DECL's DECL_IGNORED_P slot is a first approximation.
      For example, if a member function is seen and we decide to
      write out that member function, then we can change the value
@@ -3359,8 +3370,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
     DECL_IGNORED_P (TYPE_NAME (t)) = 1;
 
   /* Finish debugging output for this type.  */
-  if (! DECL_IGNORED_P (TYPE_NAME (t)))
-    rest_of_type_compilation (t, global_bindings_p ());
+  rest_of_type_compilation (t, global_bindings_p ());
 
   return t;
 }
@@ -3370,7 +3380,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
    or not.
 
    *NONNULL is set iff INSTANCE can be known to be nonnull, regardless
-   of our knownledge of its type.  */
+   of our knowledge of its type.  */
 int
 resolves_to_fixed_type_p (instance, nonnull)
      tree instance;
@@ -3460,16 +3470,16 @@ resolves_to_fixed_type_p (instance, nonnull)
       else if (nonnull)
 	{
 	  if (instance == current_class_decl
-	      && ! flag_this_is_variable)
+	      && flag_this_is_variable <= 0)
 	    {
 	      /* Some people still use `this = 0' inside destructors.  */
 	      *nonnull = ! DESTRUCTOR_NAME_P (DECL_ASSEMBLER_NAME (current_function_decl));
 	      /* In a constructor, we know our type.  */
-	      if (DECL_CONSTRUCTOR_P (current_function_decl))
+	      if (flag_this_is_variable < 0)
 		return 1;
 	    }
 	  else if (TREE_CODE (TREE_TYPE (instance)) == REFERENCE_TYPE)
-	    /* Reference variables should be refernces to objects.  */
+	    /* Reference variables should be references to objects.  */
 	    *nonnull = 1;
 	}
       return 0;
@@ -3628,16 +3638,16 @@ pushclass (type, modify)
       else
 	unuse_fields (type);
 
-      tags = CLASSTYPE_TAGS (type);
-      while (tags)
+      for (tags = CLASSTYPE_TAGS (type); tags; tags = TREE_CHAIN (tags))
 	{
 	  TREE_NONLOCAL_FLAG (TREE_VALUE (tags)) = 1;
+	  if (! TREE_PURPOSE (tags))
+	    continue;
 	  pushtag (TREE_PURPOSE (tags), TREE_VALUE (tags));
 	  if (IDENTIFIER_CLASS_VALUE (TREE_PURPOSE (tags)) == NULL_TREE
 	      && TREE_CODE (TYPE_NAME (TREE_VALUE (tags))) == TYPE_DECL)
 	    IDENTIFIER_CLASS_VALUE (TREE_PURPOSE (tags))
 	      = TYPE_NAME (TREE_VALUE (tags));
-	  tags = TREE_CHAIN (tags);
 	}
 
       current_function_decl = this_fndecl;
@@ -3692,7 +3702,8 @@ popclass (modify)
       while (tags)
 	{
 	  TREE_NONLOCAL_FLAG (TREE_VALUE (tags)) = 0;
-	  IDENTIFIER_CLASS_VALUE (TREE_PURPOSE (tags)) = NULL_TREE;
+	  if (TREE_PURPOSE (tags))
+	    IDENTIFIER_CLASS_VALUE (TREE_PURPOSE (tags)) = NULL_TREE;
 	  tags = TREE_CHAIN (tags);
 	}
     }
@@ -3826,7 +3837,7 @@ instantiate_type (lhstype, rhs, complain)
 
   /* This should really only be used when attempting to distinguish
      what sort of a pointer to function we have.  For now, any
-     arithmethic operation which is not supported on pointers
+     arithmetic operation which is not supported on pointers
      is rejected as an error.  */
 
   switch (TREE_CODE (rhs))

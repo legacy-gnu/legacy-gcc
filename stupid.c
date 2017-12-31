@@ -49,7 +49,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "flags.h"
 
 /* Vector mapping INSN_UIDs to suids.
-   The suids are like uids but increase monononically always.
+   The suids are like uids but increase monotonically always.
    We use them to see whether a subroutine call came
    between a variable's birth and its death.  */
 

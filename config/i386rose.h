@@ -127,16 +127,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    our own exit function.  */
 #define HAVE_ATEXIT
 
-/* If defined, a C string constant for the assembler operation to
-   identify the following data as initialization code.  If not
-   defined, GNU CC will assume such a section does not exist.
-
-   OSF/rose doesn't presently have an init section, but this macro
-   also controls whether or not __main is called from main, collect
-   will however build an initialization section directly.  */
-
-#define INIT_SECTION_ASM_OP ".init"
-
 /* Define this macro meaning that gcc should find the library 'libgcc.a'
    by hand, rather than passing the argeument '-lgcc' to tell the linker
    to do the search */
@@ -155,7 +145,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   return ax;								\
 }
 
-#define perform_divsi3(a,b)							\
+#define perform_divsi3(a,b)						\
 {									\
   register int dx asm("dx");						\
   register int ax asm("ax");						\
@@ -176,7 +166,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   return dx;								\
 }
 
-#define perform_modsi3(a,b)							\
+#define perform_modsi3(a,b)						\
 {									\
   register int dx asm("dx");						\
   register int ax asm("ax");						\
@@ -186,7 +176,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   return dx;								\
 }
 
-#define perform_fix_truncdfsi2(a)						\
+#define perform_fixdfsi(a)						\
 {									\
   auto unsigned short ostatus;						\
   auto unsigned short nstatus;						\
@@ -201,7 +191,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
   asm volatile ("fldl %0" : /* no outputs */ : "m" (a));		\
   asm volatile ("fistpl %0" : "=m" (ret));				\
-  asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
+  asm volatile ("fldcw %0" : /* no outputs */ : "m" (ostatus));		\
 									\
   return ret;								\
 }

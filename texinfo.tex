@@ -22,7 +22,7 @@
 %You are forbidden to forbid anyone else to use, share and improve
 %what you give them.   Help stamp out software-hoarding!
 
-\def\texinfoversion{2.63}
+\def\texinfoversion{2.65}
 \message{Loading texinfo package [Version \texinfoversion]:}
 \message{}
 
@@ -2073,26 +2073,23 @@ July\or August\or September\or October\or November\or December\fi
 
 \let\ptexequiv = \equiv
 
-{\tentt
-\global\setbox\dblarrowbox = \hbox to 1em{\hfil$\Rightarrow$\hfil}
-\global\setbox\longdblarrowbox = \hbox to 1em{\hfil$\mapsto$\hfil}
-\global\setbox\pushcharbox = \hbox to 1em{\hfil$\dashv$\hfil}
-\global\setbox\equivbox = \hbox to 1em{\hfil$\ptexequiv$\hfil}
+%{\tentt
+%\global\setbox\dblarrowbox = \hbox to 1em{\hfil$\Rightarrow$\hfil}
+%\global\setbox\longdblarrowbox = \hbox to 1em{\hfil$\mapsto$\hfil}
+%\global\setbox\pushcharbox = \hbox to 1em{\hfil$\dashv$\hfil}
+%\global\setbox\equivbox = \hbox to 1em{\hfil$\ptexequiv$\hfil}
 % Adapted from the manmac format (p.420 of TeXbook)
-\global\setbox\bullbox = \hbox to 1em{\kern.15em\vrule height .75ex width .85ex
-                                      depth .1ex\hfil}
-}
+%\global\setbox\bullbox = \hbox to 1em{\kern.15em\vrule height .75ex width .85ex
+%                                      depth .1ex\hfil}
+%}
 
 \def\point{$\star$}
 
-\def\result{\leavevmode\raise.15ex\copy\dblarrowbox}
-\def\expansion{\leavevmode\raise.1ex\copy\longdblarrowbox}
-\def\print{\leavevmode\lower.1ex\copy\pushcharbox}
+\def\result{\leavevmode\raise.15ex\hbox to 1em{\hfil$\Rightarrow$\hfil}}
+\def\expansion{\leavevmode\raise.1ex\hbox to 1em{\hfil$\mapsto$\hfil}}
+\def\print{\leavevmode\lower.1ex\hbox to 1em{\hfil$\dashv$\hfil}}
 
-\def\equiv{\leavevmode\lower.1ex\copy\equivbox}
-
-% Does anyone really want this?
-% \def\bull{\leavevmode\copy\bullbox}
+\def\equiv{\leavevmode\lower.1ex\hbox to 1em{\hfil$\ptexequiv$\hfil}}
 
 % Adapted from the TeXbook's \boxit.
 {\tentt \global\dimen0 = 3em}% Width of the box.
@@ -3038,8 +3035,8 @@ Section\xreftie'char\the\appendixno.\the\secno.\the\subsecno.\the\subsubsecno %
 \vbadness=10000
 
 % Following George Bush, just get rid of widows and orphans.
-\widowpenalty=20000
-\clubpenalty=2000
+\widowpenalty=10000
+\clubpenalty=10000
 
 % Use TeX 3.0's \emergencystretch to help line breaking, but if we're
 % using an old version of TeX, don't do anything.  We want the amount of

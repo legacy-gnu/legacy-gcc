@@ -911,11 +911,9 @@ extern tree build_unary_op ();
 
 extern tree build_type_variant ();
 
-/* Return the mode for data of a given size SIZE and mode class CLASS.
-   If LIMIT is nonzero, then don't use modes bigger than MAX_FIXED_MODE_SIZE.
-   The value is BLKmode if no other mode is found.  */
+/* Make a copy of a type node.  */
 
-extern enum machine_mode mode_for_size ();
+extern tree build_type_copy ();
 
 /* Given a ..._TYPE node, calculate the TYPE_SIZE, TYPE_SIZE_UNIT,
    TYPE_ALIGN and TYPE_MODE fields.
@@ -1033,6 +1031,14 @@ extern int lvalue_or_else ();
    and only evaluate EXP once.  */
 
 extern tree save_expr ();
+
+/* variable_size (EXP) is like save_expr (EXP) except that it
+   is for the special case of something that is part of a
+   variable size for a data type.  It makes special arrangements
+   to compute the value at the right time when the data type
+   belongs to a function parameter.  */
+
+extern tree variable_size ();
 
 /* stabilize_reference (EXP) returns an reference equivalent to EXP
    but it can be used multiple times

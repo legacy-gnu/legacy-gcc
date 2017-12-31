@@ -52,7 +52,7 @@ static struct obstack bridge_obstack;
 struct stack_level *
 push_stack_level (obstack, tp, size)
      struct obstack *obstack;
-     void *tp;
+     char *tp;  /* Sony NewsOS 5.0 compiler doesn't like void * here.  */
      int size;
 {
   struct stack_level *stack;
@@ -1565,6 +1565,9 @@ lookup_fnfields (basetype_path, name, find_ambiguous)
 	    {
 	      int index = lookup_fnfields_1 (type, name);
 
+	      /* ??? This code is broken.  If CONTEXT is not the leftmost
+		 baseclass, it makes all of its baseclasses appear to be
+		 unrelated.  */
 	      if (index >= 0 && binfo != get_binfo (type, context, 0))
 		{
 		  /* We found it in other than a baseclass of RVAL's.  */
@@ -1796,7 +1799,9 @@ get_first_matching_virtual (binfo, fndecl, dtorp)
 
       if (tmp)
 	{
-	  DECL_CONTEXT (fndecl) = DECL_CONTEXT (tmp);
+	  if (get_base_distance (DECL_CONTEXT (tmp),
+				 DECL_CONTEXT (fndecl), 0, 0) > 0)
+	    DECL_CONTEXT (fndecl) = DECL_CONTEXT (tmp);
 	  return tmp;
 	}
 
@@ -1868,7 +1873,7 @@ get_first_matching_virtual (binfo, fndecl, dtorp)
       if (IDENTIFIER_ERROR_LOCUS (name) == NULL_TREE
 	  && best == NULL_TREE && warn_overloaded_virtual)
 	{
-	  error_with_decl (fndecl, "conficting specification deriving virtual function `%s'");
+	  error_with_decl (fndecl, "conflicting specification deriving virtual function `%s'");
 	  SET_IDENTIFIER_ERROR_LOCUS (name, basetype);
 	}
       if (best)
@@ -2339,7 +2344,7 @@ init_vbase_pointers (type, decl_ptr)
     {
       int old_flag = flag_this_is_variable;
       tree binfo = TYPE_BINFO (type);
-      flag_this_is_variable = 0;
+      flag_this_is_variable = -2;
       vbase_types = CLASSTYPE_VBASECLASSES (type);
       vbase_decl_ptr = decl_ptr;
       vbase_decl = build_indirect_ref (decl_ptr, 0);
@@ -2383,7 +2388,7 @@ build_vbase_vtables_init (main_binfo, binfo, true_exp, decl_ptr, ctor_p)
       vbase_types = CLASSTYPE_VBASECLASSES (for_type);
       vbase_decl_ptr = true_exp ? build_unary_op (ADDR_EXPR, true_exp, 0) : decl_ptr;
       vbase_decl = true_exp ? true_exp : build_indirect_ref (decl_ptr, 0);
-      flag_this_is_variable = 0;
+      flag_this_is_variable = -2;
 
       if (ctor_p)
 	/* This is an object of type IN_TYPE,  */
@@ -3112,7 +3117,11 @@ push_class_decls (type)
 	}
       tag = xref_tag (code_type_node, TREE_PURPOSE (tags),
 		      TYPE_BINFO_BASETYPE (TREE_VALUE (tags), 0));
+#if 0 /* not yet, should get fixed properly later */
+      pushdecl (make_type_decl (TREE_PURPOSE (tags), TREE_VALUE (tags)));
+#else
       pushdecl (build_decl (TYPE_DECL, TREE_PURPOSE (tags), TREE_VALUE (tags)));
+#endif
     }
 #endif
 

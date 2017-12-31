@@ -3,10 +3,11 @@
 @c For copying conditions, see the file gcc.texi.
 
 @ifset INTERNALS
-@node Machine Macros, Config, Machine Desc, Top
-@chapter Machine Description Macros
+@node Target Macros, Config, Machine Desc, Top
+@chapter Target Description Macros
 @cindex machine description macros
-@cindex macros, machine description
+@cindex target description macros
+@cindex macros, target description
 @cindex @file{tm.h} macros
 
 In addition to the file @file{@var{machine}.md}, a machine description
@@ -40,7 +41,7 @@ includes @file{tm.h} and most compiler source files include
 * Misc::                Everything else.
 @end menu
 
-@node Driver, Run-time Target, Machine Macros, Machine Macros
+@node Driver
 @section Controlling the Compilation Driver, @file{gcc}
 @cindex driver
 @cindex controlling the compilation driver
@@ -175,7 +176,7 @@ indicates an absolute file name.
 @findex STANDARD_EXEC_PREFIX
 @item STANDARD_EXEC_PREFIX
 Define this macro as a C string constant if you wish to override the
-standard choice of @file{/usr/local/lib/gcc/} as the default prefix to
+standard choice of @file{/usr/local/lib/gcc-lib/} as the default prefix to
 try when searching for the executable files of the compiler.
 
 @findex MD_EXEC_PREFIX
@@ -313,7 +314,7 @@ The macro @code{STANDARD_STARTFILE_PREFIX}.
 @file{/usr/lib/}.
 @end enumerate
 
-@node Run-time Target, Storage Layout, Driver, Machine Macros
+@node Run-time Target
 @section Run-time Target Specification
 @cindex run-time target specification
 @cindex predefined macros
@@ -462,7 +463,7 @@ used as the default values for the other command line options.
 The debugging options are not supposed to alter the generated code.
 @end table
 
-@node Storage Layout, Type Layout, Run-time Target, Machine Macros
+@node Storage Layout
 @section Storage Layout
 @cindex storage layout
 
@@ -588,6 +589,9 @@ constants can be done inline.
 Alignment in bits to be given to a structure bit field that follows an
 empty field such as @code{int : 0;}.
 
+Note that @code{PCC_BITFIELD_TYPE_MATTERS} also affects the alignment
+that results from an empty field.
+
 @findex STRUCTURE_SIZE_BOUNDARY
 @item STRUCTURE_SIZE_BOUNDARY
 Number of bits which any structure or union's size must be a multiple of.
@@ -598,9 +602,9 @@ If you do not define this macro, the default is the same as
 
 @findex STRICT_ALIGNMENT
 @item STRICT_ALIGNMENT
-Define this if instructions will fail to work if given data not
-on the nominal alignment.  If instructions will merely go slower
-in that case, do not define this macro.
+Define this macro to be the value 1 if instructions will fail to work
+if given data not on the nominal alignment.  If instructions will merely
+go slower in that case, define this macro as 0.
 
 @findex PCC_BITFIELD_TYPE_MATTERS
 @item PCC_BITFIELD_TYPE_MATTERS
@@ -709,7 +713,7 @@ format as the host machine.  If any other formats are actually in use on
 supported machines, new codes should be defined for them.
 @end table
 
-@node Type Layout, Registers, Storage Layout, Machine Macros
+@node Type Layout
 @section Layout of Source Language Data Types
 
 These macros define the sizes and other characteristics of the standard
@@ -868,7 +872,7 @@ C constant expressions for the integer values for escape sequences
 @samp{\v}, @samp{\f} and @samp{\r}.
 @end table
 
-@node Registers, Register Classes, Type Layout, Machine Macros
+@node Registers
 @section Register Usage
 @cindex register usage
 
@@ -1264,7 +1268,7 @@ If this macro is not defined, it means that no death notes need to be
 preserved.  This is the usual situation.
 @end table
 
-@node Register Classes, Stack and Calling, Registers, Machine Macros
+@node Register Classes
 @section Register Classes
 @cindex register class definitions
 @cindex class definitions, register
@@ -1390,7 +1394,9 @@ added to another register (as well as added to a displacement).
 A C expression which defines the machine-dependent operand constraint
 letters for register classes.  If @var{char} is such a letter, the
 value should be the register class corresponding to it.  Otherwise,
-the value should be @code{NO_REGS}.
+the value should be @code{NO_REGS}.  The register letter @samp{r},
+corresponding to class @code{GENERAL_REGS}, will not be passed
+to this macro; you do not need to handle it.
 
 @findex REGNO_OK_FOR_BASE_P
 @item REGNO_OK_FOR_BASE_P (@var{num})
@@ -1602,7 +1608,7 @@ alternative specifies @samp{m} on the input and a register class that
 does not include r0 on the output.
 @end table
 
-@node Stack and Calling, Varargs, Register Classes, Machine Macros
+@node Stack and Calling
 @section Describing Stack Layout and Calling Conventions
 @cindex calling conventions
 
@@ -2242,7 +2248,7 @@ should recognize only the caller's register numbers.
 @end table
 
 @node Aggregate Return
-@subsection How Large Values Are Returnd
+@subsection How Large Values Are Returned
 @cindex aggregates as return values
 @cindex large return values
 @cindex returning aggregate values
@@ -2597,7 +2603,7 @@ can take a short cut in the definition of this macro and use the name
 that you know will result.
 @end table
 
-@node Varargs, Trampolines, Stack and Calling, Machine Macros
+@node Varargs
 @section Implementing the Varargs Macros
 @cindex varargs implementation
 
@@ -2735,7 +2741,7 @@ end of the source file.  The macro @code{SETUP_INCOMING_VARARGS} should
 not generate any instructions in this case.
 @end table
 
-@node Trampolines, Library Calls, Varargs, Machine Macros
+@node Trampolines
 @section Trampolines for Nested Functions
 @cindex trampolines for nested functions
 @cindex nested functions, trampolines for
@@ -2869,7 +2875,7 @@ global.  Then trampolines can use that label to jump directly to your
 special assembler code.
 @end table
 
-@node Library Calls, Addressing Modes, Trampolines, Machine Macros
+@node Library Calls
 @section Implicit Calls to Library Routines
 @cindex library subroutine names
 @cindex @file{libgcc.a}
@@ -3043,7 +3049,7 @@ The default calling convention passes just the object and the selector
 to the lookup function, which returns a pointer to the method.
 @end table
 
-@node Addressing Modes, Condition Code, Library Calls, Machine Macros
+@node Addressing Modes
 @section Addressing Modes
 @cindex addressing modes
 
@@ -3230,7 +3236,7 @@ check it either.  You need not define this macro if all constants
 position independent code.
 @end table
 
-@node Condition Code, Costs, Addressing Modes, Machine Macros
+@node Condition Code
 @section Condition Code Status
 @cindex condition code status
 
@@ -3340,7 +3346,7 @@ description of the reason for this definition)
 This macro is not required if @code{EXTRA_CC_MODES} is not defined.
 @end table
 
-@node Costs, Sections, Condition Code, Machine Macros
+@node Costs
 @section Describing Relative Costs of Operations
 @cindex costs of instructions
 @cindex relative costs
@@ -3489,15 +3495,17 @@ and likewise for @code{HImode}.
 
 @findex SLOW_UNALIGNED_ACCESS
 @item SLOW_UNALIGNED_ACCESS
-Define this macro if unaligned accesses have a cost many times greater
-than aligned accesses, for example if they are emulated in a trap
-handler.
+Define this macro to be the value 1 if unaligned accesses have a cost
+many times greater than aligned accesses, for example if they are
+emulated in a trap handler.
 
-When this macro is defined, the compiler will act as if
-@code{STRICT_ALIGNMENT} were defined when generating code for block
+When this macro is non-zero, the compiler will act as if
+@code{STRICT_ALIGNMENT} were non-zero when generating code for block
 moves.  This can cause significantly more instructions to be produced.
-Therefore, do not define this macro if unaligned accesses only add a
+Therefore, do not set this macro non-zero if unaligned accesses only add a
 cycle or two to the time for a memory access.
+
+If the value of this macro is always zero, it need not be defined.
 
 @findex DONT_REDUCE_ADDR
 @item DONT_REDUCE_ADDR
@@ -3525,7 +3533,7 @@ itself with an explicit address than to call an address kept in a
 register.
 @end table
 
-@node Sections, PIC, Costs, Machine Macros
+@node Sections
 @section Dividing the Output into Sections (Texts, Data, @dots{})
 
 An object file is divided into sections containing different types of
@@ -3641,7 +3649,7 @@ modified name string in the @code{symbol_ref} (if one bit is not enough
 information).
 @end table
 
-@node PIC, Assembler Format, Sections, Machine Macros
+@node PIC
 @section Position Independent Code
 @cindex position independent code
 @cindex PIC
@@ -3684,7 +3692,7 @@ assembly language.)
 
 @end table
 
-@node Assembler Format, Debugging Info, PIC, Machine Macros
+@node Assembler Format
 @section Defining the Output Assembler Language
 
 This section describes macros whose principal purpose is to describe how
@@ -3702,7 +3710,7 @@ instructions do.
 * Alignment Output::     Pseudo ops for alignment and skipping data.
 @end menu
 
-@node File Framework, Data Output, Assembler Format, Assembler Format
+@node File Framework
 @subsection The Overall Framework of an Assembler File 
 @cindex assembler format
 @cindex output of assembler code
@@ -3801,7 +3809,7 @@ precede any Objective C object definitions or message sending.  The
 statement is executed only when compiling an Objective C program.
 @end table
 
-@node Data Output, Uninitialized Data, File Framework, Assembler Format
+@node Data Output
 @subsection Output of Data
 
 @table @code
@@ -3916,7 +3924,7 @@ definitions are correct for most assemblers:
 @end example
 @end table
 
-@node Uninitialized Data, Label Output, Data Output, Assembler Format
+@node Uninitialized Data
 @subsection Output of Uninitialized Variables
 
 Each of the macros in this section is used to do the whole job of
@@ -3978,7 +3986,7 @@ is used when @var{name} is shared.  If not defined, @code{ASM_OUTPUT_LOCAL}
 will be used.
 @end table
 
-@node Label Output, Constructor Output, Uninitialized Data, Assembler Format
+@node Label Output
 @subsection Output and Generation of Labels
 
 @table @code
@@ -4068,27 +4076,43 @@ Define this macro for systems that use the program @code{collect2}.
 The definition should be a C statement to output a word containing
 a reference to the label @var{label}.
 
+@findex ASM_OUTPUT_INTERNAL_LABEL
+@item ASM_OUTPUT_INTERNAL_LABEL (@var{stream}, @var{prefix}, @var{num})
+A C statement to output to the stdio stream @var{stream} a label whose
+name is made from the string @var{prefix} and the number @var{num}.
+
+It is absolutely essential that these labels be distinct from the labels
+used for user-level functions and variables.  Otherwise, certain programs
+will have name conflicts with internal labels.
+
+It is desirable to exclude internal labels from the symbol table of the
+object file.  Most assemblers have a naming convention for labels that
+should be excluded; on many systems, the letter @samp{L} at the
+beginning of a label has this effect.  You should find out what
+convention your system uses, and follow it.
+
+The usual definition of this macro is as follows:
+
+@example
+fprintf (@var{stream}, "L%s%d:\n", @var{prefix}, @var{num})
+@end example
+
 @findex ASM_GENERATE_INTERNAL_LABEL
 @item ASM_GENERATE_INTERNAL_LABEL (@var{string}, @var{prefix}, @var{num})
 A C statement to store into the string @var{string} a label whose name
 is made from the string @var{prefix} and the number @var{num}.
 
-This string, when output subsequently by @code{ASM_OUTPUT_LABELREF},
+This string, when output subsequently by @code{assemble_name},
 should produce the same output that @code{ASM_OUTPUT_INTERNAL_LABEL}
 would produce with the same @var{prefix} and @var{num}.
 
-@findex ASM_OUTPUT_INTERNAL_LABEL
-@item ASM_OUTPUT_INTERNAL_LABEL (@var{stream}, @var{prefix}, @var{num})
-A C statement to output to the stdio stream @var{stream} a label whose
-name is made from the string @var{prefix} and the number @var{num}.
-These labels are used for internal purposes, and there is no reason
-for them to appear in the symbol table of the object file.  On many
-systems, the letter @samp{L} at the beginning of a label has this
-effect.  The usual definition of this macro is as follows:
-
-@example
-fprintf (@var{stream}, "L%s%d:\n", @var{prefix}, @var{num})
-@end example
+If the string begins with @samp{*}, then @code{assemble_name} will
+output the rest of the string unchanged.  It is often convenient for
+@code{ASM_GENERATE_INTERNAL_LABEL} to use @samp{*} in this way.  If the
+string doesn't start with @samp{*}, then @code{ASM_OUTPUT_LABELREF} gets
+to output the string, and may change it.  (Of course,
+@code{ASM_OUTPUT_LABELREF} is also part of your machine description, so
+you should know what it does on your machine.)
 
 @findex ASM_FORMAT_PRIVATE_NAME
 @item ASM_FORMAT_PRIVATE_NAME (@var{outvar}, @var{name}, @var{number})
@@ -4123,17 +4147,21 @@ These names are safe on most systems, but make debugging difficult since
 the method's selector is not present in the name.  Therefore, particular
 systems define other ways of computing names.
 
-@var{buf} is a buffer in which to store the name (256 chars max);
-@var{is_inst} specifies whether the method is an instance method or a
-class method; @var{class_name} is the name of the class; @var{cat_name}
-is the name of the category (or NULL if the method is not in a category);
-and @var{sel_name} is the name of the selector.
+@var{buf} is an expression of type @code{char *} which gives you a
+buffer in which to store the name; its length is as long as
+@var{class_name}, @var{cat_name} and @var{sel_name} put together, plus
+50 characters extra.
+
+The argument @var{is_inst} specifies whether the method is an instance
+method or a class method; @var{class_name} is the name of the class;
+@var{cat_name} is the name of the category (or NULL if the method is not
+in a category); and @var{sel_name} is the name of the selector.
 
 On systems where the assembler can handle quoted names, you can use this
 macro to provide more human-readable names.
 @end table
 
-@node Constructor Output, Instruction Output, Label Output, Assembler Format
+@node Constructor Output
 @subsection Output of Initialization Routines
 @cindex initialization routines
 @cindex termination routines
@@ -4183,7 +4211,7 @@ This is like @code{ASM_OUTPUT_CONSTRUCTOR} but used for termination
 functions rather than initialization functions.
 @end table
 
-@node Instruction Output, Dispatch Tables, Constructor Output, Assembler Format
+@node Instruction Output
 @subsection Output of Assembler Instructions
 
 @table @code
@@ -4345,7 +4373,7 @@ The code need not be optimal, since this macro is used only when
 profiling.
 @end table
 
-@node Dispatch Tables, Alignment Output, Instruction Output, Assembler Format
+@node Dispatch Tables
 @subsection Output of Dispatch Tables
 
 @table @code
@@ -4409,7 +4437,7 @@ If this macro is not defined, nothing special is output at the end of
 the jump-table.
 @end table
 
-@node Alignment Output,, Dispatch Tables, Assembler Format
+@node Alignment Output
 @subsection Assembler Commands for Alignment
 
 @table @code
@@ -4454,7 +4482,7 @@ command to advance the location counter to a multiple of 2 to the
 @var{power} bytes.  @var{power} will be a C expression of type @code{int}.
 @end table
 
-@node Debugging Info, Cross-compilation, Assembler Format, Machine Macros
+@node Debugging Info
 @section Controlling Debugging Information Format
 
 @table @code
@@ -4490,6 +4518,11 @@ for SDB in response to the @samp{-g} option.
 @findex DWARF_DEBUGGING_INFO
 @item DWARF_DEBUGGING_INFO
 Define this macro if GNU CC should produce dwarf format debugging output 
+in response to the @samp{-g} option.
+
+@findex XCOFF_DEBUGGING_INFO
+@item XCOFF_DEBUGGING_INFO
+Define this macro if GNU CC should produce XCOFF format debugging output
 in response to the @samp{-g} option.
 
 @findex DEFAULT_GDB_EXTENSIONS
@@ -4600,6 +4633,14 @@ a different character instead, define this macro as a character
 constant for the character you want to use.  Do not define this macro
 if backslash is correct for your system.
 
+@findex DBX_WORKING_DIRECTORY
+@item DBX_WORKING_DIRECTORY
+Define this if DBX wants to have the current directory recorded in each
+object file.
+
+Note that the working directory is always recorded if GDB extensions are
+enabled.
+
 @findex DBX_STATIC_STAB_DATA_SECTION
 @item DBX_STATIC_STAB_DATA_SECTION
 Define this macro if it is necessary to go to the data section before
@@ -4705,7 +4746,7 @@ This macro need not be defined if the standard form of output
 for DBX debugging information is appropriate.
 @end table
 
-@node Cross-compilation, Misc, Debugging INfo, Machine Macros
+@node Cross-compilation
 @section Cross Compilation and Floating Point Format
 @cindex cross compilation and floating point 
 @cindex floating point format and cross compilation
@@ -4874,7 +4915,7 @@ found in @var{low} and @var{high}, two variables of type @var{int},
 into a floating point value which is then stored into @var{x}.
 @end table
 
-@node Misc,, Cross-compilation, Machine Macros
+@node Misc
 @section Miscellaneous Parameters
 @cindex parameters, miscellaneous
 
@@ -4884,7 +4925,7 @@ into a floating point value which is then stored into @var{x}.
 Optionally define this if you have added predicates to
 @file{@var{machine}.c}.  This macro is called within an initializer of an
 array of structures.  The first field in the structure is the name of a
-predicate and the second field is an arrary of rtl codes.  For each
+predicate and the second field is an array of rtl codes.  For each
 predicate, list all rtl codes that can be in expressions matched by the
 predicate.  The list should have a trailing comma.  Here is an example
 of two entries in the list for a typical RISC machine:
@@ -4965,11 +5006,11 @@ If both types of instructions truncate the count (for shifts) and
 position (for bitfield operations), or if no variable-position bitfield
 instructions exist, you should define this macro.
 
-However, on some machines, such as the 80386, truncation only applies to
-shift operations and not bitfield operations.  Do not define
-@code{SHIFT_COUNT_TRUNCATED} on such machines.  Instead, add patterns to
-the @file{md} file that include the implied truncation of the shift
-instructions.
+However, on some machines, such as the 80386 and the 680x0, truncation
+only applies to shift operations and not the (real or pretended)
+bitfield operations.  Do not define @code{SHIFT_COUNT_TRUNCATED} on such
+machines.  Instead, add patterns to the @file{md} file that include the
+implied truncation of the shift instructions.
 
 @findex TRULY_NOOP_TRUNCATION
 @item TRULY_NOOP_TRUNCATION (@var{outprec}, @var{inprec})
@@ -5107,12 +5148,6 @@ only reason to define this macro is for compatibility with other
 compilers that do support @code{#pragma} for the sake of any user
 programs which already use it.
 
-@findex HAVE_VPRINTF
-@findex vprintf
-@item HAVE_VPRINTF
-Define this if the library function @code{vprintf} is available on your
-system.
-
 @findex DOLLARS_IN_IDENTIFIERS
 @item DOLLARS_IN_IDENTIFIERS
 Define this macro to control use of the character @samp{$} in identifier
@@ -5120,6 +5155,13 @@ names.  The value should be 0, 1, or 2.  0 means @samp{$} is not allowed
 by default; 1 means it is allowed by default if @samp{-traditional} is
 used; 2 means it is allowed by default provided @samp{-ansi} is not used.
 1 is the default; there is no need to define this macro in that case.
+
+@findex NO_DOLLAR_IN_LABEL
+@item NO_DOLLAR_IN_LABEL
+Define this macro if the assembler does not accept the character
+@samp{$} in label names.  By default constructors and destructors in
+G++ have @samp{$} in the identifiers.  If this macro is defined,
+@samp{.} is used instead.
 
 @findex DEFAULT_MAIN_RETURN
 @item DEFAULT_MAIN_RETURN

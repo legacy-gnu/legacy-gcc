@@ -35,8 +35,16 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Predefine this in CPP because VMS limits the size of command options
    and GNU CPP is not used on VMS except with GNU C.  */
-/* ??? __GNU__ is probably obsolete; delete it for 2.1.  */
-#define CPP_PREDEFINES "-Dvax -Dvms -DVMS -D__GNU__ -D__GNUC__=2"
+#define CPP_PREDEFINES "-Dvax -Dvms -DVMS -D__GNUC__=2"
+
+/* These match the definitions used in VAXCRTL, the VMS C run-time library */
+
+#define SIZE_TYPE "unsigned int"
+#define PTRDIFF_TYPE "int"
+#define WCHAR_TYPE	"unsigned int"
+
+/* Use memcpy for structure copying, and so forth.  */
+#define TARGET_MEM_FUNCTIONS
 
 /* Strictly speaking, VMS does not use DBX at all, but the interpreter built
    into gas only speaks straight DBX.  */
@@ -162,7 +170,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    ? (const_section (), 0) : (data_section (), 0)),		\
   fputs (".comm ", (FILE)),					\
   assemble_name ((FILE), (NAME)),				\
-  fprintf ((FILE), ",%u\n", (ROUNDED)))
+  fprintf ((FILE), ",%u\n", (SIZE)))
 
 /* We define this to prevent the name mangler from putting dollar signs into
    function names.  This isn't really needed, but it has been here for
@@ -172,7 +180,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define NO_DOLLAR_IN_LABEL
 
-/* Add a "const" section.  This is viewed by the assember as being nearly
+/* Add a "const" section.  This is viewed by the assembler as being nearly
    the same as the "data" section, with the only difference being that a
    flag is set for variables declared while in the const section.  This
    flag is used to determine whether or not the read/write bit should be
@@ -255,7 +263,6 @@ const_section ()					\
    __CTOR_LIST__, and essentially points to the same list as __CTOR_LIST.  */
 
 #ifdef L__main
-#include <stdio.h>
 
 #define __CTOR_LIST__ __gxx_init_0
 #define __CTOR_LIST_END__ __gxx_init_2
@@ -270,7 +277,6 @@ do {									\
   extern func_ptr __CTOR_LIST_END__[1];					\
   extern func_ptr __CTOR_LIST_SHR__[1];					\
   extern func_ptr __CTOR_LIST_SHR_END__[1];				\
-  fflush(stdout);							\
   if( &__CTOR_LIST_SHR__[0] != &__CTOR_LIST__[1])			\
   for (p = __CTOR_LIST_SHR__ + 1; p < __CTOR_LIST_SHR_END__ ; p++ )	\
     if (*p) (*p) ();							\

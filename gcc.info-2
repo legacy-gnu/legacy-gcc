@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -48,6 +48,9 @@ GNU CC:
 
 `-w'
      Inhibit all warning messages.
+
+`-Wno_import'
+     Inhibit warning messages about the use of `#import'.
 
 `-pedantic'
      Issue all the warnings demanded by strict ANSI standard C; reject
@@ -208,6 +211,9 @@ GNU CC:
      `volatile' all the functions you use that never return.  *Note
      Function Attributes::.
 
+`-Wparentheses'
+     Warn if parentheses are omitted in certain contexts.
+
 `-Wall'
      All of the above `-W' options combined.  These are all the
      options which pertain to usage that we recommend avoiding and
@@ -297,9 +303,9 @@ occasion, in clean programs.
 `-Wnested-externs'
      Warn if an `extern' declaration is encountered within an function.
 
-`-Wno-parentheses'
-     Disable warnings that parentheses are suggested around an
-     expression.
+`-Winline'
+     Warn if a function can not be inlined, and either it was declared
+     as inline, or else the `-finline-functions' option was given.
 
 `-Werror'
      Make all warnings into errors.
@@ -315,7 +321,7 @@ either your program or GCC:
 
 `-g'
      Produce debugging information in the operating system's native
-     format (stabs or COFF or DWARF).  GDB can work with this
+     format (stabs, COFF, XCOFF, or DWARF).  GDB can work with this
      debugging information.
 
      On most systems that use stabs format, `-g' enables use of extra
@@ -359,6 +365,10 @@ either your program or GCC:
      Produce debugging information in COFF format (if that is
      supported).  This is the format used by SDB on COFF systems.
 
+`-gxcoff'
+     Produce debugging information in XCOFF format (if that is
+     supported).  This is the format used on IBM RS/6000 systems.
+
 `-gdwarf'
      Produce debugging information in DWARF format (if that is
      supported).  This is the format used by SDB on systems that use
@@ -368,6 +378,7 @@ either your program or GCC:
 `-ggdbLEVEL'
 `-gstabsLEVEL'
 `-gcoffLEVEL'
+`-gxcoffLEVEL'
 `-gdwarfLEVEL'
      Request debugging information and also use LEVEL to specify how
      much information.  The default level is 2.
@@ -492,7 +503,7 @@ either your program or GCC:
      Store the usual "temporary" intermediate files permanently; place
      them in the current directory and name them based on the source
      file.  Thus, compiling `foo.c' with `-c -save-temps' would
-     produce files `foo.cpp' and `foo.s', as well as `foo.o'.
+     produce files `foo.i' and `foo.s', as well as `foo.o'.
 
 
 File: gcc.info,  Node: Optimize Options,  Next: Preprocessor Options,  Prev: Debugging Options,  Up: Invoking GCC
@@ -526,14 +537,14 @@ Options That Control Optimization
      on.
 
 `-O2'
-     Highly optimize.  All supported optimizations that do not involve
-     a space-speed tradeoff are performed.  As compared to `-O', this
-     option will increase both compilation time and the performance of
-     the generated code.
+     Optimize even more.  Nearly all supported optimizations that do
+     not involve a space-speed tradeoff are performed.  As compared to
+     `-O', this option increases both compilation time and the
+     performance of the generated code.
 
-     All `-fFLAG' options that control optimization are turned on when
-     `-O2' is specified, except for `-funroll-loops' and
-     `-funroll-all-loops'.
+     `-O2' turns on all `-fFLAG' options that enable more
+     optimization, except for `-funroll-loops', `-funroll-all-loops'
+     and `-fomit-frame-pointer'.
 
    Options of the form `-fFLAG' specify machine-independent flags. 
 Most flags have both positive and negative forms; the negative form of
@@ -850,7 +861,7 @@ is not doing a link step.
 
      It makes a difference where in the command you write this option;
      the linker searches processes libraries and object files in the
-     order they are specified.  Thus, `foo.o -lz bar.o' seaches
+     order they are specified.  Thus, `foo.o -lz bar.o' searches
      library `z' after file `foo.o' but before `bar.o'.  If `bar.o'
      refers to functions in `z', those functions may not be loaded.
 
@@ -879,10 +890,6 @@ is not doing a link step.
      On systems that support dynamic linking, this prevents linking
      with the shared libraries.  On other systems, this option has no
      effect.
-
-`-dynamic'
-     On systems that support dynamic linking, you can use this option
-     to request it explicitly.
 
 `-shared'
      Produce a shared object which can then be linked with other
@@ -958,10 +965,10 @@ libraries and for parts of the compiler:
      For each subprogram to be run, the compiler driver first tries the
      `-B' prefix, if any.  If that name is not found, or if `-B' was
      not specified, the driver tries two standard prefixes, which are
-     `/usr/lib/gcc/' and `/usr/local/lib/gcc/'.  If neither of those
-     results in a file name that is found, the unmodified program name
-     is searched for using the directories specified in your `PATH'
-     environment variable.
+     `/usr/lib/gcc/' and `/usr/local/lib/gcc-lib/'.  If neither of
+     those results in a file name that is found, the unmodified program
+     name is searched for using the directories specified in your
+     `PATH' environment variable.
 
      `-B' prefixes that effectively specify directory names also apply
      to libraries in the linker, because the compiler translates these
@@ -1018,13 +1025,14 @@ but you may sometimes wish to use another.
    The `-b' and `-V' options actually work by controlling part of the
 file name used for the executable files and libraries used for
 compilation.  A given version of GNU CC, for a given target machine, is
-normally kept in the directory `/usr/local/lib/gcc/MACHINE/VERSION'.
+normally kept in the directory
+`/usr/local/lib/gcc-lib/MACHINE/VERSION'.
 
    It follows that sites can customize the effect of `-b' or `-V'
 either by changing the names of these directories or adding alternate
-names (or symbolic links).  Thus, if `/usr/local/lib/gcc/80386' is a
-link to `/usr/local/lib/gcc/i386v', then `-b 80386' will be an alias
-for `-b i386v'.
+names (or symbolic links).  Thus, if `/usr/local/lib/gcc-lib/80386' is
+a link to `/usr/local/lib/gcc-lib/i386v', then `-b 80386' will be an
+alias for `-b i386v'.
 
    In one respect, the `-b' or `-V' do not completely change to a
 different compiler: the top-level driver program `gcc' that you
@@ -1084,6 +1092,7 @@ that macro, which enables you to change the defaults.
 * RS/6000 Options::
 * RT Options::
 * MIPS Options::
+* i386 Options::
 
 
 File: gcc.info,  Node: M680x0 Options,  Next: Vax Options,  Prev: Submodel Options,  Up: Submodel Options
@@ -1185,6 +1194,10 @@ SPARC Options
 -------------
 
    These `-m' switches are supported on the Sparc:
+
+`-mforce-align'
+     Make sure all objects of type `double' are 8-byte aligned in
+     memory and use double-word instructions to reference them.
 
 `-mno-epilogue'
      Generate separate return instructions for `return' statements. 

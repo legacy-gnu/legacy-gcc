@@ -31,6 +31,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define bcmp(a,b,c) memcmp (a,b,c)
 
 #else /* hpux */
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 extern int errno;
 #endif /* hpux */
 

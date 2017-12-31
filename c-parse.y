@@ -104,8 +104,9 @@ void yyerror ();
 %token ELLIPSIS
 
 /* the reserved words */
+/* SCO include files test "ASM", so use something else. */
 %token SIZEOF ENUM STRUCT UNION IF ELSE WHILE DO FOR SWITCH CASE DEFAULT
-%token BREAK CONTINUE RETURN GOTO ASM TYPEOF ALIGNOF ALIGN
+%token BREAK CONTINUE RETURN GOTO ASM_KEYWORD TYPEOF ALIGNOF ALIGN
 %token ATTRIBUTE EXTENSION LABEL
 
 /* Add precedence rules to solve dangling else s/r conflict */
@@ -214,7 +215,7 @@ extdefs:
 extdef:
 	fndef
 	| datadef
-	| ASM '(' expr ')' ';'
+	| ASM_KEYWORD '(' expr ')' ';'
 		{ STRIP_NOPS ($3);
 		  if ((TREE_CODE ($3) == ADDR_EXPR
 		       && TREE_CODE (TREE_OPERAND ($3, 0)) == STRING_CST)
@@ -475,10 +476,9 @@ primary:
 		    }
 		  else if (TREE_TYPE ($$) == error_mark_node)
 		    $$ = error_mark_node;
-		  else if (! TREE_USED ($$))
+		  else
 		    {
-		      if (TREE_EXTERNAL ($$))
-			assemble_external ($$);
+		      assemble_external ($$);
 		      TREE_USED ($$) = 1;
 		    }
 		  if (TREE_CODE ($$) == CONST_DECL)
@@ -725,7 +725,7 @@ notype_initdecls:
 maybeasm:
 	  /* empty */
 		{ $$ = NULL_TREE; }
-	| ASM '(' string ')'
+	| ASM_KEYWORD '(' string ')'
 		{ if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  $$ = $3;
 		}
@@ -1375,7 +1375,7 @@ stmt:
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  c_expand_return ($2); }
-	| ASM maybe_type_qual '(' expr ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' expr ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  STRIP_NOPS ($4);
@@ -1386,21 +1386,21 @@ stmt:
 		  else
 		    error ("argument of `asm' is not a constant string"); }
 	/* This is the case with just output operands.  */
-	| ASM maybe_type_qual '(' expr ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' expr ':' asm_operands ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  c_expand_asm_operands ($4, $6, NULL_TREE, NULL_TREE,
 					 $2 == ridpointers[(int)RID_VOLATILE],
 					 input_filename, lineno); }
 	/* This is the case with input operands as well.  */
-	| ASM maybe_type_qual '(' expr ':' asm_operands ':' asm_operands ')' ';'
+	| ASM_KEYWORD maybe_type_qual '(' expr ':' asm_operands ':' asm_operands ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
 		  c_expand_asm_operands ($4, $6, $8, NULL_TREE,
 					 $2 == ridpointers[(int)RID_VOLATILE],
 					 input_filename, lineno); }
 	/* This is the case with clobbered registers as well.  */
-	| ASM maybe_type_qual '(' expr ':' asm_operands ':'
+	| ASM_KEYWORD maybe_type_qual '(' expr ':' asm_operands ':'
   	  asm_operands ':' asm_clobbers ')' ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);

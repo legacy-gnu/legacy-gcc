@@ -128,7 +128,7 @@ extern int target_flags;
 
 /* tahoe is picky about data alignment */
 
-#define STRICT_ALIGNMENT
+#define STRICT_ALIGNMENT 1
 
 /* keep things standard with pcc */
 
@@ -167,7 +167,7 @@ extern int target_flags;
 
 #define FIXED_REGISTERS {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0}
 
-/* lots of regs aren't guarenteed to return from a call. The FPP reg */
+/* lots of regs aren't guaranteed to return from a call. The FPP reg */
 /* must be included in these since it can't be saved by the reg mask */
 
 #define CALL_USED_REGISTERS {1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1}
@@ -264,7 +264,7 @@ enum reg_class {NO_REGS,GENERAL_REGS,FPP_REG,ALL_REGS,LIM_REG_CLASSES};
 
 #define INDEX_REG_CLASS GENERAL_REGS
 
-/* 'a' as a contraint in the md file means the FFP_REG class */
+/* 'a' as a constraint in the md file means the FFP_REG class */
 
 #define REG_CLASS_FROM_LETTER(C) (C == 'a' ? FPP_REG : NO_REGS)
 
@@ -454,7 +454,7 @@ enum reg_class {NO_REGS,GENERAL_REGS,FPP_REG,ALL_REGS,LIM_REG_CLASSES};
 
 /* The following is all the code for GO_IF_LEGITIMATE_ADDRESS */
 /* most of this taken directly from the vax tm file since the */
-/* tahoe and vax addressing modes are nearly identicle.	      */
+/* tahoe and vax addressing modes are nearly identical.	      */
 
 /* Is x an indirectable address? */
 
@@ -577,7 +577,7 @@ enum reg_class {NO_REGS,GENERAL_REGS,FPP_REG,ALL_REGS,LIM_REG_CLASSES};
 
 #define CASE_VECTOR_MODE HImode
 
-/* each of the table elements in a case are relative to the jump addess */
+/* each of the table elements in a case are relative to the jump address */
 
 #define CASE_VECTOR_PC_RELATIVE
 
@@ -798,7 +798,7 @@ enum reg_class {NO_REGS,GENERAL_REGS,FPP_REG,ALL_REGS,LIM_REG_CLASSES};
 #define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)	\
   sprintf (LABEL, "*%s%d", PREFIX, NUM)
 
-/* outputing a double is easy cause we only have one kind */
+/* outputting a double is easy cause we only have one kind */
 
 #ifdef HCX_UX
 #define ASM_OUTPUT_DOUBLE(FILE,VALUE)  \

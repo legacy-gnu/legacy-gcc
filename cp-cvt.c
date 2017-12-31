@@ -77,7 +77,8 @@ convert_to_pointer (type, expr)
       intype = TYPE_MAIN_VARIANT (intype);
 
       if (TYPE_MAIN_VARIANT (type) != intype
-	  && IS_AGGR_TYPE_2 (TREE_TYPE (type), TREE_TYPE (intype)))
+	  && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
+	  && TREE_CODE (TREE_TYPE (intype)) == RECORD_TYPE)
 	{
 	  enum tree_code code = PLUS_EXPR;
 	  tree binfo = get_binfo (TREE_TYPE (type), TREE_TYPE (intype), 1);
@@ -164,7 +165,8 @@ convert_to_pointer_force (type, expr)
       intype = TYPE_MAIN_VARIANT (intype);
 
       if (TYPE_MAIN_VARIANT (type) != intype
-	  && IS_AGGR_TYPE_2 (TREE_TYPE (type), TREE_TYPE (intype)))
+	  && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
+	  && TREE_CODE (TREE_TYPE (intype)) == RECORD_TYPE)
 	{
 	  enum tree_code code = PLUS_EXPR;
 	  tree path;
@@ -966,7 +968,7 @@ convert_to_aggr (type, expr, msgp, protect)
   parmlist = tree_cons (NULL_TREE, integer_zero_node, parmlist);
   parmtypes = tree_cons (NULL_TREE, TYPE_POINTER_TO (basetype), parmtypes);
 
-  method_name = build_decl_overload (IDENTIFIER_POINTER (name), parmtypes, 1);
+  method_name = build_decl_overload (name, parmtypes, 1);
 
   /* constructors are up front.  */
   fndecl = TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0);
@@ -1294,7 +1296,7 @@ convert (type, expr)
 
       /* Conversion between aggregate types.  New C++ semantics allow
 	 objects of derived type to be cast to objects of base type.
-	 Old semantics only allowed this bwteen pointers.
+	 Old semantics only allowed this between pointers.
 
 	 There may be some ambiguity between using a constructor
 	 vs. using a type conversion operator when both apply.  */
@@ -1721,11 +1723,20 @@ build_type_conversion (code, xtype, expr, for_sure)
 	    basetype = TYPE_BINFO_BASETYPE (basetype, 0);
 	  else break;
 	}
-      if (! not_again && type == integer_type_node)
+      if (! not_again)
 	{
-	  typename = build_typename_overload (long_integer_type_node);
-	  not_again = 1;
-	  goto again;
+	  if (type == integer_type_node)
+	    {
+	      typename = build_typename_overload (long_integer_type_node);
+	      not_again = 1;
+	      goto again;
+	    }
+	  else
+	    {
+	      typename = build_typename_overload (integer_type_node);
+	      not_again = 1;
+	      goto again;
+	    }
 	}
     }
 
@@ -1795,20 +1806,20 @@ build_default_binary_type_conversion (code, arg1, arg2)
     {
       tree decl = typedecl_for_tag (type1);
       if (decl)
-	error ("type conversion nonexistant for type `%s'",
+	error ("type conversion nonexistent for type `%s'",
 	       IDENTIFIER_POINTER (DECL_NAME (decl)));
       else
-	error ("type conversion nonexistant for non-C++ type");
+	error ("type conversion nonexistent for non-C++ type");
       return 0;
     }
   if (TREE_CODE (TYPE_NAME (type2)) != TYPE_DECL)
     {
       tree decl = typedecl_for_tag (type2);
       if (decl)
-	error ("type conversion nonexistant for type `%s'",
+	error ("type conversion nonexistent for type `%s'",
 	       IDENTIFIER_POINTER (decl));
       else
-	error ("type conversion nonexistant for non-C++ type");
+	error ("type conversion nonexistent for non-C++ type");
       return 0;
     }
 

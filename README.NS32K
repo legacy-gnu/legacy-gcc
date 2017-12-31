@@ -82,7 +82,7 @@ by setting the flag in tm.h that requires strict alignment.
 4) Scaled indexing in an insn following an insn that has a read-write
 operand in memory.  This can be prevented by placing a no-op in
 between.  I, Michael Tiemann, do not understand what exactly is meant
-by `read-write operand in memory'.  If this is refering to the special
+by `read-write operand in memory'.  If this is referring to the special
 TOS mode, for example "addd 5,tos" then one need not fear, since this
 will never be generated.  However, is this includes "addd 5,-4(fp)"
 then there is room for disaster.  The Sequent compiler does not insert

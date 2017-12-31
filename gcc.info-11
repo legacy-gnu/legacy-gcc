@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -22,6 +22,416 @@ versions, except that the section entitled "GNU General Public
 License" and this permission notice may be included in translations
 approved by the Free Software Foundation instead of in the original
 English.
+
+
+File: gcc.info,  Node: Insn Canonicalizations,  Next: Peephole Definitions,  Prev: Jump Patterns,  Up: Machine Desc
+
+Canonicalization of Instructions
+================================
+
+   There are often cases where multiple RTL expressions could
+represent an operation performed by a single machine instruction. 
+This situation is most commonly encountered with logical, branch, and
+multiply-accumulate instructions.  In such cases, the compiler
+attempts to convert these multiple RTL expressions into a single
+canonical form to reduce the number of insn patterns required.
+
+   In addition to algebraic simplifications, following
+canonicalizations are performed:
+
+   * For commutative and comparison operators, a constant is always
+     made the second operand.  If a machine only supports a constant
+     as the second operand, only patterns that match a constant in the
+     second operand need be supplied.
+
+     For these operators, if only one operand is a `neg', `not',
+     `mult', `plus', or `minus' expression, it will be the first
+     operand.
+
+   * For the `compare' operator, a constant is always the second
+     operand on machines where `cc0' is used (*note Jump Patterns::.).
+      On other machines, there are rare cases where the compiler might
+     want to construct a `compare' with a constant as the first
+     operand.  However, these cases are not common enough for it to be
+     worthwhile to provide a pattern matching a constant as the first
+     operand unless the machine actually has such an instruction.
+
+     An operand of `neg', `not', `mult', `plus', or `minus' is made
+     the first operand under the same conditions as above.
+
+   * `(minus X (const_int N))' is converted to `(plus X (const_int
+     -N))'.
+
+   * Within address computations (i.e., inside `mem'), a left shift is
+     converted into the appropriate multiplication by a power of two.
+
+     De`Morgan's Law is used to move bitwise negation inside a bitwise
+     logical-and or logical-or operation.  If this results in only one
+     operand being a `not' expression, it will be the first one.
+
+     A machine that has an instruction that performs a bitwise
+     logical-and of one operand with the bitwise negation of the other
+     should specify the pattern for that instruction as
+
+          (define_insn ""
+            [(set (match_operand:M 0 ...)
+          	(and:M (not:M (match_operand:M 1 ...))
+          		     (match_operand:M 2 ...)))]
+            "..."
+            "...")
+
+     Similarly, a pattern for a "NAND" instruction should be written
+
+          (define_insn ""
+            [(set (match_operand:M 0 ...)
+          	(ior:M (not:M (match_operand:M 1 ...))
+          		     (not:M (match_operand:M 2 ...))))]
+            "..."
+            "...")
+
+     In both cases, it is not necessary to include patterns for the
+     many logically equivalent RTL expressions.
+
+   * The only possible RTL expressions involving both bitwise
+     exclusive-or and bitwise negation are `(xor:M X) Y)' and `(not:M
+     (xor:M X Y))'.
+
+   * The sum of three items, one of which is a constant, will only
+     appear in the form
+
+          (plus:M (plus:M X Y) CONSTANT)
+
+   * On machines that do not use `cc0', `(compare X (const_int 0))'
+     will be converted to X.
+
+   * Equality comparisons of a group of bits (usually a single bit)
+     with zero will be written using `zero_extract' rather than the
+     equivalent `and' or `sign_extract' operations.
+
+
+File: gcc.info,  Node: Peephole Definitions,  Next: Expander Definitions,  Prev: Insn Canonicalizations,  Up: Machine Desc
+
+Defining Machine-Specific Peephole Optimizers
+=============================================
+
+   In addition to instruction patterns the `md' file may contain
+definitions of machine-specific peephole optimizations.
+
+   The combiner does not notice certain peephole optimizations when
+the data flow in the program does not suggest that it should try them.
+ For example, sometimes two consecutive insns related in purpose can
+be combined even though the second one does not appear to use a
+register computed in the first one.  A machine-specific peephole
+optimizer can detect such opportunities.
+
+   A definition looks like this:
+
+     (define_peephole
+       [INSN-PATTERN-1
+        INSN-PATTERN-2
+        ...]
+       "CONDITION"
+       "TEMPLATE"
+       "OPTIONAL INSN-ATTRIBUTES")
+
+The last string operand may be omitted if you are not using any
+machine-specific information in this machine description.  If present,
+it must obey the same rules as in a `define_insn'.
+
+   In this skeleton, INSN-PATTERN-1 and so on are patterns to match
+consecutive insns.  The optimization applies to a sequence of insns
+when INSN-PATTERN-1 matches the first one, INSN-PATTERN-2 matches the
+next, and so on.
+
+   Each of the insns matched by a peephole must also match a
+`define_insn'.  Peepholes are checked only at the last stage just
+before code generation, and only optionally.  Therefore, any insn which
+would match a peephole but no `define_insn' will cause a crash in code
+generation in an unoptimized compilation, or at various optimization
+stages.
+
+   The operands of the insns are matched with `match_operands',
+`match_operator', and `match_dup', as usual.  What is not usual is
+that the operand numbers apply to all the insn patterns in the
+definition.  So, you can check for identical operands in two insns by
+using `match_operand' in one insn and `match_dup' in the other.
+
+   The operand constraints used in `match_operand' patterns do not have
+any direct effect on the applicability of the peephole, but they will
+be validated afterward, so make sure your constraints are general
+enough to apply whenever the peephole matches.  If the peephole matches
+but the constraints are not satisfied, the compiler will crash.
+
+   It is safe to omit constraints in all the operands of the peephole;
+or you can write constraints which serve as a double-check on the
+criteria previously tested.
+
+   Once a sequence of insns matches the patterns, the CONDITION is
+checked.  This is a C expression which makes the final decision
+whether to perform the optimization (we do so if the expression is
+nonzero).  If CONDITION is omitted (in other words, the string is
+empty) then the optimization is applied to every sequence of insns
+that matches the patterns.
+
+   The defined peephole optimizations are applied after register
+allocation is complete.  Therefore, the peephole definition can check
+which operands have ended up in which kinds of registers, just by
+looking at the operands.
+
+   The way to refer to the operands in CONDITION is to write
+`operands[I]' for operand number I (as matched by `(match_operand I
+...)').  Use the variable `insn' to refer to the last of the insns
+being matched; use `prev_nonnote_insn' to find the preceding insns.
+
+   When optimizing computations with intermediate results, you can use
+CONDITION to match only when the intermediate results are not used
+elsewhere.  Use the C expression `dead_or_set_p (INSN, OP)', where
+INSN is the insn in which you expect the value to be used for the last
+time (from the value of `insn', together with use of
+`prev_nonnote_insn'), and OP is the intermediate value (from
+`operands[I]').
+
+   Applying the optimization means replacing the sequence of insns
+with one new insn.  The TEMPLATE controls ultimate output of assembler
+code for this combined insn.  It works exactly like the template of a
+`define_insn'.  Operand numbers in this template are the same ones
+used in matching the original sequence of insns.
+
+   The result of a defined peephole optimizer does not need to match
+any of the insn patterns in the machine description; it does not even
+have an opportunity to match them.  The peephole optimizer definition
+itself serves as the insn pattern to control how the insn is output.
+
+   Defined peephole optimizers are run as assembler code is being
+output, so the insns they produce are never combined or rearranged in
+any way.
+
+   Here is an example, taken from the 68000 machine description:
+
+     (define_peephole
+       [(set (reg:SI 15) (plus:SI (reg:SI 15) (const_int 4)))
+        (set (match_operand:DF 0 "register_operand" "f")
+             (match_operand:DF 1 "register_operand" "ad"))]
+       "FP_REG_P (operands[0]) && ! FP_REG_P (operands[1])"
+       "*
+     {
+       rtx xoperands[2];
+       xoperands[1] = gen_rtx (REG, SImode, REGNO (operands[1]) + 1);
+     #ifdef MOTOROLA
+       output_asm_insn (\"move.l %1,(sp)\", xoperands);
+       output_asm_insn (\"move.l %1,-(sp)\", operands);
+       return \"fmove.d (sp)+,%0\";
+     #else
+       output_asm_insn (\"movel %1,sp@\", xoperands);
+       output_asm_insn (\"movel %1,sp@-\", operands);
+       return \"fmoved sp@+,%0\";
+     #endif
+     }
+     ")
+
+   The effect of this optimization is to change
+
+     jbsr _foobar
+     addql #4,sp
+     movel d1,sp@-
+     movel d0,sp@-
+     fmoved sp@+,fp0
+
+into
+
+     jbsr _foobar
+     movel d1,sp@
+     movel d0,sp@-
+     fmoved sp@+,fp0
+
+   INSN-PATTERN-1 and so on look *almost* like the second operand of
+`define_insn'.  There is one important difference: the second operand
+of `define_insn' consists of one or more RTX's enclosed in square
+brackets.  Usually, there is only one: then the same action can be
+written as an element of a `define_peephole'.  But when there are
+multiple actions in a `define_insn', they are implicitly enclosed in a
+`parallel'.  Then you must explicitly write the `parallel', and the
+square brackets within it, in the `define_peephole'.  Thus, if an insn
+pattern looks like this,
+
+     (define_insn "divmodsi4"
+       [(set (match_operand:SI 0 "general_operand" "=d")
+             (div:SI (match_operand:SI 1 "general_operand" "0")
+                     (match_operand:SI 2 "general_operand" "dmsK")))
+        (set (match_operand:SI 3 "general_operand" "=d")
+             (mod:SI (match_dup 1) (match_dup 2)))]
+       "TARGET_68020"
+       "divsl%.l %2,%3:%0")
+
+then the way to mention this insn in a peephole is as follows:
+
+     (define_peephole
+       [...
+        (parallel
+         [(set (match_operand:SI 0 "general_operand" "=d")
+               (div:SI (match_operand:SI 1 "general_operand" "0")
+                       (match_operand:SI 2 "general_operand" "dmsK")))
+          (set (match_operand:SI 3 "general_operand" "=d")
+               (mod:SI (match_dup 1) (match_dup 2)))])
+        ...]
+       ...)
+
+
+File: gcc.info,  Node: Expander Definitions,  Next: Insn Splitting,  Prev: Peephole Definitions,  Up: Machine Desc
+
+Defining RTL Sequences for Code Generation
+==========================================
+
+   On some target machines, some standard pattern names for RTL
+generation cannot be handled with single insn, but a sequence of RTL
+insns can represent them.  For these target machines, you can write a
+`define_expand' to specify how to generate the sequence of RTL.
+
+   A `define_expand' is an RTL expression that looks almost like a
+`define_insn'; but, unlike the latter, a `define_expand' is used only
+for RTL generation and it can produce more than one RTL insn.
+
+   A `define_expand' RTX has four operands:
+
+   * The name.  Each `define_expand' must have a name, since the only
+     use for it is to refer to it by name.
+
+   * The RTL template.  This is just like the RTL template for a
+     `define_peephole' in that it is a vector of RTL expressions each
+     being one insn.
+
+   * The condition, a string containing a C expression.  This
+     expression is used to express how the availability of this
+     pattern depends on subclasses of target machine, selected by
+     command-line options when GNU CC is run.  This is just like the
+     condition of a `define_insn' that has a standard name.
+
+   * The preparation statements, a string containing zero or more C
+     statements which are to be executed before RTL code is generated
+     from the RTL template.
+
+     Usually these statements prepare temporary registers for use as
+     internal operands in the RTL template, but they can also generate
+     RTL insns directly by calling routines such as `emit_insn', etc. 
+     Any such insns precede the ones that come from the RTL template.
+
+   Every RTL insn emitted by a `define_expand' must match some
+`define_insn' in the machine description.  Otherwise, the compiler
+will crash when trying to generate code for the insn or trying to
+optimize it.
+
+   The RTL template, in addition to controlling generation of RTL
+insns, also describes the operands that need to be specified when this
+pattern is used.  In particular, it gives a predicate for each operand.
+
+   A true operand, which needs to be specified in order to generate
+RTL from the pattern, should be described with a `match_operand' in
+its first occurrence in the RTL template.  This enters information on
+the operand's predicate into the tables that record such things.  GNU
+CC uses the information to preload the operand into a register if that
+is required for valid RTL code.  If the operand is referred to more
+than once, subsequent references should use `match_dup'.
+
+   The RTL template may also refer to internal "operands" which are
+temporary registers or labels used only within the sequence made by the
+`define_expand'.  Internal operands are substituted into the RTL
+template with `match_dup', never with `match_operand'.  The values of
+the internal operands are not passed in as arguments by the compiler
+when it requests use of this pattern.  Instead, they are computed
+within the pattern, in the preparation statements.  These statements
+compute the values and store them into the appropriate elements of
+`operands' so that `match_dup' can find them.
+
+   There are two special macros defined for use in the preparation
+statements: `DONE' and `FAIL'.  Use them with a following semicolon,
+as a statement.
+
+`DONE'
+     Use the `DONE' macro to end RTL generation for the pattern.  The
+     only RTL insns resulting from the pattern on this occasion will be
+     those already emitted by explicit calls to `emit_insn' within the
+     preparation statements; the RTL template will not be generated.
+
+`FAIL'
+     Make the pattern fail on this occasion.  When a pattern fails, it
+     means that the pattern was not truly available.  The calling
+     routines in the compiler will try other strategies for code
+     generation using other patterns.
+
+     Failure is currently supported only for binary (addition,
+     multiplication, shifting, etc.) and bitfield (`extv', `extzv',
+     and `insv') operations.
+
+   Here is an example, the definition of left-shift for the SPUR chip:
+
+     (define_expand "ashlsi3"
+       [(set (match_operand:SI 0 "register_operand" "")
+             (ashift:SI
+               (match_operand:SI 1 "register_operand" "")
+               (match_operand:SI 2 "nonmemory_operand" "")))]
+       ""
+       "
+     {
+       if (GET_CODE (operands[2]) != CONST_INT
+           || (unsigned) INTVAL (operands[2]) > 3)
+         FAIL;
+     }")
+
+This example uses `define_expand' so that it can generate an RTL insn
+for shifting when the shift-count is in the supported range of 0 to 3
+but fail in other cases where machine insns aren't available.  When it
+fails, the compiler tries another strategy using different patterns
+(such as, a library call).
+
+   If the compiler were able to handle nontrivial condition-strings in
+patterns with names, then it would be possible to use a `define_insn'
+in that case.  Here is another case (zero-extension on the 68000)
+which makes more use of the power of `define_expand':
+
+     (define_expand "zero_extendhisi2"
+       [(set (match_operand:SI 0 "general_operand" "")
+             (const_int 0))
+        (set (strict_low_part
+               (subreg:HI
+                 (match_dup 0)
+                 0))
+             (match_operand:HI 1 "general_operand" ""))]
+       ""
+       "operands[1] = make_safe_from (operands[1], operands[0]);")
+
+Here two RTL insns are generated, one to clear the entire output
+operand and the other to copy the input operand into its low half. 
+This sequence is incorrect if the input operand refers to [the old
+value of] the output operand, so the preparation statement makes sure
+this isn't so.  The function `make_safe_from' copies the `operands[1]'
+into a temporary register if it refers to `operands[0]'.  It does this
+by emitting another RTL insn.
+
+   Finally, a third example shows the use of an internal operand. 
+Zero-extension on the SPUR chip is done by `and'-ing the result
+against a halfword mask.  But this mask cannot be represented by a
+`const_int' because the constant value is too large to be legitimate
+on this machine.  So it must be copied into a register with
+`force_reg' and then the register used in the `and'.
+
+     (define_expand "zero_extendhisi2"
+       [(set (match_operand:SI 0 "register_operand" "")
+             (and:SI (subreg:SI
+                       (match_operand:HI 1 "register_operand" "")
+                       0)
+                     (match_dup 2)))]
+       ""
+       "operands[2]
+          = force_reg (SImode, gen_rtx (CONST_INT,
+                                        VOIDmode, 65535)); ")
+
+   *Note:* If the `define_expand' is used to serve a standard binary
+or unary arithmetic operation or a bitfield operation, then the last
+insn it generates must not be a `code_label', `barrier' or `note'.  It
+must be an `insn', `jump_insn' or `call_insn'.  If you don't need a
+real insn at the end, emit an insn to copy the result of the operation
+into itself.  Such an insn will generate no code, but it can avoid
+problems in the compiler.
 
 
 File: gcc.info,  Node: Insn Splitting,  Next: Insn Attributes,  Prev: Expander Definitions,  Up: Machine Desc
@@ -107,6 +517,7 @@ by `NOTICE_UPDATE_CC' to track the condition codes.
 * Tagging Insns::       Assigning attribute values to insns.
 * Attr Example::        An example of assigning attributes.
 * Insn Lengths::        Computing the length of insns.
+* Constant Attributes:: Defining attributes that are constant.
 * Delay Slots::         Defining delay slots required for a machine.
 * Function Units::      Specifying information for insn scheduling.
 
@@ -130,7 +541,9 @@ to indicate that the attribute takes numeric values.
    DEFAULT is an attribute expression that gives the value of this
 attribute for insns that match patterns whose definition does not
 include an explicit value for this attribute.  *Note Attr Example::,
-for more information on the handling of defaults.
+for more information on the handling of defaults.  *Note Constant
+Attributes::, for information on attributes that do not depend on any
+particular insn.
 
    For each defined attribute, a number of definitions are written to
 the `insn-attr.h' file.  For cases where an explicit set of values is
@@ -431,7 +844,7 @@ condition code since they will set the condition code to a value
 corresponding to the full-word result.
 
 
-File: gcc.info,  Node: Insn Lengths,  Next: Delay Slots,  Prev: Attr Example,  Up: Insn Attributes
+File: gcc.info,  Node: Insn Lengths,  Next: Constant Attributes,  Prev: Attr Example,  Up: Insn Attributes
 
 Computing the Length of an Insn
 -------------------------------
@@ -482,7 +895,7 @@ multiplied by the size of each vector.
      alignment may be required.
 
    The routine that returns the value of the `length' attribute,
-`get_attr_value', can be used by the output routine to determine the
+`get_attr_length', can be used by the output routine to determine the
 form of the branch instruction to be written, as the example below
 illustrates.
 
@@ -510,7 +923,36 @@ specified as follows:
                                            (const_int 6)))])
 
 
-File: gcc.info,  Node: Delay Slots,  Next: Function Units,  Prev: Insn Lengths,  Up: Insn Attributes
+File: gcc.info,  Node: Constant Attributes,  Next: Delay Slots,  Prev: Insn Lengths,  Up: Insn Attributes
+
+Constant Attributes
+-------------------
+
+   A special form of DEFINE_ATTR, where the expression for the default
+value is a CONST expression, indicates an attribute that is constant
+for a given run of the compiler.  Constant attributes may be used to
+specify which variety of processor is used.  For example,
+
+     (define_attr "cpu" "m88100,m88110,m88000"
+      (const
+       (cond [(symbol_ref "TARGET_88100") (const_string "m88100")
+     	 (symbol_ref "TARGET_88110") (const_string "m88110")]
+     	(const_string "m88000"))))
+     
+     (define_attr "memory" "fast,slow"
+      (const
+       (if_then_else (symbol_ref "TARGET_FAST_MEM")
+     		(const_string "fast")
+     		(const_string "slow"))))
+
+   The routine generated for constant attributes has no parameters as
+it does not depend on any particular insn.  RTL expressions used to
+define the value of a constant attribute may use the SYMBOL_REF form,
+but may not use either the MATCH_OPERAND form or EQ_ATTR forms
+involving insn attributes.
+
+
+File: gcc.info,  Node: Delay Slots,  Next: Function Units,  Prev: Constant Attributes,  Up: Insn Attributes
 
 Delay Slot Scheduling
 ---------------------
@@ -695,10 +1137,10 @@ examples of how function unit conflicts work in such processors and
 suggestions for their representation.
 
 
-File: gcc.info,  Node: Machine Macros,  Next: Config,  Prev: Machine Desc,  Up: Top
+File: gcc.info,  Node: Target Macros,  Next: Config,  Prev: Machine Desc,  Up: Top
 
-Machine Description Macros
-**************************
+Target Description Macros
+*************************
 
    In addition to the file `MACHINE.md', a machine description
 includes a C header file conventionally given the name `MACHINE.h'. 
@@ -729,363 +1171,5 @@ include `config.h'.
 * Debugging Info::      Defining the format of debugging output.
 * Cross-compilation::   Handling floating point for cross-compilers.
 * Misc::                Everything else.
-
-
-File: gcc.info,  Node: Driver,  Next: Run-time Target,  Prev: Machine Macros,  Up: Machine Macros
-
-Controlling the Compilation Driver, `gcc'
-=========================================
-
-`SWITCH_TAKES_ARG (CHAR)'
-     A C expression which determines whether the option `-CHAR' takes
-     arguments.  The value should be the number of arguments that
-     option takes--zero, for many options.
-
-     By default, this macro is defined to handle the standard options
-     properly.  You need not define it unless you wish to add
-     additional options which take arguments.
-
-`WORD_SWITCH_TAKES_ARG (NAME)'
-     A C expression which determines whether the option `-NAME' takes
-     arguments.  The value should be the number of arguments that
-     option takes--zero, for many options.  This macro rather than
-     `SWITCH_TAKES_ARG' is used for multi-character option names.
-
-     By default, this macro is defined to handle the standard options
-     properly.  You need not define it unless you wish to add
-     additional options which take arguments.
-
-`SWITCHES_NEED_SPACES'
-     A string-valued C expression which is nonempty if the linker
-     needs a space between the `-L' or `-o' option and its argument.
-
-     If this macro is not defined, the default value is 0.
-
-`CPP_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to CPP.  It can also specify how to translate options you
-     give to GNU CC into options for GNU CC to pass to the CPP.
-
-     Do not define this macro if it does not need to do anything.
-
-`SIGNED_CHAR_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to CPP.  By default, this macro is defined to pass the
-     option `-D__CHAR_UNSIGNED__' to CPP if `char' will be treated as
-     `unsigned char' by `cc1'.
-
-     Do not define this macro unless you need to override the default
-     definition.
-
-`CC1_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to `cc1'.  It can also specify how to translate options
-     you give to GNU CC into options for GNU CC to pass to the `cc1'.
-
-     Do not define this macro if it does not need to do anything.
-
-`CC1PLUS_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to `cc1plus'.  It can also specify how to translate
-     options you give to GNU CC into options for GNU CC to pass to the
-     `cc1plus'.
-
-     Do not define this macro if it does not need to do anything.
-
-`ASM_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to the assembler.  It can also specify how to translate
-     options you give to GNU CC into options for GNU CC to pass to the
-     assembler.  See the file `sun3.h' for an example of this.
-
-     Do not define this macro if it does not need to do anything.
-
-`ASM_FINAL_SPEC'
-     A C string constant that tells the GNU CC driver program how to
-     run any programs which cleanup after the normal assembler. 
-     Normally, this is not needed.  See the file `mips.h' for an
-     example of this.
-
-     Do not define this macro if it does not need to do anything.
-
-`LINK_SPEC'
-     A C string constant that tells the GNU CC driver program options
-     to pass to the linker.  It can also specify how to translate
-     options you give to GNU CC into options for GNU CC to pass to the
-     linker.
-
-     Do not define this macro if it does not need to do anything.
-
-`LIB_SPEC'
-     Another C string constant used much like `LINK_SPEC'.  The
-     difference between the two is that `LIB_SPEC' is used at the end
-     of the command given to the linker.
-
-     If this macro is not defined, a default is provided that loads
-     the standard C library from the usual place.  See `gcc.c'.
-
-`STARTFILE_SPEC'
-     Another C string constant used much like `LINK_SPEC'.  The
-     difference between the two is that `STARTFILE_SPEC' is used at
-     the very beginning of the command given to the linker.
-
-     If this macro is not defined, a default is provided that loads the
-     standard C startup file from the usual place.  See `gcc.c'.
-
-`ENDFILE_SPEC'
-     Another C string constant used much like `LINK_SPEC'.  The
-     difference between the two is that `ENDFILE_SPEC' is used at the
-     very end of the command given to the linker.
-
-     Do not define this macro if it does not need to do anything.
-
-`LINK_LIBGCC_SPECIAL'
-     Define this macro meaning that `gcc' should find the library
-     `libgcc.a' by hand, rather than passing the argument `-lgcc' to
-     tell the linker to do the search.
-
-`RELATIVE_PREFIX_NOT_LINKDIR'
-     Define this macro to tell `gcc' that it should only translate a
-     `-B' prefix into a `-L' linker option if the prefix indicates an
-     absolute file name.
-
-`STANDARD_EXEC_PREFIX'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/local/lib/gcc/' as the default
-     prefix to try when searching for the executable files of the
-     compiler.
-
-`MD_EXEC_PREFIX'
-     If defined, this macro is an additional prefix to try after
-     `STANDARD_EXEC_PREFIX'.  `MD_EXEC_PREFIX' is not searched when
-     the `-b' option is used, or the compiler is built as a cross
-     compiler.
-
-`STANDARD_STARTFILE_PREFIX'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/local/lib/gcc/' as the default
-     prefix to try when searching for startup files such as `crt0.o'.
-
-`MD_STARTFILE_PREFIX'
-     If defined, this macro supplies an additional prefix to try after
-     the standard prefixes.  `MD_EXEC_PREFIX' is not searched when the
-     `-b' option is used, or the compiler is built as a cross compiler.
-
-`LOCAL_INCLUDE_DIR'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/local/include' as the default prefix
-     to try when searching for local header files.  `LOCAL_INCLUDE_DIR'
-     comes before `SYSTEM_INCLUDE_DIR' in the search order.
-
-     Cross compilers do not use this macro and do not search either
-     `/usr/local/include' or its replacement.
-
-`SYSTEM_INCLUDE_DIR'
-     Define this macro as a C string constant if you wish to specify a
-     system-specific directory to search for header files before the
-     standard directory.  `SYSTEM_INCLUDE_DIR' comes before
-     `STANDARD_INCLUDE_DIR' in the search order.
-
-     Cross compilers do not use this macro and do not search the
-     directory specified.
-
-`STANDARD_INCLUDE_DIR'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/include' as the default prefix to
-     try when searching for header files.
-
-     Cross compilers do not use this macro and do not search either
-     `/usr/include' or its replacement.
-
-`INCLUDE_DEFAULTS'
-     Define this macro if you wish to override the entire default
-     search path for include files.  The default search path includes
-     `GPLUSPLUS_INCLUDE_DIR', `GCC_INCLUDE_DIR', `LOCAL_INCLUDE_DIR',
-     `SYSTEM_INCLUDE_DIR', and `STANDARD_INCLUDE_DIR'.  In addition,
-     the macros `GPLUSPLUS_INCLUDE_DIR' and `GCC_INCLUDE_DIR' are
-     defined automatically by `Makefile', and specify private search
-     areas for GCC.  The directory `GPLUSPLUS_INCLUDE_DIR' is used
-     only for C++ programs.
-
-     The definition should be an initializer for an array of
-     structures.  Each array element should have two elements: the
-     directory name (a string constant) and a flag for C++-only
-     directories.  Mark the end of the array with a null element.  For
-     example, here is the definition used for VMS:
-
-          #define INCLUDE_DEFAULTS \
-          {                                       \
-            { "GNU_GXX_INCLUDE:", 1},             \
-            { "GNU_CC_INCLUDE:", 0},              \
-            { "SYS$SYSROOT:[SYSLIB.]", 0},        \
-            { ".", 0},                            \
-            { 0, 0}                               \
-          }
-
-   Here is the order of prefixes tried for exec files:
-
-  1. Any prefixes specified by the user with `-B'.
-
-  2. The environment variable `GCC_EXEC_PREFIX', if any.
-
-  3. The directories specified by the environment variable
-     `COMPILER_PATH'.
-
-  4. The macro `STANDARD_EXEC_PREFIX'.
-
-  5. `/usr/lib/gcc/'.
-
-  6. The macro `MD_EXEC_PREFIX', if any.
-
-   Here is the order of prefixes tried for startfiles:
-
-  1. Any prefixes specified by the user with `-B'.
-
-  2. The environment variable `GCC_EXEC_PREFIX', if any.
-
-  3. The directories specified by the environment variable
-     `LIBRARY_PATH'.
-
-  4. The macro `STANDARD_EXEC_PREFIX'.
-
-  5. `/usr/lib/gcc/'.
-
-  6. The macro `MD_EXEC_PREFIX', if any.
-
-  7. The macro `MD_STARTFILE_PREFIX', if any.
-
-  8. The macro `STANDARD_STARTFILE_PREFIX'.
-
-  9. `/lib/'.
-
- 10. `/usr/lib/'.
-
-
-File: gcc.info,  Node: Run-time Target,  Next: Storage Layout,  Prev: Driver,  Up: Machine Macros
-
-Run-time Target Specification
-=============================
-
-`CPP_PREDEFINES'
-     Define this to be a string constant containing `-D' options to
-     define the predefined macros that identify this machine and
-     system.  These macros will be predefined unless the `-ansi'
-     option is specified.
-
-     In addition, a parallel set of macros are predefined, whose names
-     are made by appending `__' at the beginning and at the end.  These
-     `__' macros are permitted by the ANSI standard, so they are
-     predefined regardless of whether `-ansi' is specified.
-
-     For example, on the Sun, one can use the following value:
-
-          "-Dmc68000 -Dsun -Dunix"
-
-     The result is to define the macros `__mc68000__', `__sun__' and
-     `__unix__' unconditionally, and the macros `mc68000', `sun' and
-     `unix' provided `-ansi' is not specified.
-
-`STDC_VALUE'
-     Define the value to be assigned to the built-in macro `__STDC__'. 
-     The default is the value `1'.
-
-`extern int target_flags;'
-     This declaration should be present.
-
-`TARGET_...'
-     This series of macros is to allow compiler command arguments to
-     enable or disable the use of optional features of the target
-     machine.  For example, one machine description serves both the
-     68000 and the 68020; a command argument tells the compiler
-     whether it should use 68020-only instructions or not.  This
-     command argument works by means of a macro `TARGET_68020' that
-     tests a bit in `target_flags'.
-
-     Define a macro `TARGET_FEATURENAME' for each such option.  Its
-     definition should test a bit in `target_flags'; for example:
-
-          #define TARGET_68020 (target_flags & 1)
-
-     One place where these macros are used is in the
-     condition-expressions of instruction patterns.  Note how
-     `TARGET_68020' appears frequently in the 68000 machine
-     description file, `m68k.md'.  Another place they are used is in
-     the definitions of the other macros in the `MACHINE.h' file.
-
-`TARGET_SWITCHES'
-     This macro defines names of command options to set and clear bits
-     in `target_flags'.  Its definition is an initializer with a
-     subgrouping for each command option.
-
-     Each subgrouping contains a string constant, that defines the
-     option name, and a number, which contains the bits to set in
-     `target_flags'.  A negative number says to clear bits instead;
-     the negative of the number is which bits to clear.  The actual
-     option name is made by appending `-m' to the specified name.
-
-     One of the subgroupings should have a null string.  The number in
-     this grouping is the default value for `target_flags'.  Any
-     target options act starting with that value.
-
-     Here is an example which defines `-m68000' and `-m68020' with
-     opposite meanings, and picks the latter as the default:
-
-          #define TARGET_SWITCHES \
-            { { "68020", 1},      \
-              { "68000", -1},     \
-              { "", 1}}
-
-`TARGET_OPTIONS'
-     This macro is similar to `TARGET_SWITCHES' but defines names of
-     command options that have values.  Its definition is an
-     initializer with a subgrouping for each command option.
-
-     Each subgrouping contains a string constant, that defines the
-     fixed part of the option name, and the address of a variable. 
-     The variable, type `char *', is set to the variable part of the
-     given option if the fixed part matches.  The actual option name
-     is made by appending `-m' to the specified name.
-
-     Here is an example which defines `-mshort-data-NUMBER'.  If the
-     given option is `-mshort-data-512', the variable `m88k_short_data'
-     will be set to the string `"512"'.
-
-          extern char *m88k_short_data;
-          #define TARGET_OPTIONS { { "short-data-", &m88k_short_data } }
-
-`TARGET_VERSION'
-     This macro is a C statement to print on `stderr' a string
-     describing the particular machine description choice.  Every
-     machine description should define `TARGET_VERSION'.  For example:
-
-          #ifdef MOTOROLA
-          #define TARGET_VERSION fprintf (stderr, " (68k, Motorola syntax)");
-          #else
-          #define TARGET_VERSION fprintf (stderr, " (68k, MIT syntax)");
-          #endif
-
-`OVERRIDE_OPTIONS'
-     Sometimes certain combinations of command options do not make
-     sense on a particular target machine.  You can define a macro
-     `OVERRIDE_OPTIONS' to take account of this.  This macro, if
-     defined, is executed once just after all the command options have
-     been parsed.
-
-     Don't use this macro to turn on various extra optimizations for
-     `-O'.  That is what `OPTIMIZATION_OPTIONS' is for.
-
-`OPTIMIZATION_OPTIONS (LEVEL)'
-     Some machines may desire to change what optimizations are
-     performed for various optimization levels.   This macro, if
-     defined, is executed once just after the optimization level is
-     determined and before the remainder of the command options have
-     been parsed.  Values set in this macro are used as the default
-     values for the other command line options.
-
-     LEVEL is the optimization level specified; 2 if -O2 is specified,
-     1 if -O is specified, and 0 if neither is specified.
-
-     *Do not examine `write_symbols' in this macro!* The debugging
-     options are not supposed to alter the generated code.
 
 

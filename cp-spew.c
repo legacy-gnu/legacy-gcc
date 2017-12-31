@@ -70,8 +70,8 @@ static int spew_debug = 0;
 static int yylex_ctr = 0;
 #endif
 
-static char follows_typename[END_OF_SAVED_INPUT];
-static char follows_identifier[END_OF_SAVED_INPUT];
+static char follows_typename[END_OF_SAVED_INPUT+1];
+static char follows_identifier[END_OF_SAVED_INPUT+1];
 
 /* Initialize token_obstack. Called once, from init_lex.  */
 void
@@ -85,7 +85,7 @@ init_spew ()
       ARITHCOMPARE, LSHIFT, RSHIFT, UNARY, PLUSPLUS, MINUSMINUS, POINTSAT,
       POINTSAT_STAR, DOT_STAR, CONSTANT, STRING, SIZEOF, ENUM, IF,
       ELSE, WHILE, DO, FOR, SWITCH, CASE, DEFAULT, BREAK, CONTINUE,
-      RETURN, GOTO, ASM, TYPEOF, ALIGNOF, HEADOF, CLASSOF, ATTRIBUTE,
+      RETURN, GOTO, ASM_KEYWORD, TYPEOF, ALIGNOF, HEADOF, CLASSOF, ATTRIBUTE,
       AGGR, VISSPEC, DELETE, RAISE, RERAISE, TRY, EXCEPT, CATCH,
       THROW, ANSI_TRY, ANSI_THROW, EXTERN_LANG_STRING, ALL,
       END_OF_SAVED_INPUT, -1 };
@@ -306,8 +306,9 @@ yylex()
   else
     {
       /* if not, grab the next one and think about it */
-      tmp_token.yychar = real_yylex();
+      tmp_token.yychar = real_yylex ();
       tmp_token.yylval = yylval;
+      tmp_token.end_of_file = end_of_file;
       add_token(&tmp_token);
     }
 
@@ -667,7 +668,7 @@ arbitrate_lookup (name, exp_decl, type_decl)
 	    ith_yychar = nth_token (2+i)->yychar;
 
 	    /* If we hit an undefined identifier, assume
-	       the decl in aribtration is its type specifier.  */
+	       the decl in arbitration is its type specifier.  */
 	    if (ith_yychar == IDENTIFIER
 		&& lookup_name (nth_token (2+i)->yylval.ttype, 0) == 0)
 	      return type_decl;
@@ -839,7 +840,7 @@ hack_ptype()
       /* don't actually eat the trailing '>'... we can replace it! */
       for (i=0; i<n; i++)
 	consume_token();
-      /*    IDENTIFER_TYPE_VALUE (DECL_NAME (tc)) = */
+      /*    IDENTIFIER_TYPE_VALUE (DECL_NAME (tc)) = */
       return DECL_NAME (tc);
     }
   return NULL_TREE;

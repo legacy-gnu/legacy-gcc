@@ -31,6 +31,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define SGS			/* Uses SGS assembler */
 #define SGS_CMP_ORDER		/* Takes cmp operands in reverse order */
 #define HPUX_ASM
+
+/* gcc.c should find libgcc.a itself rather than expecting linker to.  */
+#define LINK_LIBGCC_SPECIAL
+/* The arguments of -L must be a separate argv element.  */
+#define SPACE_AFTER_L_OPTION
+/* HP/UX doesn't have libg.a.  */
+#define LIB_SPEC "%{!p:%{!pg:-lc}}%{p:-lc_p}%{pg:-lc_p}"
 #endif
 
 /* Be compatible with system stddef.h.  */
@@ -94,9 +101,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* -m68000 requires special flags to the assembler.  */
 #define ASM_SPEC \
  "%{m68000:-mc68000}%{mc68000:-mc68000}%{!mc68000:%{!m68000:-mc68020}}"
-
-/* special directory for gnu libs on hp-ux system */
-#define MD_STARTFILE_PREFIX "/usr/local/lib/gnu/"
 
 /* Tell GCC to put a space after -L when generating such options.  */
 #define SPACE_AFTER_L_OPTION
@@ -288,7 +292,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define DATA_SECTION_ASM_OP "data"
 
-#define	ASCII_DATA_ASM_OP "\tbyte"
+#define	ASCII_DATA_ASM_OP "byte"
 
 /* This says how to output an assembler line
    to define a global common symbol.  */
@@ -381,7 +385,7 @@ do{  if (PREFIX[0] == 'L' && PREFIX[1] == 'I')		\
   else if (CODE == '-') fprintf (FILE, "-(%%sp)");			\
   else if (CODE == '+') fprintf (FILE, "(%%sp)+");			\
   else if (CODE == '@') fprintf (FILE, "(%%sp)");			\
-  else if (CODE == '!') fprintf (FILE, "%%cc");				\
+  else if (CODE == '!') fprintf (FILE, "%%fpcr");			\
   else if (CODE == '$') { if (TARGET_68040_ONLY) fprintf (FILE, "s"); } \
   else if (CODE == '&') { if (TARGET_68040_ONLY) fprintf (FILE, "d"); } \
   else if (GET_CODE (X) == REG)						\
@@ -553,7 +557,7 @@ do{  if (PREFIX[0] == 'L' && PREFIX[1] == 'I')		\
 	putc('\n', (f));		\
 	inside = FALSE;			\
       }					\
-      fprintf((f), "%s ", ASCII_DATA_ASM_OP);	\
+      fprintf((f), "\t%s ", ASCII_DATA_ASM_OP);	\
     }					\
     if ((p)[i] < 32 || (p)[i] == '\\' || (p)[i] == '"' || (p)[i] == 127) {	\
       if (inside) {			\

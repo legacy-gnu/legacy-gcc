@@ -1,4 +1,4 @@
-/* For cross compilation, use the portable defintions from the COFF
+/* For cross compilation, use the portable definitions from the COFF
    documentation.  */
 
 #define __GNU_SYMS__

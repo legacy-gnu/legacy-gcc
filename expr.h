@@ -202,14 +202,10 @@ enum direction {none, upward, downward};  /* Value has this type.  */
      aligned to a boundary corresponding to what can be loaded into a
      register.  */
 
-#ifdef STRICT_ALIGNMENT
 #define MUST_PASS_IN_STACK_BAD_ALIGN(MODE,TYPE)			\
-  (MODE == BLKmode						\
+  (STRICT_ALIGNMENT && MODE == BLKmode			        \
    && TYPE_ALIGN (TYPE) < (BIGGEST_ALIGNMENT < BITS_PER_WORD	\
 			   ? BIGGEST_ALIGNMENT : BITS_PER_WORD))
-#else
-#define MUST_PASS_IN_STACK_BAD_ALIGN(MODE,TYPE) 0
-#endif
   
 /* Which padding can't be supported depends on the byte endianness.  */
 
@@ -323,6 +319,7 @@ extern optab neg_optab;		/* Negation */
 extern optab abs_optab;		/* Abs value */
 extern optab one_cmpl_optab;	/* Bitwise not */
 extern optab ffs_optab;		/* Find first bit set */
+extern optab sqrt_optab;	/* Square root */
 
 /* Passed to expand_binop and expand_unop to say which options to try to use
    if the requested operation can't be open-coded on the requisite mode.

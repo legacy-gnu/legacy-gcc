@@ -75,7 +75,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    brackets or in angle brackets.  Thus we need to check both.  This
    macro is used to help compare filenames in cp-lex.c.
 
-   We also need to make sure that the names are all lower case, becuse
+   We also need to make sure that the names are all lower case, because
    we must be able to compare filenames to determine if a file implements
    a class.  */
 

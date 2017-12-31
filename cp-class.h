@@ -70,7 +70,7 @@ struct candidate
       tree field;		/* If no evil strikes, the FUNCTION_DECL of
 				   the function (if a member function).  */
       int bad_arg;		/* the index of the first bad argument:
-				   0 if no bad arguements
+				   0 if no bad arguments
 				   > 0 is first bad argument
 				   -1 if extra actual arguments
 				   -2 if too few actual arguments.

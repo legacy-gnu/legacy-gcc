@@ -108,7 +108,7 @@ typedef struct rtx_def
      1 in a LABEL_REF if this is a reference to a label outside the
      current loop.
      1 in an INSN, JUMP_INSN, or CALL_INSN if this insn must be scheduled
-     together with the preceeding insn.  Valid only within sched.
+     together with the preceding insn.  Valid only within sched.
      1 in an INSN, JUMP_INSN, or CALL_INSN if insn is in a delay slot and
      from the target of a branch.  Valid from reorg until end of compilation;
      cleared before used.  */
@@ -433,7 +433,7 @@ extern char *note_insn_name[];
 #define REG_LOOP_TEST_P(RTX) ((RTX)->in_struct)
 
 /* During sched, for an insn, 1 means that the insn must be scheduled together
-   with the preceeding insn.  */
+   with the preceding insn.  */
 #define SCHED_GROUP_P(INSN) ((INSN)->in_struct)
 
 /* For a SET rtx, SET_DEST is the place that is set

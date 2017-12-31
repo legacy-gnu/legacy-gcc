@@ -47,7 +47,7 @@ extern char *ctime ();
 extern int flag_traditional;
 extern FILE *asm_out_file;
 
-static char out_sccs_id[] = "@(#)m88k.c	1.96.5.2 06 Feb 1992 10:02:20";
+static char out_sccs_id[] = "@(#)m88k.c	2.0.3.4 19 Mar 1992 11:11:58";
 static char tm_sccs_id [] = TM_SCCS_ID;
 
 char *m88k_pound_sign = "";	/* Either # for SVR4 or empty for SVR3 */
@@ -63,6 +63,8 @@ int m88k_case_index;
 rtx m88k_compare_reg;		/* cmp output pseudo register */
 rtx m88k_compare_op0;		/* cmpsi operand 0 */
 rtx m88k_compare_op1;		/* cmpsi operand 1 */
+
+enum attr_cpu m88k_cpu;		/* target cpu */
 
 /* Determine what instructions are needed to manufacture the integer VALUE
    in the given MODE.  */
@@ -216,7 +218,7 @@ emit_move_sequence (operands, mode)
 	  emit_insn (gen_rtx (SET, VOIDmode, operand0, operand1));
 	  return 1;
 	}
-      if (! reload_in_progress)
+      if (! reload_in_progress && ! reload_completed)
 	{
 	  operands[0] = validize_mem (operand0);
 	  operands[1] = operand1 = force_reg (mode, operand1);
@@ -229,7 +231,8 @@ emit_move_sequence (operands, mode)
 	if (GET_CODE (operand1) != CONST_INT
 	    && GET_CODE (operand1) != CONST_DOUBLE)
 	  {
-	    rtx temp = reload_in_progress ? operand0 : gen_reg_rtx (Pmode);
+	    rtx temp = ((reload_in_progress || reload_completed)
+			? operand0 : gen_reg_rtx (Pmode));
 	    operands[1] = legitimize_address (flag_pic
 					      && symbolic_address_p (operand1),
 					      operand1, temp);
@@ -694,7 +697,7 @@ output_xor (operands)
 
 /* Output a call.  Normally this is just bsr or jsr, but this also deals with
    accomplishing a branch after the call by incrementing r1.  This requires
-   that various assembler bugs be accomodated.  The 4.30 DG/UX assembler
+   that various assembler bugs be accommodated.  The 4.30 DG/UX assembler
    requires that forward references not occur when computing the difference of
    two labels.  The [version?] Motorola assembler computes a word difference.
    No doubt there's more to come!
@@ -808,7 +811,7 @@ output_short_branch_defs (stream)
       ASM_GENERATE_INTERNAL_LABEL
 	(low, "L", CODE_LABEL_NUMBER (XEXP (sb_low, 0)));
       /* This will change as the assembler requirements become known.  */
-      fprintf (stream, "%s\t %s,%s-%s\n",
+      fprintf (stream, "\t%s\t %s,%s-%s\n",
 	       DEF_ASM_OP, &name[1], &high[1], &low[1]);
     }
   if (sb_name || sb_high || sb_low)
@@ -817,7 +820,7 @@ output_short_branch_defs (stream)
 
 /* Report errors on floating point, if we are given NaN's, or such.  Leave
    the number as is, though, since we output the number in hex, and the
-   assemble won't choak on it.  */
+   assembler won't choke on it.  */
 
 void
 check_float_value (mode, value)
@@ -1308,7 +1311,7 @@ output_file_start (file, f_options, f_len, W_options, W_len)
       char indent[256];
 
       time_t now = time ((time_t *)0);
-      sprintf (indent, "]\"\n%s\t \"@(#)%s [", IDENT_ASM_OP, main_input_filename);
+      sprintf (indent, "]\"\n\t%s\t \"@(#)%s [", IDENT_ASM_OP, main_input_filename);
       fprintf (file, indent+3);
       pos = fprintf (file, "gcc %s, %.24s,", VERSION_STRING, ctime (&now));
       output_options (file, f_options, f_len, W_options, W_len,
@@ -1328,14 +1331,14 @@ output_ascii (file, p, size)
 
   register int num = 0;
 
-  fprintf (file, "%s\t \"", ASCII_DATA_ASM_OP);
+  fprintf (file, "\t%s\t \"", ASCII_DATA_ASM_OP);
   for (i = 0; i < size; i++)
     {
       register int c = p[i];
 
       if (num > 48)
 	{
-	  fprintf (file, "\"\n%s\t \"", ASCII_DATA_ASM_OP);
+	  fprintf (file, "\"\n\t%s\t \"", ASCII_DATA_ASM_OP);
 	  num = 0;
 	}
 
@@ -1403,12 +1406,12 @@ m88k_handle_pragma_token (string, token)
 	{
 	  if (state == ps_name || state == ps_value)
 	    {
-	      fprintf (asm_out_file, "%s\t ", WEAK_ASM_OP);
+	      fprintf (asm_out_file, "\t%s\t ", WEAK_ASM_OP);
 	      ASM_OUTPUT_LABELREF (asm_out_file, name);
 	      fputc ('\n', asm_out_file);
 	      if (state == ps_value)
 		{
-		  fprintf (asm_out_file, "%s\t ", DEF_ASM_OP);
+		  fprintf (asm_out_file, "\t%s\t ", DEF_ASM_OP);
 		  ASM_OUTPUT_LABELREF (asm_out_file, name);
 		  fputc (',', asm_out_file);
 		  ASM_OUTPUT_LABELREF (asm_out_file, value);
@@ -1882,7 +1885,7 @@ m88k_output_epilogue (stream, size)
      int size;
 {
   rtx insn = get_last_insn ();
-#if (MONITOR_GCC & 0x4) /* What are interesting prologue/epiloge values?  */
+#if (MONITOR_GCC & 0x4) /* What are interesting prologue/epilogue values?  */
   fprintf (stream, "; size = %d, m88k_fp_offset = %d, m88k_stack_size = %d\n",
 	   size, m88k_fp_offset, m88k_stack_size);
 #endif
@@ -2129,10 +2132,11 @@ m88k_debugger_offset (reg, offset)
     offset -= m88k_stack_size;
   else if (reg != arg_pointer_rtx)
     {
+#if (MONITOR_GCC & 0x10) /* Watch for suspicious symbolic locations.  */
       if (! (GET_CODE (reg) == REG
 	     && REGNO (reg) >= FIRST_PSEUDO_REGISTER))
-	/* @@ For now, I'd like to know if this happens.  */
 	warning ("Internal gcc error: Can't express symbolic location");
+#endif
       return 0;
     }
 
@@ -2192,7 +2196,7 @@ output_tdesc (file, offset)
 
   tdesc_section ();
 
-  fprintf (file, "%s\t %d", INT_ASM_OP, (16 << 2) | 2 /* 8:0,22:16,2:2 */);
+  fprintf (file, "\t%s\t %d", INT_ASM_OP, (16 << 2) | 2 /* 8:0,22:16,2:2 */);
   fprintf (file, ",%d", flag_pic ? 2 : 1);
 
   ASM_GENERATE_INTERNAL_LABEL (buf, OCS_START_PREFIX, m88k_function_number);
@@ -2440,7 +2444,7 @@ m88k_builtin_saveregs (arglist)
     }
 
   /* Allocate the va_list constructor */
-  block = assign_stack_local (BLKmode, 3 * UNITS_PER_WORD, BITS_PER_UNIT);
+  block = assign_stack_local (BLKmode, 3 * UNITS_PER_WORD, BITS_PER_WORD);
   RTX_UNCHANGING_P (block) = 1;
   RTX_UNCHANGING_P (XEXP (block, 0)) = 1;
 
@@ -2724,7 +2728,7 @@ print_operand (file, x, code)
       fputs (reg_names[REGNO (x) + 1], file);
       return;
 
-    case 'r': /* an immediate 0 should be repesented as `r0' */
+    case 'r': /* an immediate 0 should be represented as `r0' */
       if (x == const0_rtx)
 	{
 	  fputs (reg_names[0], file);

@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+This is Info file gcc.info, produced by Makeinfo-1.44 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -213,7 +213,7 @@ IBM RT Options
      `-mhc-struct-return'.
 
 
-File: gcc.info,  Node: MIPS Options,  Prev: RT Options,  Up: Submodel Options
+File: gcc.info,  Node: MIPS Options,  Next: i386 Options,  Prev: RT Options,  Up: Submodel Options
 
 MIPS Options
 ------------
@@ -222,7 +222,7 @@ MIPS Options
 
 `-mcpu=CPU TYPE'
      Assume the defaults for the machine type CPU TYPE when scheduling
-     insturctions.  The default CPU TYPE is `default', which picks the
+     instructions.  The default CPU TYPE is `default', which picks the
      longest cycles times for any of the machines, in order that the
      code run at reasonable rates on all MIPS cpu's.  Other choices
      for CPU TYPE are `r2000', `r3000', `r4000', and `r6000'.  While
@@ -271,7 +271,7 @@ MIPS Options
 `-mgpopt'
 `-mno-gpopt'
      The `-mgpopt' switch says to write all of the data declarations
-     before the instructions in the text section, to all the MIPS
+     before the instructions in the text section, this allows the MIPS
      assembler to generate one word memory references instead of using
      two words for short global or static data items.  This is on by
      default if optimization is selected.
@@ -297,7 +297,9 @@ MIPS Options
      is not run, then no local variables will be available to the
      debugger.  In addition, `stage2' and `stage3' objects will have
      the temporary file names passed to the assembler embedded in the
-     object file, which means the objects will not compare the same.
+     object file, which means the objects will not compare the same. 
+     The `-mno-mips-tfile' switch should only be used when there are
+     bugs in the `mips-tfile' program that prevents compilation.
 
 `-msoft-float'
      Generate output containing library calls for floating point. 
@@ -343,9 +345,38 @@ MIPS Options
       The `-G NUM' switch is also passed to the assembler and linker. 
      All modules should be compiled with the same `-G NUM' value.
 
+`-nocpp'
+     Tell the MIPS assembler to not run it's preprocessor over user
+     assembler files (with a `.s' suffix) when assembling them.
+
    These options are defined by the macro `TARGET_SWITCHES' in the
 machine description.  The default for the options is also defined by
 that macro, which enables you to change the defaults.
+
+
+File: gcc.info,  Node: i386 Options,  Prev: MIPS Options,  Up: Submodel Options
+
+Intel 386 Options
+-----------------
+
+   These `-m' options are defined for the i386 family of computers:
+
+`-m486'
+`-mno486'
+     Control whether or not code is optimized for a 486 instead of an
+     386.  Code generated for an 486 will run on a 386 and vice versa.
+
+`-msoft-float'
+     Generate output containing library calls for floating point. 
+     *Warning:* the requisite libraries are not part of GNU CC. 
+     Normally the facilities of the machine's usual C compiler are
+     used, but this can't be done directly in cross-compilation.  You
+     must make your own arrangements to provide suitable library
+     functions for cross-compilation.
+
+     On machines where a function returnings float point results in
+     the 80387 register stack, some floating point opcodes may be
+     emitted even if `-msoft-float' is used.
 
 
 File: gcc.info,  Node: Code Gen Options,  Next: Environment Variables,  Prev: Submodel Options,  Up: Invoking GCC
@@ -428,6 +459,12 @@ out the other form by either removing `no-' or adding it.
      Position-independent code requires special support, and therefore
      works only on certain machines.  Code generated for the IBM
      RS/6000 is always position-independent.
+
+     The GNU assembler does not fully support PIC.  Currently, you
+     must use some other assembler in order for PIC to work.  We would
+     welcome volunteers to upgrade GAS to handle this; the first part
+     of the job is to figure out what the assembler must do
+     differently.
 
 `-fPIC'
      If supported for the target machine, emit position-independent
@@ -519,13 +556,14 @@ CC.  *Note Driver::.
 
      In addition, the prefix is used in an unusual way in finding the
      directories to search for header files.  For each of the standard
-     directories whose name normally begins with `/usr/local/lib/gcc'
-     (more precisely, with the value of `GCC_INCLUDE_DIR'), GNU CC
-     tries replacing that beginning with the specified prefix to
-     produce an alternate directory name.  Thus, with `-Bfoo/', GNU CC
-     will search `foo/bar' where it would normally search
-     `/usr/local/lib/bar'.  These alternate directories are searched
-     first; the standard directories come next.
+     directories whose name normally begins with
+     `/usr/local/lib/gcc-lib' (more precisely, with the value of
+     `GCC_INCLUDE_DIR'), GNU CC tries replacing that beginning with
+     the specified prefix to produce an alternate directory name. 
+     Thus, with `-Bfoo/', GNU CC will search `foo/bar' where it would
+     normally search `/usr/local/lib/bar'.  These alternate
+     directories are searched first; the standard directories come
+     next.
 
 `COMPILER_PATH'
      The value of `COMPILER_PATH' is a colon-separated list of
@@ -542,7 +580,7 @@ CC.  *Note Driver::.
      the `-l' option (but directories specified with `-L' come first).
 
 `C_INCLUDE_PATH'
-`C++_INCLUDE_PATH'
+`CPLUS_INCLUDE_PATH'
 `OBJC_INCLUDE_PATH'
      These environment variables pertain to particular languages.  Each
      variable's value is a colon-separated list of directories, much
@@ -578,14 +616,11 @@ Installing GNU CC
 * Sun Install::   See below for installation on the Sun.
 * 3B1 Install::   See below for installation on the 3B1.
 * VMS Install::   See below for installation on VMS.
-* SCO Install::   See below for installation on SCO System V 3.2.
-                    (This may also be a start on solving
-                     the problems of installation on Xenix.)
 * Unos Install::  See below for installation on Unos (from CRDS).
 
   1. If you have built GNU CC previously in the same directory for a
-     different target machine, do `make cleanconfig' to delete all
-     files that might be invalid.
+     different target machine, do `make distclean' to delete all files
+     that might be invalid.
 
   2. On a Sequent system, go to the Berkeley universe.
 
@@ -617,9 +652,9 @@ Installing GNU CC
         You can also replace parts of the configuration by nicknames
      or aliases.  For example, `sun3' stands for `m68k-sun', so
      `sun3-sunos4.1' is another way to specify a Sun 3.  You can also
-     use simply `sun3-sunos', since the version of Sunos is assumed by
+     use simply `sun3-sunos', since the version of SunOS is assumed by
      default to be version 4.  `sun3-bsd' also works, since
-     `configure' knows that the only BSD variant on a Sun 3 is Sunos.
+     `configure' knows that the only BSD variant on a Sun 3 is SunOS.
 
         You can specify a version number after any of the system
      types, and some of the CPU types.  In most cases, the version is
@@ -630,9 +665,6 @@ Installing GNU CC
 
           a29k, arm, cN, hppa, i386, i860, m68000, m68k, m88k, mips,
           ns32k, romp, rs6000, sparc, vax.
-
-        Note that the type hppa currently works only with Berkeley
-     systems, not with HP/UX.
 
         Here are the recognized company names.  As you can see,
      customary abbreviations are used rather than the longer official
@@ -649,19 +681,31 @@ Installing GNU CC
 
         Here is a list of system types:
 
-          bsd, sysv, mach, minix, genix, ultrix, vms, sco, esix, isc,
-          aix, sunos, hpux, unos, luna, dgux, newsos, osfrose, osf,
-          dynix, aos, ctix.
+          bsd, sysv, mach, minix, genix, ultrix, vms, sco, isc, aix,
+          sunos, hpux, unos, luna, dgux, newsos, osfrose, osf, dynix,
+          aos, ctix.
 
      You can omit the system type; then `configure' guesses the
      operating system from the CPU and company.
 
-        Often a particular model of machine has a name.  Many of these
-     names are recognized as an alias for a CPU/company combination. 
-     The alias `sun3', mentioned above, is an example of this: it
-     stands for `m68k-sun'.  Sometimes we accept a company name as a
-     machine name, when the name is popularly used for a particular
-     machine.  Here is a table of the known machine names:
+        You can add a version number to the system type; this may or
+     may not make a difference.  For example, you can write `bsd4.3' or
+     `bsd4.4' to distinguish versions of BSD.  In practice, the version
+     number is most needed for `sysv3' and `sysv4', which are often
+     treated differently.
+
+        If you specify an impossible combination such as `i860-dg-vms',
+     then you may get an error message from `configure', or it may
+     ignore part of the information and do the best it can with the
+     rest.  `configure' always prints the canonical name for the
+     alternative that it used.
+
+        Often a particular model of machine has a name.  Many machine
+     names are recognized as aliases for CPU/company combinations. 
+     Thus, the machine name `sun3', mentioned above, is an alias for
+     `m68k-sun'.  Sometimes we accept a company name as a machine
+     name, when the name is popularly used for a particular machine. 
+     Here is a table of the known machine names:
 
           3300, 3b1, 7300, altos3068, altos, apollo68, att-7300,
           balance, convex-cN, crds, decstation-3100, decstation-dec,
@@ -671,11 +715,8 @@ Installing GNU CC
           next, pbd, pc532, pmax, ps2, risc-news, rtpc, sun2, sun386i,
           sun386, sun3, sun4, symmetry, tower-32, tower.
 
-        If you specify an impossible combination such as `i860-dg-vms',
-     then you may get an error message from `configure', or it may
-     ignore part of the information and do the best it can with the
-     rest.  `configure' always prints the canonical name for the
-     alternative that it used.
+     Remember that a machine name specifies both the cpu type and the
+     company name.
 
         On certain systems, you must specify whether you want GNU CC
      to work with the usual compilation tools or with the GNU
@@ -701,7 +742,18 @@ Installing GNU CC
      `m68k-local.md', `m68k-local.h', `m68k-local.c',
      `xm-m68k-local.h', `t-m68k-local', and `x-m68k-local'.
 
-        Here is a list of configurations that have special treatment:
+        Here is a list of configurations that have special treatment
+     or special things you must know:
+
+    `hppa-hp-hpux'
+          HP precision architecture, running HP-UX.  `-g' does not work
+          on this configuration, since the system uses a peculiar
+          debugging format which GNU CC does not know about.
+
+    `i386-*-sco'
+          Compilation with RCC is recommended, but it produces lots of
+          spurious warnings.  They do not necessarily indicate that
+          anything is wrong.
 
     `m68000-att'
           AT&T 3b1, a.k.a. 7300 PC.  Special procedures are needed to
@@ -721,11 +773,13 @@ Installing GNU CC
           kernel bug.  Details in the file `ALTOS-README'.
 
     `m68k-hp-hpux'
-          HP 9000 series 200 or 300 running HPUX.  GNU CC does not
-          support the special symbol table used by HP's debugger, but
-          you can debug programs with GDB if you specify `--gas' to
-          use the GNU tools instead.  In order to use the GNU tools,
-          you must install a library conversion program called `hpxt'.
+          HP 9000 series 300 or 400 running HP-UX.  HP-UX version 8.0
+          has a bug in the assembler that prevents compilation of GNU
+          CC.  To fix it, get patch PHCO_0800 from HP.
+
+          In addition, `--gas' does not currently work with this
+          configuration.  Changes in HP-UX have broken the library
+          conversion tool and the linker.
 
     `m68k-sun'
           Sun 3.  We do not provide a configuration file to use the
@@ -740,6 +794,13 @@ Installing GNU CC
           this command:
 
                eval `sde-target m88kbcs`
+
+    `mips-mips-bsd'
+          MIPS machines running the MIPS operating system in BSD mode.
+           It's possible that some old versions of the system lack the
+          functions `memcpy', `memcmp', and `memset'.  If your system
+          lacks these, you must remove or undo the definition of
+          `TARGET_MEM_FUNCTIONS' in `mips-bsd.h'.
 
     `ns32k-encore'
           Encore ns32000 system.  Encore systems are supported only
@@ -756,10 +817,10 @@ Installing GNU CC
           `tektronix!reed!mason' to get binaries of GNU CC for
           bootstrapping.
 
-    `rs6000-ibm'
-          IBM PowerStation/6000 machines.  Due to the nonstandard
-          debugging information required for this machine, `-g' is not
-          available in this configuration.
+    `pyramid'
+          The Pyramid C compler is reported to be unable to compile
+          GNU CC.  You must use an older version of GNU CC for
+          bootstrapping.
 
     `vax-dec-ultrix'
           Don't try compiling with Vax C (`vcc').  It produces
@@ -904,9 +965,11 @@ Installing GNU CC
      therefore a potentially serious bug which you should investigate
      and report (*note Bugs::.).
 
-        On systems that use COFF object files, bytes 5 to 8 will
-     always be different, since it is a timestamp.  On these systems,
-     you can do the comparison as follows (in Bourne shell):
+        On systems that use COFF object files, or an object file
+     format that is a superset of COFF (such as ECOFF or XCOFF), bytes
+     5 to 8 will always be different, since it is a timestamp.  On
+     these systems, you can do the comparison as follows (in Bourne
+     shell):
 
           for file in *.o; do
           tail +10c $file > foo1
@@ -914,13 +977,9 @@ Installing GNU CC
           cmp foo1 foo2 || echo $file
           done
 
-        On MIPS machines, you need to use the shell script `ecoff-cmp'
-     to compare two object files if you have built the compiler with
-     the `-mno-mips-tfile' option.  Thus, do this:
-
-          for file in *.o; do
-          ecoff-cmp $file stage2/$file
-          done
+        If you have built the compiler with the `-mno-mips-tfile'
+     option on MIPS machines, you will not be able to compare the
+     files.
 
  11. Install the compiler driver, the compiler's passes and run-time
      support.  You can use the following command:
@@ -932,10 +991,10 @@ Installing GNU CC
 
         This copies the files `cc1', `cpp' and `libgcc.a' to files
      `cc1', `cpp' and `libgcc.a' in directory
-     `/usr/local/lib/gcc/TARGET/VERSION', which is where the compiler
-     driver program looks for them.  Here TARGET is the target machine
-     type specified when you ran `configure', and VERSION is the
-     version number of GNU CC.  This naming scheme permits various
+     `/usr/local/lib/gcc-lib/TARGET/VERSION', which is where the
+     compiler driver program looks for them.  Here TARGET is the target
+     machine type specified when you ran `configure', and VERSION is
+     the version number of GNU CC.  This naming scheme permits various
      versions and/or cross-compilers to coexist.
 
         It also copies the driver program `gcc' into the directory
@@ -943,9 +1002,14 @@ Installing GNU CC
      paths.
 
         *Warning: there is a bug in `alloca' in the Sun library.  To
-     avoid this bug, install the binaries of GNU CC that were compiled
-     by GNU CC.  They use `alloca' as a built-in function and never
-     the one in the library.*
+     avoid this bug, be sure to install the executables of GNU CC that
+     were compiled by GNU CC.  (That is, the executables from stage 2
+     or 3, not stage 1.)  They use `alloca' as a built-in function and
+     never the one in the library.*
+
+        (It is usually better to install GNU CC executables from stage
+     2 or 3, since they usually run faster than the ones compiled with
+     some other compiler.)
 
  12. If you will be using C++ or Objective C, and your operating
      system does not handle constructors, then you must build and
@@ -1024,7 +1088,13 @@ do differently:
      feature.  (GNU Make supports it, as do Make versions on most BSD
      systems.)
 
-  2. Go to that directory before running `configure':
+  2. If you have ever run `configure' in the source directory, you
+     must undo the configuration.  Do this by running:
+
+          make cleanconfig
+
+  3. Go to the directory in which you want to build the compiler before
+     running `configure':
 
           mkdir gcc-sun3
           cd gcc-sun3
@@ -1032,7 +1102,7 @@ do differently:
         On systems that do not support symbolic links, this directory
      must be on the same file system as the source code directory.
 
-  3. Specify where to find `configure' when you run it:
+  4. Specify where to find `configure' when you run it:
 
           ../gcc-2.00/configure ...
 
@@ -1076,7 +1146,7 @@ avoid it by using the following command to compile GNU CC with Sun CC:
      make CC="TERMCAP=x OBJS=x LIBFUNCS=x STAGESTUFF=x cc"
 
 
-File: gcc.info,  Node: 3b1 Install,  Next: SCO Install,  Prev: Sun Install,  Up: Installation
+File: gcc.info,  Node: 3b1 Install,  Next: Unos Install,  Prev: Sun Install,  Up: Installation
 
 Installing GNU CC on the 3b1
 ============================
@@ -1105,67 +1175,5 @@ following procedure might work.  We are unable to test it.
 
   8. Now you can compile GNU CC with itself and install it in the
      normal fashion.
-
-
-File: gcc.info,  Node: SCO Install,  Next: Unos Install,  Prev: 3B1 Install,  Up: Installation
-
-Installing GNU CC on SCO System V 3.2
-=====================================
-
-   The compiler that comes with this system does not work properly with
-`-O'.  Therefore, you should redefine the Make variable `CCLIBFLAGS'
-not to use `-O'.
-
-   In addition, the compiler produces incorrect output when compiling
-parts of GNU CC; the resulting executable `cc1' does not work properly
-when it is used with `-O'.
-
-   Therefore, what you must do after building the first stage is use
-GNU CC to compile itself without optimization.  Here is how:
-
-     make -k cc1 CC="./gcc -B./"
-
-   You can think of this as "stage 1.1" of the installation process. 
-However, using this command has the effect of discarding the faulty
-stage 1 executable for `cc1' and replacing it with stage 1.1.  You can
-then proceed with `make stage1' and the rest of installation.
-
-   On Xenix, the same thing is necessary; in addition, you may have to
-remove `-g' from the options used with `cc', and you may have to
-simplify complicated statements in the sources of GNU CC to get them
-to compile.
-
-
-File: gcc.info,  Node: Unos Install,  Next: VMS Install,  Prev: SCO Install,  Up: Installation
-
-Installing GNU CC on Unos
-=========================
-
-   Use `configure unos' for building on Unos.
-
-   The Unos assembler is named `casm' instead of `as'.  For some
-strange reason linking `/bin/as' to `/bin/casm' changes the behavior,
-and does not work.  So, when installing GNU CC, you should install the
-following script as `as' in the subdirectory where the passes of GCC
-are installed:
-
-     #!/bin/sh
-     casm $*
-
-   The default Unos library is named `libunos.a' instead of `libc.a'. 
-To allow GNU CC to function, either change all references to `-lc' in
-`gcc.c' to `-lunos' or link `/lib/libc.a' to `/lib/libunos.a'.
-
-   When compiling GNU CC with the standard compiler, to overcome bugs
-in the support of `alloca', do not use `-O' when making stage 2.  Then
-use the stage 2 compiler with `-O' to make the stage 3 compiler.  This
-compiler will have the same characteristics as the usual stage 2
-compiler on other systems.  Use it to make a stage 4 compiler and
-compare that with stage 3 to verify proper compilation.
-
-   Unos uses memory segmentation instead of demand paging, so you will
-need a lot of memory.  5 Mb is barely enough if no other tasks are
-running.  If linking `cc1' fails, try putting the object files into a
-library and linking from that library.
 
 

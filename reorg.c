@@ -95,7 +95,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
    On machines that use CC0, we are very conservative.  We will not make
    a copy of an insn involving CC0 since we want to maintain a 1-1
-   correspondance between the insn that sets and uses CC0.  The insns are
+   correspondence between the insn that sets and uses CC0.  The insns are
    allowed to be separated by placing an insn that sets CC0 (but not an insn
    that uses CC0; we could do this, but it doesn't seem worthwhile) in a
    delay slot.  In that case, we point each insn at the other with REG_CC_USER
@@ -1758,71 +1758,35 @@ find_basic_block (insn)
   return -1;
 }
 
-/* Used for communication between the following two routines, contains
-   the block number that insn was in.  */
-
-static int current_block_number;
-
-/* Called via note_stores from update_block_status.  It marks the
-   registers set in this insn as live at the start of the block whose
-   number is in current_block_number.  */
-
-static void
-update_block_from_store (dest, x)
-     rtx dest;
-     rtx x;
-{
-  int first_regno, last_regno;
-  int offset = 0;
-  int i;
-
-  if (GET_CODE (x) != SET
-      || (GET_CODE (dest) != REG && (GET_CODE (dest) != SUBREG
-				     || GET_CODE (SUBREG_REG (dest)) != REG)))
-    return;
-
-  if (GET_CODE (dest) == SUBREG)
-    first_regno = REGNO (SUBREG_REG (dest)) + SUBREG_WORD (dest);
-  else
-    first_regno = REGNO (dest);
-
-  last_regno = first_regno + HARD_REGNO_NREGS (first_regno, GET_MODE (dest));
-  for (i = first_regno; i < last_regno; i++)
-    basic_block_live_at_start[current_block_number][i / HOST_BITS_PER_INT]
-      |= (1 << (i % HOST_BITS_PER_INT));
-}
-
 /* Called when INSN is being moved from a location near the target of a jump.
-   If WHERE is the first active insn at the start of its basic block, we can
-   just mark the registers set in INSN as live at the start of the basic block
-   that starts immediately before INSN.
-
-   Otherwise, we leave a marker of the form (use (INSN)) immediately in front
+   We leave a marker of the form (use (INSN)) immediately in front
    of WHERE for mark_target_live_regs.  These markers will be deleted when
-   reorg finishes.  */
+   reorg finishes.
+
+   We used to try to update the live status of registers if WHERE is at
+   the start of a basic block, but that can't work since we may remove a
+   BARRIER in relax_delay_slots.  */
 
 static void
 update_block (insn, where)
      rtx insn;
      rtx where;
 {
+  int b;
+
   /* Ignore if this was in a delay slot and it came from the target of 
      a branch.  */
   if (INSN_FROM_TARGET_P (insn))
     return;
 
-  current_block_number = find_basic_block (insn);
-  if (current_block_number == -1)
-    return;
-
-  if (where == next_active_insn (basic_block_head[current_block_number]))
-    note_stores (PATTERN (insn), update_block_from_store);
-  else
-    emit_insn_before (gen_rtx (USE, VOIDmode, insn), where);
+  emit_insn_before (gen_rtx (USE, VOIDmode, insn), where);
 
   /* INSN might be making a value live in a block where it didn't use to
      be.  So recompute liveness information for this block.  */
-  bb_ticks[current_block_number]++;
+
+  b = find_basic_block (insn);
+  if (b != -1)
+    bb_ticks[b]++;
 }
 
 /* Marks registers possibly live at the current place being scanned by
@@ -2081,6 +2045,12 @@ mark_target_live_regs (target, res)
 #endif
 		    )
 		  CLEAR_HARD_REG_BIT (current_live_regs, i);
+
+	      /* A CALL_INSN sets any global register live, since it may
+		 have been modified by the call.  */
+	      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+		if (global_regs[i])
+		  SET_HARD_REG_BIT (current_live_regs, i);
 	    }
 
 	  /* Mark anything killed in an insn to be deadened at the next
@@ -2204,8 +2174,12 @@ mark_target_live_regs (target, res)
   /* If we hit an unconditional branch, we have another way of finding out
      what is live: we can see what is live at the branch target and include
      anything used but not set before the branch.  The only things that are
-     live are those that are live using the above test and the test below.  */
-  if (jump_insn)
+     live are those that are live using the above test and the test below.
+
+     Don't try this if we expired our jump count above, since that would
+     mean there may be an infinite loop in the function being compiled.  */
+
+  if (jump_insn && jump_count < 10)
     {
       rtx jump_target = (GET_CODE (jump_insn) == INSN
 			 ? JUMP_LABEL (XVECEXP (PATTERN (jump_insn), 0, 0))
@@ -2664,7 +2638,7 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
      int own_thread, own_opposite_thread;
      int slots_to_fill, *pslots_filled;
 {
-  rtx new_thread = thread;
+  rtx new_thread;
   rtx delay_list = 0;
   struct resources opposite_needed, set, needed;
   rtx trial;
@@ -2687,6 +2661,12 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
     CLEAR_RESOURCE (&opposite_needed);
   else
     mark_target_live_regs (opposite_thread, &opposite_needed);
+
+  /* If the insn at THREAD can be split, do it here to avoid having to
+     update THREAD and NEW_THREAD if it is done in the loop below.  Also
+     initialize NEW_THREAD.  */
+
+  new_thread = thread = try_split (PATTERN (thread), thread, 0);
 
   /* Scan insns at THREAD.  We are looking for an insn that can be removed
      from THREAD (it neither sets nor references resources that were set
@@ -2840,21 +2820,22 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
 
 	 We could check for more complex cases than those tested below,
 	 but it doesn't seem worth it.  It might also be a good idea to try
-	 to swap the two insns.  That might do better.  */
+	 to swap the two insns.  That might do better.
+
+	 We can't do this if the next insn modifies our source, because that
+	 would make the replacement into the insn invalid.  This also
+	 prevents updating the contents of a PRE_INC.  */
 
       if (GET_CODE (trial) == INSN && GET_CODE (pat) == SET
 	  && GET_CODE (SET_SRC (pat)) == REG
 	  && GET_CODE (SET_DEST (pat)) == REG)
 	{
 	  rtx next = next_nonnote_insn (trial);
-	  int our_dest = REGNO (SET_DEST (pat));
 
 	  if (next && GET_CODE (next) == INSN
-	      && GET_CODE (PATTERN (next)) == SET
-	      && GET_CODE (SET_DEST (PATTERN (next))) == REG
-	      && REGNO (SET_DEST (PATTERN (next))) != our_dest
-	      && refers_to_regno_p (our_dest, our_dest + 1,
-				    SET_SRC (PATTERN (next)), 0))
+	      && GET_CODE (PATTERN (next)) != USE
+	      && ! reg_set_p (SET_DEST (pat), next)
+	      && reg_referenced_p (SET_DEST (pat), PATTERN (next)))
 	    validate_replace_rtx (SET_DEST (pat), SET_SRC (pat), next);
 	}
     }
@@ -2885,7 +2866,8 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
 
   /* If we haven't found anything for this delay slot and it is very
      likely that the branch will be taken, see if the insn at our target
-     increments or decrements a register.  If so, try to place the opposite
+     increments or decrements a register with an increment that does not
+     depend on the destination register.  If so, try to place the opposite
      arithmetic insn after the jump insn and put the arithmetic insn in the
      delay slot.  If we can't do this, return.  */
   if (delay_list == 0 && likely && new_thread && GET_CODE (new_thread) == INSN)
@@ -2894,7 +2876,7 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
       rtx dest;
       rtx src;
 
-      trial = try_split (pat, new_thread, 0);
+      trial = new_thread;
       pat = PATTERN (trial);
 
       if (GET_CODE (trial) != INSN || GET_CODE (pat) != SET
@@ -2903,7 +2885,8 @@ fill_slots_from_thread (insn, condition, thread, opposite_thread, likely,
 
       dest = SET_DEST (pat), src = SET_SRC (pat);
       if ((GET_CODE (src) == PLUS || GET_CODE (src) == MINUS)
-	  && rtx_equal_p (XEXP (src, 0), dest))
+	  && rtx_equal_p (XEXP (src, 0), dest)
+	  && ! reg_overlap_mentioned_p (dest, XEXP (src, 1)))
 	{
 	  rtx other = XEXP (src, 1);
 	  rtx new_arith;

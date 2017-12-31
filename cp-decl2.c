@@ -1,4 +1,3 @@
-#define NEW_OVERLOAD_SCHEME /* only if you don't care about compatibility */
 /* Process declarations and variables for C compiler.
    Copyright (C) 1988, 1992 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
@@ -184,7 +183,8 @@ int flag_detailed_statistics;
 int flag_all_virtual;
 
 /* Zero means that `this' is a *const.  This gives nice behavior in the
-   2.0 world.  1 gives 1.2-compatible behavior.  2 gives Spring behavior.   */
+   2.0 world.  1 gives 1.2-compatible behavior.  2 gives Spring behavior.
+   -2 means we're constructing an object and it has fixed type.  */
 
 int flag_this_is_variable;
 
@@ -321,7 +321,7 @@ lang_decode_option (p)
   if (!strcmp (p, "-ftraditional") || !strcmp (p, "-traditional"))
     flag_traditional = 1, dollars_in_ident = 1, flag_writable_strings = 1,
     flag_this_is_variable = 1;
-  /* The +e options are for cfront compatability.  */
+  /* The +e options are for cfront compatibility.  */
   else if (p[0] == '+' && p[1] == 'e')
     {
       int old_write_virtuals = write_virtuals;
@@ -541,7 +541,7 @@ grok_method_quals (ctype, function, quals)
    If FUNCTION is a destructor, then we must add the `auto-delete' field
    as a second parameter.  There is some hair associated with the fact
    that we must "declare" this variable in the manner consistent with the
-   way the rest of the arguements were declared.
+   way the rest of the arguments were declared.
 
    If FUNCTION is a constructor, and we are doing SOS hacks for dynamic
    classes, then the second hidden argument is the virtual function table
@@ -609,10 +609,10 @@ grokclassfn (ctype, cname, function, flags, quals)
       parm = build_decl (PARM_DECL, this_identifier, type);
       DECL_ARG_TYPE (parm) = type;
       /* We can make this a register, so long as we don't
-	 accidently complain if someone tries to take its address.  */
+	 accidentally complain if someone tries to take its address.  */
       TREE_REGDECL (parm) = 1;
       if (flags != DTOR_FLAG
-	  && (!flag_this_is_variable || TYPE_READONLY (type)))
+	  && (flag_this_is_variable <= 0 || TYPE_READONLY (type)))
 	TREE_READONLY (parm) = 1;
       TREE_CHAIN (parm) = last_function_parms;
       last_function_parms = parm;
@@ -650,7 +650,7 @@ grokclassfn (ctype, cname, function, flags, quals)
       sprintf (name,
 	       flags == WRAPPER_FLAG ? WRAPPER_DECL_FORMAT : ANTI_WRAPPER_DECL_FORMAT,
 	       IDENTIFIER_POINTER (cname));
-      DECL_ASSEMBLER_NAME (function) = build_decl_overload (name, arg_types, 1);
+      DECL_ASSEMBLER_NAME (function) = build_decl_overload (get_identifier (name), arg_types, 1);
       sprintf (name, flags == WRAPPER_FLAG ? WRAPPER_NAME_FORMAT : ANTI_WRAPPER_NAME_FORMAT,
 	       IDENTIFIER_POINTER (cname));
       DECL_NAME (function) = fn_name = get_identifier (name);
@@ -661,7 +661,7 @@ grokclassfn (ctype, cname, function, flags, quals)
 			     + sizeof (WRAPPER_PRED_NAME_FORMAT)
 			     + IDENTIFIER_LENGTH (cname) + 2);
       sprintf (name, WRAPPER_PRED_DECL_FORMAT, IDENTIFIER_POINTER (cname));
-      DECL_ASSEMBLER_NAME (function) = build_decl_overload (name, arg_types, 1);
+      DECL_ASSEMBLER_NAME (function) = build_decl_overload (get_identifier (name), arg_types, 1);
       sprintf (name, WRAPPER_PRED_NAME_FORMAT, IDENTIFIER_POINTER (cname));
       DECL_NAME (function) = fn_name = get_identifier (name);
     }
@@ -693,8 +693,7 @@ grokclassfn (ctype, cname, function, flags, quals)
 	these_arg_types = hash_tree_chain (TYPE_POINTER_TO (ctype), arg_types);
 
       DECL_ASSEMBLER_NAME (function)
-	= build_decl_overload (IDENTIFIER_POINTER (fn_name),
-			       these_arg_types,
+	= build_decl_overload (fn_name, these_arg_types,
 			       1 + DECL_CONSTRUCTOR_P (function));
 #if 0
       if (flags == TYPENAME_FLAG)
@@ -752,7 +751,7 @@ check_classfn (ctype, cname, function, flags)
 	}
     }
 
-  if (fn_name == ansi_opname[TYPE_EXPR])
+  if (fn_name == ansi_opname[(int) TYPE_EXPR])
     {
       if (TYPE_HAS_CONVERSION (ctype))
 	err_name = "such type conversion operator";
@@ -933,14 +932,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 	      tree name;
 	      char *buf, *buf2;
 
-#ifdef NEW_OVERLOAD_SCHEME
 	      buf2 = build_overload_name (current_class_type, 1, 1);
-#else
-	      if (IDENTIFIER_TEMPLATE (current_class_name))
-		buf2 = build_overload_name (current_class_type, 1, 1);
-	      else
-		buf2 = current_class_name;
-#endif
 	      buf = (char *)alloca (IDENTIFIER_LENGTH (DECL_NAME (value))
 				    + sizeof (STATIC_NAME_FORMAT)
 				    + strlen (buf2));
@@ -1339,7 +1331,7 @@ grokoptypename (decl, call_required)
   return tmp;
 }
 
-/* When a function is declared with an initialializer,
+/* When a function is declared with an initializer,
    do the right thing.  Currently, there are two possibilities:
 
    class B
@@ -1643,7 +1635,7 @@ temp_name_p (decl)
 /* Finish off the processing of a UNION_TYPE structure.
    If there are static members, then all members are
    static, and must be laid out together.  If the
-   union is an anonymous union, we arrage for that
+   union is an anonymous union, we arrange for that
    as well.  PUBLICP is nonzero if this union is
    not declared static.  */
 void
@@ -1651,7 +1643,7 @@ finish_anon_union (anon_union_decl)
      tree anon_union_decl;
 {
   tree type = TREE_TYPE (anon_union_decl);
-  tree field, decl;
+  tree field, main_decl = NULL_TREE;
   tree elems = NULL_TREE;
   int public_p = TREE_PUBLIC (anon_union_decl);
   int static_p = TREE_STATIC (anon_union_decl);
@@ -1665,13 +1657,28 @@ finish_anon_union (anon_union_decl)
 
   while (field)
     {
-      decl = build_decl (VAR_DECL, DECL_NAME (field), TREE_TYPE (field));
+      tree decl = build_decl (VAR_DECL, DECL_NAME (field), TREE_TYPE (field));
       /* tell `pushdecl' that this is not tentative.  */
       DECL_INITIAL (decl) = error_mark_node;
       TREE_PUBLIC (decl) = public_p;
       TREE_STATIC (decl) = static_p;
       TREE_EXTERNAL (decl) = external_p;
       decl = pushdecl (decl);
+
+      /* Only write out one anon union element--choose the one that
+	 can hold them all.  */
+      if (main_decl == NULL_TREE
+	  && DECL_SIZE (decl) == DECL_SIZE (anon_union_decl))
+	{
+	  main_decl = decl;
+	}
+      else
+	{
+	  /* ??? This causes there to be no debug info written out
+	     about this decl.  */
+	  TREE_ASM_WRITTEN (decl) = 1;
+	}
+
       DECL_INITIAL (decl) = NULL_TREE;
       /* If there's a cleanup to do, it belongs in the
 	 TREE_PURPOSE of the following TREE_LIST.  */
@@ -1680,14 +1687,17 @@ finish_anon_union (anon_union_decl)
       field = TREE_CHAIN (field);
     }
   if (static_p)
-    make_decl_rtl (decl, 0, global_bindings_p ());
+    {
+      make_decl_rtl (main_decl, 0, global_bindings_p ());
+      DECL_RTL (anon_union_decl) = DECL_RTL (main_decl);
+    }
 
   /* The following call assumes that there are never any cleanups
      for anonymous unions--a reasonable assumption.  */
   expand_anon_union_decl (anon_union_decl, NULL_TREE, elems);
 
   if (flag_cadillac)
-    cadillac_finish_anon_union (decl);
+    cadillac_finish_anon_union (anon_union_decl);
 }
 
 /* Finish and output a table which is generated by the compiler.
@@ -1787,11 +1797,15 @@ finish_builtin_type (type, name, fields, len, align_type)
   DECL_CLASS_CONTEXT (fields[i]) = type;
   TYPE_ALIGN (type) = TYPE_ALIGN (align_type);
   layout_type (type);
+#if 0 /* not yet, should get fixed properly later */
+  TYPE_NAME (type) = make_type_decl (get_identifier (name), type);
+#else
   TYPE_NAME (type) = build_decl (TYPE_DECL, get_identifier (name), type);
+#endif
   layout_decl (TYPE_NAME (type), 0);
 }
 
-/* Auxilliary functions to make type signatures for
+/* Auxiliary functions to make type signatures for
    `operator new' and `operator delete' correspond to
    what compiler will be expecting.  */
 
@@ -2017,7 +2031,7 @@ finish_file ()
     dump_tree_statistics ();
 
   /* Bad parse errors.  Just forget about it.  */
-  if (! global_bindings_p ())
+  if (! global_bindings_p () || current_class_type)
     return;
 
   start_time = get_run_time ();
@@ -2442,7 +2456,11 @@ finish_file ()
      We output them all ourselves, because each will be treated specially.  */
 
   /* Make last thing in global scope not be a virtual function table.  */
+#if 0 /* not yet, should get fixed properly later */
+  vars = make_type_decl (get_identifier (" @%$#@!"), integer_type_node);
+#else
   vars = build_decl (TYPE_DECL, get_identifier (" @%$#@!"), integer_type_node);
+#endif
   pushdecl (vars);
 
   walk_vtables (finish_vtable_typedecl, finish_vtable_vardecl);

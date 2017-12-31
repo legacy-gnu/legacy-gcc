@@ -48,7 +48,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "loop.h"
 
 /* Vector mapping INSN_UIDs to luids.
-   The luids are like uids but increase monononically always.
+   The luids are like uids but increase monotonically always.
    We use them to see whether a jump comes from outside a given loop.  */
 
 int *uid_luid;
@@ -1458,6 +1458,34 @@ rtx_equal_for_loop_p (x, y, movables)
   return 1;
 }
 
+/* If X contains any LABEL_REF's, add REG_LABEL notes for them to all
+  insns in INSNS which use thet reference.  */
+
+static void
+add_label_notes (x, insns)
+     rtx x;
+     rtx insns;
+{
+  enum rtx_code code = GET_CODE (x);
+  int i;
+  char *fmt;
+  rtx insn;
+
+  if (code == LABEL_REF)
+    {
+      for (insn = insns; insn; insn = NEXT_INSN (insn))
+	if (reg_mentioned_p (XEXP (x, 0), insn))
+	  REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_LABEL, XEXP (x, 0),
+				      REG_NOTES (insn));
+      return;
+    }
+
+  fmt = GET_RTX_FORMAT (code);
+  for (i = GET_RTX_LENGTH (code) - 1; i >= 0; i--)
+    if (fmt[i] == 'e')
+      add_label_notes (XEXP (x, i), insns);
+}
+
 /* Scan MOVABLES, and move the insns that deserve to be moved.
    If two matching movables are combined, replace one reg with the
    other throughout.  */
@@ -1635,10 +1663,12 @@ move_movables (movables, threshold, insn_count, loop_start, end, nregs)
 
 		  start_sequence ();
 		  emit_move_insn (m->set_dest, m->set_src);
-		  temp = gen_sequence ();
+		  temp = get_insns ();
 		  end_sequence ();
 
-		  i1 = emit_insn_before (temp, loop_start);
+		  add_label_notes (m->set_src, temp);
+
+		  i1 = emit_insns_before (temp, loop_start);
 		  if (! find_reg_note (i1, REG_EQUAL, 0))
 		    REG_NOTES (i1)
 		      = gen_rtx (EXPR_LIST,
@@ -3275,7 +3305,7 @@ strength_reduce (scan_start, end, loop_top, insn_count,
       else
 	{
 	  /* Biv initial value is not simple move,
-	     so let it keep intial value of "itself".  */
+	     so let it keep initial value of "itself".  */
 
 	  if (loop_dump_stream)
 	    fprintf (loop_dump_stream, "is complex\n");
@@ -3755,7 +3785,7 @@ strength_reduce (scan_start, end, loop_top, insn_count,
 	 This won't work if ! all_reduced,
 	 since the givs we planned to use might not have been reduced.
 
-	 We have to be careful that we didn't initially think we could elminate
+	 We have to be careful that we didn't initially think we could eliminate
 	 this biv because of a giv that we now think may be dead and shouldn't
 	 be used as a biv replacement.  
 
@@ -3862,7 +3892,7 @@ valid_initial_value_p (x, insn, call_seen, loop_start)
   if (CONSTANT_P (x))
     return 1;
 
-  /* Only consider psuedos we know about initialized in insns whose luids
+  /* Only consider pseudos we know about initialized in insns whose luids
      we know.  */
   if (GET_CODE (x) != REG
       || REGNO (x) >= max_reg_before_loop)
@@ -4105,7 +4135,7 @@ record_giv (v, insn, src_reg, dest_reg, mult_val, add_val, benefit,
      isn't computable if INSN insn't executed every iteration.
      However, for a DEST_ADDR giv, INSN merely uses the value of the giv;
      it does not compute a new value.  Hence the value is always computable
-     irregardless of whether INSN is executed each iteration.  */
+     regardless of whether INSN is executed each iteration.  */
 
   if (type == DEST_ADDR)
     v->always_computable = 1;
@@ -4504,11 +4534,19 @@ update_giv_derive (p)
 		 be able to compute a compensation.  */
 	      else if (biv->insn == p)
 		{
-		  if (biv->mult_val == const1_rtx
-		      && (tem = simplify_giv_expr (gen_rtx (MULT, giv->mode,
-							    biv->add_val,
-							    giv->mult_val),
-						   &dummy)))
+		  tem = 0;
+
+		  if (biv->mult_val == const1_rtx)
+		    tem = simplify_giv_expr (gen_rtx (MULT, giv->mode,
+						      biv->add_val,
+						      giv->mult_val),
+					     &dummy);
+
+		  if (tem && giv->derive_adjustment)
+		    tem = simplify_giv_expr (gen_rtx (PLUS, giv->mode, tem,
+						      giv->derive_adjustment),
+					     &dummy);
+		  if (tem)
 		    giv->derive_adjustment = tem;
 		  else
 		    giv->cant_derive = 1;
@@ -5817,7 +5855,7 @@ maybe_eliminate_biv_1 (x, insn, bl, eliminate_p, where)
 	     Insert insns to calculate new compare value.  */
 
 	  for (v = bl->giv; v; v = v->next_iv)
-	    if (CONSTANT_P (v->mult_val)
+	    if (CONSTANT_P (v->mult_val) && INTVAL (v->mult_val) > 0
 		&& ! v->ignore && ! v->maybe_dead
 		&& v->mode == mode)
 	      {

@@ -3,7 +3,7 @@
 @c For copying conditions, see the file gcc.texi.
 
 @ifset INTERNALS
-@node Machine Desc, Machine Macros, RTL, Top
+@node Machine Desc, Target Macros, RTL, Top
 @chapter Machine Descriptions
 @cindex machine descriptions
 
@@ -1814,7 +1814,7 @@ for comparisons whose argument is a @code{plus}.
 @cindex insn canonicalization
 
 There are often cases where multiple RTL expressions could represent an
-operation peformed by a single machine instruction.  This situation is
+operation performed by a single machine instruction.  This situation is
 most commonly encountered with logical, branch, and multiply-accumulate
 instructions.  In such cases, the compiler attempts to convert these
 multiple RTL expressions into a single canonical form to reduce the
@@ -2387,6 +2387,7 @@ to track the condition codes.
 * Tagging Insns::       Assigning attribute values to insns.
 * Attr Example::        An example of assigning attributes.
 * Insn Lengths::        Computing the length of insns.
+* Constant Attributes:: Defining attributes that are constant.
 * Delay Slots::         Defining delay slots required for a machine.
 * Function Units::      Specifying information for insn scheduling.
 @end menu
@@ -2413,7 +2414,8 @@ indicate that the attribute takes numeric values.
 @var{default} is an attribute expression that gives the value of this
 attribute for insns that match patterns whose definition does not include
 an explicit value for this attribute.  @xref{Attr Example}, for more
-information on the handling of defaults.
+information on the handling of defaults.  @xref{Constant Attributes},
+for information on attributes that do not depend on any particular insn.
 
 @findex insn-attr.h
 For each defined attribute, a number of definitions are written to the
@@ -2778,7 +2780,7 @@ performed on quantities smaller than a machine word clobber the condition
 code since they will set the condition code to a value corresponding to the
 full-word result.
 
-@node Insn Lengths, Delay Slots, Attr Example, Insn Attributes
+@node Insn Lengths, Constant Attributes, Attr Example, Insn Attributes
 @subsection Computing the Length of an Insn
 @cindex insn lengths, computing
 @cindex computing the length of an insn
@@ -2837,9 +2839,9 @@ insn must be increased by two to compensate for the fact that alignment
 may be required.
 @end table
 
-@findex get_attr_value
+@findex get_attr_length
 The routine that returns the value of the @code{length} attribute,
-@code{get_attr_value}, can be used by the output routine to determine
+@code{get_attr_length}, can be used by the output routine to determine
 the form of the branch instruction to be written, as the example
 below illustrates.
 
@@ -2867,7 +2869,36 @@ as follows:
                                       (const_int 6)))])
 @end example
 
-@node Delay Slots, Function Units, Insn Lengths, Insn Attributes
+@node Constant Attributes, Delay Slots, Insn Lengths, Insn Attributes
+@subsection Constant Attributes
+@cindex constant attributes
+
+A special form of DEFINE_ATTR, where the expression for the default
+value is a CONST expression, indicates an attribute that is constant for
+a given run of the compiler.  Constant attributes may be used to specify
+which variety of processor is used.  For example,
+
+@example
+(define_attr "cpu" "m88100,m88110,m88000"
+ (const
+  (cond [(symbol_ref "TARGET_88100") (const_string "m88100")
+	 (symbol_ref "TARGET_88110") (const_string "m88110")]
+	(const_string "m88000"))))
+
+(define_attr "memory" "fast,slow"
+ (const
+  (if_then_else (symbol_ref "TARGET_FAST_MEM")
+		(const_string "fast")
+		(const_string "slow"))))
+@end example
+
+The routine generated for constant attributes has no parameters as it
+does not depend on any particular insn.  RTL expressions used to
+define the value of a constant attribute may use the SYMBOL_REF form,
+but may not use either the MATCH_OPERAND form or EQ_ATTR forms
+involving insn attributes.
+
+@node Delay Slots, Function Units, Constant Attributes, Insn Attributes
 @subsection Delay Slot Scheduling
 @cindex delay slots, defining
 

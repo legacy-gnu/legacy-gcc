@@ -111,9 +111,25 @@ static char *spec_version;
 
 static char *spec_machine = DEFAULT_TARGET_MACHINE;
 
+/* Nonzero if cross-compiling.
+   When -b is used, the value comes from the `specs' file.  */
+
+#ifdef CROSS_COMPILE
+static int cross_compile = 1;
+#else
+static int cross_compile = 0;
+#endif
+
 /* This is the obstack which we use to allocate many strings.  */
 
 static struct obstack obstack;
+
+/* This is the obstack to build an environment variable to pass to
+   collect2 that describes all of the relavant switches of what to
+   pass the compiler in building the list of pointers to constructors
+   and destructors.  */
+
+static struct obstack collect_obstack;
 
 extern char *version_string;
 
@@ -228,6 +244,8 @@ or with constant text in a single argument.
  %{|!S:X} like %{!S:X}, but if there is an S switch, substitute `-'.
  %{.S:X} substitutes X, but only if processing a file with suffix S.
  %{!.S:X} substitutes X, but only if NOT processing a file with suffix S.
+ %(Spec) processes a specification defined in a specs file as *Spec:
+ %[Spec] as above, but put __ around -D arguments
 
 The conditional text X in a %{S:X} or %{!S:X} construct may contain
 other nested % constructs or spaces, or even newlines.  They are
@@ -343,7 +361,7 @@ static char *switches_need_spaces = SWITCHES_NEED_SPACES;
 #ifndef WORD_SWITCH_TAKES_ARG
 #define WORD_SWITCH_TAKES_ARG(STR)			\
  (!strcmp (STR, "Tdata") || !strcmp (STR, "include")	\
-  || !strcmp (STR, "imacros"))
+  || !strcmp (STR, "imacros") || !strcmp (STR, "aux-info"))
 #endif
 
 /* Record the mapping from file suffixes for compilation specs.  */
@@ -385,11 +403,12 @@ static struct compiler default_compilers[] =
         %c %{O*:-D__OPTIMIZE__} %{traditional} %{ftraditional:-traditional}\
         %{traditional-cpp:-traditional}\
 	%{g*} %{W*} %{w} %{pedantic*} %{H} %{d*} %C\
-        %i %{!M:%{!MM:%{!E:%{!pipe:%g.cpp}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
-    %{!M:%{!MM:%{!E:cc1 %{!pipe:%g.cpp} %1 \
+        %i %{!M:%{!MM:%{!E:%{!pipe:%g.i}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
+    %{!M:%{!MM:%{!E:cc1 %{!pipe:%g.i} %1 \
 		   %{!Q:-quiet} -dumpbase %b.c %{d*} %{m*} %{a}\
 		   %{g*} %{O*} %{W*} %{w} %{pedantic*} %{ansi} \
 		   %{traditional} %{v:-version} %{pg:-p} %{p} %{f*}\
+		   %{aux-info*}\
 		   %{pg:%{fomit-frame-pointer:%e-pg and -fomit-frame-pointer are incompatible}}\
 		   %{S:%W{o*}%{!o*:-o %b.s}}%{!S:-o %{|!pipe:%g.s}} |\n\
               %{!S:as %{R} %{j} %{J} %{h} %{d2} %a \
@@ -416,12 +435,13 @@ static struct compiler default_compilers[] =
         %c %{O*:-D__OPTIMIZE__} %{traditional} %{ftraditional:-traditional}\
         %{traditional-cpp:-traditional}\
 	%{g*} %{W*} %{w} %{pedantic*} %{H} %{d*} %C\
-        %i %{!M:%{!MM:%{!E:%{!pipe:%g.cpp}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
-    %{!M:%{!MM:%{!E:cc1obj %{!pipe:%g.cpp} %1 \
+        %i %{!M:%{!MM:%{!E:%{!pipe:%g.i}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
+    %{!M:%{!MM:%{!E:cc1obj %{!pipe:%g.i} %1 \
 		   %{!Q:-quiet} -dumpbase %b.m %{d*} %{m*} %{a}\
 		   %{g*} %{O*} %{W*} %{w} %{pedantic*} %{ansi} \
 		   %{traditional} %{v:-version} %{pg:-p} %{p} %{f*} \
     		   -lang-objc %{gen-decls} \
+		   %{aux-info*}\
 		   %{pg:%{fomit-frame-pointer:%e-pg and -fomit-frame-pointer are incompatible}}\
 		   %{S:%W{o*}%{!o*:-o %b.s}}%{!S:-o %{|!pipe:%g.s}} |\n\
               %{!S:as %{R} %{j} %{J} %{h} %{d2} %a \
@@ -451,11 +471,12 @@ static struct compiler default_compilers[] =
         %c %{O*:-D__OPTIMIZE__} %{traditional} %{ftraditional:-traditional}\
         %{traditional-cpp:-traditional} %{trigraphs}\
 	%{g*} %{W*} %{w} %{pedantic*} %{H} %{d*} %C\
-        %i %{!M:%{!MM:%{!E:%{!pipe:%g.cpp}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
-    %{!M:%{!MM:%{!E:cc1plus %{!pipe:%g.cpp} %1 %2\
+        %i %{!M:%{!MM:%{!E:%{!pipe:%g.i}}}}%{E:%W{o*}}%{M:%W{o*}}%{MM:%W{o*}} |\n\
+    %{!M:%{!MM:%{!E:cc1plus %{!pipe:%g.i} %1 %2\
 		   %{!Q:-quiet} -dumpbase %b.cc %{d*} %{m*} %{a}\
 		   %{g*} %{O*} %{W*} %{w} %{pedantic*} %{ansi} %{traditional}\
 		   %{v:-version} %{pg:-p} %{p} %{f*}\
+		   %{aux-info*}\
 		   %{pg:%{fomit-frame-pointer:%e-pg and -fomit-frame-pointer are incompatible}}\
 		   %{S:%W{o*}%{!o*:-o %b.s}}%{!S:-o %{|!pipe:%g.s}} |\n\
               %{!S:as %{R} %{j} %{J} %{h} %{d2} %a \
@@ -466,6 +487,7 @@ static struct compiler default_compilers[] =
    "cc1 %i %1 %{!Q:-quiet} %{d*} %{m*} %{a}\
 	%{g*} %{O*} %{W*} %{w} %{pedantic*} %{ansi} %{traditional}\
 	%{v:-version} %{pg:-p} %{p} %{f*}\
+	%{aux-info*}\
 	%{pg:%{fomit-frame-pointer:%e-pg and -fomit-frame-pointer are incompatible}}\
 	%{S:%W{o*}%{!o*:-o %b.s}}%{!S:-o %{|!pipe:%g.s}} |\n\
     %{!S:as %{R} %{j} %{J} %{h} %{d2} %a \
@@ -475,6 +497,7 @@ static struct compiler default_compilers[] =
    "cc1plus %i %1 %2 %{!Q:-quiet} %{d*} %{m*} %{a}\
 	    %{g*} %{O*} %{W*} %{w} %{pedantic*} %{ansi} %{traditional}\
 	    %{v:-version} %{pg:-p} %{p} %{f*}\
+	    %{aux-info*}\
 	    %{pg:%{fomit-frame-pointer:%e-pg and -fomit-frame-pointer are incompatible}}\
 	    %{S:%W{o*}%{!o*:-o %b.s}}%{!S:-o %{|!pipe:%g.s}} |\n\
        %{!S:as %{R} %{j} %{J} %{h} %{d2} %a \
@@ -512,14 +535,14 @@ static int n_default_compilers
 /* Have gcc do the search.  */
 static char *link_command_spec = "\
 %{!c:%{!M:%{!MM:%{!E:%{!S:ld %X %l %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
-			%{r} %{T*} %{t} %{x} %{z}\
+			%{r} %{s} %{T*} %{t} %{x} %{z}\
 			%{!A:%{!nostdlib:%S}} \
 			%{L*} %D %o %{!nostdlib:libgcc.a%s %L libgcc.a%s %{!A:%E}}\n }}}}}";
 #else
 /* Use -l and have the linker do the search.  */
 static char *link_command_spec = "\
 %{!c:%{!M:%{!MM:%{!E:%{!S:ld %X %l %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
-			%{r} %{T*} %{t} %{x} %{z}\
+			%{r} %{s} %{T*} %{t} %{x} %{z}\
 			%{!A:%{!nostdlib:%S}} \
 			%{L*} %D %o %{!nostdlib:-lgcc %L -lgcc %{!A:%E}}\n }}}}}";
 #endif
@@ -611,7 +634,6 @@ read_specs (filename)
 	  else if (in[0] == '#')
 	    {
 	      while (*in && *in != '\n') in++;
-	      if (*in) in++;
 	    }
 	  else
 	    *out++ = *in++;
@@ -669,7 +691,7 @@ skip_whitespace (p)
 }
 
 /* Structure to keep track of the specs that have been defined so far.  These
-   are accessed using %Sspecname in a compiler or link spec. */
+   are accessed using %(specname) or %[specname] in a compiler or link spec. */
 
 struct spec_list
 {
@@ -739,7 +761,8 @@ set_spec (name, spec)
     startfile_spec = sl->spec;
   else if (! strcmp (name, "switches_need_spaces"))
     switches_need_spaces = sl->spec;
-
+  else if (! strcmp (name, "cross_compile"))
+    cross_compile = atoi (sl->spec);
   /* Free the old spec */
   if (old_spec)
     free (old_spec);
@@ -800,10 +823,6 @@ static struct path_prefix library_prefix = { 0, 0, "libraryfile" };
 
 static char *machine_suffix = 0;
 
-/* Nonzero means don't bypass the machine_suffix.  */
-
-static int machine_explicit;
-
 /* Default prefixes to attach to command names.  */
 
 #ifdef CROSS_COMPILE  /* Don't use these prefixes for a cross compiler.  */
@@ -812,7 +831,7 @@ static int machine_explicit;
 #endif
 
 #ifndef STANDARD_EXEC_PREFIX
-#define STANDARD_EXEC_PREFIX "/usr/local/lib/gcc/"
+#define STANDARD_EXEC_PREFIX "/usr/local/lib/gcc-lib/"
 #endif /* !defined STANDARD_EXEC_PREFIX */
 
 static char *standard_exec_prefix = STANDARD_EXEC_PREFIX;
@@ -1040,6 +1059,103 @@ choose_temp_base ()
   temp_filename_length = strlen (temp_filename);
 }
 
+
+/* Routine to add variables to the environment.  We do this to pass
+   the pathname of the gcc driver, and the directories search to the
+   collect2 program, which is being run as ld.  This way, we can be
+   sure of executing the right compiler when collect2 wants to build
+   constructors and destructors.  Since the environment variables we
+   use come from an obstack, we don't have to worry about allocating
+   space for them.  */
+
+#ifndef HAVE_PUTENV
+
+putenv (str)
+     char *str;
+{
+#ifndef __MSDOS__		/* not sure about MS/DOS */
+#ifndef VMS			/* nor about VMS */
+
+  extern char **environ;
+  char **old_environ = environ;
+  char **envp;
+  int num_envs = 0;
+  int name_len = 1;
+  int str_len = strlen (str);
+  char *p = str;
+  int ch;
+
+  while ((ch = *p++) != '\0' && ch != '=')
+    name_len++;
+
+  if (!ch)
+    abort ();
+
+  /* Search for replacing an existing environment variable, and
+     count the number of total environment variables.  */
+  for (envp = old_environ; *envp; envp++)
+    {
+      num_envs++;
+      if (!strncmp (str, *envp, name_len))
+	{
+	  *envp = str;
+	  return;
+	}
+    }
+
+  /* Add a new environment variable */
+  environ = (char **) xmalloc (sizeof (char *) * (num_envs+2));
+  *environ = str;
+  bcopy (old_environ, environ+1, sizeof (char *) * (num_envs+1));
+
+#endif	/* VMS */
+#endif	/* __MSDOS__ */
+}
+
+#endif	/* HAVE_PUTENV */
+
+
+/* Rebuild the COMPILER_PATH and LIBRARY_PATH environment variables for collect.  */
+
+static void
+putenv_from_prefixes (paths, env_var)
+     struct path_prefix *paths;
+     char *env_var;
+{
+  int suffix_len = (machine_suffix) ? strlen (machine_suffix) : 0;
+  int first_time = TRUE;
+  struct prefix_list *pprefix;
+
+  obstack_grow (&collect_obstack, env_var, strlen (env_var));
+
+  for (pprefix = paths->plist; pprefix != 0; pprefix = pprefix->next)
+    {
+      int len = strlen (pprefix->prefix);
+
+      if (machine_suffix)
+	{
+	  if (!first_time)
+	    obstack_grow (&collect_obstack, ":", 1);
+	    
+	  first_time = FALSE;
+	  obstack_grow (&collect_obstack, pprefix->prefix, len);
+	  obstack_grow (&collect_obstack, machine_suffix, suffix_len);
+	}
+
+      if (!pprefix->require_machine_suffix)
+	{
+	  if (!first_time)
+	    obstack_grow (&collect_obstack, ":", 1);
+
+	  first_time = FALSE;
+	  obstack_grow (&collect_obstack, pprefix->prefix, len);
+	}
+    }
+  obstack_grow (&collect_obstack, "\0", 1);
+  putenv (obstack_finish (&collect_obstack));
+}
+
+
 /* Search for NAME using the prefix list PREFIXES.  MODE is passed to
    access to check permissions.
    Return 0 if not found, otherwise return its name, allocated with malloc. */
@@ -1051,7 +1167,7 @@ find_a_file (pprefix, name, mode)
      int mode;
 {
   char *temp;
-  char *file_suffix = (mode & X_OK != 0 ? EXECUTABLE_SUFFIX : "");
+  char *file_suffix = ((mode & X_OK) != 0 ? EXECUTABLE_SUFFIX : "");
   struct prefix_list *pl;
   int len = pprefix->max_len + strlen (name) + strlen (file_suffix) + 1;
 
@@ -1099,7 +1215,7 @@ find_a_file (pprefix, name, mode)
 	  }
 	/* Certain prefixes can't be used without the machine suffix
 	   when the machine or version is explicitly specified.  */
-	if (!machine_explicit || !pl->require_machine_suffix)
+	if (!pl->require_machine_suffix)
 	  {
 	    strcpy (temp, pl->prefix);
 	    strcat (temp, name);
@@ -1693,6 +1809,7 @@ process_command (argc, argv)
 	  printf ("*switches_need_spaces:\n%s\n\n", switches_need_spaces);
 	  printf ("*signed_char:\n%s\n\n", signed_char_spec);
 	  printf ("*predefines:\n%s\n\n", cpp_predefines);
+	  printf ("*cross_compile:\n%d\n\n", cross_compile);
 
 	  exit (0);
 	}
@@ -1793,25 +1910,9 @@ process_command (argc, argv)
   add_prefix (&startfile_prefix, standard_exec_prefix, 0, 1, 0);
   add_prefix (&startfile_prefix, standard_exec_prefix_1, 0, 1, 0);
 
-  /* Use the md prefixes only if not cross-compiling.  */
-  if (!strcmp (spec_machine, DEFAULT_TARGET_MACHINE))
-    {
-#ifdef MD_EXEC_PREFIX
-      add_prefix (&exec_prefix, md_exec_prefix, 0, 1, 0);
-      add_prefix (&startfile_prefix, md_exec_prefix, 0, 1, 0);
-#endif
+  /* More prefixes are enabled in main, after we read the specs file
+     and determine whether this is cross-compilation or not.  */
 
-#ifdef MD_STARTFILE_PREFIX
-      add_prefix (&startfile_prefix, md_startfile_prefix, 0, 1, 0);
-#endif
-    }
-
-  add_prefix (&startfile_prefix, standard_startfile_prefix, 0, 0, 0);
-  add_prefix (&startfile_prefix, standard_startfile_prefix_1, 0, 0, 0);
-  add_prefix (&startfile_prefix, standard_startfile_prefix_2, 0, 0, 0);
-#if 0 /* Can cause surprises, and one can use -B./ instead.  */
-  add_prefix (&startfile_prefix, "./", 0, 1, 0);
-#endif
 
   /* Then create the space for the vectors and scan again.  */
 
@@ -2134,7 +2235,7 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 			    do_spec_1 (" ", 0, 0);
 			  }
 		      }
-		    if (!machine_explicit || !pl->require_machine_suffix)
+		    if (!pl->require_machine_suffix)
 		      {
 			if (is_linker_dir (pl->prefix, ""))
 			  {
@@ -2517,6 +2618,10 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 		      do_spec_1 (buf, 0, NULL);
 		    }
 		}
+
+	      /* Discard the closing paren or bracket.  */
+	      if (*p)
+		p++;
 	    }
 	    break;
 
@@ -2595,6 +2700,7 @@ handle_braces (p)
   if (suffix)
     {
       int found = (input_suffix != 0
+		   && strlen (input_suffix) == p - filter
 		   && strncmp (input_suffix, filter, p - filter) == 0);
 
       if (p[0] == '}')
@@ -2630,7 +2736,7 @@ handle_braces (p)
 
 	  /* First see whether we have %*.  */
 	  substitution = 0;
-	  while (*r && *r == '}')
+	  while (r < q)
 	    {
 	      if (*r == '%' && r[1] == '*')
 		substitution = 1;
@@ -2836,6 +2942,13 @@ main (argc, argv)
 
   obstack_init (&obstack);
 
+  /* Set up to remember the pathname of gcc and any options
+     needed for collect.  */
+  obstack_init (&collect_obstack);
+  obstack_grow (&collect_obstack, "COLLECT_GCC=", sizeof ("COLLECT_GCC=")-1);
+  obstack_grow (&collect_obstack, programname, strlen (programname)+1);
+  putenv (obstack_finish (&collect_obstack));
+
   /* Choose directory for temp files.  */
 
   choose_temp_base ();
@@ -2861,6 +2974,29 @@ main (argc, argv)
   /* Read the specs file unless it is a default one.  */
   if (specs_file != 0 && strcmp (specs_file, "specs"))
     read_specs (specs_file);
+
+  /* If not cross-compiling, look for startfiles in the standard places.  */
+  /* The fact that these are done here, after reading the specs file,
+     means that it cannot be found in these directories.
+     But that's okay.  It should never be there anyway.  */
+  if (!cross_compile)
+    {
+#ifdef MD_EXEC_PREFIX
+      add_prefix (&exec_prefix, md_exec_prefix, 0, 0, 0);
+      add_prefix (&startfile_prefix, md_exec_prefix, 0, 0, 0);
+#endif
+
+#ifdef MD_STARTFILE_PREFIX
+      add_prefix (&startfile_prefix, md_startfile_prefix, 0, 0, 0);
+#endif
+
+      add_prefix (&startfile_prefix, standard_startfile_prefix, 0, 0, 0);
+      add_prefix (&startfile_prefix, standard_startfile_prefix_1, 0, 0, 0);
+      add_prefix (&startfile_prefix, standard_startfile_prefix_2, 0, 0, 0);
+#if 0 /* Can cause surprises, and one can use -B./ instead.  */
+      add_prefix (&startfile_prefix, "./", 0, 1, 0);
+#endif
+    }
 
   /* Now we have the specs.
      Set the `valid' bits for switches that match anything in any spec.  */
@@ -2968,6 +3104,40 @@ main (argc, argv)
   if (error_count == 0)
     {
       int tmp = execution_count;
+      int i;
+      int first_time;
+
+      /* Rebuild the COMPILER_PATH and LIBRARY_PATH environment variables
+	 for collect.  */
+      putenv_from_prefixes (&exec_prefix, "COMPILER_PATH=");
+      putenv_from_prefixes (&startfile_prefix, "LIBRARY_PATH=");
+
+      /* Build COLLECT_GCC_OPTIONS to have all of the options specified to
+	 the compiler.  */
+      obstack_grow (&collect_obstack, "COLLECT_GCC_OPTIONS=",
+		    sizeof ("COLLECT_GCC_OPTIONS=")-1);
+
+      first_time = TRUE;
+      for (i = 0; i < n_switches; i++)
+	{
+	  char **args;
+	  if (!first_time)
+	    obstack_grow (&collect_obstack, " ", 1);
+
+	  first_time = FALSE;
+	  obstack_grow (&collect_obstack, "-", 1);
+	  obstack_grow (&collect_obstack, switches[i].part1,
+			strlen (switches[i].part1));
+
+	  for (args = switches[i].args; args && *args; args++)
+	    {
+	      obstack_grow (&collect_obstack, " ", 1);
+	      obstack_grow (&collect_obstack, *args, strlen (*args));
+	    }
+	}
+      obstack_grow (&collect_obstack, "\0", 1);
+      putenv (obstack_finish (&collect_obstack));
+
       value = do_spec (link_command_spec);
       if (value < 0)
 	error_count = 1;
@@ -3221,10 +3391,21 @@ validate_all_switches ()
   struct compiler *comp;
   register char *p;
   register char c;
+  struct spec_list *spec;
 
   for (comp = compilers; comp->spec; comp++)
     {
       p = comp->spec;
+      while (c = *p++)
+	if (c == '%' && *p == '{')
+	  /* We have a switch spec.  */
+	  validate_switches (p + 1);
+    }
+
+  /* look through the linked list of extra specs read from the specs file */
+  for (spec = specs ; spec ; spec = spec->next)
+    {
+      p = spec->spec;
       while (c = *p++)
 	if (c == '%' && *p == '{')
 	  /* We have a switch spec.  */

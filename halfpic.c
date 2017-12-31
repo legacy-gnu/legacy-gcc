@@ -68,17 +68,17 @@ int
 half_pic_address_p (addr)
      rtx addr;
 {
-  int offset;
   char *name;
 
   switch (GET_CODE (addr))
     {
     case CONST:
-      offset = 0;
-      addr = eliminate_constant_term (addr, &offset);
-      if (GET_CODE (addr) != SYMBOL_REF)
-	return FALSE;
-	
+      {
+	rtx offset = const0_rtx;
+	addr = eliminate_constant_term (addr, &offset);
+	if (GET_CODE (addr) != SYMBOL_REF)
+	  return FALSE;
+      }
       /* fall through */
 
     case SYMBOL_REF:

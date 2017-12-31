@@ -1,6 +1,6 @@
 # Use collect2 to link
 
-EXTRA_PARTS = ld
+EXTRA_PROGRAMS = ld
 
 ld : collect2
 	rm -f ld

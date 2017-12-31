@@ -613,7 +613,7 @@ float_unary (op, mode)
 	 && GET_MODE (XEXP (op, 0)) == GET_MODE (op);
 }
 
-/* Return 1 if this is a valid floating-point converstion that can be done
+/* Return 1 if this is a valid floating-point conversion that can be done
    as part of an operation by the RT floating-point routines.  */
 
 int
@@ -929,7 +929,7 @@ print_operand (file, x, code)
       break;
 
     case '.':
-      /* Output nothing.  Used as delimeter in, e.g., "mc%B1%.3 " */
+      /* Output nothing.  Used as delimiter in, e.g., "mc%B1%.3 " */
       break;
 
     case '#':

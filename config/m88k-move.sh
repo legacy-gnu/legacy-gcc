@@ -5,7 +5,7 @@
 #
 #ident "@(#) m88k-move.sh 3-Jan-92"
 #
-#	This file provided by Data General, Feburary 1990.
+#	This file provided by Data General, February 1990.
 #
 #	This script generates the necessary movstr library functions
 #	for the m88100.  These functions are called from the expansion

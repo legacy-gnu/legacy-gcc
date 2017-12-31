@@ -164,6 +164,16 @@ function_cannot_inline_p (fndecl)
 	return "function too large to be inline";
     }
 
+  /* We cannot inline this function if forced_labels is non-zero.  This
+     implies that a label in this function was used as an initializer.
+     Because labels can not be duplicated, all labels in the function
+     will be renamed when it is inlined.  However, there is no way to find
+     and fix all variables initialized with addresses of labels in this
+     function, hence inlining is impossible.  */
+
+  if (forced_labels)
+    return "function with label addresses used in initializers cannot inline";
+
   return 0;
 }
 
@@ -250,11 +260,18 @@ initialize_for_inline (fndecl, min_labelno, max_labelno, max_reg, copy)
       rtx p = DECL_RTL (parms);
 
       if (GET_CODE (p) == MEM && copy)
-	/* Copy the rtl so that modifications of the address
-	   later in compilation won't affect this arg_vector.
-	   Virtual register instantiation can screw the address
-	   of the rtl.  */
-	DECL_RTL (parms) = copy_rtx (p);
+	{
+	  /* Copy the rtl so that modifications of the addresses
+	     later in compilation won't affect this arg_vector.
+	     Virtual register instantiation can screw the address
+	     of the rtl.  */
+	  rtx new = copy_rtx (p);
+
+	  /* Don't leave the old copy anywhere in this decl.  */
+	  if (DECL_RTL (parms) == DECL_INCOMING_RTL (parms))
+	    DECL_INCOMING_RTL (parms) = new;
+	  DECL_RTL (parms) = new;
+	}
 
       RTVEC_ELT (arg_vector, i) = p;
 
@@ -498,6 +515,7 @@ save_for_inline_copying (fndecl)
 
 	case CODE_LABEL:
 	  copy = label_map[CODE_LABEL_NUMBER (insn)];
+	  LABEL_NAME (copy) = LABEL_NAME (insn);
 	  break;
 
 	case BARRIER:
@@ -1765,14 +1783,14 @@ copy_rtx_and_substitute (orig, map)
 	      rounded = CEIL_ROUND (size, BIGGEST_ALIGNMENT / BITS_PER_UNIT);
 	      loc = plus_constant (loc, rounded);
 #endif
-	      map->reg_map[regno] = force_operand (loc, 0);
-	      map->const_equiv_map[regno] = loc;
-	      map->const_age_map[regno] = CONST_AGE_PARM;
+	      map->reg_map[regno] = temp = force_operand (loc, 0);
+	      map->const_equiv_map[REGNO (temp)] = loc;
+	      map->const_age_map[REGNO (temp)] = CONST_AGE_PARM;
 
 	      seq = gen_sequence ();
 	      end_sequence ();
 	      emit_insn_after (seq, map->insns_at_start);
-	      return map->reg_map[regno];
+	      return temp;
 	    }
 	  else if (regno == VIRTUAL_INCOMING_ARGS_REGNUM)
 	    {
@@ -1784,14 +1802,14 @@ copy_rtx_and_substitute (orig, map)
 	      start_sequence ();
 	      loc = assign_stack_temp (BLKmode, size, 1);
 	      loc = XEXP (loc, 0);
-	      map->reg_map[regno] = force_operand (loc, 0);
-	      map->const_equiv_map[regno] = loc;
-	      map->const_age_map[regno] = CONST_AGE_PARM;
+	      map->reg_map[regno] = temp = force_operand (loc, 0);
+	      map->const_equiv_map[REGNO (temp)] = loc;
+	      map->const_age_map[REGNO (temp)] = CONST_AGE_PARM;
 
 	      seq = gen_sequence ();
 	      end_sequence ();
 	      emit_insn_after (seq, map->insns_at_start);
-	      return map->reg_map[regno];
+	      return temp;
 	    }
 	  else if (REG_FUNCTION_VALUE_P (orig))
 	    {
@@ -2091,7 +2109,7 @@ try_constants (insn, map)
 
 /* Substitute known constants for pseudo regs in the contents of LOC,
    which are part of INSN.
-   If INSN is zero, the substition should always be done (this is used to
+   If INSN is zero, the substitution should always be done (this is used to
    update DECL_RTL).
    These changes are taken out by try_constants if the result is not valid.
 

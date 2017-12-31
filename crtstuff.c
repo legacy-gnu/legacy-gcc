@@ -53,15 +53,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tm.h"
 
 #ifndef CTORS_SECTION_ASM_OP
-#define CTORS_SECTION_ASM_OP	"\t.section\t.ctors,\"a\",@progbits"
+#define CTORS_SECTION_ASM_OP	".section\t.ctors,\"a\",@progbits"
 #endif
 #ifndef DTORS_SECTION_ASM_OP
-#define DTORS_SECTION_ASM_OP	"\t.section\t.dtors,\"a\",@progbits"
+#define DTORS_SECTION_ASM_OP	".section\t.dtors,\"a\",@progbits"
 #endif
 
 #include "gbl-ctors.h"
 
-#ifndef ON_EXIT /* DO_GLOBAL_CTORS_BODY uses ON_EXIT */
+#ifndef ON_EXIT
 #define ON_EXIT(a, b)
 #endif
 
@@ -69,10 +69,26 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #ifdef INIT_SECTION_ASM_OP
 
-/* Force cc1 to switch to .text section.  */
-static void force_to_text () { }
+/* The function __do_global_ctors_aux is compiled twice (once in crtbegin.o
+   and once in crtend.o).  It must be declared static to aviod a link
+   error.  Here, we define __do_global_ctors as an externally callable
+   function.  It is externally callable so that __main can invoke it when
+   INVOKE__main is defined.  This has the additional effect of forcing cc1
+   to switch to the .text section.  */
+static void __do_global_ctors_aux ();
+void __do_global_ctors () { __do_global_ctors_aux (); }
 
 asm (INIT_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
+
+/* On some svr4 systems, the .init section preamble code provided in
+   crti.o may do some evil things which we have to undo before we reach
+   the function prologue code for __do_global_ctors (directly below).
+   For such systems, define the macro INIT_SECTION_PREAMBLE to
+   expand into the code needed to undo the actions of the crti.o file.  */
+   
+#ifdef INIT_SECTION_PREAMBLE
+  INIT_SECTION_PREAMBLE;
+#endif
 
 /* A routine to invoke all of the global constructors upon entry to the
    program.  We put this into the .init section (for systems that have
@@ -80,10 +96,11 @@ asm (INIT_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
    file-scope static-storage C++ objects within shared libraries.   */
 
 static void
-__do_global_ctors ()		/* prologue goes in .init section */
+__do_global_ctors_aux ()	/* prologue goes in .init section */
 {
   asm (TEXT_SECTION_ASM_OP);	/* don't put epilogue and body in .init */
   DO_GLOBAL_CTORS_BODY;
+  ON_EXIT (__do_global_dtors, 0);
 }
 
 #endif /* defined(INIT_SECTION_ASM_OP) */
@@ -93,11 +110,19 @@ static func_ptr force_to_data[0] = { };
 
 /* The -1 is a flag to __do_global_[cd]tors
    indicating that this table does not start with a count of elements.  */
+#ifdef CTOR_LIST_BEGIN
+CTOR_LIST_BEGIN;
+#else
 asm (CTORS_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
 func_ptr __CTOR_LIST__[1] = { (func_ptr) (-1) };
+#endif
 
+#ifdef DTOR_LIST_BEGIN
+DTOR_LIST_BEGIN;
+#else
 asm (DTORS_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
 func_ptr __DTOR_LIST__[1] = { (func_ptr) (-1) };
+#endif
 
 #endif /* defined(CRT_BEGIN) */
 
@@ -118,10 +143,11 @@ func_ptr __DTOR_LIST__[1] = { (func_ptr) (-1) };
 */
 
 static void
-__do_global_ctors ()		/* prologue goes in .text section */
+__do_global_ctors_aux ()	/* prologue goes in .text section */
 {
   asm (INIT_SECTION_ASM_OP);
   DO_GLOBAL_CTORS_BODY;
+  ON_EXIT (__do_global_dtors, 0);
 }				/* epilogue and body go in .init section */
 
 #endif /* defined(INIT_SECTION_ASM_OP) */
@@ -129,10 +155,18 @@ __do_global_ctors ()		/* prologue goes in .text section */
 /* Force cc1 to switch to .data section.  */
 static func_ptr force_to_data[0] = { };
 
+#ifdef CTOR_LIST_END
+CTOR_LIST_END;
+#else
 asm (CTORS_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
 func_ptr __CTOR_END__[1] = { (func_ptr) 0 };
+#endif
 
+#ifdef DTOR_LIST_END
+DTOR_LIST_END;
+#else
 asm (DTORS_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
 func_ptr __DTOR_END__[1] = { (func_ptr) 0 };
+#endif
 
 #endif /* defined(CRT_END) */

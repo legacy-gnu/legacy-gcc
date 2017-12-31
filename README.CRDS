@@ -27,7 +27,7 @@ are running.  if CC1 is too large to link on your machine try putting
 the object files in a library and linking from that library.
 
 alloca() expects that the C compiler pops the stack after every function
-call.  The Green Hills C compiler verion 1.8.0 supplied with UNSO does not.
+call.  The Green Hills C compiler version 1.8.0 supplied with UNSO does not.
 This behavior causes some programs (GNU make) to crash, and others to merely
 grow unbounded (GCC).  To avoid this problem do not use -O in stage1/stage2,
 and set CFLAGS=-Wx,-X23 to force Green Hills to pop the stack more often.

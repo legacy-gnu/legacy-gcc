@@ -1,4 +1,4 @@
-/* Lexical analyser for C and Objective C.
+/* Lexical analyzer for C and Objective C.
    Copyright (C) 1987, 1988, 1989, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -152,11 +152,11 @@ is_reserved_word (str, len)
   static struct resword wordlist[] =
     {
       {"",}, {"",}, {"",}, {"",}, {"",}, {"",}, {"",}, 
-      {"asm",  ASM, NORID},
+      {"asm",  ASM_KEYWORD, NORID},
       {"",}, 
-      {"__asm",  ASM, NORID},
+      {"__asm",  ASM_KEYWORD, NORID},
       {"",}, 
-      {"__asm__",  ASM, NORID},
+      {"__asm__",  ASM_KEYWORD, NORID},
       {"break",  BREAK, NORID},
       {"__typeof__",  TYPEOF, NORID},
       {"",}, 
@@ -1084,7 +1084,7 @@ yylex ()
 
 	    /* Even if we decided to recognize asm, still perhaps warn.  */
 	    if (pedantic
-		&& (value == ASM || value == TYPEOF
+		&& (value == ASM_KEYWORD || value == TYPEOF
 		    || ptr->rid == RID_INLINE)
 		&& token_buffer[0] != '_')
 	      pedwarn ("ANSI does not permit the keyword `%s'",
@@ -1756,7 +1756,9 @@ yylex ()
 		c = readescape ();
 		if (c < 0)
 		  goto skipnewline;
-		if (!wide_flag && c >= (1 << TYPE_PRECISION (char_type_node)))
+		if (!wide_flag
+		    && TYPE_PRECISION (char_type_node) < HOST_BITS_PER_INT
+		    && c >= (1 << TYPE_PRECISION (char_type_node)))
 		  pedwarn ("escape sequence out of range for character");
 	      }
 	    else if (c == '\n')
@@ -1932,7 +1934,7 @@ done:
   return value;
 }
 
-/* Sets the value of the 'yydebug' varable to VALUE.
+/* Sets the value of the 'yydebug' variable to VALUE.
    This is a function so we don't have to have YYDEBUG defined
    in order to build the compiler.  */
 

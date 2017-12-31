@@ -9,7 +9,7 @@
  * C compiler.
  * As such, it depends strongly on the Pyramid conventions for
  * parameter passing.ct and indepenent implementation. 
- * These (somewhat bizarre) paramter-passing conventions are described
+ * These (somewhat bizarre) parameter-passing conventions are described
  * in the ``OSx Operating System Porting Guide''.
  * 
  * A quick summary is useful:
