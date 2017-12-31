@@ -372,7 +372,7 @@ find_function_data (decl)
 /* Save the current context for compilation of a nested function.
    This is called from language-specific code.
    The caller is responsible for saving any language-specific status,
-   since this function knows only about language-indepedent variables.  */
+   since this function knows only about language-independent variables.  */
 
 void
 push_function_context ()
@@ -1178,7 +1178,7 @@ fixup_var_refs_1 (var, loc, insn, replacements)
 	      if (GET_CODE (x) == SIGN_EXTRACT)
 		wanted_mode = insn_operand_mode[(int) CODE_FOR_extv][1];
 #endif
-	      /* If we have a narrower mode, we can do someting.  */
+	      /* If we have a narrower mode, we can do something.  */
 	      if (wanted_mode != VOIDmode
 		  && GET_MODE_SIZE (wanted_mode) < GET_MODE_SIZE (is_mode))
 		{
@@ -1338,7 +1338,7 @@ fixup_var_refs_1 (var, loc, insn, replacements)
 		int width = INTVAL (XEXP (outerdest, 1));
 		int pos = INTVAL (XEXP (outerdest, 2));
 
-		/* If we have a narrower mode, we can do someting.  */
+		/* If we have a narrower mode, we can do something.  */
 		if (GET_MODE_SIZE (wanted_mode) < GET_MODE_SIZE (is_mode))
 		  {
 		    int offset = pos / BITS_PER_UNIT;
@@ -2317,11 +2317,11 @@ delete_handlers ()
       if (GET_CODE (insn) == CODE_LABEL)
 	LABEL_PRESERVE_P (insn) = 0;
       if (GET_CODE (insn) == INSN
-	  && GET_CODE (PATTERN (insn)) == SET
-	  && (SET_DEST (PATTERN (insn)) == nonlocal_goto_handler_slot
-	      || SET_SRC (PATTERN (insn)) == nonlocal_goto_handler_slot
-	      || SET_DEST (PATTERN (insn)) == nonlocal_goto_stack_level
-	      || SET_SRC (PATTERN (insn)) == nonlocal_goto_stack_level))
+	  && ((nonlocal_goto_handler_slot != 0
+	       && reg_mentioned_p (nonlocal_goto_handler_slot, PATTERN (insn)))
+	      || (nonlocal_goto_stack_level != 0
+		  && reg_mentioned_p (nonlocal_goto_stack_level,
+				      PATTERN (insn)))))
 	delete_insn (insn);
     }
 }
@@ -2686,9 +2686,16 @@ assign_parms (fndecl, second_time)
 	 to indicate there is no preallocated stack slot for the parm.  */
 
       if (entry_parm == stack_parm
-#ifdef REG_PARM_STACK_SPACE
+#if defined (REG_PARM_STACK_SPACE) && ! defined (MAYBE_REG_PARM_STACK_SPACE)
 	  /* On some machines, even if a parm value arrives in a register
-	     there is still an (uninitialized) stack slot allocated for it.  */
+	     there is still an (uninitialized) stack slot allocated for it.
+
+	     ??? When MAYBE_REG_PARM_STACK_SPACE is defined, we can't tell
+	     whether this parameter already has a stack slot allocated,
+	     because an arg block exists only if current_function_args_size
+	     is larger than some threshhold, and we haven't calculated that
+	     yet.  So, for now, we just assume that stack slots never exist
+	     in this case.  */
 	  || REG_PARM_STACK_SPACE (fndecl) > 0
 #endif
 	  )
@@ -2709,6 +2716,21 @@ assign_parms (fndecl, second_time)
       /* If this is our second time through, we are done with this parm. */
       if (second_time)
 	continue;
+
+      /* If we can't trust the parm stack slot to be aligned enough
+	 for its ultimate type, don't use that slot after entry.
+	 We'll make another stack slot, if we need one.  */
+      {
+#ifdef FUNCTION_ARG_BOUNDARY
+	int thisparm_boundary
+	  = FUNCTION_ARG_BOUNDARY (passed_mode, passed_type);
+#else
+	int thisparm_boundary = PARM_BOUNDARY;
+#endif
+
+	if (GET_MODE_ALIGNMENT (nominal_mode) > thisparm_boundary)
+	  stack_parm = 0;
+      }
 
       /* Now adjust STACK_PARM to the mode and precise location
 	 where this parameter should live during execution,
@@ -2856,6 +2878,7 @@ assign_parms (fndecl, second_time)
 	     as we make here would screw up life analysis for it.  */
 	  if (nominal_mode == passed_mode
 	      && GET_CODE (entry_parm) == MEM
+	      && entry_parm == stack_parm
 	      && stack_offset.var == 0
 	      && reg_mentioned_p (virtual_incoming_args_rtx,
 				  XEXP (entry_parm, 0)))
@@ -2916,8 +2939,10 @@ assign_parms (fndecl, second_time)
      minimum length.  */
 
 #ifdef REG_PARM_STACK_SPACE
+#ifndef MAYBE_REG_PARM_STACK_SPACE
   current_function_args_size = MAX (current_function_args_size,
 				    REG_PARM_STACK_SPACE (fndecl));
+#endif
 #endif
 
 #ifdef STACK_BOUNDARY
@@ -3013,7 +3038,11 @@ locate_and_pad_parm (passed_mode, type, in_regs, fndecl,
      area reserved for registers, skip that area.  */
   if (! in_regs)
     {
+#ifdef MAYBE_REG_PARM_STACK_SPACE
+      reg_parm_stack_space = MAYBE_REG_PARM_STACK_SPACE;
+#else
       reg_parm_stack_space = REG_PARM_STACK_SPACE (fndecl);
+#endif
       if (reg_parm_stack_space > 0)
 	{
 	  if (initial_offset_ptr->var)
@@ -3085,6 +3114,9 @@ locate_and_pad_parm (passed_mode, type, in_regs, fndecl,
   ADD_PARM_SIZE (*arg_size_ptr, sizetree);
 #endif /* ARGS_GROW_DOWNWARD */
 }
+
+/* Round the stack offset in *OFFSET_PTR up to a multiple of BOUNDARY.
+   BOUNDARY is measured in bits, but must be a multiple of a storage unit.  */
 
 static void
 pad_to_arg_alignment (offset_ptr, boundary)
@@ -3959,10 +3991,10 @@ expand_function_end (filename, line)
 #endif
     if (current_function_calls_alloca)
       {
-	rtx tem = gen_reg_rtx (Pmode);
-	emit_insn_after (gen_rtx (SET, VOIDmode, tem, stack_pointer_rtx),
-			 parm_birth_insn);
-	emit_insn (gen_rtx (SET, VOIDmode, stack_pointer_rtx, tem));
+	rtx tem = 0;
+
+	emit_stack_save (SAVE_FUNCTION, &tem, parm_birth_insn);
+	emit_stack_restore (SAVE_FUNCTION, tem, 0);
       }
 
   /* If scalar return value was computed in a pseudo-reg,

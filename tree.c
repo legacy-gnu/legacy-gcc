@@ -859,7 +859,8 @@ make_node (code)
       break;
 
     case 'd':
-      DECL_ALIGN (t) = 1;
+      if (code != FUNCTION_DECL)
+	DECL_ALIGN (t) = 1;
       DECL_SOURCE_LINE (t) = lineno;
       DECL_SOURCE_FILE (t) = (input_filename) ? input_filename : "<built-in>";
       break;
@@ -1741,10 +1742,12 @@ save_expr (expr)
 
   /* If the tree evaluates to a constant, then we don't want to hide that
      fact (i.e. this allows further folding, and direct checks for constants).
+     However, a read-only object that has side effects cannot be bypassed.
      Since it is no problem to reevaluate literals, we just return the 
      literal node. */
 
-  if (TREE_CONSTANT (t) || TREE_READONLY (t) || TREE_CODE (t) == SAVE_EXPR)
+  if (TREE_CONSTANT (t) || (TREE_READONLY (t) && ! TREE_SIDE_EFFECTS (t))
+      || TREE_CODE (t) == SAVE_EXPR)
     return t;
 
   t = build (SAVE_EXPR, TREE_TYPE (expr), t, current_function_decl, NULL);
@@ -1851,7 +1854,12 @@ stabilize_reference_1 (e)
   register int length;
   register enum tree_code code = TREE_CODE (e);
 
-  if (TREE_CONSTANT (e) || TREE_READONLY (e) || code == SAVE_EXPR)
+  /* We cannot ignore const expressions because it might be a reference
+     to a const array but whose index contains side-effects.  But we can
+     ignore things that are actual constant or that already have been
+     handled by this function.  */
+
+  if (TREE_CONSTANT (e) || code == SAVE_EXPR)
     return e;
 
   switch (TREE_CODE_CLASS (code))
@@ -3096,22 +3104,22 @@ int_fits_type_p (c, type)
 	    && !INT_CST_LT (c, TYPE_MIN_VALUE (type)));
 }
 
-/* Return the innermost context enclosing FNDECL that is
+/* Return the innermost context enclosing DECL that is
    a FUNCTION_DECL, or zero if none.  */
 
 tree
-decl_function_context (fndecl)
-     tree fndecl;
+decl_function_context (decl)
+     tree decl;
 {
   tree context;
 
-  if (TREE_CODE (fndecl) == ERROR_MARK)
+  if (TREE_CODE (decl) == ERROR_MARK)
     return 0;
 
-  if (TREE_CODE (fndecl) == SAVE_EXPR)
-    context = SAVE_EXPR_CONTEXT (fndecl);
+  if (TREE_CODE (decl) == SAVE_EXPR)
+    context = SAVE_EXPR_CONTEXT (decl);
   else
-    context = DECL_CONTEXT (fndecl);
+    context = DECL_CONTEXT (decl);
 
   while (context && TREE_CODE (context) != FUNCTION_DECL)
     {
@@ -3130,15 +3138,15 @@ decl_function_context (fndecl)
   return context;
 }
 
-/* Return the innermost context enclosing FNDECL that is
+/* Return the innermost context enclosing DECL that is
    a RECORD_TYPE or UNION_TYPE, or zero if none.
    TYPE_DECLs and FUNCTION_DECLs are transparent to this function.  */
 
 tree
-decl_type_context (fndecl)
-     tree fndecl;
+decl_type_context (decl)
+     tree decl;
 {
-  tree context = DECL_CONTEXT (fndecl);
+  tree context = DECL_CONTEXT (decl);
 
   while (context)
     {

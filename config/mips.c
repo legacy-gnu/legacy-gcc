@@ -50,7 +50,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define X_OK 1
 #endif
 
-#ifdef USG
+#if defined(USG) || defined(NO_STAB_H)
 #include "gstab.h"  /* If doing DBX on sysV, use our own stab.h.  */
 #else
 #include <stab.h>  /* On BSD, use the system's stab.h.  */
@@ -77,6 +77,7 @@ extern rtx gen_movhi ();
 extern rtx gen_movsi ();
 extern rtx gen_movsi_ulw ();
 extern rtx gen_movsi_usw ();
+extern rtx gen_movstrsi_internal ();
 extern rtx gen_addsi3 ();
 extern rtx gen_iorsi3 ();
 extern rtx gen_andsi3 ();
@@ -92,6 +93,24 @@ extern tree   current_function_decl;
 extern char **save_argv;
 extern char  *version_string;
 extern char  *language_string;
+
+/* Enumeration for all of the relational tests, so that we can build
+   arrays indexed by the test type, and not worry about the order
+   of EQ, NE, etc. */
+
+enum internal_test {
+    ITEST_EQ,
+    ITEST_NE,
+    ITEST_GT,
+    ITEST_GE,
+    ITEST_LT,
+    ITEST_LE,
+    ITEST_GTU,
+    ITEST_GEU,
+    ITEST_LTU,
+    ITEST_LEU,
+    ITEST_MAX
+  };
 
 /* Global variables for machine-dependent things.  */
 
@@ -134,9 +153,6 @@ struct extern_list {
   char *name;			/* name of the external */
   int size;			/* size in bytes */
 } *extern_head = 0;
-
-/* Name of the current function.  */
-char *current_function_name;
 
 /* Name of the file containing the current function.  */
 char *current_function_file = "";
@@ -461,6 +477,16 @@ md_register_operand (op, mode)
 	  && MD_REG_P (REGNO (op)));
 }
 
+/* Return truth value of whether OP is the FP status register.  */
+
+int
+fpsw_register_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return (GET_CODE (op) == REG && ST_REG_P (REGNO (op)));
+}
+
 /* Return truth value if a CONST_DOUBLE is ok to be a legitimate constant.  */
 
 int
@@ -589,34 +615,6 @@ simple_memory_operand (op, mode)
   return FALSE;
 }
 
-/* Return true if the address is suitable for function call.  */
-
-int
-call_memory_operand (op, mode)
-     rtx op;
-     enum machine_mode mode;
-{
-  rtx addr;
-  enum rtx_code code;
-
-  if (GET_CODE (op) != MEM)
-    return FALSE;
-
-  addr = XEXP (op, 0);
-  code = GET_CODE (addr);
-
-  if (GET_MODE (addr) != FUNCTION_MODE)
-    return FALSE;
-
-  if (code == REG || code == SUBREG)
-    return TRUE;
-
-  if (CONSTANT_ADDRESS_P (addr))
-    return TRUE;
-
-  return FALSE;
-}
-
 /* Return true if the code of this rtx pattern is EQ or NE.  */
 
 int
@@ -685,6 +683,23 @@ fcmp_op (op, mode)
   return (classify_op (op, mode) & CLASS_FCMP_OP) != 0;
 }
 
+
+/* Return true if the operand is either the PC or a label_ref.  */
+
+int
+pc_or_label_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  if (op == pc_rtx)
+    return TRUE;
+
+  if (GET_CODE (op) == LABEL_REF)
+    return TRUE;
+
+  return FALSE;
+}
+
 
 /* Return an operand string if the given instruction's delay slot or
    wrap it in a .set noreorder section.  This is for filling delay
@@ -710,7 +725,7 @@ mips_fill_delay_slot (ret, type, operands, cur_insn)
   register rtx next_insn	= (cur_insn) ? NEXT_INSN (cur_insn) : (rtx)0;
   register int num_nops;
 
-  if (type == DELAY_LOAD)
+  if (type == DELAY_LOAD || type == DELAY_FCMP)
     num_nops = 1;
 
   else if (type == DELAY_HILO)
@@ -1029,7 +1044,7 @@ mips_move_1word (operands, insn, unsignedp)
 	      else if (FP_REG_P (regno0))
 		{
 		  delay = DELAY_LOAD;
-		  return "mtc1\t%z1,%0";
+		  ret = "mtc1\t%z1,%0";
 		}
 	    }
 
@@ -1074,7 +1089,8 @@ mips_move_1word (operands, insn, unsignedp)
 	  if (HALF_PIC_P () && CONSTANT_P (op1) && HALF_PIC_ADDRESS_P (op1))
 	    {
 	      delay = DELAY_LOAD;
-	      ret = "la\t%0,%a1\t\t# pic reference";
+	      ret = "lw\t%0,%2\t\t# pic reference";
+	      operands[2] = HALF_PIC_PTR (op1);
 	    }
 	  else
 	    ret = "la\t%0,%a1";
@@ -1462,6 +1478,215 @@ mips_address_cost (addr)
 }
 
 
+/* Make normal rtx_code into something we can index from an array */
+
+static enum internal_test
+map_test_to_internal_test (test_code)
+     enum rtx_code test_code;
+{
+  enum internal_test test = ITEST_MAX;
+
+  switch (test_code)
+    {
+    case EQ:  test = ITEST_EQ;  break;
+    case NE:  test = ITEST_NE;  break;
+    case GT:  test = ITEST_GT;  break;
+    case GE:  test = ITEST_GE;  break;
+    case LT:  test = ITEST_LT;  break;
+    case LE:  test = ITEST_LE;  break;
+    case GTU: test = ITEST_GTU; break;
+    case GEU: test = ITEST_GEU; break;
+    case LTU: test = ITEST_LTU; break;
+    case LEU: test = ITEST_LEU; break;
+    }
+
+  return test;
+}
+
+
+/* Generate the code to compare two integer values.  The return value is:
+   (reg:SI xx)		The pseudo register the comparison is in
+   (const_int 0)	The comparison is always false
+   (const_int 1)	The comparison is always true
+   (rtx)0	       	No register, generate a simple branch.  */
+
+rtx
+gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
+     enum rtx_code test_code;	/* relational test (EQ, etc) */
+     rtx result;		/* result to store comp. or 0 if branch */
+     rtx cmp0;			/* first operand to compare */
+     rtx cmp1;			/* second operand to compare */
+     int *p_invert;		/* NULL or ptr to hold whether branch needs */
+				/* to reserse it's test */
+{
+  struct cmp_info {
+    enum rtx_code test_code;	/* code to use in instruction (LT vs. LTU) */
+    int const_low;		/* low bound of constant we can accept */
+    int const_high;		/* high bound of constant we can accept */
+    int const_add;		/* constant to add (convert LE -> LT) */
+    int reverse_regs;		/* reverse registers in test */
+    int invert_const;		/* != 0 if invert value if cmp1 is constant */
+    int invert_reg;		/* != 0 if invert value if cmp1 is register */
+  };
+
+  static struct cmp_info info[ (int)ITEST_MAX ] = {
+
+    { XOR,	 0,  65535,  0,	 0,  0,	 0 },	/* EQ  */
+    { XOR,	 0,  65535,  0,	 0,  1,	 1 },	/* NE  */
+    { LT,   -32769,  32766,  1,	 1,  1,	 0 },	/* GT  */
+    { LT,   -32768,  32767,  0,	 0,  1,	 1 },	/* GE  */
+    { LT,   -32768,  32767,  0,	 0,  0,	 0 },	/* LT  */
+    { LT,   -32769,  32766,  1,	 1,  0,	 1 },	/* LE  */
+    { LTU,  -32769,  32766,  1,	 1,  1,	 0 },	/* GTU */
+    { LTU,  -32768,  32767,  0,	 0,  1,	 1 },	/* GEU */
+    { LTU,  -32768,  32767,  0,	 0,  0,	 0 },	/* LTU */
+    { LTU,  -32769,  32766,  1,	 1,  0,	 1 },	/* LEU */
+  };
+
+  enum internal_test test;
+  struct cmp_info *p_info;
+  int branch_p;
+  int eqne_p;
+  int invert;
+  rtx reg;
+  rtx reg2;
+
+  test = map_test_to_internal_test (test_code);
+  if (test == ITEST_MAX)
+    abort ();
+
+  p_info = &info[ (int)test ];
+  eqne_p = (p_info->test_code == XOR);
+
+  /* See if the test is always true or false.  */
+  if ((GET_CODE (cmp0) == REG || GET_CODE (cmp0) == SUBREG)
+      && GET_CODE (cmp1) == CONST_INT)
+    {
+      int value = INTVAL (cmp1);
+      rtx truth = (rtx)0;
+
+      if (test == ITEST_GEU && value == 0)
+	truth = const1_rtx;
+
+      else if (test == ITEST_LTU && value == 0)
+	truth = const0_rtx;
+
+      else if (!TARGET_INT64)
+	{
+	  if (test == ITEST_LTU && value == -1)
+	    truth = const1_rtx;
+
+	  else if (test == ITEST_GTU && value == -1)
+	    truth = const0_rtx;
+
+	  else if (test == ITEST_LEU && value == -1)
+	    truth = const1_rtx;
+
+	  else if (test == ITEST_GT && value == 0x7fffffff)
+	    truth = const0_rtx;
+
+	  else if (test == ITEST_LE && value == 0x7fffffff)
+	    truth = const1_rtx;
+
+	  else if (test == ITEST_LT && value == 0x80000000)
+	    truth = const0_rtx;
+
+	  else if (test == ITEST_GE && value == 0x80000000)
+	    truth = const1_rtx;
+	}
+
+      if (truth != (rtx)0)
+	{
+	  if (result != (rtx)0)
+	    emit_move_insn (result, truth);
+
+	  return truth;
+	}
+    }
+
+  /* Eliminate simple branches */
+  branch_p = (result == (rtx)0);
+  if (branch_p)
+    {
+      if (GET_CODE (cmp0) == REG || GET_CODE (cmp0) == SUBREG)
+	{
+	  /* Comparisons against zero are simple branches */
+	  if (GET_CODE (cmp1) == CONST_INT && INTVAL (cmp1) == 0)
+	    return (rtx)0;
+
+	  /* Test for beq/bne.  */
+	  if (eqne_p)
+	    return (rtx)0;
+	}
+
+      /* allocate a psuedo to calculate the value in.  */
+      result = gen_reg_rtx (SImode);
+    }
+
+  /* Make sure we can handle any constants given to us.  */
+  if (GET_CODE (cmp0) == CONST_INT)
+    cmp0 = force_reg (SImode, cmp0);
+
+  if (GET_CODE (cmp1) == CONST_INT)
+    {
+      int value = INTVAL (cmp1);
+      if (value < p_info->const_low || value > p_info->const_high)
+	cmp1 = force_reg (SImode, cmp1);
+    }
+
+  /* See if we need to invert the result.  */
+  invert = (GET_CODE (cmp1) == CONST_INT)
+		? p_info->invert_const
+		: p_info->invert_reg;
+
+  if (p_invert != (int *)0)
+    {
+      *p_invert = invert;
+      invert = FALSE;
+    }
+
+  /* Comparison to constants, may involve adding 1 to change a LT into LE.
+     Comparison between two registers, may involve switching operands.  */
+  if (GET_CODE (cmp1) == CONST_INT)
+    {
+      if (p_info->const_add != 0)
+	cmp1 = gen_rtx (CONST_INT, VOIDmode, INTVAL (cmp1) + p_info->const_add);
+    }
+  else if (p_info->reverse_regs)
+    {
+      rtx temp = cmp0;
+      cmp0 = cmp1;
+      cmp1 = temp;
+    }
+
+  if (test == ITEST_NE && GET_CODE (cmp1) == CONST_INT && INTVAL (cmp1) == 0)
+    reg = cmp0;
+  else
+    {
+      reg = (invert || eqne_p) ? gen_reg_rtx (SImode) : result;
+      emit_move_insn (reg, gen_rtx (p_info->test_code, SImode, cmp0, cmp1));
+    }
+
+  if (test == ITEST_NE)
+    {
+      emit_move_insn (result, gen_rtx (GTU, SImode, reg, const0_rtx));
+      invert = FALSE;
+    }
+
+  else if (test == ITEST_EQ)
+    {
+      reg2 = (invert) ? gen_reg_rtx (SImode) : result;
+      emit_move_insn (reg2, gen_rtx (LTU, SImode, reg, const1_rtx));
+      reg = reg2;
+    }
+
+  if (invert)
+    emit_move_insn (result, gen_rtx (XOR, SImode, reg, const1_rtx));
+
+  return result;
+}
+
+
 /* Emit the common code for doing conditional branches.
    operand[0] is the label to jump to.
    The comparison operands are saved away by cmp{si,sf,df}.  */
@@ -1471,36 +1696,22 @@ gen_conditional_branch (operands, test_code)
      rtx operands[];
      enum rtx_code test_code;
 {
-  enum {
-    I_EQ,
-    I_NE,
-    I_GT,
-    I_GE,
-    I_LT,
-    I_LE,
-    I_GTU,
-    I_GEU,
-    I_LTU,
-    I_LEU,
-    I_MAX
-  } test = I_MAX;
-
-  static enum machine_mode mode_map[(int)CMP_MAX][(int)I_MAX] = {
+  static enum machine_mode mode_map[(int)CMP_MAX][(int)ITEST_MAX] = {
     {				/* CMP_SI */
-      CC_EQmode,		/* eq  */
-      CC_EQmode,		/* ne  */
-      CCmode,			/* gt  */
-      CCmode,			/* ge  */
-      CCmode,			/* lt  */
-      CCmode,			/* le  */
-      CCmode,			/* gtu */
-      CCmode,			/* geu */
-      CCmode,			/* ltu */
-      CCmode,			/* leu */
+      SImode,			/* eq  */
+      SImode,			/* ne  */
+      SImode,			/* gt  */
+      SImode,			/* ge  */
+      SImode,			/* lt  */
+      SImode,			/* le  */
+      SImode,			/* gtu */
+      SImode,			/* geu */
+      SImode,			/* ltu */
+      SImode,			/* leu */
     },
     {				/* CMP_SF */
       CC_FPmode,		/* eq  */
-      CC_FPmode,		/* ne  */
+      CC_REV_FPmode,		/* ne  */
       CC_FPmode,		/* gt  */
       CC_FPmode,		/* ge  */
       CC_FPmode,		/* lt  */
@@ -1512,7 +1723,7 @@ gen_conditional_branch (operands, test_code)
     },
     {				/* CMP_DF */
       CC_FPmode,		/* eq  */
-      CC_FPmode,		/* ne  */
+      CC_REV_FPmode,		/* ne  */
       CC_FPmode,		/* gt  */
       CC_FPmode,		/* ge  */
       CC_FPmode,		/* lt  */
@@ -1525,33 +1736,22 @@ gen_conditional_branch (operands, test_code)
   };
 
   enum machine_mode mode;
-  enum cmp_type type = branch_type;
-  rtx cmp0 = branch_cmp[0];
-  rtx cmp1 = branch_cmp[1];
-  rtx label = gen_rtx (LABEL_REF, VOIDmode, operands[0]);
+  enum cmp_type type	  = branch_type;
+  rtx cmp0		  = branch_cmp[0];
+  rtx cmp1		  = branch_cmp[1];
+  rtx label1		  = gen_rtx (LABEL_REF, VOIDmode, operands[0]);
+  rtx label2		  = pc_rtx;
+  rtx reg		  = (rtx)0;
+  int invert		  = 0;
+  enum internal_test test = map_test_to_internal_test (test_code);
 
-  /* Make normal rtx_code into something we can index from an array */
-  switch (test_code)
+  if (test == ITEST_MAX)
     {
-    case EQ:  test = I_EQ;  break;
-    case NE:  test = I_NE;  break;
-    case GT:  test = I_GT;  break;
-    case GE:  test = I_GE;  break;
-    case LT:  test = I_LT;  break;
-    case LE:  test = I_LE;  break;
-    case GTU: test = I_GTU; break;
-    case GEU: test = I_GEU; break;
-    case LTU: test = I_LTU; break;
-    case LEU: test = I_LEU; break;
-    }
-
-  if (test == I_MAX)
-    {
-      mode = CCmode;
+      mode = SImode;
       goto fail;
     }
 
-  /* Get the machine mode to use (CCmode, CC_EQmode, or CC_FPmode).  */
+  /* Get the machine mode to use (CCmode, CC_EQmode, CC_FPmode, or CC_REV_FPmode).  */
   mode = mode_map[(int)type][(int)test];
   if (mode == VOIDmode)
     goto fail;
@@ -1562,50 +1762,46 @@ gen_conditional_branch (operands, test_code)
       goto fail;
 
     case CMP_SI:
-      /* Change >, >=, <, <= tests against 0 to use CC_0mode, since we have
-	 special instructions to do these tests directly. */
-
-      if (mode == CCmode && GET_CODE (cmp1) == CONST_INT && INTVAL (cmp1) == 0)
+      reg = gen_int_relational (test_code, (rtx)0, cmp0, cmp1, &invert);
+      if (reg != (rtx)0)
 	{
-	  emit_insn (gen_rtx (SET, VOIDmode, cc0_rtx, cmp0));
-	  mode = CC_0mode;
+	  cmp0 = reg;
+	  cmp1 = const0_rtx;
+	  test_code = NE;
 	}
 
-      else if (mode == CCmode && GET_CODE (cmp0) == CONST_INT && INTVAL (cmp0) == 0)
-	{
-	  emit_insn (gen_rtx (SET, VOIDmode, cc0_rtx, cmp1));
-	  test_code = reverse_condition (test_code);
-	  mode = CC_0mode;
-	}
+      /* Make sure not non-zero constant if ==/!= */
+      else if (GET_CODE (cmp1) == CONST_INT && INTVAL (cmp1) != 0)
+	cmp1 = force_reg (SImode, cmp1);
 
-      else
-	{
-	  /* force args to register for equality comparisons. */
-	  if (mode == CC_EQmode && GET_CODE (cmp1) == CONST_INT && INTVAL (cmp1) != 0)
-	    cmp1 = force_reg (SImode, cmp1);
-
-	  emit_insn (gen_rtx (SET, VOIDmode,
-			      cc0_rtx,
-			      gen_rtx (COMPARE, mode, cmp0, cmp1)));
-	}
       break;
 
     case CMP_DF:
-      emit_insn (gen_cmpdf_internal (cmp0, cmp1));
-      break;
-
     case CMP_SF:
-      emit_insn (gen_cmpsf_internal (cmp0, cmp1));
+      {
+	rtx reg = gen_rtx (REG, mode, FPSW_REGNUM);
+	emit_insn (gen_rtx (SET, VOIDmode, reg, gen_rtx (test_code, mode, cmp0, cmp1)));
+	cmp0 = reg;
+	cmp1 = const0_rtx;
+	test_code = NE;
+      }
       break;
     }
   
   /* Generate the jump */
+  if (invert)
+    {
+      label2 = label1;
+      label1 = pc_rtx;
+    }
+
   emit_jump_insn (gen_rtx (SET, VOIDmode,
 			   pc_rtx,
 			   gen_rtx (IF_THEN_ELSE, VOIDmode,
-				    gen_rtx (test_code, mode, cc0_rtx, const0_rtx),
-				    label,
-				    pc_rtx)));
+				    gen_rtx (test_code, mode, cmp0, cmp1),
+				    label1,
+				    label2)));
+
   return;
 
 fail:
@@ -1619,12 +1815,13 @@ fail:
    The load is emitted directly, and the store insn is returned.  */
 
 static rtx
-block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
+block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align, orig_src)
      rtx src_reg;		/* register holding source memory addresss */
      rtx dest_reg;		/* register holding dest. memory addresss */
      int *p_bytes;		/* pointer to # bytes remaining */
      int *p_offset;		/* pointer to current offset */
      int align;			/* alignment */
+     rtx orig_src;		/* original source for making a reg note */
 {
   int bytes;			/* # bytes remaining */
   int offset;			/* offset to use */
@@ -1633,6 +1830,8 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
   rtx reg;			/* temporary register */
   rtx src_addr;			/* source address */
   rtx dest_addr;		/* destination address */
+  rtx insn;			/* insn of the load */
+  rtx orig_src_addr;		/* original source address */
   rtx (*load_func)();		/* function to generate load insn */
   rtx (*store_func)();		/* function to generate destination insn */
 
@@ -1648,6 +1847,9 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
       store_func = gen_movsi;
     }
 
+#if 0
+  /* Don't generate unligned moves here, rather defer those to the
+     general movestrsi_internal pattern.  */
   else if (bytes >= UNITS_PER_WORD)
     {
       mode = SImode;
@@ -1655,6 +1857,7 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
       load_func = gen_movsi_ulw;
       store_func = gen_movsi_usw;
     }
+#endif
 
   else if (bytes >= UNITS_PER_SHORT && align >= UNITS_PER_SHORT)
     {
@@ -1688,7 +1891,13 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
     }
 
   reg = gen_reg_rtx (mode);
-  emit_insn ((*load_func) (reg, gen_rtx (MEM, mode, src_addr)));
+  insn = emit_insn ((*load_func) (reg, gen_rtx (MEM, mode, src_addr)));
+  orig_src_addr = XEXP (orig_src, 0);
+  if (CONSTANT_P (orig_src_addr))
+    REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_EQUIV,
+				plus_constant (orig_src_addr, offset),
+				REG_NOTES (insn));
+
   return (*store_func) (gen_rtx (MEM, mode, dest_addr), reg);
 }
 
@@ -1710,11 +1919,12 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align)
    in deference to the R4000.  */
 
 static void
-block_move_sequence (dest_reg, src_reg, bytes, align)
+block_move_sequence (dest_reg, src_reg, bytes, align, orig_src)
      rtx dest_reg;		/* register holding destination address */
      rtx src_reg;		/* register holding source address */
      int bytes;			/* # bytes to move */
      int align;			/* max alignment to assume */
+     rtx orig_src;		/* original source for making a reg note */
 {
   int offset		= 0;
   rtx prev2_store	= (rtx)0;
@@ -1729,7 +1939,9 @@ block_move_sequence (dest_reg, src_reg, bytes, align)
 
       prev2_store = prev_store;
       prev_store = cur_store;
-      cur_store = block_move_load_store (dest_reg, src_reg, &bytes, &offset, align);
+      cur_store = block_move_load_store (dest_reg, src_reg,
+					 &bytes, &offset,
+					 align, orig_src);
     }
 
   /* Finish up last three stores.  */
@@ -1751,11 +1963,11 @@ block_move_sequence (dest_reg, src_reg, bytes, align)
      temp2 = src[1];
      ...
      temp<last> = src[MAX_MOVE_REGS-1];
-     src += MAX_MOVE_REGS;
      dest[0] = temp1;
      dest[1] = temp2;
      ...
      dest[MAX_MOVE_REGS-1] = temp<last>;
+     src += MAX_MOVE_REGS;
      dest += MAX_MOVE_REGS;
    } while (src != final);
 
@@ -1770,19 +1982,21 @@ block_move_sequence (dest_reg, src_reg, bytes, align)
 #define MAX_MOVE_BYTES (MAX_MOVE_REGS * UNITS_PER_WORD)
 
 static void
-block_move_loop (dest_reg, src_reg, bytes, align)
+block_move_loop (dest_reg, src_reg, bytes, align, orig_src)
      rtx dest_reg;		/* register holding destination address */
      rtx src_reg;		/* register holding source address */
      int bytes;			/* # bytes to move */
      int align;			/* alignment */
+     rtx orig_src;		/* original source for making a reg note */
 {
-  rtx stores[MAX_MOVE_REGS];
+  rtx dest_mem		= gen_rtx (MEM, BLKmode, dest_reg);
+  rtx src_mem		= gen_rtx (MEM, BLKmode, src_reg);
+  rtx align_rtx		= gen_rtx (CONST_INT, VOIDmode, align);
   rtx label;
   rtx final_src;
   rtx bytes_rtx;
   int i;
   int leftover;
-  int offset;
 
   if (bytes < 2*MAX_MOVE_BYTES)
     abort ();
@@ -1804,20 +2018,17 @@ block_move_loop (dest_reg, src_reg, bytes, align)
 
   emit_label (label);
 
-  offset = 0;
-  for (i = 0; i < MAX_MOVE_REGS; i++)
-    stores[i] = block_move_load_store (dest_reg, src_reg, &bytes, &offset, align);
-
-  emit_insn (gen_addsi3 (src_reg, src_reg, gen_rtx (CONST_INT, VOIDmode, MAX_MOVE_BYTES)));
-  for (i = 0; i < MAX_MOVE_REGS; i++)
-    emit_insn (stores[i]);
-
-  emit_insn (gen_addsi3 (dest_reg, dest_reg, gen_rtx (CONST_INT, VOIDmode, MAX_MOVE_BYTES)));
+  bytes_rtx = gen_rtx (CONST_INT, VOIDmode, MAX_MOVE_BYTES);
+  emit_insn (gen_movstrsi_internal (dest_mem, src_mem, bytes_rtx, align_rtx));
+  emit_insn (gen_addsi3 (src_reg, src_reg, bytes_rtx));
+  emit_insn (gen_addsi3 (dest_reg, dest_reg, bytes_rtx));
   emit_insn (gen_cmpsi (src_reg, final_src));
   emit_jump_insn (gen_bne (label));
 
   if (leftover)
-    block_move_sequence (dest_reg, src_reg, leftover, align);
+    emit_insn (gen_movstrsi_internal (dest_mem, src_mem,
+				      gen_rtx (CONST_INT, VOIDmode, leftover),
+				      align_rtx));
 }
 
 
@@ -1857,27 +2068,39 @@ expand_block_move (operands)
      rtx operands[];
 {
   rtx bytes_rtx	= operands[2];
+  rtx align_rtx = operands[3];
   int constp	= (GET_CODE (bytes_rtx) == CONST_INT);
   int bytes	= (constp ? INTVAL (bytes_rtx) : 0);
-  int align	= INTVAL (operands[3]);
+  int align	= INTVAL (align_rtx);
+  rtx orig_src	= operands[1];
   rtx src_reg;
   rtx dest_reg;
 
   if (constp && bytes <= 0)
     return;
 
+  if (align > UNITS_PER_WORD)
+    align = UNITS_PER_WORD;
+
   /* Move the address into scratch registers.  */
   dest_reg = copy_addr_to_reg (XEXP (operands[0], 0));
-  src_reg  = copy_addr_to_reg (XEXP (operands[1], 0));
+  src_reg  = copy_addr_to_reg (XEXP (orig_src, 0));
 
   if (TARGET_MEMCPY)
     block_move_call (dest_reg, src_reg, bytes_rtx);
 
+#if 0
+  else if (constp && bytes <= 3*align)
+    block_move_sequence (dest_reg, src_reg, bytes, align, orig_src);
+#endif
+
   else if (constp && bytes <= 2*MAX_MOVE_BYTES)
-    block_move_sequence (dest_reg, src_reg, bytes, align);
+    emit_insn (gen_movstrsi_internal (gen_rtx (MEM, BLKmode, dest_reg),
+				      gen_rtx (MEM, BLKmode, src_reg),
+				      bytes_rtx, align_rtx));
 
   else if (constp && align >= UNITS_PER_WORD && optimize)
-    block_move_loop (dest_reg, src_reg, bytes, align);
+    block_move_loop (dest_reg, src_reg, bytes, align, orig_src);
 
   else if (constp && optimize)
     {
@@ -1898,22 +2121,285 @@ expand_block_move (operands)
       emit_jump_insn (gen_beq (aligned_label));
 
       /* Unaligned loop.  */
-      block_move_loop (dest_reg, src_reg, bytes, 1);
+      block_move_loop (dest_reg, src_reg, bytes, 1, orig_src);
       emit_jump_insn (gen_jump (join_label));
       emit_barrier ();
 
       /* Aligned loop.  */
       emit_label (aligned_label);
-      block_move_loop (dest_reg, src_reg, bytes, UNITS_PER_WORD);
+      block_move_loop (dest_reg, src_reg, bytes, UNITS_PER_WORD, orig_src);
       emit_label (join_label);
 
       /* Bytes at the end of the loop.  */
       if (leftover)
-	block_move_sequence (dest_reg, src_reg, leftover, align);
+	{
+#if 0
+	  if (leftover <= 3*align)
+	    block_move_sequence (dest_reg, src_reg, leftover, align, orig_src);
+
+	  else
+#endif
+	    emit_insn (gen_movstrsi_internal (gen_rtx (MEM, BLKmode, dest_reg),
+					      gen_rtx (MEM, BLKmode, src_reg),
+					      gen_rtx (CONST_INT, VOIDmode, leftover),
+					      gen_rtx (CONST_INT, VOIDmode, align)));
+	}
     }
 
   else
     block_move_call (dest_reg, src_reg, bytes_rtx);
+}
+
+
+/* Emit load/stores for a small constant block_move. 
+
+   operands[0] is the memory address of the destination.
+   operands[1] is the memory address of the source.
+   operands[2] is the number of bytes to move.
+   operands[3] is the alignment.
+   operands[4] is a temp register.
+   operands[5] is a temp register.
+   ...
+   operands[3+num_regs] is the last temp register.
+
+   The block move type can be one of the following:
+	BLOCK_MOVE_NORMAL	Do all of the block move.
+	BLOCK_MOVE_NOT_LAST	Do all but the last store.
+	BLOCK_MOVE_LAST		Do just the last store. */
+
+char *
+output_block_move (insn, operands, num_regs, move_type)
+     rtx insn;
+     rtx operands[];
+     int num_regs;
+     enum block_move_type move_type;
+{
+  rtx dest_reg		= XEXP (operands[0], 0);
+  rtx src_reg		= XEXP (operands[1], 0);
+  int bytes		= INTVAL (operands[2]);
+  int align		= INTVAL (operands[3]);
+  int num		= 0;
+  int offset		= 0;
+  int use_lwl_lwr	= FALSE;
+  int last_operand	= num_regs+4;
+  int i;
+  rtx xoperands[10];
+
+  struct {
+    char *load;			/* load insn without nop */
+    char *load_nop;		/* load insn with trailing nop */
+    char *store;		/* store insn */
+    char *final;		/* if last_store used: NULL or swr */
+    char *last_store;		/* last store instruction */
+    int offset;			/* current offset */
+    enum machine_mode mode;	/* mode to use on (MEM) */
+  } load_store[4];
+
+  /* Detect a bug in GCC, where it can give us a register
+     the same as one of the addressing registers.  */
+  for (i = 4; i < last_operand; i++)
+    {
+      if (reg_mentioned_p (operands[i], operands[0])
+	  || reg_mentioned_p (operands[i], operands[1]))
+	{
+	  abort_with_insn (insn, "register passed as address and temp register to block move");
+	}
+    }
+
+  /* If we are given global or static addresses, and we would be
+     emitting a few instructions, try to save time by using a
+     temporary register for the pointer.  */
+  if (bytes > 2*align || move_type != BLOCK_MOVE_NORMAL)
+    {
+      if (CONSTANT_P (src_reg))
+	{
+	  if (TARGET_STATS)
+	    mips_count_memory_refs (operands[1], 1);
+
+	  src_reg = operands[ 3 + num_regs-- ];
+	  if (move_type != BLOCK_MOVE_LAST)
+	    {
+	      xoperands[1] = operands[1];
+	      xoperands[0] = src_reg;
+	      output_asm_insn ("la\t%0,%1", xoperands);
+	    }
+	}
+
+      if (CONSTANT_P (dest_reg))
+	{
+	  if (TARGET_STATS)
+	    mips_count_memory_refs (operands[0], 1);
+
+	  dest_reg = operands[ 3 + num_regs-- ];
+	  if (move_type != BLOCK_MOVE_LAST)
+	    {
+	      xoperands[1] = operands[0];
+	      xoperands[0] = dest_reg;
+	      output_asm_insn ("la\t%0,%1", xoperands);
+	    }
+	}
+    }
+
+  if (num_regs > (sizeof (load_store) / sizeof (load_store[0])))
+    num_regs = (sizeof (load_store) / sizeof (load_store[0]));
+
+  else if (num_regs < 1)
+    abort ();
+
+  if (TARGET_GAS && move_type != BLOCK_MOVE_LAST && set_noreorder++ == 0)
+    output_asm_insn (".set\tnoreorder", operands);
+
+  while (bytes > 0)
+    {
+      load_store[num].offset = offset;
+
+      if (bytes >= UNITS_PER_WORD && align >= UNITS_PER_WORD)
+	{
+	  load_store[num].load       = "lw\t%0,%1";
+	  load_store[num].load_nop   = "lw\t%0,%1%#";
+	  load_store[num].store      = "sw\t%0,%1";
+	  load_store[num].last_store = "sw\t%0,%1";
+	  load_store[num].final      = (char *)0;
+	  load_store[num].mode       = SImode;
+	  offset += UNITS_PER_WORD;
+	  bytes -= UNITS_PER_WORD;
+	}
+
+      else if (bytes >= UNITS_PER_WORD)
+	{
+#if BYTES_BIG_ENDIAN
+	  load_store[num].load       = "lwl\t%0,%1\n\tlwr\t%0,%2";
+	  load_store[num].load_nop   = "lwl\t%0,%1\n\tlwr\t%0,%2%#";
+	  load_store[num].store      = "swl\t%0,%1\n\tswr\t%0,%2";
+	  load_store[num].last_store = "swr\t%0,%2";
+	  load_store[num].final      = "swl\t%0,%1";
+#else
+	  load_store[num].load	     = "lwl\t%0,%2\n\tlwr\t%0,%1";
+	  load_store[num].load_nop   = "lwl\t%0,%2\n\tlwr\t%0,%1%#";
+	  load_store[num].store	     = "swl\t%0,%2\n\tswr\t%0,%1";
+	  load_store[num].last_store = "swr\t%0,%1";
+	  load_store[num].final      = "swl\t%0,%2";
+#endif
+	  load_store[num].mode = SImode;
+	  offset += UNITS_PER_WORD;
+	  bytes -= UNITS_PER_WORD;
+	  use_lwl_lwr = TRUE;
+	}
+
+      else if (bytes >= UNITS_PER_SHORT && align >= UNITS_PER_SHORT)
+	{
+	  load_store[num].load	     = "lh\t%0,%1";
+	  load_store[num].load_nop   = "lh\t%0,%1%#";
+	  load_store[num].store	     = "sh\t%0,%1";
+	  load_store[num].last_store = "sh\t%0,%1";
+	  load_store[num].final      = (char *)0;
+	  load_store[num].offset     = offset;
+	  load_store[num].mode	     = HImode;
+	  offset += UNITS_PER_SHORT;
+	  bytes -= UNITS_PER_SHORT;
+	}
+
+      else
+	{
+	  load_store[num].load	     = "lb\t%0,%1";
+	  load_store[num].load_nop   = "lb\t%0,%1%#";
+	  load_store[num].store	     = "sb\t%0,%1";
+	  load_store[num].last_store = "sb\t%0,%1";
+	  load_store[num].final      = (char *)0;
+	  load_store[num].mode	     = QImode;
+	  offset++;
+	  bytes--;
+	}
+
+      if (TARGET_STATS && move_type != BLOCK_MOVE_LAST)
+	{
+	  dslots_load_total++;
+	  dslots_load_filled++;
+
+	  if (CONSTANT_P (src_reg))
+	    mips_count_memory_refs (src_reg, 1);
+
+	  if (CONSTANT_P (dest_reg))
+	    mips_count_memory_refs (dest_reg, 1);
+	}
+
+      /* Emit load/stores now if we have run out of registers or are
+	 at the end of the move.  */
+
+      if (++num == num_regs || bytes == 0)
+	{
+	  /* If only load/store, we need a NOP after the load.  */
+	  if (num == 1)
+	    {
+	      load_store[0].load = load_store[0].load_nop;
+	      if (TARGET_STATS && move_type != BLOCK_MOVE_LAST)
+		dslots_load_filled--;
+	    }
+
+	  if (move_type != BLOCK_MOVE_LAST)
+	    {
+	      for (i = 0; i < num; i++)
+		{
+		  int offset;
+
+		  if (!operands[i+4])
+		    abort ();
+
+		  if (GET_MODE (operands[i+4]) != load_store[i].mode)
+		    operands[i+4] = gen_rtx (REG, load_store[i].mode, REGNO (operands[i+4]));
+
+		  offset = load_store[i].offset;
+		  xoperands[0] = operands[i+4];
+		  xoperands[1] = gen_rtx (MEM, load_store[i].mode,
+					  plus_constant (src_reg, offset));
+
+		  if (use_lwl_lwr)
+		    xoperands[2] = gen_rtx (MEM, load_store[i].mode,
+					    plus_constant (src_reg, UNITS_PER_WORD-1+offset));
+
+		  output_asm_insn (load_store[i].load, xoperands);
+		}
+	    }
+
+	  for (i = 0; i < num; i++)
+	    {
+	      int last_p = (i == num-1 && bytes == 0);
+	      int offset = load_store[i].offset;
+
+	      xoperands[0] = operands[i+4];
+	      xoperands[1] = gen_rtx (MEM, load_store[i].mode,
+				      plus_constant (dest_reg, offset));
+
+
+	      if (use_lwl_lwr)
+		xoperands[2] = gen_rtx (MEM, load_store[i].mode,
+					plus_constant (dest_reg, UNITS_PER_WORD-1+offset));
+
+	      if (move_type == BLOCK_MOVE_NORMAL)
+		output_asm_insn (load_store[i].store, xoperands);
+
+	      else if (move_type == BLOCK_MOVE_NOT_LAST)
+		{
+		  if (!last_p)
+		    output_asm_insn (load_store[i].store, xoperands);
+
+		  else if (load_store[i].final != (char *)0)
+		    output_asm_insn (load_store[i].final, xoperands);
+		}
+
+	      else if (last_p)
+		output_asm_insn (load_store[i].last_store, xoperands);
+	    }
+
+	  num = 0;		/* reset load_store */
+	  use_lwl_lwr = FALSE;	/* reset whether or not we used lwl/lwr */
+	}
+    }
+
+  if (TARGET_GAS && move_type != BLOCK_MOVE_LAST && --set_noreorder == 0)
+    output_asm_insn (".set\treorder", operands);
+
+  return "";
 }
 
 
@@ -2234,20 +2720,26 @@ static void
 siginfo (signo)
      int signo;
 {
-  char print_pid[50];
+  char select_pgrp[15];
   char *argv[4];
   pid_t pid;
+  pid_t pgrp;
   int status;
 
   fprintf (stderr, "compiling '%s' in '%s'\n",
 	   (current_function_name != (char *)0) ? current_function_name : "<toplevel>",
 	   (current_function_file != (char *)0) ? current_function_file : "<no file>");
 
+  pgrp = getpgrp ();
+  if (pgrp != -1)
+    sprintf (select_pgrp, "-g%d", pgrp);
+  else
+    strcpy (select_pgrp, "-a");
+
   /* Spawn a ps to tell about current memory usage, etc. */
-  sprintf (print_pid, "-p%d,%d", getpid (), getppid ());
   argv[0] = "ps";
-  argv[1] = print_pid;
-  argv[2] = "-ouser,state,pid,pri,nice,wchan,tt,start,usertime,systime,pcpu,cp,inblock,oublock,vsize,rss,pmem,ucomm";
+  argv[1] = "-ouser,pid,pri,nice,usertime,systime,pcpu,cp,inblock,oublock,vsize,rss,pmem,ucomm";
+  argv[2] = select_pgrp;
   argv[3] = (char *)0;
 
   pid = vfork ();
@@ -2270,10 +2762,7 @@ siginfo (signo)
       (void) signal (SIGINT,  sigint);
       (void) signal (SIGQUIT, sigquit);
     }
-
-  signal (SIGINFO, siginfo);
 }
-
 #endif /* SIGINFO */
 
 
@@ -2417,6 +2906,18 @@ override_options ()
     }
 #endif
 
+#ifdef _IOLBF
+  /* If -mstats and -quiet, make stderr line buffered.  */
+  if (quiet_flag && TARGET_STATS)
+    {
+#ifdef MIPS_BSD43
+      setlinebuf (stderr);
+#else
+      setvbuf (stderr, (char *)0, _IOLBF, BUFSIZ);
+#endif
+#endif
+    }
+
   /* Set up the classification arrays now.  */
   mips_rtx_classify[(int)PLUS]  = CLASS_ADD_OP;
   mips_rtx_classify[(int)MINUS] = CLASS_ADD_OP;
@@ -2455,9 +2956,9 @@ override_options ()
   mips_char_to_class['f'] = ((TARGET_HARD_FLOAT) ? FP_REGS : NO_REGS);
   mips_char_to_class['h'] = HI_REG;
   mips_char_to_class['l'] = LO_REG;
-  mips_char_to_class['s'] = ST_REGS;
   mips_char_to_class['x'] = MD_REGS;
   mips_char_to_class['y'] = GR_REGS;
+  mips_char_to_class['z'] = ST_REGS;
 
   /* Set up array to map GCC register number to debug register number.
      Ignore the special purpose register numbers.  */
@@ -2489,22 +2990,25 @@ override_options ()
 
       for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
 	{
-	  register int temp = FALSE;
+	  register int temp;
 
-	  if (GP_REG_P (regno))
+	  if (mode == CC_FPmode || mode == CC_REV_FPmode)
+	    temp = (regno == FPSW_REGNUM);
+
+	  else if (GP_REG_P (regno))
 	    temp = ((regno & 1) == 0 || (size <= UNITS_PER_WORD));
 
 	  else if (FP_REG_P (regno))
 	    temp = ((TARGET_FLOAT64 || ((regno & 1) == 0))
-		    && (TARGET_DEBUG_H_MODE
-			|| class == MODE_FLOAT
-			|| class == MODE_COMPLEX_FLOAT));
+		    && (class == MODE_FLOAT
+			|| class == MODE_COMPLEX_FLOAT
+			|| (TARGET_DEBUG_H_MODE && class == MODE_INT)));
 
 	  else if (MD_REG_P (regno))
 	    temp = (mode == SImode || (regno == MD_REG_FIRST && mode == DImode));
 
-	  else if (ST_REG_P (regno))
-	    temp = ((mode == SImode) || (class == MODE_CC));
+	  else
+	    temp = FALSE;
 
 	  mips_hard_regno_mode_ok[(int)mode][regno] = temp;
 	}
@@ -2549,6 +3053,7 @@ mips_debugger_offset (addr, offset)
 
   return offset;
 }
+
 
 /* A C compound statement to output to stdio stream STREAM the
    assembler syntax for an instruction operand X.  X is an RTL
@@ -3072,9 +3577,6 @@ mips_asm_file_start (stream)
   if (TARGET_ABICALLS)
     fprintf (stream, "\t.abicalls\n");
 
-  /* put gcc_compiled. in data, not text */
-  data_section ();
-
   if (TARGET_GP_OPT)
     {
       asm_out_data_file = stream;
@@ -3104,6 +3606,9 @@ mips_asm_file_end (file)
   tree name_tree;
   struct extern_list *p;
   int len;
+
+  if (HALF_PIC_P ())
+    HALF_PIC_FINISH (file);
 
   if (TARGET_GP_OPT)
     {
@@ -3163,6 +3668,45 @@ mips_declare_object (stream, name, init_string, final_string, size)
       tree name_tree = get_identifier (name);
       TREE_ASM_WRITTEN (name_tree) = 1;
     }
+}
+
+
+/* Output a double precision value to the assembler.  If both the
+   host and target are IEEE, emit the values in hex.  */
+
+void
+mips_output_double (stream, value)
+     FILE *stream;
+     REAL_VALUE_TYPE value;
+{
+#ifdef REAL_VALUE_TO_TARGET_DOUBLE
+  long value_long[2];
+  REAL_VALUE_TO_TARGET_DOUBLE (value, value_long);
+
+  fprintf (stream, "\t.word\t0x%08lx\t\t# %.20g\n\t.word\t0x%08lx\n",
+	   value_long[0], value, value_long[1]);
+#else
+  fprintf (stream, "\t.double\t%.20g\n", value);
+#endif
+}
+
+
+/* Output a single precision value to the assembler.  If both the
+   host and target are IEEE, emit the values in hex.  */
+
+void
+mips_output_float (stream, value)
+     FILE *stream;
+     REAL_VALUE_TYPE value;
+{
+#ifdef REAL_VALUE_TO_TARGET_SINGLE
+  long value_long;
+  REAL_VALUE_TO_TARGET_SINGLE (value, value_long);
+
+  fprintf (stream, "\t.word\t0x%08lx\t\t# %.12g (float)\n", value_long, value);
+#else
+  fprintf (stream, "\t.float\t%.12g\n", value);
+#endif
 }
 
 
@@ -3747,7 +4291,7 @@ function_epilogue (file, size)
 	}
 
       fprintf (stderr,
-	       "%-20s fp=%c leaf=%c alloca=%c setjmp=%c stack=%4ld arg=%3ld reg=%2d/%d delay=%3d/%3dL %3d/%3dJ refs=%3d/%3d/%3d\n",
+	       "%-20s fp=%c leaf=%c alloca=%c setjmp=%c stack=%4ld arg=%3ld reg=%2d/%d delay=%3d/%3dL %3d/%3dJ refs=%3d/%3d/%3d",
 	       current_function_name,
 	       (frame_pointer_needed) ? 'y' : 'n',
 	       ((current_frame_info.mask & (1 << 31)) != 0) ? 'n' : 'y',
@@ -3759,6 +4303,14 @@ function_epilogue (file, size)
 	       dslots_load_total, dslots_load_filled,
 	       dslots_jump_total, dslots_jump_filled,
 	       num_refs[0], num_refs[1], num_refs[2]);
+
+      if (HALF_PIC_NUMBER_PTRS)
+	fprintf (stderr, " half-pic=%3d", HALF_PIC_NUMBER_PTRS);
+
+      if (HALF_PIC_NUMBER_REFS)
+	fprintf (stderr, " pic-ref=%3d", HALF_PIC_NUMBER_REFS);
+
+      fputc ('\n', stderr);
     }
 
   /* Reset state info for each function.  */
@@ -3821,3 +4373,4 @@ null_epilogue ()
 
   return (compute_frame_size (get_frame_size ())) == 0;
 }
+

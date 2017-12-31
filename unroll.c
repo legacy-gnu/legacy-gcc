@@ -59,7 +59,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
    - On traditional architectures, unrolling a non-constant bound loop
      is a win if there is a giv whose only use is in memory addresses, the
-     memory addresses can be split, and hence giv incremenets can be
+     memory addresses can be split, and hence giv increments can be
      eliminated.
    - It is also a win if the loop is executed many times, and preconditioning
      can be performed for the loop.
@@ -205,7 +205,7 @@ static rtx fold_rtx_mult_add ();
 /* Try to unroll one loop and split induction variables in the loop.
 
    The loop is described by the arguments LOOP_END, INSN_COUNT, and
-   LOOP_START.  END_INSERT_BEDFORE indicates where insns should be added
+   LOOP_START.  END_INSERT_BEFORE indicates where insns should be added
    which need to be executed when the loop falls through.  STRENGTH_REDUCTION_P
    indicates whether information generated in the strength reduction pass
    is available.
@@ -688,7 +688,7 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
 
      It is safe to do this here, since the extra registers created by the
      preconditioning code and find_splittable_regs will never be used
-     to accees the splittable_regs[] and addr_combined_regs[] arrays.  */
+     to access the splittable_regs[] and addr_combined_regs[] arrays.  */
 
   splittable_regs = (rtx *) alloca (maxregnum * sizeof (rtx));
   bzero (splittable_regs, maxregnum * sizeof (rtx));
@@ -1138,7 +1138,7 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
   if (exit_label)
     emit_label_after (exit_label, loop_end);
 
-  /* If debugging, we must replicate the tree nodes corresponsing to the blocks
+  /* If debugging, we must replicate the tree nodes corresponding to the blocks
      inside the loop, so that the original one to one mapping will remain.  */
 
   if (write_symbols != NO_DEBUG)
@@ -1230,7 +1230,7 @@ precondition_loop_p (initial_value, final_value, increment, loop_start,
 
   /* Must ensure that final_value is invariant, so call invariant_p to
      check.  Before doing so, must check regno against max_reg_before_loop
-     to make sure that the register is in the range convered by invariant_p.
+     to make sure that the register is in the range covered by invariant_p.
      If it isn't, then it is most likely a biv/giv which by definition are
      not invariant.  */
   if ((GET_CODE (loop_final_value) == REG
@@ -1461,10 +1461,15 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 	      for (tv = bl->giv; tv; tv = tv->next_iv)
 		if (tv->giv_type == DEST_ADDR && tv->same == v)
 		  {
-		    /* Increment the giv by the amount that was calculated in
-		       find_splittable_givs, and saved in add_val.  */
-		    tv->dest_reg = plus_constant (tv->dest_reg,
-						  INTVAL (tv->add_val));
+		    int this_giv_inc = INTVAL (giv_inc);
+
+		    /* Scale this_giv_inc if the multiplicative factors of
+		       the two givs are different.  */
+		    if (tv->mult_val != v->mult_val)
+		      this_giv_inc = (this_giv_inc / INTVAL (v->mult_val)
+				      * INTVAL (tv->mult_val));
+		       
+		    tv->dest_reg = plus_constant (tv->dest_reg, this_giv_inc);
 		    *tv->location = tv->dest_reg;
 		    
 		    if (last_iteration && unroll_type != UNROLL_COMPLETELY)
@@ -1883,7 +1888,7 @@ emit_unrolled_add (dest_reg, src_reg, increment)
    is a backward branch in that range that branches to somewhere between
    LOOP_START and INSN.  Returns 0 otherwise.  */
 
-/* ??? This is quadratic algorithm.  Could be rewriten to be linear.
+/* ??? This is quadratic algorithm.  Could be rewritten to be linear.
    In practice, this is not a problem, because this function is seldom called,
    and uses a negligible amount of CPU time on average.  */
 
@@ -2435,24 +2440,41 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 
       if (v->new_reg)
 	{
-	  /* If the giv is an address destination, it could be something other
-	     than a simple register, these have to be treated differently.  */
-	  if (v->giv_type == DEST_REG)
-	    splittable_regs[REGNO (v->new_reg)] = value;
-
-	  /* If an addr giv was combined with another addr giv, then we
-	     can only split this giv if the addr giv it was combined with
-	     was reduced.  This is because the value of v->new_reg is
-	     meaningless in this case.  (There is no problem if it was
-	     combined with a dest_reg giv which wasn't reduced, v->new_reg
-	     is still meaningful in this case.)  */
-
-	  else if (v->same && v->same->giv_type == DEST_ADDR
-		  && ! v->same->new_reg) 
+	  /* If a giv was combined with another giv, then we can only split
+	     this giv if the giv it was combined with was reduced.  This
+	     is because the value of v->new_reg is meaningless in this
+	     case.  */
+	  if (v->same && ! v->same->new_reg)
 	    {
 	      if (loop_dump_stream)
 		fprintf (loop_dump_stream,
-			 "DEST_ADDR giv not split, because combined with unreduced DEST_ADDR giv.\n");
+			 "giv combined with unreduced giv not split.\n");
+	      continue;
+	    }
+	  /* If the giv is an address destination, it could be something other
+	     than a simple register, these have to be treated differently.  */
+	  else if (v->giv_type == DEST_REG)
+	    {
+	      /* If value is not a constant, register, or register plus
+		 constant, then compute its value into a register before
+		 loop start.  This prevents illegal rtx sharing, and should
+		 generate better code.  We can use bl->initial_value here
+		 instead of splittable_regs[bl->regno] because this code
+		 is going before the loop start.  */
+	      if (unroll_type == UNROLL_COMPLETELY
+		  && GET_CODE (value) != CONST_INT
+		  && GET_CODE (value) != REG
+		  && (GET_CODE (value) != PLUS
+		      || GET_CODE (XEXP (value, 0)) != REG
+		      || GET_CODE (XEXP (value, 1)) != CONST_INT))
+		{
+		  rtx tem = gen_reg_rtx (v->mode);
+		  emit_iv_add_mult (bl->initial_value, v->mult_val,
+				    v->add_val, tem, loop_start);
+		  value = tem;
+		}
+		
+	      splittable_regs[REGNO (v->new_reg)] = value;
 	    }
 	  else
 	    {
@@ -2601,13 +2623,6 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 		      addr_combined_regs[REGNO (v->new_reg)] = v;
 		    }
 		}
-
-	      /* Overwrite the old add_val, which is no longer needed, and
-		 substitute the amount that the giv is incremented on each
-		 iteration.  We need to save this somewhere, so we know how
-		 much to increment split DEST_ADDR giv's in copy_loop_body.  */
-
-	      v->add_val = giv_inc;
 
 	      if (loop_dump_stream)
 		fprintf (loop_dump_stream, "DEST_ADDR giv being split.\n");
@@ -2808,7 +2823,7 @@ final_giv_value (v, loop_start, loop_end)
   rtx reg, insn, pattern;
   rtx increment, tem;
   enum rtx_code code;
-  rtx insert_before;
+  rtx insert_before, seq;
 
   bl = reg_biv_class[REGNO (v->src_reg)];
 
@@ -2887,9 +2902,13 @@ final_giv_value (v, loop_start, loop_end)
 		      || REGNO (XEXP (SET_SRC (pattern), 0)) != bl->regno)
 		    abort ();
 		  
+		  start_sequence ();
 		  tem = expand_binop (GET_MODE (tem), sub_optab, tem,
 				      XEXP (SET_SRC (pattern), 1), 0, 0,
 				      OPTAB_LIB_WIDEN);
+		  seq = gen_sequence ();
+		  end_sequence ();
+		  emit_insn_before (seq, insert_before);
 		}
 	    }
 	  
@@ -2926,7 +2945,7 @@ final_giv_value (v, loop_start, loop_end)
 
 
 /* Calculate the number of loop iterations.  Returns the exact number of loop
-   iterations if it can be calculated, otherwise retusns zero.  */
+   iterations if it can be calculated, otherwise returns zero.  */
 
 unsigned long
 loop_iterations (loop_start, loop_end)
@@ -3069,7 +3088,7 @@ loop_iterations (loop_start, loop_end)
      be addresses with the same base but different constant offsets.
      Final value must be invariant for this to work.
 
-     To do this, need someway to find the values of registers which are
+     To do this, need some way to find the values of registers which are
      invariant.  */
 
   /* Final_larger is 1 if final larger, 0 if they are equal, otherwise -1.  */

@@ -174,9 +174,6 @@ tree void_ftype_ptr_ptr_int, int_ftype_ptr_ptr_int, void_ftype_ptr_int_int;
 /* Function type `char *(char *, char *)' and similar ones */
 tree string_ftype_ptr_ptr, int_ftype_string_string;
 
-/* Function type `size_t (const char *)' */
-tree sizet_ftype_string;
-
 /* Function type `int (const void *, const void *, size_t)' */
 tree int_ftype_cptr_cptr_sizet;
 
@@ -202,6 +199,10 @@ int pending_invalid_xref_line;
    constant value.  */
 
 static tree enum_next_value;
+
+/* Nonzero means that there was overflow computing enum_next_value.  */
+
+static int enum_overflow;
 
 /* Parsing a function declarator leaves a list of parameter names
    or a chain or parameter decls here.  */
@@ -399,9 +400,14 @@ int flag_short_double;
 
 int flag_no_asm;
 
-/* Nonzero means don't recognize the non-ANSI builtin functions.  */
+/* Nonzero means don't recognize any builtin functions.  */
 
 int flag_no_builtin;
+
+/* Nonzero means don't recognize the non-ANSI builtin functions.
+   -ansi sets this.  */
+
+int flag_no_nonansi_builtin;
 
 /* Nonzero means do some things the same way PCC does.  */
 
@@ -547,7 +553,7 @@ c_decode_option (p)
   else if (!strcmp (p, "-fident"))
     flag_no_ident = 0;
   else if (!strcmp (p, "-ansi"))
-    flag_no_asm = 1, flag_no_builtin = 1, dollars_in_ident = 0;
+    flag_no_asm = 1, flag_no_nonansi_builtin = 1, dollars_in_ident = 0;
   else if (!strcmp (p, "-Wimplicit"))
     warn_implicit = 1;
   else if (!strcmp (p, "-Wno-implicit"))
@@ -574,7 +580,7 @@ c_decode_option (p)
     warn_missing_prototypes = 0;
   else if (!strcmp (p, "-Wredundant-decls"))
     warn_redundant_decls = 1;
-  else if (!strcmp (p, "-Wnoredundant-decls"))
+  else if (!strcmp (p, "-Wno-redundant-decls"))
     warn_redundant_decls = 0;
   else if (!strcmp (p, "-Wnested-externs"))
     warn_nested_externs = 1;
@@ -611,6 +617,10 @@ c_decode_option (p)
   else if (!strcmp (p, "-Wtrigraphs"))
     ; /* cpp handles this one.  */
   else if (!strcmp (p, "-Wno-trigraphs"))
+    ; /* cpp handles this one.  */
+  else if (!strcmp (p, "-Wimport"))
+    ; /* cpp handles this one.  */
+  else if (!strcmp (p, "-Wno-import"))
     ; /* cpp handles this one.  */
   else if (!strcmp (p, "-Wall"))
     {
@@ -1315,17 +1325,19 @@ duplicate_decls (newdecl, olddecl)
 	      warning_with_decl (olddecl, "non-prototype definition here");
 	    }
 	}
-      /* Warn if function is now inline
-	 but was previously declared not inline and has been called.  */
+      /* Warn about mismatches in various flags.  */
       else
 	{
+	  /* Warn if function is now inline
+	     but was previously declared not inline and has been called.  */
 	  if (TREE_CODE (olddecl) == FUNCTION_DECL
 	      && ! TREE_INLINE (olddecl) && TREE_INLINE (newdecl)
 	      && TREE_USED (olddecl))
 	    warning_with_decl (newdecl,
 			       "`%s' declared inline after being called");
 	  if (TREE_CODE (olddecl) == FUNCTION_DECL
-	      && TREE_INLINE (olddecl) != TREE_INLINE (newdecl))
+	      && TREE_INLINE (olddecl) != TREE_INLINE (newdecl)
+	      && ! (TREE_EXTERNAL (olddecl) && TREE_EXTERNAL (newdecl)))
 	    warning_with_decl (newdecl,
 			       "`%s' declarations disagree about `inline'");
 	  /* It is nice to warn when a function is declared
@@ -1335,8 +1347,10 @@ duplicate_decls (newdecl, olddecl)
 	      && !TREE_PUBLIC (newdecl))
 	    warning_with_decl (newdecl, "static declaration for `%s' follows non-static");
 
-	  /* These bits are logically part of the type.  */
-	  if (pedantic
+	  /* These bits are logically part of the type, for variables.
+	     But not for functions
+	     (where qualifiers are not valid ANSI anyway).  */
+	  if (pedantic && TREE_CODE (olddecl) != FUNCTION_DECL
 	      && (TREE_READONLY (newdecl) != TREE_READONLY (olddecl)
 		  || TREE_THIS_VOLATILE (newdecl) != TREE_THIS_VOLATILE (olddecl)))
 	    pedwarn_with_decl (newdecl, "type qualifiers for `%s' conflict with previous decl");
@@ -1369,8 +1383,9 @@ duplicate_decls (newdecl, olddecl)
 	{
 	  /* Since the type is OLDDECL's, make OLDDECL's size go with.  */
 	  DECL_SIZE (newdecl) = DECL_SIZE (olddecl);
-	  if (DECL_ALIGN (olddecl) > DECL_ALIGN (newdecl))
-	    DECL_ALIGN (newdecl) = DECL_ALIGN (olddecl);
+	  if (TREE_CODE (olddecl) != FUNCTION_DECL)
+	    if (DECL_ALIGN (olddecl) > DECL_ALIGN (newdecl))
+	      DECL_ALIGN (newdecl) = DECL_ALIGN (olddecl);
 	}
 
       /* Merge the type qualifiers.  */
@@ -1550,16 +1565,45 @@ pushdecl (x)
 	  return t;
 	}
 
-      /* If declaring a type as a typedef, and the type has no known
-	 typedef name, install this TYPE_DECL as its typedef name.  If
-         generating prototypes, *don't* assign the current name to the
-         existing type node, but rather give the name its own associated
-         type node.  This new type node is created as a type variant of
-         the existing type node, but it is essentially identical to the
-         existing one.  Obviously, we don't generate these type variants
-         if the node that we are working on is a standard type and it has
-         not yet been assigned a name.  In that case we must allow the
-         standard type to given its standard name (by the compiler).
+      /* If we are processing a typedef statement, generate a whole new
+	 ..._TYPE node (which will be just an variant of the existing
+	 ..._TYPE node with identical properties) and then install the
+	 TYPE_DECL node generated to represent the typedef name as the
+	 TYPE_NAME of this brand new (duplicate) ..._TYPE node.
+
+	 The whole point here is to end up with a situation where each
+	 and every ..._TYPE node the compiler creates will be uniquely
+	 associated with AT MOST one node representing a typedef name.
+	 This way, even though the compiler substitutes corresponding
+	 ..._TYPE nodes for TYPE_DECL (i.e. "typedef name") nodes very
+	 early on, later parts of the compiler can always do the reverse
+	 translation and get back the corresponding typedef name.  For
+	 example, given:
+
+		typedef struct S MY_TYPE;
+		MY_TYPE object;
+
+	 Later parts of the compiler might only know that `object' was of
+	 type `struct S' if if were not for code just below.  With this
+	 code however, later parts of the compiler see something like:
+
+		struct S' == struct S
+		typedef struct S' MY_TYPE;
+		struct S' object;
+
+	 And they can then deduce (from the node for type struct S') that
+	 the original object declaration was:
+
+		MY_TYPE object;
+
+	 Being able to do this is important for proper support of protoize,
+	 and also for generating precise symbolic debugging information
+	 which takes full account of the programmer's (typedef) vocabulary.
+
+         Obviously, we don't want to generate a duplicate ..._TYPE node if
+	 the TYPE_DECL node that we are now processing really represents a
+	 standard built-in type.
+
          Since all standard types are effectively declared at line zero
          in the source file, we can easily check to see if we are working
          on a standard type by checking the current value of lineno.  */
@@ -1575,8 +1619,7 @@ pushdecl (x)
             {
               tree tt = TREE_TYPE (x);
 
-              tt = c_build_type_variant (tt,
-					 TYPE_READONLY (tt), TYPE_VOLATILE (tt));
+              tt = build_type_copy (tt);
               TYPE_NAME (tt) = x;
               TREE_TYPE (x) = tt;
             }
@@ -1768,6 +1811,8 @@ pushdecl (x)
 
 	  /* Maybe warn if shadowing something else.  */
 	  else if (warn_shadow && !TREE_EXTERNAL (x)
+		   /* No shadow warnings for internally generated vars.  */
+		   && !DECL_IGNORED_P (x)
 		   /* No shadow warnings for vars made for inlining.  */
 		   && ! DECL_FROM_INLINE (x))
 	    {
@@ -2213,8 +2258,9 @@ init_decl_processing ()
   register tree endlink;
   /* Either char* or void*.  */
   tree traditional_ptr_type_node;
-  /* Data type of memcpy.  */
-  tree memcpy_ftype;
+  /* Data types of memcpy and strlen.  */
+  tree memcpy_ftype, strlen_ftype;
+  tree void_ftype_any;
   int wchar_type_size;
   tree temp;
 
@@ -2375,6 +2421,9 @@ init_decl_processing ()
 
   endlink = tree_cons (NULL_TREE, void_type_node, NULL_TREE);
 
+  void_ftype_any
+    = build_function_type (void_type_node, 0);
+
   double_ftype_double
     = build_function_type (double_type_node,
 			   tree_cons (NULL_TREE, double_type_node, endlink));
@@ -2432,8 +2481,8 @@ init_decl_processing ()
 						 const_string_type_node,
 						 endlink)));
 
-  sizet_ftype_string		/* strlen prototype */
-    = build_function_type (sizetype,
+  strlen_ftype		/* strlen prototype */
+    = build_function_type (flag_traditional ? integer_type_node : sizetype,
 			   tree_cons (NULL_TREE, const_string_type_node,
 				      endlink));
 
@@ -2473,9 +2522,8 @@ init_decl_processing ()
 						    sizetype,
 						    endlink)),
 		    BUILT_IN_ALLOCA, "alloca");
-  if (! flag_no_builtin)
+  if (! flag_no_builtin && !flag_no_nonansi_builtin)
     {
-      tree exit_type;
       temp = builtin_function ("alloca",
 			       build_function_type (ptr_type_node,
 						    tree_cons (NULL_TREE,
@@ -2484,24 +2532,7 @@ init_decl_processing ()
 			       BUILT_IN_ALLOCA, 0);
       /* Suppress error if redefined as a non-function.  */
       DECL_BUILT_IN_NONANSI (temp) = 1;
-      /* Declare these functions volatile
-	 to avoid spurious "control drops through" warnings.  */
-      /* Don't specify the argument types, to avoid errors
-	 from certain code which isn't valid in ANSI but which exists.  */
-      temp = builtin_function ("abort",
-			       build_function_type (void_type_node, 0),
-			       NOT_BUILT_IN, 0);
-      TREE_THIS_VOLATILE (temp) = 1;
-      TREE_SIDE_EFFECTS (temp) = 1;
-      /* Suppress error if redefined as a non-function.  */
-      DECL_BUILT_IN_NONANSI (temp) = 1;
-      exit_type = build_function_type (void_type_node, 0);
-      temp = builtin_function ("exit", exit_type, NOT_BUILT_IN, 0);
-      TREE_THIS_VOLATILE (temp) = 1;
-      TREE_SIDE_EFFECTS (temp) = 1;
-      /* Suppress error if redefined as a non-function.  */
-      DECL_BUILT_IN_NONANSI (temp) = 1;
-      temp = builtin_function ("_exit", exit_type, NOT_BUILT_IN, 0);
+      temp = builtin_function ("_exit", void_ftype_any, NOT_BUILT_IN, 0);
       TREE_THIS_VOLATILE (temp) = 1;
       TREE_SIDE_EFFECTS (temp) = 1;
       /* Suppress error if redefined as a non-function.  */
@@ -2544,15 +2575,15 @@ init_decl_processing ()
 		    BUILT_IN_STRCMP, "strcmp");
   builtin_function ("__builtin_strcpy", string_ftype_ptr_ptr,
 		    BUILT_IN_STRCPY, "strcpy");
-  builtin_function ("__builtin_strlen", sizet_ftype_string,
+  builtin_function ("__builtin_strlen", strlen_ftype,
 		    BUILT_IN_STRLEN, "strlen");
   builtin_function ("__builtin_fsqrt", double_ftype_double, 
 		    BUILT_IN_FSQRT, "sqrt");
   /* In an ANSI C program, it is okay to supply built-in meanings
      for these functions, since applications cannot validly use them
      with any other meaning.
-     However, a traditional C program can do so.  */
-  if (!flag_traditional)
+     However, honor the -fno-builtin option.  */
+  if (!flag_no_builtin)
     {
       builtin_function ("abs", int_ftype_int, BUILT_IN_ABS, 0);
       builtin_function ("fabs", double_ftype_double, BUILT_IN_FABS, 0);
@@ -2561,11 +2592,19 @@ init_decl_processing ()
       builtin_function ("memcmp", int_ftype_cptr_cptr_sizet, BUILT_IN_MEMCMP, 0);
       builtin_function ("strcmp", int_ftype_string_string, BUILT_IN_STRCMP, 0);
       builtin_function ("strcpy", string_ftype_ptr_ptr, BUILT_IN_STRCPY, 0);
-      builtin_function ("strlen", sizet_ftype_string, BUILT_IN_STRLEN, 0);
-#if 0 /* No good, since open-coded implementation fails to set errno.
-	 The ANSI committee made a real mistake in specifying math fns.  */
+      builtin_function ("strlen", strlen_ftype, BUILT_IN_STRLEN, 0);
       builtin_function ("sqrt", double_ftype_double, BUILT_IN_FSQRT, 0);
-#endif
+
+      /* Declare these functions volatile
+	 to avoid spurious "control drops through" warnings.  */
+      /* Don't specify the argument types, to avoid errors
+	 from certain code which isn't valid in ANSI but which exists.  */
+      temp = builtin_function ("abort", void_ftype_any, NOT_BUILT_IN, 0);
+      TREE_THIS_VOLATILE (temp) = 1;
+      TREE_SIDE_EFFECTS (temp) = 1;
+      temp = builtin_function ("exit", void_ftype_any, NOT_BUILT_IN, 0);
+      TREE_THIS_VOLATILE (temp) = 1;
+      TREE_SIDE_EFFECTS (temp) = 1;
     }
 
 #if 0
@@ -2581,6 +2620,9 @@ init_decl_processing ()
   builtin_function ("__builtin_getexp", double_ftype_double, BUILT_IN_GETEXP, 0);
   builtin_function ("__builtin_getman", double_ftype_double, BUILT_IN_GETMAN, 0);
 #endif
+
+  /* Create the global bindings for __FUNCTION__ and __PRETTY_FUNCTION__.  */
+  declare_function_name ();
 
   start_identifier_warnings ();
 
@@ -2605,6 +2647,11 @@ builtin_function (name, type, function_code, library_name)
   tree decl = build_decl (FUNCTION_DECL, get_identifier (name), type);
   TREE_EXTERNAL (decl) = 1;
   TREE_PUBLIC (decl) = 1;
+  /* If -traditional, permit redefining a builtin function any way you like.
+     (Though really, if the program redefines these functions,
+     it probably won't work right unless compiled with -fno-builtin.)  */
+  if (flag_traditional && name[0] != '_')
+    DECL_BUILT_IN_NONANSI (decl) = 1;
   if (library_name)
     DECL_ASSEMBLER_NAME (decl) = get_identifier (library_name);
   make_decl_rtl (decl, 0, 1);
@@ -3062,7 +3109,7 @@ void
 push_parm_decl (parm)
      tree parm;
 {
-  tree decl;
+  tree decl, olddecl;
   int old_immediate_size_expand = immediate_size_expand;
   /* Don't try computing parm sizes now -- wait till fn is called.  */
   immediate_size_expand = 0;
@@ -3071,6 +3118,12 @@ push_parm_decl (parm)
   push_obstacks_nochange ();
 
   decl = grokdeclarator (TREE_VALUE (parm), TREE_PURPOSE (parm), PARM, 0);
+  if (DECL_NAME (decl))
+    {
+      olddecl = lookup_name (DECL_NAME (decl));
+      if (pedantic && olddecl != 0 && TREE_CODE (olddecl) == TYPE_DECL)
+	pedwarn_with_decl (decl, "ANSI C forbids parameter `%s' shadowing typedef");
+    }
   decl = pushdecl (decl);
 
   immediate_size_expand = old_immediate_size_expand;
@@ -3301,7 +3354,7 @@ grokdeclarator (declarator, declspecs, decl_context, initialized)
 		      longlong = 1;
 		  }
 		else if (specbits & (1 << i))
-		  warning ("duplicate `%s'", IDENTIFIER_POINTER (id));
+		  pedwarn ("duplicate `%s'", IDENTIFIER_POINTER (id));
 		specbits |= 1 << i;
 		goto found;
 	      }
@@ -3452,9 +3505,9 @@ grokdeclarator (declarator, declspecs, decl_context, initialized)
   volatilep = !! (specbits & 1 << (int) RID_VOLATILE) + TYPE_VOLATILE (type);
   inlinep = !! (specbits & (1 << (int) RID_INLINE));
   if (constp > 1)
-    warning ("duplicate `const'");
+    pedwarn ("duplicate `const'");
   if (volatilep > 1)
-    warning ("duplicate `volatile'");
+    pedwarn ("duplicate `volatile'");
   if (! flag_gen_aux_info && (TYPE_READONLY (type) || TYPE_VOLATILE (type)))
     type = TYPE_MAIN_VARIANT (type);
 
@@ -3601,7 +3654,8 @@ grokdeclarator (declarator, declspecs, decl_context, initialized)
 		      error ("size of array `%s' is negative", name);
 		      size = integer_one_node;
 		    }
-		  itype = build_index_type (build_int_2 (TREE_INT_CST_LOW (size) - 1, 0));
+		  itype = build_index_type (size_binop (MINUS_EXPR, size,
+							size_one_node));
 		}
 	      else
 		{
@@ -3874,9 +3928,20 @@ grokdeclarator (declarator, declspecs, decl_context, initialized)
 	DECL_ARG_TYPE (decl) = type;
 	if (type == float_type_node)
 	  DECL_ARG_TYPE (decl) = double_type_node;
-	else if (TREE_CODE (type) == INTEGER_TYPE
-		 && TYPE_PRECISION (type) < TYPE_PRECISION (integer_type_node))
-	  DECL_ARG_TYPE (decl) = integer_type_node;
+	/* Don't use TYPE_PREISION to decide whether to promote,
+	   because we should convert short if it's the same size as int,
+	   but we should not convert long if it's the same size as int.  */
+	else if (type == char_type_node || type == signed_char_type_node
+		 || type == unsigned_char_type_node
+		 || type == short_integer_type_node
+		 || type == short_unsigned_type_node)
+	  {
+	    if (TYPE_PRECISION (type) == TYPE_PRECISION (integer_type_node)
+		&& TREE_UNSIGNED (type))
+	      DECL_ARG_TYPE (decl) = unsigned_type_node;
+	    else
+	      DECL_ARG_TYPE (decl) = integer_type_node;
+	  }
 
 	DECL_ARG_TYPE_AS_WRITTEN (decl) = type_as_written;
       }
@@ -4177,13 +4242,20 @@ get_parm_info (void_at_end)
 				 saveable_tree_cons (NULL_TREE, void_type_node, NULL_TREE));
     }
 
-  /* Extract enumerator values and other non-parms declared with the parms.  */
+  /* Extract enumerator values and other non-parms declared with the parms.
+     Likewise any forward parm decls that didn't have real parm decls.  */
   for (decl = parms; decl; )
     {
       tree next = TREE_CHAIN (decl);
 
       if (TREE_CODE (decl) != PARM_DECL)
 	{
+	  TREE_CHAIN (decl) = new_parms;
+	  new_parms = decl;
+	}
+      else if (TREE_ASM_WRITTEN (decl))
+	{
+	  error_with_decl (decl, "parameter `%s' has just a forward declaration");
 	  TREE_CHAIN (decl) = new_parms;
 	  new_parms = decl;
 	}
@@ -4249,6 +4321,10 @@ parmlist_tags_warning ()
   for (elt = current_binding_level->tags; elt; elt = TREE_CHAIN (elt))
     {
       enum tree_code code = TREE_CODE (TREE_VALUE (elt));
+      /* An anonymous union parm type is meaningful as a GNU extension.
+	 So don't warn for that.  */
+      if (code == UNION_TYPE && !pedantic)
+	continue;
       if (TREE_PURPOSE (elt) != 0)
 	warning ("`%s %s' declared inside parameter list",
 		 (code == RECORD_TYPE ? "struct"
@@ -4432,7 +4508,7 @@ finish_struct (t, fieldlist)
 
   /* Install struct as DECL_CONTEXT of each field decl.
      Also process specified field sizes.
-     Set DECL_FRAME_SIZE to the specified size, or 0 if none specified.
+     Set DECL_FIELD_SIZE to the specified size, or 0 if none specified.
      The specified size is found in the DECL_INITIAL.
      Store 0 there, except for ": 0" fields (so we can find them
      and delete them, below).  */
@@ -4440,7 +4516,7 @@ finish_struct (t, fieldlist)
   for (x = fieldlist; x; x = TREE_CHAIN (x))
     {
       DECL_CONTEXT (x) = t;
-      DECL_FRAME_SIZE (x) = 0;
+      DECL_FIELD_SIZE (x) = 0;
 
       /* If any field is const, the structure type is pseudo-const.  */
       if (TREE_READONLY (x))
@@ -4515,7 +4591,7 @@ finish_struct (t, fieldlist)
 	{
 	  register int width = TREE_INT_CST_LOW (DECL_INITIAL (x));
 
-	  DECL_FRAME_SIZE (x) = width;
+	  DECL_FIELD_SIZE (x) = width;
 	  DECL_BIT_FIELD (x) = 1;
 	  DECL_INITIAL (x) = NULL;
 
@@ -4532,8 +4608,13 @@ finish_struct (t, fieldlist)
 	    }
 	}
       else
-	/* Non-bit-fields are aligned for their type.  */
-	DECL_ALIGN (x) = MAX (DECL_ALIGN (x), TYPE_ALIGN (TREE_TYPE (x)));
+	{
+	  int min_align = (DECL_PACKED (x) ? BITS_PER_UNIT
+			   : TYPE_ALIGN (TREE_TYPE (x)));
+	  /* Non-bit-fields are aligned for their type, except packed
+	     fields which require only BITS_PER_UNIT alignment.  */
+	  DECL_ALIGN (x) = MAX (DECL_ALIGN (x), min_align);
+	}
     }
 
   /* Now DECL_INITIAL is null on all members.  */
@@ -4635,7 +4716,7 @@ finish_struct (t, fieldlist)
   for (x = fieldlist; x; x = TREE_CHAIN (x))
     if (DECL_BIT_FIELD (x)
 	&& TREE_CODE (TREE_TYPE (x)) == INTEGER_TYPE
-	&& (TREE_INT_CST_LOW (DECL_SIZE (x))
+	&& (TYPE_PRECISION (TREE_TYPE (x))
 	    < TYPE_PRECISION (integer_type_node)))
       TREE_TYPE (x) = integer_type_node;
 
@@ -4727,6 +4808,7 @@ start_enum (name)
     }
 
   enum_next_value = integer_zero_node;
+  enum_overflow = 0;
 
   return enumtype;
 }
@@ -4819,7 +4901,8 @@ finish_enum (enumtype, values)
       {
 	TREE_TYPE (TREE_PURPOSE (pair)) = enumtype;
 	DECL_SIZE (TREE_PURPOSE (pair)) = TYPE_SIZE (enumtype);
-	DECL_ALIGN (TREE_PURPOSE (pair)) = TYPE_ALIGN (enumtype);
+	if (TREE_CODE (TREE_PURPOSE (pair)) != FUNCTION_DECL)
+	  DECL_ALIGN (TREE_PURPOSE (pair)) = TYPE_ALIGN (enumtype);
       }
 
   /* Replace the decl nodes in VALUES with their names.  */
@@ -4864,7 +4947,11 @@ build_enumerator (name, value)
   /* It should no longer be possible to have NON_LVALUE_EXPR
      in the default.  */
   if (value == 0)
-    value = enum_next_value;
+    {
+      value = enum_next_value;
+      if (enum_overflow)
+	error ("overflow in enumeration values");
+    }
 
   if (pedantic && ! int_fits_type_p (value, integer_type_node))
     {
@@ -4874,6 +4961,7 @@ build_enumerator (name, value)
 
   /* Set basis for default for next value.  */
   enum_next_value = build_binary_op (PLUS_EXPR, value, integer_one_node, 0);
+  enum_overflow = tree_int_cst_lt (enum_next_value, value);
 
   /* Now create a declaration for the enum value name.  */
 
@@ -5289,27 +5377,33 @@ store_parm_decls ()
 		}
 	      /* Type for passing arg must be consistent
 		 with that declared for the arg.  */
-	      if (! comptypes (DECL_ARG_TYPE (parm), TREE_VALUE (type))
-		  /* If -traditional, allow `unsigned int' instead of `int'
-		     in the prototype.  */
-		  && (! (flag_traditional
-			 && DECL_ARG_TYPE (parm) == integer_type_node
-			 && TREE_VALUE (type) == unsigned_type_node)))
+	      if (! comptypes (DECL_ARG_TYPE (parm), TREE_VALUE (type)))
 		{
-		  error ("argument `%s' doesn't match function prototype",
-			 IDENTIFIER_POINTER (DECL_NAME (parm)));
-		  if (DECL_ARG_TYPE (parm) == integer_type_node
-		      && TREE_VALUE (type) == TREE_TYPE (parm))
+		  if (TREE_TYPE (parm) == TREE_VALUE (type))
 		    {
-		      error ("a formal parameter type that promotes to `int'");
-		      error ("can match only `int' in the prototype");
+		      /* Adjust argument to match prototype.  E.g. a previous
+			 `int foo(float);' prototype causes
+			 `int foo(x) float x; {...}' to be treated like
+			 `int foo(float x) {...}'.  This is particularly
+			 useful for argument types like uid_t.  */
+		      DECL_ARG_TYPE (parm) = TREE_TYPE (parm);
+#ifdef PROMOTE_PROTOTYPES
+		      if (TREE_CODE (TREE_TYPE (parm)) == INTEGER_TYPE
+			  && TYPE_PRECISION (TREE_TYPE (parm))
+			  < TYPE_PRECISION (integer_type_node))
+			DECL_ARG_TYPE (parm) = integer_type_node;
+#endif
+		      if (pedantic)
+			warning ("promoted argument `%s' doesn't match prototype",
+				 IDENTIFIER_POINTER (DECL_NAME (parm)));
 		    }
-		  if (DECL_ARG_TYPE (parm) == double_type_node
-		      && TREE_VALUE (type) == TREE_TYPE (parm))
-		    {
-		      error ("a formal parameter type that promotes to `double'");
-		      error ("can match only `double' in the prototype");
-		    }
+		  /* If -traditional, allow `int' argument to match
+		     `unsigned' prototype.  */
+		  else if (! (flag_traditional
+			      && TREE_TYPE (parm) == integer_type_node
+			      && TREE_VALUE (type) == unsigned_type_node))
+		    error ("argument `%s' doesn't match prototype",
+			   IDENTIFIER_POINTER (DECL_NAME (parm)));
 		}
 	    }
 	  TYPE_ACTUAL_ARG_TYPES (TREE_TYPE (fndecl)) = 0;
@@ -5383,6 +5477,10 @@ store_parm_decls ()
 
   if (c_function_varargs)
     mark_varargs ();
+
+  /* Declare __FUNCTION__ and __PRETTY_FUNCTION__ for this function.  */
+
+  declare_function_name ();
 
   /* Set up parameters and prepare for return, for the function.  */
 
@@ -5652,6 +5750,9 @@ push_c_function_context ()
 {
   struct c_function *p
     = (struct c_function *) xmalloc (sizeof (struct c_function));
+
+  if (pedantic)
+    pedwarn ("ANSI C forbids nested functions");
 
   push_function_context ();
 

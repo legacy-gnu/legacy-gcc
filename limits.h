@@ -1,8 +1,8 @@
-#ifndef _LIMITS_H_
+#ifndef _LIMITS_H___
 #ifndef _MACH_MACHLIMITS_H_
 
 /* _MACH_MACHLIMITS_H_ is used on OSF/1.  */
-#define _LIMITS_H_
+#define _LIMITS_H___
 #define _MACH_MACHLIMITS_H_
 
 /* Number of bits in a `char'.  */
@@ -67,5 +67,17 @@
 #undef ULONG_MAX
 #define ULONG_MAX 4294967295UL
 
+#if defined (__GNU_LIBRARY__) ? defined (__USE_GNU) : !defined (__STRICT_ANSI__)
+/* Minimum and maximum values a `signed long long int' can hold.  */
+#undef LONG_LONG_MIN
+#define LONG_LONG_MIN (-LONG_LONG_MAX-1)
+#undef LONG_LONG_MAX
+#define LONG_LONG_MAX 9223372036854775807LL
+
+/* Maximum value an `unsigned long long int' can hold.  (Minimum is 0).  */
+#undef ULONG_LONG_MAX
+#define ULONG_LONG_MAX 18446744073709551615ULL
+#endif
+
 #endif /* _MACH_MACHLIMITS_H_ */
-#endif /* _LIMITS_H_ */
+#endif /* _LIMITS_H___ */

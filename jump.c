@@ -116,7 +116,6 @@ int simplejump_p ();
 
 extern rtx gen_jump ();
 
-void squeeze_notes ();
 static void mark_jump_label ();
 void delete_jump ();
 static void delete_from_jump_chain ();
@@ -928,7 +927,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	     INSN is the conditional branch around the arithmetic.  We set:
 
 	     TEMP is the arithmetic insn.
-	     TEMP1 is the SET doing the arthmetic.
+	     TEMP1 is the SET doing the arithmetic.
 	     TEMP2 is the operand being incremented or decremented.
 	     TEMP3 to the condition being tested.
 	     TEMP4 to the earliest insn used to find the condition.  */
@@ -953,16 +952,37 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	      && (temp3 = get_condition (insn, &temp4)) != 0
 	      && can_reverse_comparison_p (temp3, insn))
 	    {
-	      rtx target, seq;
+	      rtx temp6, target = 0, seq, init_insn = 0, init = temp2;
 	      enum rtx_code code = reverse_condition (GET_CODE (temp3));
 
 	      start_sequence ();
 
-	      target = emit_store_flag (gen_reg_rtx (GET_MODE (temp2)), code,
-					XEXP (temp3, 0), XEXP (temp3, 1),
-					VOIDmode,
-					(code == LTU || code == LEU
-					 || code == GTU || code == GEU), 1);
+	      /* It must be the case that TEMP2 is not modified in the range
+		 [TEMP4, INSN).  The one exception we make is if the insn
+		 before INSN sets TEMP2 to something which is also unchanged
+		 in that range.  In that case, we can move the initialization
+		 into our sequence.  */
+
+	      if ((temp5 = prev_active_insn (insn)) != 0
+		  && GET_CODE (temp5) == INSN
+		  && (temp6 = single_set (temp5)) != 0
+		  && rtx_equal_p (temp2, SET_DEST (temp6))
+		  && (CONSTANT_P (SET_SRC (temp6))
+		      || GET_CODE (SET_SRC (temp6)) == REG
+		      || GET_CODE (SET_SRC (temp6)) == SUBREG))
+		{
+		  emit_insn (PATTERN (temp5));
+		  init_insn = temp5;
+		  init = SET_SRC (temp6);
+		}
+
+	      if (CONSTANT_P (init)
+		  || ! reg_set_between_p (init, PREV_INSN (temp4), insn))
+		target = emit_store_flag (gen_reg_rtx (GET_MODE (temp2)), code,
+					  XEXP (temp3, 0), XEXP (temp3, 1),
+					  VOIDmode,
+					  (code == LTU || code == LEU
+					   || code == GTU || code == GEU), 1);
 
 	      /* If we can do the store-flag, do the addition or
 		 subtraction.  */
@@ -988,6 +1008,10 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 
 		  emit_insns_before (seq, temp4);
 		  delete_insn (temp);
+
+		  if (init_insn)
+		    delete_insn (init_insn);
+
 		  next = NEXT_INSN (insn);
 #ifdef HAVE_cc0
 		  delete_insn (prev_nonnote_insn (insn));
@@ -1110,7 +1134,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 
 	     It is questionable whether we want this optimization anyways,
 	     since if the user wrote code like this because he/she knew that
-	     the jump to label1 is taken most of the time, then rewritting
+	     the jump to label1 is taken most of the time, then rewriting
 	     this gives slower code.  */
 	  /* @@ This should call get_condition to find the values being
 	     compared, instead of looking for a COMPARE insn when HAVE_cc0
@@ -1429,8 +1453,8 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 
 			/* Don't move NOTEs for blocks or loops; shift them
 			   outside the ranges, where they'll stay put.  */
-			squeeze_notes (range1beg, range1end);
-			squeeze_notes (range2beg, range2end);
+			range1beg = squeeze_notes (range1beg, range1end);
+			range2beg = squeeze_notes (range2beg, range2end);
 
 			/* Get current surrounds of the 2 ranges.  */
 			range1before = PREV_INSN (range1beg);
@@ -1824,10 +1848,12 @@ duplicate_loop_exit_test (loop_start)
 }
 
 /* Move all block-beg, block-end, loop-beg, loop-cont, loop-vtop, and
-   loop-end notes between START and END out before START.  Assume neither
-   START nor END is such a note.  */
+   loop-end notes between START and END out before START.  Assume that
+   END is not such a note.  START may be such a note.  Returns the value
+   of the new starting insn, which may be different if the original start
+   was such a note.  */
 
-void
+rtx
 squeeze_notes (start, end)
      rtx start, end;
 {
@@ -1845,15 +1871,22 @@ squeeze_notes (start, end)
 	      || NOTE_LINE_NUMBER (insn) == NOTE_INSN_LOOP_CONT
 	      || NOTE_LINE_NUMBER (insn) == NOTE_INSN_LOOP_VTOP))
 	{
-	  rtx prev = PREV_INSN (insn);
-	  PREV_INSN (insn) = PREV_INSN (start);
-	  NEXT_INSN (insn) = start;
-	  NEXT_INSN (PREV_INSN (insn)) = insn;
-	  PREV_INSN (NEXT_INSN (insn)) = insn;
-	  NEXT_INSN (prev) = next;
-	  PREV_INSN (next) = prev;
+	  if (insn == start)
+	    start = next;
+	  else
+	    {
+	      rtx prev = PREV_INSN (insn);
+	      PREV_INSN (insn) = PREV_INSN (start);
+	      NEXT_INSN (insn) = start;
+	      NEXT_INSN (PREV_INSN (insn)) = insn;
+	      PREV_INSN (NEXT_INSN (insn)) = insn;
+	      NEXT_INSN (prev) = next;
+	      PREV_INSN (next) = prev;
+	    }
 	}
     }
+
+  return start;
 }
 
 /* Compare the instructions before insn E1 with those before E2
@@ -2115,7 +2148,7 @@ get_label_before (insn)
     {
       rtx prev = PREV_INSN (insn);
 
-      /* Don't put a label between a CALL_INSN and USE insns that preceed
+      /* Don't put a label between a CALL_INSN and USE insns that precede
 	 it.  */
 
       if (GET_CODE (insn) == CALL_INSN
@@ -2648,6 +2681,13 @@ mark_jump_label (x, insn, cross_jump)
     case CALL:
       return;
 
+    case MEM:
+      /* If this is a constant-pool reference, see if it is a label.  */
+      if (GET_CODE (XEXP (x, 0)) == SYMBOL_REF
+	  && CONSTANT_POOL_ADDRESS_P (XEXP (x, 0)))
+	mark_jump_label (get_pool_constant (XEXP (x, 0)), insn, cross_jump);
+      break;
+
     case LABEL_REF:
       {
 	register rtx label = XEXP (x, 0);
@@ -2940,10 +2980,14 @@ delete_insn (insn)
       while (next != 0
 	     && ((code = GET_CODE (next)) == INSN
 		 || code == JUMP_INSN || code == CALL_INSN
-		 || code == NOTE))
+		 || code == NOTE
+		 || (code == CODE_LABEL && INSN_DELETED_P (next))))
 	{
 	  if (code == NOTE
 	      && NOTE_LINE_NUMBER (next) != NOTE_INSN_FUNCTION_END)
+	    next = NEXT_INSN (next);
+	  /* Keep going past other deleted labels to delete what follows.  */
+	  else if (code == CODE_LABEL && INSN_DELETED_P (next))
 	    next = NEXT_INSN (next);
 	  else
 	    /* Note: if this deletes a jump, it can cause more
@@ -3247,7 +3291,7 @@ redirect_exp (loc, olabel, nlabel, insn)
 
    If the old jump target label (before the dispatch table) becomes unused,
    it and the dispatch table may be deleted.  In that case, find the insn
-   before the jump references that label and delete it and logical sucessors
+   before the jump references that label and delete it and logical successors
    too.  */
 
 void
@@ -3773,7 +3817,7 @@ rtx_equal_for_thread_p (x, y, yinsn)
       break;
 
     case MEM:
-      /* If memory modified or either volatile, not eqivalent.
+      /* If memory modified or either volatile, not equivalent.
 	 Else, check address. */
       if (modified_mem || MEM_VOLATILE_P (x) || MEM_VOLATILE_P (y))
 	return 0;

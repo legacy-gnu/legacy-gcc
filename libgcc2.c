@@ -866,12 +866,12 @@ asm ("__builtin_saveregs:");
 #endif /* not SVR4 */
 #else /* not __i860__ */
 #ifdef __sparc__
-#ifdef NO_UNDERSCORES
 	asm (".global __builtin_saveregs");
 	asm ("__builtin_saveregs:");
-#else
 	asm (".global ___builtin_saveregs");
 	asm ("___builtin_saveregs:");
+#ifdef NEED_PROC_COMMAND
+	asm (".proc 020");
 #endif
 	asm ("st %i0,[%fp+68]");
 	asm ("st %i1,[%fp+72]");
@@ -880,6 +880,10 @@ asm ("__builtin_saveregs:");
 	asm ("st %i4,[%fp+84]");
 	asm ("retl");
 	asm ("st %i5,[%fp+88]");
+#ifdef NEED_TYPE_COMMAND
+	asm (".type __builtin_saveregs,#function");
+	asm (".size __builtin_saveregs,.-__builtin_saveregs");
+#endif
 #else /* not __sparc__ */
 #if defined(__MIPSEL__) | defined(__R3000__) | defined(__R2000__) | defined(__mips__)
 
@@ -909,10 +913,10 @@ __builtin_saveregs ()
 /* This is used by the `assert' macro.  */
 void
 __eprintf (string, expression, line, filename)
-     char *string;
-     char *expression;
+     const char *string;
+     const char *expression;
      int line;
-     char *filename;
+     const char *filename;
 {
   fprintf (stderr, string, expression, line, filename);
   fflush (stderr);
@@ -957,14 +961,15 @@ __bb_init_func (blocks)
 typedef void (*vfp)(void);
 
 extern vfp __new_handler;
+extern void *malloc ();
 
 void *
 __builtin_new (sz)
-     long sz;
+     size_t sz;
 {
   void *p;
 
-  p = (void *) malloc (sz);
+  p = malloc (sz);
   if (p == 0)
     (*__new_handler) ();
   return p;
@@ -974,21 +979,24 @@ __builtin_new (sz)
 #ifdef L_builtin_New
 typedef void (*vfp)(void);
 
-static void default_new_handler ();
+extern void *__builtin_new (size_t);
+static void default_new_handler (void);
 
 vfp __new_handler = default_new_handler;
 
 void *
 __builtin_vec_new (p, maxindex, size, ctor)
      void *p;
-     int maxindex, size;
+     size_t maxindex;
+     size_t size;
      void (*ctor)(void *);
 {
-  int i, nelts = maxindex + 1;
+  size_t i;
+  size_t nelts = maxindex + 1;
   void *rval;
 
   if (p == 0)
-    p = (void *)__builtin_new (nelts * size);
+    p = __builtin_new (nelts * size);
 
   rval = p;
 
@@ -1020,13 +1028,15 @@ set_new_handler (handler)
   return __set_new_handler (handler);
 }
 
+#define MESSAGE "Virtual memory exceeded in `new'\n"
+
 static void
 default_new_handler ()
 {
   /* don't use fprintf (stderr, ...) because it may need to call malloc.  */
   /* This should really print the name of the program, but that is hard to
      do.  We need a standard, clean way to get at the name.  */
-  write (2, "Virtual memory exceeded in `new'\n", 33);
+  write (2, MESSAGE, sizeof (MESSAGE));
   /* don't call exit () because that may call global destructors which
      may cause a loop.  */
   _exit (-1);
@@ -1047,11 +1057,13 @@ __builtin_delete (ptr)
 void
 __builtin_vec_delete (ptr, maxindex, size, dtor, auto_delete_vec, auto_delete)
      void *ptr;
-     int maxindex, size;
-     void (*dtor)();
+     size_t maxindex;
+     size_t size;
+     void (*dtor)(void *, int);
      int auto_delete;
 {
-  int i, nelts = maxindex + 1;
+  size_t i;
+  size_t nelts = maxindex + 1;
   void *p = ptr;
 
   ptr += nelts * size;
@@ -1094,7 +1106,8 @@ __clear_cache (beg, end)
   static char array[INSN_CACHE_SIZE + INSN_CACHE_PLANE_SIZE + INSN_CACHE_LINE_WIDTH];
   static int initialized = 0;
   int offset;
-  unsigned int start_addr, end_addr;
+  void *start_addr
+  void *end_addr;
   typedef (*function_ptr) ();
 
 #if (INSN_CACHE_SIZE / INSN_CACHE_LINE_WIDTH) < 16
@@ -1265,8 +1278,8 @@ __do_global_dtors ()
 #ifdef DO_GLOBAL_DTORS_BODY
   DO_GLOBAL_DTORS_BODY;
 #else
-  int nptrs = *(int *)__DTOR_LIST__;
-  int i;
+  unsigned nptrs = (unsigned) __DTOR_LIST__[0];
+  unsigned i;
 
   /* Some systems place the number of pointers
      in the first word of the table.
@@ -1318,7 +1331,7 @@ void
 __main ()
 {
   /* Support recursive calls to `main': run initializers just once.  */
-  static initialized = 0;
+  static int initialized = 0;
   if (! initialized)
     {
       initialized = 1;

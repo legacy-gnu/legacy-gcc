@@ -237,7 +237,7 @@ cadillac_process_request (cp, req)
     {
     case ProcessUntilMType:
       if (cp->process_until)
-	abort ();
+	my_friendly_abort (23);
       cp->process_until = 1;
       /* This is not really right.  */
       cp->end_position = ((CCompilerCommand*)req)->processuntil.position;
@@ -281,7 +281,7 @@ cadillac_process_request (cp, req)
 
 	case DieCType:
 	  if (! exiting)
-	    abort ();
+	    my_friendly_abort (24);
 	  return;
 
 	}
@@ -331,7 +331,7 @@ cadillac_start_decl (decl)
 	cadillac_printf ("start class-level decl", IDENTIFIER_POINTER (DECL_NAME (decl)));
 	break;
       default:
-	abort ();
+	my_friendly_abort (25);
       }
   else
     {
@@ -362,7 +362,7 @@ cadillac_finish_decl (decl)
 	CWriteLength (conn);
 	break;
       default:
-	abort ();
+	my_friendly_abort (26);
       }
   else
     {
@@ -384,7 +384,7 @@ cadillac_start_function (fndecl)
 
   if (context_stack)
     /* nested functions not yet handled.  */
-    abort ();
+    my_friendly_abort (27);
 
   cadillac_printf ("start top-level function", lang_printable_name (fndecl));
   context_stack = push_context_level (context_stack, &cadillac_obstack);
@@ -410,7 +410,7 @@ cadillac_finish_function (fndecl)
 
   if (context_stack)
     /* nested functions not yet implemented.  */
-    abort ();
+    my_friendly_abort (28);
 
   CWriteHeader (conn, EndDefMType, 0);
   CWriteLength (conn);
@@ -455,7 +455,7 @@ cadillac_start_enum (type)
       case UNION_TYPE:
 	break;
       default:
-	abort ();
+	my_friendly_abort (29);
       }
   else
     {
@@ -487,7 +487,7 @@ cadillac_finish_enum (type)
 	CWriteLength (conn);
 	break;
       default:
-	abort ();
+	my_friendly_abort (30);
       }
   else
     {
@@ -520,7 +520,7 @@ cadillac_start_struct (type)
       case UNION_TYPE:
 	return;
       default:
-	abort ();
+	my_friendly_abort (31);
       }
   else
     {
@@ -594,7 +594,7 @@ cadillac_push_lang (name)
   else if (name == lang_name_c)
     m = LinkC;
   else
-    abort ();
+    my_friendly_abort (32);
   CWriteHeader (conn, ForeignLinkageMType, m);
   CWriteRequestBuffer (conn);
   cadillac_process_requests (conn);
@@ -814,7 +814,7 @@ CWriteUseObject (conn, type, object_type, use)
       break;
 
     default:
-      abort ();
+      my_friendly_abort (33);
   }
 
   foo.length = IDENTIFIER_LENGTH (name);
@@ -846,7 +846,7 @@ exit_cadillac ()
       while (! readable_p (cadillacObj.fd_input))
 	{
 	  if (exiting)
-	    abort ();
+	    my_friendly_abort (34);
 	  exiting = 1;
 	}
       exiting = 1;

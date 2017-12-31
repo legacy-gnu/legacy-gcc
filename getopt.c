@@ -5,9 +5,9 @@
 
    Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 2, or (at your option)
+   This program is free software; you can redistribute it and/or modify it
+   under the terms of the GNU Library General Public License as published
+   by the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,15 +15,15 @@
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
+   You should have received a copy of the GNU Library General Public
+   License along with this program; if not, write to the Free Software
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* AIX requires this to be the first thing in the file. */
 #ifdef __GNUC__
 #define alloca __builtin_alloca
 #else /* not __GNUC__ */
-#if defined(sparc) && !defined(USG) && !defined(SVR4) && !defined(__svr4__)
+#if defined(sparc) && (defined(sun) || (!defined(USG) && !defined(SVR4) && !defined(__svr4__)))
 #include <alloca.h>
 #else
 #ifdef _AIX
@@ -33,11 +33,6 @@ char *alloca ();
 #endif
 #endif /* sparc */
 #endif /* not __GNUC__ */
-
-#ifdef	LIBC
-/* For when compiled as part of the GNU C library.  */
-#include <ansidecl.h>
-#endif
 
 #include <stdio.h>
 
@@ -523,7 +518,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
 		fprintf (stderr, "%s: unrecognized option `%c%s'\n",
 			 argv[0], argv[optind][0], nextchar);
 	    }
-	  nextchar += strlen (nextchar);
+	  nextchar = (char *) "";
 	  optind++;
 	  return '?';
 	}
@@ -537,7 +532,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
 
     /* Increment `optind' when we start to process its last character.  */
     if (*nextchar == '\0')
-      optind++;
+      ++optind;
 
     if (temp == NULL || c == ':')
       {
@@ -568,7 +563,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
 	else
 	  {
 	    /* This is an option that requires an argument.  */
-	    if (*nextchar != 0)
+	    if (*nextchar != '\0')
 	      {
 		optarg = nextchar;
 		/* If we end this ARGV-element by taking the rest as an arg,

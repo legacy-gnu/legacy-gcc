@@ -34,7 +34,7 @@ AT&T C compiler.  From the example below I would conclude the following:
 4. All structure .defs are emitted before the typedefs that refer to them.
 
 5. All top level static and external variable definitions are moved to the
-   end of file with all top level statics occuring first before externs.
+   end of file with all top level statics occurring first before externs.
 
 6. All undefined references are at the end of the file.
 */
@@ -599,6 +599,12 @@ sdbout_symbol (decl, local)
 
   sdbout_one_type (type);
 
+#if 0 /* This loses when functions are marked to be ignored,
+	 which happens in the C++ front end.  */
+  if (DECL_IGNORED_P (decl))
+    return;
+#endif
+
   switch (TREE_CODE (decl))
     {
     case CONST_DECL:
@@ -624,6 +630,8 @@ sdbout_symbol (decl, local)
       /* Done with tagged types.  */
       if (DECL_NAME (decl) == 0)
 	return;
+      if (DECL_IGNORED_P (decl))
+	return;
 
       /* Output typedef name.  */
       PUT_SDB_DEF (IDENTIFIER_POINTER (DECL_NAME (decl)));
@@ -639,6 +647,10 @@ sdbout_symbol (decl, local)
       /* Don't mention a variable that is external.
 	 Let the file that defines it describe it.  */
       if (TREE_EXTERNAL (decl))
+	return;
+
+      /* Ignore __FUNCTION__, etc.  */
+      if (DECL_IGNORED_P (decl))
 	return;
 
       /* If there was an error in the declaration, don't dump core
@@ -800,6 +812,9 @@ sdbout_toplevel_data (decl)
      tree decl;
 {
   tree type = TREE_TYPE (decl);
+
+  if (DECL_IGNORED_P (decl))
+    return;
 
   if (! (TREE_CODE (decl) == VAR_DECL
 	 && GET_CODE (DECL_RTL (decl)) == MEM

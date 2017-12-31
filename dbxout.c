@@ -94,8 +94,8 @@ extern int errno;
 #define ASM_STABN_OP ".stabn"
 #endif
 
-#ifndef DBX_DECL_STABS_CODE
-#define DBX_DECL_STABS_CODE N_LSYM
+#ifndef DBX_TYPE_DECL_STABS_CODE
+#define DBX_TYPE_DECL_STABS_CODE N_LSYM
 #endif
 
 #ifndef DBX_STATIC_CONST_VAR_CODE
@@ -108,6 +108,10 @@ extern int errno;
 
 #ifndef DBX_REGPARM_STABS_LETTER
 #define DBX_REGPARM_STABS_LETTER 'P'
+#endif
+
+#ifndef DBX_MEMPARM_STABS_LETTER
+#define DBX_MEMPARM_STABS_LETTER 'p'
 #endif
 
 /* Nonzero means if the type has methods, only output debugging
@@ -521,7 +525,7 @@ dbxout_continue ()
   current_sym_nchars = 0;
 }
 
-/* Subtroutine of `dbxout_type'.  Output the type fields of TYPE.
+/* Subroutine of `dbxout_type'.  Output the type fields of TYPE.
    This must be a separate function because anonymous unions require
    recursive calls.  */
 
@@ -557,9 +561,9 @@ dbxout_type_fields (type)
 	      have_used_extensions = 1;
 	      CHARS (3 + IDENTIFIER_LENGTH (DECL_NAME (TYPE_NAME (DECL_FCONTEXT (tem)))));
 	      fputs (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (tem)), asmfile);
-	      dbxout_type (DECL_FCONTEXT (tem), 0);
+	      dbxout_type (DECL_FCONTEXT (tem), 0, 0);
 	      fprintf (asmfile, ":");
-	      dbxout_type (TREE_TYPE (tem), 0);
+	      dbxout_type (TREE_TYPE (tem), 0, 0);
 	      fprintf (asmfile, ",%d;",
 		       TREE_INT_CST_LOW (DECL_FIELD_BITPOS (tem)));
 	      continue;
@@ -583,7 +587,7 @@ dbxout_type_fields (type)
 	  dbxout_type ((TREE_CODE (tem) == FIELD_DECL
 			&& DECL_BIT_FIELD_TYPE (tem))
 		       ? DECL_BIT_FIELD_TYPE (tem)
-		       : TREE_TYPE (tem), 0);
+		       : TREE_TYPE (tem), 0, 0);
 
 	  if (TREE_CODE (tem) == VAR_DECL)
 	    {
@@ -591,17 +595,6 @@ dbxout_type_fields (type)
 		{
 		  char *name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (tem));
 		  have_used_extensions = 1;
-
-#if 0 /* ??? Comment below makes it clear this is unacceptable.  */
-		  /* Adding 1 here only works on systems
-		     which flush an initial underscore from
-		     the .stabs entry.  This loses for static names
-		     which have an initial leading '_' on systems which
-		     don't use leading underscores.  */
-		  if (name[0] == '_')
-		    name += 1;
-#endif
-
 		  fprintf (asmfile, ":%s;", name);
 		  CHARS (strlen (name));
 		}
@@ -625,7 +618,7 @@ dbxout_type_fields (type)
     }
 }
 
-/* Subtroutine of `dbxout_type_methods'.  Output debug info about the
+/* Subroutine of `dbxout_type_methods'.  Output debug info about the
    method described DECL.  DEBUG_NAME is an encoding of the method's
    type signature.  ??? We may be able to do without DEBUG_NAME altogether
    now.  */
@@ -665,7 +658,7 @@ dbxout_type_method_1 (decl, debug_name)
     {
       fprintf (asmfile, "%d;",
 	       TREE_INT_CST_LOW (DECL_VINDEX (decl)));
-      dbxout_type (DECL_CONTEXT (decl), 0);
+      dbxout_type (DECL_CONTEXT (decl), 0, 0);
       fprintf (asmfile, ";");
       CHARS (8);
     }
@@ -679,7 +672,6 @@ dbxout_type_methods (type)
      register tree type;
 {
   /* C++: put out the method names and their parameter lists */
-  tree ctor_name;
   tree methods = TYPE_METHODS (type);
   tree type_encoding;
   register tree fndecl;
@@ -689,13 +681,13 @@ dbxout_type_methods (type)
   if (methods == NULL_TREE)
     return;
 
-  ctor_name = DECL_NAME (TYPE_NAME (type));
+  type_encoding = DECL_NAME (TYPE_NAME (type));
 
   /* C++: Template classes break some assumptions made by this code about
      the class names, constructor names, and encodings for assembler
      label names.  For now, disable output of dbx info for them.  */
   {
-    char *ptr = IDENTIFIER_POINTER (ctor_name);
+    char *ptr = IDENTIFIER_POINTER (type_encoding);
     /* Avoid strchr or index since those names aren't universal.  */
     while (*ptr && *ptr != '<') ptr++;
     if (*ptr != 0)
@@ -710,7 +702,7 @@ dbxout_type_methods (type)
       }
   }
 
-  type_identifier_length = IDENTIFIER_LENGTH (ctor_name);
+  type_identifier_length = IDENTIFIER_LENGTH (type_encoding);
 
   if (TREE_CODE (methods) == FUNCTION_DECL)
     fndecl = methods;
@@ -718,94 +710,13 @@ dbxout_type_methods (type)
     fndecl = TREE_VEC_ELT (methods, 0);
   else fndecl = TREE_VEC_ELT (methods, 1);
 
-  if (TREE_CODE (type) == RECORD_TYPE && DECL_NAME (fndecl) == ctor_name)
-    {
-      tree ctor = fndecl;
-      tree dtor;
-
-      /* Destructors lie in a special place.
-         n.b.  TYPE_HAS_DESTRUCTOR == TYPE_LANG_FLAG_2 */
-      if (TYPE_LANG_FLAG_2 (type))
-	{
-	  dtor = fndecl;
-	  fndecl = ctor = TREE_CHAIN (dtor);
-	}
-      else
-	dtor = NULL_TREE;
-
-      CHARS (2);
-
-      if (ctor)
-	{
-	  int need_prefix = 1;
-
-	  while (ctor)
-	    {
-	      /* Output the name of the field (after overloading), as
-		 well as the name of the field before overloading, along
-		 with its parameter list.  */
-	      char *debug_name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (ctor));
-	      int old_minimal_debug = flag_minimal_debug;
-
-	      CONTIN;
-
-	      if (DECL_NAME (ctor) == ctor_name && ! DECL_IGNORED_P (ctor))
-		{
-		  if (need_prefix)
-		    {
-		      fprintf (asmfile, "%s::", IDENTIFIER_POINTER (DECL_NAME (ctor)));
-		      CHARS (IDENTIFIER_LENGTH (DECL_NAME (ctor)) + 3);
-		      need_prefix = 0;
-		    }
-
-		  if (ctor == dtor)
-		    /* Always output destructors with full information.  */
-		    flag_minimal_debug = 0;
-
-		  dbxout_type (TREE_TYPE (ctor), 0);
-		  flag_minimal_debug = old_minimal_debug;
-
-		  if (flag_minimal_debug && ctor != dtor)
-		    {
-		      /* Cut down on debugging information by not outputting
-			 the parts of the name we can just as easily
-			 have the debugger figure out.  */
-
-		      /* Get past '__'.  */
-		      debug_name += 2;
-		      /* Get past const and volatile qualifiers.  */
-		      while (*debug_name == 'C' || *debug_name == 'V')
-			debug_name++;
-		      /* Get past numeric type length prefix.  */
-		      while (*debug_name >= '0' && *debug_name <= '9')
-			debug_name++;
-		      /* Get past type of `this'.  */
-		      debug_name += type_identifier_length;
-		    }
-		  dbxout_type_method_1 (ctor, debug_name);
-		}
-
-	      if (ctor == dtor)
-		break;
-
-	      ctor = TREE_CHAIN (ctor);
-	      if (ctor == NULL_TREE || DECL_NAME (ctor) != ctor_name)
-		{
-		  fndecl = ctor;
-		  ctor = dtor;
-		}
-	    }
-	  if (! need_prefix)
-	    putc (';', asmfile);
-	}
-    }
-
   while (fndecl)
     {
       tree name = DECL_NAME (fndecl);
-      fprintf (asmfile, "%s::", IDENTIFIER_POINTER (name));
-      CHARS (IDENTIFIER_LENGTH (name) + 3);
+      int need_prefix = 1;
 
+      /* Group together all the methods for the same operation.
+	 These differ in the types of the arguments.  */
       for (last = NULL_TREE;
 	   fndecl && (last == NULL_TREE || DECL_NAME (fndecl) == DECL_NAME (last));
 	   fndecl = TREE_CHAIN (fndecl))
@@ -813,26 +724,72 @@ dbxout_type_methods (type)
 	   well as the name of the field before overloading, along
 	   with its parameter list */
 	{
+	  /* This is the "mangled" name of the method.
+	     It encodes the argument types.  */
 	  char *debug_name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (fndecl));
+	  int destructor = 0;
 
 	  CONTIN;
 
 	  last = fndecl;
-	  dbxout_type (TREE_TYPE (fndecl), 0);
+
+	  if (DECL_IGNORED_P (fndecl))
+	    continue;
+
 	  if (flag_minimal_debug)
 	    {
-	      debug_name += IDENTIFIER_LENGTH (DECL_NAME (fndecl)) + 2;
-	      /* Get past const and volatile qualifiers.  */
-	      while (*debug_name == 'C' || *debug_name == 'V')
-		debug_name++;
-	      while (*debug_name >= '0' && *debug_name <= '9')
-		debug_name++;
-	      debug_name += type_identifier_length;
+	      /* Detect ordinary methods because their mangled names
+		 start with the operation name.  */
+	      if (!strncmp (IDENTIFIER_POINTER (name), debug_name,
+			    IDENTIFIER_LENGTH (name)))
+		{
+		  debug_name += IDENTIFIER_LENGTH (name);
+		  if (debug_name[0] == '_' && debug_name[1] == '_')
+		    {
+		      char *method_name = debug_name + 2;
+		      /* Get past const and volatile qualifiers.  */
+		      while (*method_name == 'C' || *method_name == 'V')
+			method_name++;
+		      if (! strncmp (method_name,
+				     IDENTIFIER_POINTER (type_encoding),
+				     type_identifier_length))
+			method_name += type_identifier_length;
+		      debug_name = method_name;
+		    }
+		}
+	      /* Detect constructors by their style of name mangling.  */
+	      else if (debug_name[0] == '_' && debug_name[1] == '_')
+		{
+		  char *ctor_name = debug_name + 2;
+		  while (*ctor_name == 'C' || *ctor_name == 'V')
+		    ctor_name++;
+		  if (!strncmp (IDENTIFIER_POINTER (type_encoding), ctor_name,
+				type_identifier_length))
+		    debug_name = ctor_name + type_identifier_length;
+		}
+	      /* The other alternative is a destructor.  */
+	      else
+		destructor = 1;
+
+	      /* Output the operation name just once, for the first method
+		 that we output.  */
+	      if (need_prefix)
+		{
+		  fprintf (asmfile, "%s::", IDENTIFIER_POINTER (name));
+		  CHARS (IDENTIFIER_LENGTH (name) + 2);
+		  need_prefix = 0;
+		}
 	    }
+
+	  dbxout_type (TREE_TYPE (fndecl), 0, destructor);
+
 	  dbxout_type_method_1 (fndecl, debug_name);
 	}
-      putc (';', asmfile);
-      CHARS (1);
+      if (!need_prefix)
+	{
+          putc (';', asmfile);
+	  CHARS (1);
+	}
     }
 }
 
@@ -844,12 +801,16 @@ dbxout_type_methods (type)
    If FULL is nonzero, and the type has been described only with
    a forward-reference, output the definition now.
    If FULL is zero in this case, just refer to the forward-reference
-   using the number previously allocated.  */
+   using the number previously allocated.
+
+   If SHOW_ARG_TYPES is nonzero, we output a description of the argument
+   types for a METHOD_TYPE.  */
 
 static void
-dbxout_type (type, full)
+dbxout_type (type, full, show_arg_types)
      tree type;
      int full;
+     int show_arg_types;
 {
   register tree tem;
 
@@ -899,7 +860,13 @@ dbxout_type (type, full)
     case TYPE_UNSEEN:
       break;
     case TYPE_XREF:
-      if (! full)
+      /* If we have already had a cross reference,
+	 and either that's all we want or that's the best we could do,
+	 don't repeat the cross reference.
+	 Sun dbx crashes if we do.  */
+      if (! full || TYPE_SIZE (type) == 0
+	  /* No way in DBX fmt to describe a variable size.  */
+	  || TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST)
 	return;
       break;
     case TYPE_DEFINED:
@@ -996,7 +963,7 @@ dbxout_type (type, full)
 		? TREE_INT_CST_LOW (TYPE_MAX_VALUE (TYPE_DOMAIN (type)))
 	        : -1));
       CHARS (17);
-      dbxout_type (TREE_TYPE (type), 0);
+      dbxout_type (TREE_TYPE (type), 0, 0);
       break;
 
     case RECORD_TYPE:
@@ -1015,7 +982,9 @@ dbxout_type (type, full)
 		   && DECL_IGNORED_P (TYPE_NAME (type)))
 #endif
 	     && !full)
-	    || TYPE_SIZE (type) == 0)
+	    || TYPE_SIZE (type) == 0
+	    /* No way in DBX fmt to describe a variable size.  */
+	    || TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST)
 	  {
 	    /* If the type is just a cross reference, output one
 	       and mark the type as partially described.
@@ -1039,10 +1008,6 @@ dbxout_type (type, full)
 	    break;
 	  }
 	tem = size_in_bytes (type);
-
-	/* The code below assumes the size is an integer constant.  */
-	if (TREE_CODE (tem) != INTEGER_CST)
-	  abort ();
 
 	/* Identify record or union, and print its size.  */
 	fprintf (asmfile, (TREE_CODE (type) == RECORD_TYPE) ? "s%d" : "u%d",
@@ -1072,7 +1037,7 @@ dbxout_type (type, full)
 		fprintf (asmfile, "%d,",
 			 TREE_INT_CST_LOW (BINFO_OFFSET (child)) * BITS_PER_UNIT);
 		CHARS (15);
-		dbxout_type (BINFO_TYPE (child), 0);
+		dbxout_type (BINFO_TYPE (child), 0, 0);
 		putc (';', asmfile);
 	      }
 	    else
@@ -1081,7 +1046,7 @@ dbxout_type (type, full)
 		   which have the same names at the types they hold.  */
 		dbxout_type_name (BINFO_TYPE (child));
 		putc (':', asmfile);
-		dbxout_type (BINFO_TYPE (child), full);
+		dbxout_type (BINFO_TYPE (child), full, 0);
 		fprintf (asmfile, ",%d,%d;",
 			 TREE_INT_CST_LOW (BINFO_OFFSET (child)) * BITS_PER_UNIT,
 			 TREE_INT_CST_LOW (DECL_SIZE (TYPE_NAME (BINFO_TYPE (child)))) * BITS_PER_UNIT);
@@ -1117,7 +1082,7 @@ dbxout_type (type, full)
 	  if (TYPE_VFIELD (type))
 	    {
 	      putc ('%', asmfile);
-	      dbxout_type (DECL_FCONTEXT (TYPE_VFIELD (type)), 0);
+	      dbxout_type (DECL_FCONTEXT (TYPE_VFIELD (type)), 0, 0);
 	    }
 	  putc (';', asmfile);
 	  CHARS (3);
@@ -1137,6 +1102,9 @@ dbxout_type (type, full)
 	  fprintf (asmfile, ":");
 	  return;
 	}
+#ifdef DBX_OUTPUT_ENUM
+      DBX_OUTPUT_ENUM (asmfile, type);
+#else
       putc ('e', asmfile);
       CHARS (1);
       for (tem = TYPE_VALUES (type); tem; tem = TREE_CHAIN (tem))
@@ -1149,12 +1117,13 @@ dbxout_type (type, full)
 	}
       putc (';', asmfile);
       CHARS (1);
+#endif
       break;
 
     case POINTER_TYPE:
       putc ('*', asmfile);
       CHARS (1);
-      dbxout_type (TREE_TYPE (type), 0);
+      dbxout_type (TREE_TYPE (type), 0, 0);
       break;
 
     case METHOD_TYPE:
@@ -1163,19 +1132,23 @@ dbxout_type (type, full)
 	  have_used_extensions = 1;
 	  putc ('#', asmfile);
 	  CHARS (1);
-	  if (flag_minimal_debug)
+	  if (flag_minimal_debug && !show_arg_types)
 	    {
+	      /* Normally, just output the return type.
+		 The argument types are encoded in the method name.  */
 	      putc ('#', asmfile);
-	      dbxout_type (TREE_TYPE (type), 0);
+	      dbxout_type (TREE_TYPE (type), 0, 0);
 	      putc (';', asmfile);
 	      CHARS (1);
 	    }
 	  else
 	    {
-	      dbxout_type (TYPE_METHOD_BASETYPE (type), 0);
+	      /* When outputing destructors, we need to write
+		 the argument types out longhand.  */
+	      dbxout_type (TYPE_METHOD_BASETYPE (type), 0, 0);
 	      putc (',', asmfile);
 	      CHARS (1);
-	      dbxout_type (TREE_TYPE (type), 0);
+	      dbxout_type (TREE_TYPE (type), 0, 0);
 	      dbxout_args (TYPE_ARG_TYPES (type));
 	      putc (';', asmfile);
 	      CHARS (1);
@@ -1184,7 +1157,7 @@ dbxout_type (type, full)
       else
 	{
 	  /* Treat it as a function type.  */
-	  dbxout_type (TREE_TYPE (type), 0);
+	  dbxout_type (TREE_TYPE (type), 0, 0);
 	}
       break;
 
@@ -1194,16 +1167,16 @@ dbxout_type (type, full)
 	  have_used_extensions = 1;
 	  putc ('@', asmfile);
 	  CHARS (1);
-	  dbxout_type (TYPE_OFFSET_BASETYPE (type), 0);
+	  dbxout_type (TYPE_OFFSET_BASETYPE (type), 0, 0);
 	  putc (',', asmfile);
 	  CHARS (1);
-	  dbxout_type (TREE_TYPE (type), 0);
+	  dbxout_type (TREE_TYPE (type), 0, 0);
 	}
       else
 	{
 	  /* Should print as an int, because it is really
 	     just an offset.  */
-	  dbxout_type (integer_type_node, 0);
+	  dbxout_type (integer_type_node, 0, 0);
 	}
       break;
 
@@ -1212,13 +1185,13 @@ dbxout_type (type, full)
 	have_used_extensions = 1;
       putc (use_gdb_dbx_extensions ? '&' : '*', asmfile);
       CHARS (1);
-      dbxout_type (TREE_TYPE (type), 0);
+      dbxout_type (TREE_TYPE (type), 0, 0);
       break;
 
     case FUNCTION_TYPE:
       putc ('f', asmfile);
       CHARS (1);
-      dbxout_type (TREE_TYPE (type), 0);
+      dbxout_type (TREE_TYPE (type), 0, 0);
       break;
 
     default:
@@ -1355,9 +1328,9 @@ dbxout_symbol (decl, local)
       current_sym_addr = XEXP (DECL_RTL (decl), 0);
 
       if (TREE_TYPE (type))
-	dbxout_type (TREE_TYPE (type), 0);
+	dbxout_type (TREE_TYPE (type), 0, 0);
       else
-	dbxout_type (void_type_node, 0);
+	dbxout_type (void_type_node, 0, 0);
 
       /* For a nested function, when that function is compiled,
 	 mention the containing function name
@@ -1390,52 +1363,106 @@ dbxout_symbol (decl, local)
 
       FORCE_TEXT;
 
-      if (DECL_NAME (decl))
-	{
-	  /* Output typedef name.  */
-	  fprintf (asmfile, "%s \"%s:", ASM_STABS_OP,
-		   IDENTIFIER_POINTER (DECL_NAME (decl)));
+      {
+	int tag_needed = 1;
 
-	  /* If there is a typedecl for this type with the same name
-	     as the tag, output an abbreviated form for that typedecl.  */
-	  if (use_gdb_dbx_extensions && have_used_extensions
-	      && (TREE_CODE (type) == RECORD_TYPE
-		  || TREE_CODE (type) == UNION_TYPE)
-	      && (TYPE_NAME (type) == decl))
-	    {
-	      putc ('T', asmfile);
-	      TREE_ASM_WRITTEN (TYPE_NAME (type)) = 1;
-	    }
-	  putc ('t', asmfile);
-	  current_sym_code = DBX_DECL_STABS_CODE;
+	if (DECL_NAME (decl))
+	  {
+	    /* Nonzero means we must output a tag as well as a typedef.  */
+	    tag_needed = 0;
 
-	  dbxout_type (type, 1);
-	  dbxout_finish_symbol (decl);
-	}
-      else if (TYPE_NAME (type) != 0 && !TREE_ASM_WRITTEN (TYPE_NAME (type)))
-	{
-	  /* Output a tag (a TYPE_DECL with no name, but the type has a name).
-	     This is what represents `struct foo' with no typedef.  */
-	  /* In C++, the name of a type is the corresponding typedef.
-	     In C, it is an IDENTIFIER_NODE.  */
-	  tree name = TYPE_NAME (type);
-	  if (TREE_CODE (name) == TYPE_DECL)
-	    name = DECL_NAME (name);
+	    /* Handle the case of a C++ structure or union
+	       where the TYPE_NAME is a TYPE_DECL
+	       which gives both a typedef name and a tag.  */
+	    /* dbx requires the tag first and the typedef second.
+	       ??? there is a bug here.  It generates spurious tags
+	       for C code.  */
+	    if ((TREE_CODE (type) == RECORD_TYPE
+		 || TREE_CODE (type) == UNION_TYPE)
+		&& TYPE_NAME (type) == decl
+		&& !(use_gdb_dbx_extensions && have_used_extensions)
+		&& !TREE_ASM_WRITTEN (TYPE_NAME (type)))
+	      {
+		tree name = TYPE_NAME (type);
+		if (TREE_CODE (name) == TYPE_DECL)
+		  name = DECL_NAME (name);
 
-	  current_sym_code = DBX_DECL_STABS_CODE;
-	  current_sym_value = 0;
-	  current_sym_addr = 0;
-	  current_sym_nchars = 2 + IDENTIFIER_LENGTH (name);
+		current_sym_code = DBX_TYPE_DECL_STABS_CODE;
+		current_sym_value = 0;
+		current_sym_addr = 0;
+		current_sym_nchars = 2 + IDENTIFIER_LENGTH (name);
 
-	  fprintf (asmfile, "%s \"%s:T", ASM_STABS_OP,
-		   IDENTIFIER_POINTER (name));
-	  dbxout_type (type, 1);
-	  dbxout_finish_symbol (0);
-	}
+		fprintf (asmfile, "%s \"%s:T", ASM_STABS_OP,
+			 IDENTIFIER_POINTER (name));
+		dbxout_type (type, 1, 0);
+		dbxout_finish_symbol (0);
+	      }
 
-      /* Prevent duplicate output of a typedef.  */
-      TREE_ASM_WRITTEN (decl) = 1;
-      break;
+	    /* Output typedef name.  */
+	    fprintf (asmfile, "%s \"%s:", ASM_STABS_OP,
+		     IDENTIFIER_POINTER (DECL_NAME (decl)));
+
+/* #ifndef DBX_NO_EXTRA_TAGS   rms: I think this is no longer needed.  */
+	    /* This section makes absolutely no sense to me. Why would a tag
+	       ever be needed at this point? The result of this is that any
+	       structure typedef with the tag omitted is treated as if the
+	       tag was given to be the same as the typedef name. Probably
+	       no harm in it, unless the programmer used the same name for
+	       the tag of a *different* structure. At any rate, Alliant's
+	       debugger would want the tag output before the typedef, so
+	       this code still loses.  -- hyc */
+
+	    /* Short cut way to output a tag also.  */
+	    if ((TREE_CODE (type) == RECORD_TYPE
+		 || TREE_CODE (type) == UNION_TYPE)
+		&& TYPE_NAME (type) == decl)
+	      {
+		if (use_gdb_dbx_extensions && have_used_extensions)
+		  {
+		    putc ('T', asmfile);
+		    TREE_ASM_WRITTEN (TYPE_NAME (type)) = 1;
+		  }
+#if 0 /* Now we generate the tag for this case up above.  */
+		else
+		  tag_needed = 1;
+#endif
+	      }
+/* #endif */
+
+	    putc ('t', asmfile);
+	    current_sym_code = DBX_TYPE_DECL_STABS_CODE;
+
+	    dbxout_type (type, 1, 0);
+	    dbxout_finish_symbol (decl);
+	  }
+
+	if (tag_needed && TYPE_NAME (type) != 0
+	    && !TREE_ASM_WRITTEN (TYPE_NAME (type)))
+	  {
+	    /* For a TYPE_DECL with no name, but the type has a name,
+	       output a tag.
+	       This is what represents `struct foo' with no typedef.  */
+	    /* In C++, the name of a type is the corresponding typedef.
+	       In C, it is an IDENTIFIER_NODE.  */
+	    tree name = TYPE_NAME (type);
+	    if (TREE_CODE (name) == TYPE_DECL)
+	      name = DECL_NAME (name);
+
+	    current_sym_code = DBX_TYPE_DECL_STABS_CODE;
+	    current_sym_value = 0;
+	    current_sym_addr = 0;
+	    current_sym_nchars = 2 + IDENTIFIER_LENGTH (name);
+
+	    fprintf (asmfile, "%s \"%s:T", ASM_STABS_OP,
+		     IDENTIFIER_POINTER (name));
+	    dbxout_type (type, 1, 0);
+	    dbxout_finish_symbol (0);
+	  }
+
+	/* Prevent duplicate output of a typedef.  */
+	TREE_ASM_WRITTEN (decl) = 1;
+	break;
+      }
 
     case PARM_DECL:
       /* Parm decls go in their own separate chains
@@ -1549,7 +1576,7 @@ dbxout_symbol (decl, local)
 	    {
 	      current_sym_addr = XEXP (DECL_RTL (decl), 0);
 
-	      letter = TREE_PERMANENT (decl) ? 'S' : 'V';
+	      letter = decl_function_context (decl) ? 'V' : 'S';
 
 	      if (!DECL_INITIAL (decl))
 		current_sym_code = N_LCSYM;
@@ -1616,7 +1643,8 @@ dbxout_symbol (decl, local)
 	  /* Effectively do build_pointer_type, but don't cache this type,
 	     since it might be temporary whereas the type it points to
 	     might have been saved for inlining.  */
-	  type = make_node (REFERENCE_TYPE);
+	  /* Don't use REFERENCE_TYPE because dbx can't handle that.  */
+	  type = make_node (POINTER_TYPE);
 	  TREE_TYPE (type) = TREE_TYPE (decl);
 	}
       else if (GET_CODE (DECL_RTL (decl)) == MEM
@@ -1673,22 +1701,13 @@ dbxout_symbol (decl, local)
 	/* Note also that static member (variable) names DO NOT begin
 	   with underscores in .stabs directives.  */
 	if (DECL_LANG_SPECIFIC (decl))
-	  {
-	    name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
-
-#if 0 /* Tiemann says get rid of this.  */
-	    /* Adding 1 here only works on systems
-	       which flush an initial underscore.  */
-	    if (name[0] == '_')
-	      name += 1;
-#endif
-	  }
+	  name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
 	else
 	  name = IDENTIFIER_POINTER (DECL_NAME (decl));
 	fprintf (asmfile, "%s \"%s:", ASM_STABS_OP, name);
       }
       if (letter) putc (letter, asmfile);
-      dbxout_type (type, 0);
+      dbxout_type (type, 0, 0);
       dbxout_finish_symbol (decl);
 
 #ifdef DBX_STATIC_BLOCK_END
@@ -1800,19 +1819,21 @@ dbxout_parms (parms)
 	      {
 		current_sym_nchars = 2 + IDENTIFIER_LENGTH (DECL_NAME (parms));
 
-		fprintf (asmfile, "%s \"%s:p", ASM_STABS_OP,
-			 IDENTIFIER_POINTER (DECL_NAME (parms)));
+		fprintf (asmfile, "%s \"%s:%c", ASM_STABS_OP,
+			 IDENTIFIER_POINTER (DECL_NAME (parms)),
+			 DBX_MEMPARM_STABS_LETTER);
 	      }
 	    else
 	      {
 		current_sym_nchars = 8;
-		fprintf (asmfile, "%s \"(anon):p", ASM_STABS_OP);
+		fprintf (asmfile, "%s \"(anon):%c", ASM_STABS_OP,
+			 DBX_MEMPARM_STABS_LETTER);
 	      }
 
 	    if (GET_CODE (DECL_RTL (parms)) == REG
 		&& REGNO (DECL_RTL (parms)) >= 0
 		&& REGNO (DECL_RTL (parms)) < FIRST_PSEUDO_REGISTER)
-	      dbxout_type (DECL_ARG_TYPE (parms), 0);
+	      dbxout_type (DECL_ARG_TYPE (parms), 0, 0);
 	    else
 	      {
 		int original_value = current_sym_value;
@@ -1833,11 +1854,11 @@ dbxout_parms (parms)
 		    && GET_CODE (XEXP (DECL_RTL (parms), 0)) == PLUS
 		    && GET_CODE (XEXP (XEXP (DECL_RTL (parms), 0), 1)) == CONST_INT
 		    && INTVAL (XEXP (XEXP (DECL_RTL (parms), 0), 1)) == current_sym_value)
-		  dbxout_type (TREE_TYPE (parms), 0);
+		  dbxout_type (TREE_TYPE (parms), 0, 0);
 		else
 		  {
 		    current_sym_value = original_value;
-		    dbxout_type (DECL_ARG_TYPE (parms), 0);
+		    dbxout_type (DECL_ARG_TYPE (parms), 0, 0);
 		  }
 	      }
 	    current_sym_value = DEBUGGER_ARG_OFFSET (current_sym_value, addr);
@@ -1881,7 +1902,47 @@ dbxout_parms (parms)
 			 regparm_letter);
 	      }
 
-	    dbxout_type (DECL_ARG_TYPE (parms), 0);
+	    dbxout_type (DECL_ARG_TYPE (parms), 0, 0);
+	    dbxout_finish_symbol (parms);
+	  }
+	else if (GET_CODE (DECL_RTL (parms)) == MEM
+		 && GET_CODE (XEXP (DECL_RTL (parms), 0)) == REG
+		 && rtx_equal_p (XEXP (DECL_RTL (parms), 0),
+				 DECL_INCOMING_RTL (parms)))
+	  {
+	    /* Parm was passed via invisible reference.
+	       That is, its address was passed in a register.
+	       Output it as if it lived in that register.
+	       The debugger will know from the type
+	       that it was actually passed by invisible reference.  */
+
+	    char regparm_letter;
+	    /* Parm passed in registers and lives in registers or nowhere.  */
+
+	    current_sym_code = DBX_REGPARM_STABS_CODE;
+	    regparm_letter = DBX_REGPARM_STABS_LETTER;
+
+	    /* DECL_RTL looks like (MEM (REG...).  Get the register number.  */
+	    current_sym_value = REGNO (XEXP (DECL_RTL (parms), 0));
+	    current_sym_addr = 0;
+
+	    FORCE_TEXT;
+	    if (DECL_NAME (parms))
+	      {
+		current_sym_nchars = 2 + strlen (IDENTIFIER_POINTER (DECL_NAME (parms)));
+
+		fprintf (asmfile, "%s \"%s:%c", ASM_STABS_OP,
+			 IDENTIFIER_POINTER (DECL_NAME (parms)),
+			 DBX_REGPARM_STABS_LETTER);
+	      }
+	    else
+	      {
+		current_sym_nchars = 8;
+		fprintf (asmfile, "%s \"(anon):%c", ASM_STABS_OP,
+			 DBX_REGPARM_STABS_LETTER);
+	      }
+
+	    dbxout_type (TREE_TYPE (parms), 0, 0);
 	    dbxout_finish_symbol (parms);
 	  }
 	else if (GET_CODE (DECL_RTL (parms)) == MEM
@@ -1906,19 +1967,21 @@ dbxout_parms (parms)
 	      {
 		current_sym_nchars = 2 + strlen (IDENTIFIER_POINTER (DECL_NAME (parms)));
 
-		fprintf (asmfile, "%s \"%s:p", ASM_STABS_OP,
-			 IDENTIFIER_POINTER (DECL_NAME (parms)));
+		fprintf (asmfile, "%s \"%s:%c", ASM_STABS_OP,
+			 IDENTIFIER_POINTER (DECL_NAME (parms)),
+			 DBX_MEMPARM_STABS_LETTER);
 	      }
 	    else
 	      {
 		current_sym_nchars = 8;
-		fprintf (asmfile, "%s \"(anon):p", ASM_STABS_OP);
+		fprintf (asmfile, "%s \"(anon):%c", ASM_STABS_OP,
+		DBX_MEMPARM_STABS_LETTER);
 	      }
 
 	    current_sym_value
 	      = DEBUGGER_ARG_OFFSET (current_sym_value,
 				     XEXP (DECL_RTL (parms), 0));
-	    dbxout_type (TREE_TYPE (parms), 0);
+	    dbxout_type (TREE_TYPE (parms), 0, 0);
 	    dbxout_finish_symbol (parms);
 	  }
       }
@@ -1967,7 +2030,7 @@ dbxout_reg_parms (parms)
 		current_sym_nchars = 8;
 		fprintf (asmfile, "%s \"(anon):r", ASM_STABS_OP);
 	      }
-	    dbxout_type (TREE_TYPE (parms), 0);
+	    dbxout_type (TREE_TYPE (parms), 0, 0);
 	    dbxout_finish_symbol (parms);
 	  }
 	/* Report parms that live in memory but not where they were passed.  */
@@ -2004,7 +2067,7 @@ dbxout_reg_parms (parms)
 		current_sym_nchars = 8;
 		fprintf (asmfile, "%s \"(anon):", ASM_STABS_OP);
 	      }
-	    dbxout_type (TREE_TYPE (parms), 0);
+	    dbxout_type (TREE_TYPE (parms), 0, 0);
 	    dbxout_finish_symbol (parms);
 	  }
       }
@@ -2020,7 +2083,7 @@ dbxout_args (args)
   while (args)
     {
       putc (',', asmfile);
-      dbxout_type (TREE_VALUE (args), 0);
+      dbxout_type (TREE_VALUE (args), 0, 0);
       CHARS (1);
       args = TREE_CHAIN (args);
     }
@@ -2110,9 +2173,13 @@ dbxout_block (block, depth, args)
 		    }
 		}
 
+#ifdef DBX_OUTPUT_LBRAC
+	      DBX_OUTPUT_LBRAC (asmfile, buf);
+#else
 	      fprintf (asmfile, "%s %d,0,0,", ASM_STABN_OP, N_LBRAC);
 	      assemble_name (asmfile, buf);
 	      fprintf (asmfile, "\n");
+#endif
 	    }
 	  else if (depth > 0)
 	    /* Count blocks the same way regardless of debug_info_level.  */
@@ -2135,9 +2202,13 @@ dbxout_block (block, depth, args)
 	    {
 	      char buf[20];
 	      ASM_GENERATE_INTERNAL_LABEL (buf, "LBE", blocknum);
+#ifdef DBX_OUTPUT_RBRAC
+	      DBX_OUTPUT_RBRAC (asmfile, buf);
+#else
 	      fprintf (asmfile, "%s %d,0,0,", ASM_STABN_OP, N_RBRAC);
 	      assemble_name (asmfile, buf);
 	      fprintf (asmfile, "\n");
+#endif
 	    }
 	}
       block = BLOCK_CHAIN (block);

@@ -38,102 +38,76 @@ void
 trace (s, s1, s2)
      char *s, *s1, *s2;
 {
-    fprintf (stderr, s, s1, s2);
+  fprintf (stderr, s, s1, s2);
 }
 
 /* Value is 1 if hard register REGNO can hold a value of machine-mode MODE. */ 
 
 int
-hard_regno_mode_ok( regno, mode )
-int regno;
-int mode;
+hard_regno_mode_ok (regno, mode)
+     int regno;
+     int mode;
 {
-	switch( mode ) {
-		case QImode:
-		case HImode:
-		case PSImode:
-		case SImode:
-		case PDImode:
-		case VOIDmode:
-		case BLKmode:
-			if( (regno < 8) || (regno == 16) || (regno == 17) ) {
-				return( 1 );
-			}
-			else {
-				return( 0 );
-			}
+  switch (mode)
+    {
+    case QImode:
+    case HImode:
+    case PSImode:
+    case SImode:
+    case PDImode:
+    case VOIDmode:
+    case BLKmode:
+      if (regno < 8 || regno == 16 || regno == 17)
+	return 1;
+      else
+	return 0;
 
-		case DImode:
-			if( (regno < 8) && ((regno & 1) == 0) ) {
-				return( 1 );
-			}
-			else {
-				return( 0 );
-			}
+    case DImode:
+      if (regno < 8 && (regno & 1) == 0)
+	return 1;
+      else
+	return 0;
 
-
-		case SFmode:
-		case SCmode:
-			if( TARGET_32081 ) {
-				if( regno < 16 ) {
-					return( 1 );
-				}
-				else {
-					return( 0 );
-				}
-			}
-			else {
-				if( regno < 8 ) {
-					return( 1 );
-				}
-				else {
-					return( 0 );
-				}
-			}
-
-		case DFmode:
-		case DCmode:
-			if( (regno & 1) == 0 ) {
-				if( TARGET_32081 ) {
-					if( regno < 16 ) {
-						return( 1 );
-					}
-					else {
-						return( 0 );
-					}
-				}
-				else {
-					if( regno < 8 ) {
-						return( 1 );
-					}
-					else {
-						return( 0 );
-					}
-				}
-			}
-			else {
-				return( 0 );
-			}
- 
-		case XFmode:
-			abort( 0 );
-		case CCmode:
-			abort( 0 );
-		case TImode:
-			abort( 0 );
-		case XCmode:	
-			abort( 0 );
-		case TFmode:
-			abort( 0 );
-		case TCmode:
-			abort( 0 );
-
-
-		default:
-			fprintf( stderr, "cant match mode %d\n", mode );
-			abort( 0 );
+    case SFmode:
+    case SCmode:
+      if (TARGET_32081)
+	{
+	  if (regno < 16)
+	    return 1;
+	  else
+	    return 0;
 	}
-	abort(0);
+      else
+	{
+	  if (regno < 8)
+	    return 1;
+	  else 
+	    return 0;
+	}
+
+    case DFmode:
+    case DCmode:
+      if ((regno & 1) == 0)
+	{	
+	  if (TARGET_32081)
+	    {
+	      if (regno < 16)
+		return 1;
+	      else
+		return 0;
+	    }
+	  else
+	    {
+	      if (regno < 8)
+		return 1;
+	      else
+		return 0;
+	    }
+	}
+      else
+	return 0;
+    }
+  abort(0);
 }
 
 /* ADDRESS_COST calls this.  This function is not optimal
@@ -201,9 +175,16 @@ secondary_reload_class (class, mode, in)
   if (class == GENERAL_REGS || (regno >= 0 && regno < 8))
     return NO_REGS;
 
-  /* Constants, memory, and FP registers can go into FP registers */
+  /* Constants, memory, and FP registers can go into FP registers.  */
   if ((regno == -1 || (regno >= 8 && regno < 16)) && (class == FLOAT_REGS))
     return NO_REGS;
+
+#if 0 /* This isn't strictly true (can't move fp to sp or vice versa),
+	 so it's cleaner to use PREFERRED_RELOAD_CLASS
+	 to make the right things happen.  */
+  if (regno >= 16 && class == GEN_AND_MEM_REGS)
+    return NO_REGS;
+#endif
 
   /* Otherwise, we need GENERAL_REGS. */
   return GENERAL_REGS;
@@ -374,20 +355,23 @@ print_operand (file, x, code)
      char code;
 {
   if (code == '$')
-    PUT_IMMEDIATE_PREFIX(file);
+    PUT_IMMEDIATE_PREFIX (file);
   else if (code == '?')
-    PUT_EXTERNAL_PREFIX(file);
+    PUT_EXTERNAL_PREFIX (file);
   else if (GET_CODE (x) == REG)
     fprintf (file, "%s", reg_names[REGNO (x)]);
   else if (GET_CODE (x) == MEM)
     {
       rtx tmp = XEXP (x, 0);
-#ifndef PC_RELATIVE
-      if (GET_CODE (tmp) == SYMBOL_REF || GET_CODE (tmp) == LABEL_REF)
+#if ! (defined (PC_RELATIVE) || defined (NO_ABSOLUTE_PREFIX_IF_SYMBOLIC))
+      if (GET_CODE (tmp) != CONST_INT)
 	{
 	  char *out = XSTR (tmp, 0);
 	  if (out[0] == '*')
-	    fprintf (file, "@%s", &out[1]);
+	    {
+	      PUT_ABSOLUTE_PREFIX (file);
+	      fprintf (file, "%s", &out[1]);
+	    }
 	  else
 	    ASM_OUTPUT_LABELREF (file, out);
 	}
@@ -404,7 +388,7 @@ print_operand (file, x, code)
 	  PUT_IMMEDIATE_PREFIX(file);
 #ifdef SEQUENT_ASM
 	  /* Sequent likes it's floating point constants as integers */
-	  fprintf (file, "0Dx%08x%08x", u.i[1], u.i[0])l
+	  fprintf (file, "0Dx%08x%08x", u.i[1], u.i[0]);
 #else
 #ifdef ENCORE_ASM
 	  fprintf (file, "0f%.20e", u.d); 
@@ -417,8 +401,13 @@ print_operand (file, x, code)
 	{ 
 	  union { double d; int i[2]; } u;
 	  u.i[0] = CONST_DOUBLE_LOW (x); u.i[1] = CONST_DOUBLE_HIGH (x);
-	  PUT_IMMEDIATE_PREFIX(file);
+	  PUT_IMMEDIATE_PREFIX (file);
 #ifdef SEQUENT_ASM
+	  /* We have no way of winning if we can't get the bits
+	     for a sequent floating point number.  */
+#if HOST_FLOAT_FORMAT != TARGET_FLOAT_FORMAT
+	  abort ();
+#endif
 	  {
 	    union { float f; long l; } uu;
 	    uu.f = u.d;
@@ -431,7 +420,10 @@ print_operand (file, x, code)
     }
   else
     {
-      PUT_IMMEDIATE_PREFIX(file);
+#ifndef NO_IMMEDIATE_PREFIX_IF_SYMBOLIC
+      if (GET_CODE (x) == CONST_INT)
+#endif
+	PUT_IMMEDIATE_PREFIX(file);
       output_addr_const (file, x);
     }
 }
@@ -530,12 +522,24 @@ print_operand_address (file, addr)
     }
   if (! offset)
     offset = const0_rtx;
+
+#ifdef INDEX_RATHER_THAN_BASE
+  /* This is a re-implementation of the SEQUENT_ADDRESS_BUG fix.  */
+  if (base && !indexexp && GET_CODE (base) == REG
+      && REG_OK_FOR_INDEX_P (REGNO (base))
+    {
+      indexexp = base;
+      base = 0;
+    }
+#endif
+
   /* now, offset, base and indexexp are set */
   if (! base)
     {
 #if defined (PC_RELATIVE) || defined (NO_ABSOLUTE_PREFIX_IF_SYMBOLIC)
-      if (! (GET_CODE (offset) == LABEL_REF
-	     || GET_CODE (offset) == SYMBOL_REF))
+      if (GET_CODE (offset) == CONST_INT)
+/*      if (! (GET_CODE (offset) == LABEL_REF
+	     || GET_CODE (offset) == SYMBOL_REF)) */
 #endif
 	PUT_ABSOLUTE_PREFIX (file);
     }
@@ -546,7 +550,7 @@ print_operand_address (file, addr)
       {
 	/* now we must output base.  Possible alternatives are:
 	   (rN)       (REG ...)
-	   (sp)	(REG ...)
+	   (sp)	      (REG ...)
 	   (fp)       (REG ...)
 	   (pc)       (REG ...)  used for SYMBOL_REF and LABEL_REF, output
 	   (disp(fp)) (MEM ...)       just before possible [rX:y]
@@ -641,9 +645,15 @@ print_operand_address (file, addr)
       if (GET_CODE (indexexp) != REG || REGNO (indexexp) >= 8)
 	abort ();
 
+#ifdef UTEK_ASM
+      fprintf (file, "[%c`%s]",
+	       scales[scale],
+	       reg_names[REGNO (indexexp)]);
+#else
       fprintf (file, "[%s:%c]",
 	       reg_names[REGNO (indexexp)],
 	       scales[scale]);
+#endif
     }
 }
 

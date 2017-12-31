@@ -46,4 +46,27 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define MACHINE_TYPE "RISC-OS System V Mips"
 
+/* Override defaults for finding the MIPS tools.  */
+#define MD_STARTFILE_PREFIX "/sysv/usr/lib/cmplrs/cc/"
+#define MD_EXEC_PREFIX "/sysv/usr/lib/cmplrs/cc/"
+
+/* Mips System V doesn't have a getpagesize() function needed by the
+   trampoline code, so use the POSIX sysconf function to get it.
+   This is only done when compiling the trampoline code.  */
+
+#ifdef  L_trampoline
+#include <sys/param.h>
+#include <unistd.h>
+
+#ifdef _SC_PAGE_SIZE
+#define getpagesize()	sysconf(_SC_PAGE_SIZE)
+
+#else				/* older rev of OS */
+#define getpagesize()	(NBPC)
+#endif /* !_SC_PAGE_SIZE */
+#endif /*  L_trampoline */
+
+/* Generate calls to memcpy, etc., not bcopy, etc.  */
+#define TARGET_MEM_FUNCTIONS
+
 #include "mips.h"

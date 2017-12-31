@@ -268,7 +268,11 @@ initialize_for_inline (fndecl, min_labelno, max_labelno, max_reg, copy)
 	  rtx new = copy_rtx (p);
 
 	  /* Don't leave the old copy anywhere in this decl.  */
-	  if (DECL_RTL (parms) == DECL_INCOMING_RTL (parms))
+	  if (DECL_RTL (parms) == DECL_INCOMING_RTL (parms)
+	      || (GET_CODE (DECL_RTL (parms)) == MEM
+		  && GET_CODE (DECL_INCOMING_RTL (parms)) == MEM
+		  && (XEXP (DECL_RTL (parms), 0)
+		      == XEXP (DECL_INCOMING_RTL (parms), 0))))
 	    DECL_INCOMING_RTL (parms) = new;
 	  DECL_RTL (parms) = new;
 	}
@@ -277,6 +281,8 @@ initialize_for_inline (fndecl, min_labelno, max_labelno, max_reg, copy)
 
       if (GET_CODE (p) == REG)
 	parmdecl_map[REGNO (p)] = parms;
+      /* This flag is cleared later
+	 if the function ever modifies the value of the parm.  */
       TREE_READONLY (parms) = 1;
     }
 
@@ -1034,7 +1040,7 @@ rtx *global_const_equiv_map;
 /* Integrate the procedure defined by FNDECL.  Note that this function
    may wind up calling itself.  Since the static variables are not
    reentrant, we do not assign them until after the possibility
-   or recursion is eliminated.
+   of recursion is eliminated.
 
    If IGNORE is nonzero, do not produce a value.
    Otherwise store the value in TARGET if it is nonzero and that is convenient.
@@ -1458,9 +1464,20 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 	      && GET_CODE (pattern) == SET
 	      && GET_CODE (SET_DEST (pattern)) == REG
 	      && REG_FUNCTION_VALUE_P (SET_DEST (pattern)))
-	    break;
-
-	  copy = emit_insn (copy_rtx_and_substitute (pattern, map));
+	    {
+	      if (volatile_refs_p (SET_SRC (pattern)))
+		{
+		  /* If we must not delete the source,
+		     load it into a new temporary.  */
+		  copy = emit_insn (copy_rtx_and_substitute (pattern, map));
+		  SET_DEST (PATTERN (copy)) 
+		    = gen_reg_rtx (GET_MODE (SET_DEST (PATTERN (copy))));
+		}
+	      else
+		break;
+	    }
+	  else
+	    copy = emit_insn (copy_rtx_and_substitute (pattern, map));
 	  /* REG_NOTES will be copied later.  */
 
 #ifdef HAVE_cc0
@@ -1551,6 +1568,7 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 
 	case CODE_LABEL:
 	  copy = emit_label (map->label_map[CODE_LABEL_NUMBER (insn)]);
+	  LABEL_NAME (copy) = LABEL_NAME (insn);
 	  map->const_age++;
 	  break;
 
@@ -1871,7 +1889,26 @@ copy_rtx_and_substitute (orig, map)
     case PC:
     case CC0:
     case CONST_INT:
+      return orig;
+
     case SYMBOL_REF:
+      /* Symbols which represent the address of a label stored in the constant
+	 pool must be modified to point to a constant pool entry for the
+	 remapped label.  Otherwise, symbols are returned unchanged.  */
+      if (CONSTANT_POOL_ADDRESS_P (orig))
+	{
+	  rtx constant = get_pool_constant (orig);
+	  if (GET_CODE (constant) == LABEL_REF)
+	    {
+	      copy = rtx_alloc (LABEL_REF);
+	      PUT_MODE (copy, mode);
+	      XEXP (copy, 0)
+		= map->label_map[CODE_LABEL_NUMBER (XEXP (constant, 0))];
+	      LABEL_OUTSIDE_LOOP_P (copy) = LABEL_OUTSIDE_LOOP_P (orig);
+	      copy = force_const_mem (Pmode, copy);
+	      return XEXP (copy, 0);
+	    }
+	}
       return orig;
 
     case CONST_DOUBLE:

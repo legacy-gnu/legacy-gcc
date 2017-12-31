@@ -138,8 +138,6 @@ in the following sections.
 .RI "\-o " file
 \-pipe
 \-v
-\-vpath
-\-vspec
 .RI "\-x " language
 
 .TP
@@ -200,7 +198,7 @@ in the following sections.
 .RI \-d letters
 \-fpretend\-float
 \-g
-\-gdbx
+\-gstabs
 \-gdwarf
 \-ggdb
 \-gsdb
@@ -562,32 +560,6 @@ Print (on standard error output) the commands executed to run the stages
 of compilation.  Also print the version number of the compiler driver
 program and of the preprocessor and the compiler proper.
 .TP
-.B \-vpath
-Print (on standard error output) all attempts at finding files, tracing
-how the `\|\c
-.B \-B\c
-\&\|', `\|\c
-.B \-b\c
-\&\|', and `\|\c
-.B \-V\c
-\&\|' options interact.  Also,
-print the commands executed to run the stages of compilation and version
-numbers, like the `\|\c
-.B \-v\c
-\&\|' option.
-.TP
-.B \-vspec
-Print (on standard error output) all spec's processed by the
-\c
-.B do_spec_1\c
-\& function in `\|\c
-.B gcc.c\c
-\&\|'.  Also, print the commands
-executed to run the stages of compilation and version numbers, like the
-`\|\c
-.B \-v\c
-\&\|' option.
-.TP
 .B \-pipe
 Use pipes rather than temporary files for communication between the
 various stages of compilation.  This fails to work on some systems where
@@ -730,111 +702,13 @@ Support ANSI C trigraphs.  The `\|\c
 .TP
 .B \-traditional
 Attempt to support some aspects of traditional C compilers.
+For details, see the GNU C Manual; the duplicate list here
+has been deleted so that we won't get complaints when it
+is out of date.
 
-Specifically, for both C and C++ programs:
-.TP
-\ \ \ \(bu
-In the preprocessor, comments convert to nothing at all, rather than
-to a space.  This allows traditional token concatenation.
-.TP
-\ \ \ \(bu
-In the preprocessor, macro arguments are recognized within string
-constants in a macro definition (and their values are stringified,
-though without additional quote marks, when they appear in such a
-context).  The preprocessor always considers a string constant to end
-at a newline.
-.TP
-\ \ \ \(bu
-The preprocessor does not predefine the macro \c
-.B __STDC__\c
-\& when you use
-`\|\c
+But one note about C++ programs only (not C).  `\|\c
 .B \-traditional\c
-\&\|', but still predefines\c
-.B __GNUC__\c
-\& (since the GNU extensions indicated by 
-.B __GNUC__\c
-\& are not affected by
-`\|\c
-.B \-traditional\c
-\&\|').  If you need to write header files that work
-differently depending on whether `\|\c
-.B \-traditional\c
-\&\|' is in use, by
-testing both of these predefined macros you can distinguish four
-situations: GNU C, traditional GNU C, other ANSI C compilers, and
-other old C compilers.
-.PP
-.TP
-\ \ \ \(bu
-String ``constants'' are not necessarily constant; they are stored in
-writable space, and identical looking constants are allocated
-separately.  (This is the same as the effect of
-`\|\c
-.B \-fwritable\-strings\c
-\&\|'.)
-
-In addition, `\|\c
-.B \-traditional\c
-\&\|' has these effects for C programs (not C++):
-.TP
-\ \ \ \(bu
-All \c
-.B extern\c
-\& declarations take effect globally even if they
-are written inside of a function definition.  This includes implicit
-declarations of functions.
-.TP
-\ \ \ \(bu
-The keywords \c
-.B typeof\c
-\&, \c
-.B inline\c
-\&, \c
-.B signed\c
-\&, \c
-.B const\c
-\&
-and \c
-.B volatile\c
-\& are not recognized.  (You can still use the
-alternative keywords such as \c
-.B __typeof__\c
-\&, \c
-.B __inline__\c
-\&, and
-so on.)
-.TP
-\ \ \ \(bu
-Comparisons between pointers and integers are always allowed.
-.TP
-\ \ \ \(bu
-Integer types \c
-.B unsigned short\c
-\& and \c
-.B unsigned char\c
-\& promote
-to \c
-.B unsigned int\c
-\&.
-.TP
-\ \ \ \(bu
-Out-of-range floating point literals are not an error.
-.TP
-\ \ \ \(bu
-All automatic variables not declared \c
-.B register\c
-\& are preserved by
-\c
-.B longjmp\c
-\&.  Ordinarily, GNU C follows ANSI C: automatic variables
-not declared \c
-.B volatile\c
-\& may be clobbered.
-
-Finally, for C++ programs only (not C), `\|\c
-.B \-traditional\c
-\&\|' has one additional effect: assignment to 
+\&\|' has one additional effect for C++: assignment to 
 .B this
 is permitted.  This is the same as the effect of `\|\c
 .B \-fthis\-is\-variable\c
@@ -2982,7 +2856,7 @@ These `\|\c
 Assume the defaults for the machine type 
 .I cpu-type
 when
-scheduling insturctions.  The default
+scheduling instructions.  The default
 .I cpu-type
 is
 .BR default ,
@@ -3012,14 +2886,14 @@ root instructions).  The
 .B \-mcpu=r4000
 or
 .B \-mcpu=r6000
-switch must be used in conjuction with
+switch must be used in conjunction with
 .BR \-mips2 .
 .TP
 .B \-mips3
 Issue instructions from level 3 of the MIPS ISA (64 bit instructions).
 The
 .B \-mcpu=r4000
-switch must be used in conjuction with
+switch must be used in conjunction with
 .BR \-mips2 .
 .TP
 .B \-mint64

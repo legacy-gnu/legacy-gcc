@@ -85,7 +85,7 @@ BEGIN {
 
   while ( getline asm_code < asm_filename > 0 ) {
     if ( (ignore_stabd==0) && (asm_code ~ line_hint)) {
-      # source line hint found. Split the line into fields seperated by commas.
+      # source line hint found. Split the line into fields separated by commas.
       # num_of_fields is 4 for sparc, 3 for m68k
       num_of_fields = split(asm_code, fields, ",")
       newlineno = fields[3] + 0 # the line number we are looking for is field 3

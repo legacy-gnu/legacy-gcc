@@ -206,7 +206,7 @@ commonparms (p1, p2)
 	{
 	  int cmp = simple_cst_equal (TREE_PURPOSE (p1), TREE_PURPOSE (p2));
 	  if (cmp < 0)
-	    abort ();
+	    my_friendly_abort (111);
 	  if (cmp == 0)
 	    {
 	      error ("redeclaration of default argument %d", i);
@@ -638,7 +638,7 @@ comp_target_types (ttl, ttr, nptrs)
 	  warning ("contravariance violation for method types ignored");
 	  return 1;
 	default:
-	  abort ();
+	  my_friendly_abort (112);
 	}
     else
       return 0;
@@ -780,7 +780,7 @@ compparms (parms1, parms2, strict)
 	{
 	  int cmp = simple_cst_equal (TREE_PURPOSE (t1), TREE_PURPOSE (t2));
 	  if (cmp < 0)
-	    abort ();
+	    my_friendly_abort (113);
 	  if (cmp == 0)
 	    return 0;
 	}
@@ -889,7 +889,7 @@ comp_target_parms (parms1, parms2, strict)
 	{
 	  int cmp = simple_cst_equal (TREE_PURPOSE (t1), TREE_PURPOSE (t2));
 	  if (cmp < 0)
-	    abort ();
+	    my_friendly_abort (114);
 	  if (cmp == 0)
 	    return 0;
 	}
@@ -997,19 +997,19 @@ c_sizeof (type)
   if (code == FUNCTION_TYPE)
     {
       if (pedantic || warn_pointer_arith)
-	warning ("sizeof applied to a function type");
+	pedwarn ("sizeof applied to a function type");
       return size_int (1);
     }
   if (code == METHOD_TYPE)
     {
       if (pedantic || warn_pointer_arith)
-	warning ("sizeof applied to a method type");
+	pedwarn ("sizeof applied to a method type");
       return size_int (1);
     }
   if (code == VOID_TYPE)
     {
       if (pedantic || warn_pointer_arith)
-	warning ("sizeof applied to a void type");
+	pedwarn ("sizeof applied to a void type");
       return size_int (1);
     }
 
@@ -1255,7 +1255,7 @@ build_component_ref_1 (datum, field, protect)
   /* Look up component name in the structure type definition.  */
 
   if (field == error_mark_node)
-    abort ();
+    my_friendly_abort (115);
 
   if (TREE_STATIC (field))
     return field;
@@ -1359,7 +1359,7 @@ build_component_ref (datum, component, basetype_path, protect)
 
   if (TREE_CODE (component) == BIT_NOT_EXPR)
     {
-      if (DECL_NAME (TYPE_NAME (basetype)) != TREE_OPERAND (component, 0))
+      if (TYPE_IDENTIFIER (basetype) != TREE_OPERAND (component, 0))
 	{
 	  error_with_aggr_type (basetype,
 				"destructor specifier `%s::~%s' must have matching names",
@@ -1611,7 +1611,7 @@ build_array_ref (array, index)
 	}
 
       if (pedantic && !lvalue_p (array))
-	warning ("ANSI C forbids subscripting non-lvalue array");
+	pedwarn ("ANSI C forbids subscripting non-lvalue array");
 
       if (pedantic)
 	{
@@ -1619,7 +1619,7 @@ build_array_ref (array, index)
 	  while (TREE_CODE (foo) == COMPONENT_REF)
 	    foo = TREE_OPERAND (foo, 0);
 	  if (TREE_CODE (foo) == VAR_DECL && TREE_REGDECL (foo))
-	    warning ("ANSI C forbids subscripting non-lvalue array");
+	    pedwarn ("ANSI C forbids subscripting non-lvalue array");
 	}
 
       rval = build (ARRAY_REF, TREE_TYPE (TREE_TYPE (array)), array, index);
@@ -1694,7 +1694,7 @@ build_x_function_call (function, params, decl)
 	  if (DECL_NAME (function))
 	    function = DECL_NAME (function);
 	  else
-	    function = DECL_NAME (TYPE_NAME (DECL_CLASS_CONTEXT (function)));
+	    function = TYPE_IDENTIFIER (DECL_CLASS_CONTEXT (function));
 	}
       else if (TREE_CODE (function) == TREE_LIST)
 	{
@@ -1815,7 +1815,7 @@ build_x_function_call (function, params, decl)
 	}
       /* Unexpected node type?  */
       else
-	abort ();
+	my_friendly_abort (116);
       if (decl == NULL_TREE)
 	{
 	  if (current_function_decl
@@ -1859,7 +1859,7 @@ build_function_call_real (function, params, require_complete)
       GNU_xref_call (current_function_decl,
 		     IDENTIFIER_POINTER (DECL_NAME (function)
 					 ? DECL_NAME (function)
-					 : DECL_NAME (TYPE_NAME (DECL_CLASS_CONTEXT (function)))));
+					 : TYPE_IDENTIFIER (DECL_CLASS_CONTEXT (function))));
       assemble_external (function);
       fndecl = function;
 
@@ -1884,8 +1884,10 @@ build_function_call_real (function, params, require_complete)
 	  TREE_USED (function) = 1;
 	}
 
-      function = build1 (ADDR_EXPR, build_pointer_type (TREE_TYPE (function)),
-			 function);
+      fntype = build_type_variant (TREE_TYPE (function),
+				   TREE_READONLY (function),
+				   TREE_THIS_VOLATILE (function));
+      function = build1 (ADDR_EXPR, build_pointer_type (fntype), function);
     }
   else
     {
@@ -2095,6 +2097,9 @@ convert_arguments (return_loc, typelist, values, fndecl, flags)
 	val = resolve_offset_ref (val);
 
       {
+#if 0
+	/* well, I am not sure what it means, but I bet it is wrong.
+	   It clears up p0000315. */
 	/* ??? What does this mean?
 
 	   Convert FUNCTION_DECLs for virtual functions to proper
@@ -2115,6 +2120,7 @@ convert_arguments (return_loc, typelist, values, fndecl, flags)
 			 build1 (NOP_EXPR, basetype, error_mark_node), val);
 	    type = build_pointer_type (ttype);
 	  }
+#endif
 
 #if 0
 	/* This code forces the assumption that if we have a ptr-to-func
@@ -2356,7 +2362,10 @@ build_binary_op (code, arg1, arg2)
 				     args[convert_index], 1);
       if (try == 0)
 	{
-	  error_with_aggr_type (types[convert_index], "type conversion required for type `%s'");
+	  /* I claim this reads better. (mrs) */
+	  /* the below could still be improved by outputting arguments and consts */
+	  error_with_aggr_type (types[convert_index], "undefined %s operator %s ()",
+				opname_tab[(int) code] ? opname_tab[(int) code] : "<unknown>");
 	  return error_mark_node;
 	}
       if (try == error_mark_node)
@@ -2651,12 +2660,12 @@ build_binary_op_nodefault (code, op0, op1, error_code)
 	  else if (tt0 == void_type_node)
 	    {
 	      if (pedantic && TREE_CODE (tt1) == FUNCTION_TYPE)
-		warning ("ANSI C forbids comparison of `void *' with function pointer");
+		pedwarn ("ANSI C forbids comparison of `void *' with function pointer");
 	    }
 	  else if (tt1 == void_type_node)
 	    {
 	      if (pedantic && TREE_CODE (tt0) == FUNCTION_TYPE)
-		warning ("ANSI C forbids comparison of `void *' with function pointer");
+		pedwarn ("ANSI C forbids comparison of `void *' with function pointer");
 	    }
 	  else
 	    warning ("comparison of distinct pointer types lacks a cast");
@@ -2694,7 +2703,7 @@ build_binary_op_nodefault (code, op0, op1, error_code)
 	    warning ("comparison of distinct pointer types lacks a cast");
 	  else if (pedantic
 		   && TREE_CODE (TREE_TYPE (type0)) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids ordered comparisons of pointers to functions");
+	    pedwarn ("ANSI C forbids ordered comparisons of pointers to functions");
 	  result_type = common_type (type0, type1);
 	}
       break;
@@ -2729,7 +2738,7 @@ build_binary_op_nodefault (code, op0, op1, error_code)
 	    warning ("comparison of distinct pointer types lacks a cast");
 	  else if (pedantic 
 		   && TREE_CODE (TREE_TYPE (type0)) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids ordered comparisons of pointers to functions");
+	    pedwarn ("ANSI C forbids ordered comparisons of pointers to functions");
 	  result_type = integer_type_node;
 	}
       else if (code0 == POINTER_TYPE && TREE_CODE (op1) == INTEGER_CST
@@ -2746,7 +2755,7 @@ build_binary_op_nodefault (code, op0, op1, error_code)
 	  result_type = integer_type_node;
 	  op0 = null_pointer_node;
 	  if (pedantic)
-	    warning ("ordered comparison of pointer with integer zero");
+	    pedwarn ("ordered comparison of pointer with integer zero");
 	}
       else if (code0 == POINTER_TYPE && code1 == INTEGER_TYPE)
 	{
@@ -3034,25 +3043,25 @@ pointer_int_sum (resultcode, ptrop, intop)
   if (TREE_CODE (TREE_TYPE (result_type)) == VOID_TYPE)
     {
       if (pedantic || warn_pointer_arith)
-	warning ("pointer of type `void *' used in arithmetic");
+	pedwarn ("pointer of type `void *' used in arithmetic");
       size_exp = integer_one_node;
     }
   else if (TREE_CODE (TREE_TYPE (result_type)) == FUNCTION_TYPE)
     {
       if (pedantic || warn_pointer_arith)
-	warning ("pointer to a function used in arithmetic");
+	pedwarn ("pointer to a function used in arithmetic");
       size_exp = integer_one_node;
     }
   else if (TREE_CODE (TREE_TYPE (result_type)) == METHOD_TYPE)
     {
       if (pedantic)
-	warning ("pointer to a method used in arithmetic");
+	pedwarn ("pointer to a method used in arithmetic");
       size_exp = integer_one_node;
     }
   else if (TREE_CODE (TREE_TYPE (result_type)) == OFFSET_TYPE)
     {
       if (pedantic)
-	warning ("pointer to a member used in arithmetic");
+	pedwarn ("pointer to a member used in arithmetic");
       size_exp = integer_one_node;
     }
   else
@@ -3110,13 +3119,13 @@ pointer_diff (op0, op1)
   if (pedantic)
     {
       if (TREE_CODE (target_type) == VOID_TYPE)
-	warning ("pointer of type `void *' used in subtraction");
+	pedwarn ("pointer of type `void *' used in subtraction");
       if (TREE_CODE (target_type) == FUNCTION_TYPE)
-	warning ("pointer to a function used in subtraction");
+	pedwarn ("pointer to a function used in subtraction");
       if (TREE_CODE (target_type) == METHOD_TYPE)
-	warning ("pointer to a method used in subtraction");
+	pedwarn ("pointer to a method used in subtraction");
       if (TREE_CODE (target_type) == OFFSET_TYPE)
-	warning ("pointer to a member used in subtraction");
+	pedwarn ("pointer to a member used in subtraction");
     }
 
   /* First do the subtraction as integers;
@@ -3397,7 +3406,7 @@ build_unary_op (code, xarg, noconvert)
 			     || TREE_CODE (argtype) == METHOD_TYPE
 			     || TREE_CODE (argtype) == VOID_TYPE
 			     || TREE_CODE (argtype) == OFFSET_TYPE))
-	      warning ("wrong type argument to %s",
+	      pedwarn ("wrong type argument to %s",
 		       ((code == PREINCREMENT_EXPR
 			 || code == POSTINCREMENT_EXPR)
 			? "increment" : "decrement"));
@@ -3509,7 +3518,7 @@ build_unary_op (code, xarg, noconvert)
       if (TREE_CODE (arg) == IDENTIFIER_NODE
 	  && IDENTIFIER_OPNAME_P (arg))
 	{
-	  abort ();
+	  my_friendly_abort (117);
 	  /* We don't know the type yet, so just work around the problem.
 	     We know that this will resolve to an lvalue.  */
 	  return build1 (ADDR_EXPR, unknown_type_node, arg);
@@ -3569,7 +3578,7 @@ build_unary_op (code, xarg, noconvert)
 	case FIX_ROUND_EXPR:
 	case FIX_CEIL_EXPR:
 	  if (pedantic)
-	    warning ("ANSI C forbids the address of a cast expression");
+	    pedwarn ("ANSI C forbids the address of a cast expression");
 	  return convert (build_pointer_type (TREE_TYPE (arg)),
 			  build_unary_op (ADDR_EXPR, TREE_OPERAND (arg, 0), 0));
 	}
@@ -3842,7 +3851,7 @@ pedantic_lvalue_warning (code)
      enum tree_code code;
 {
   if (pedantic)
-    warning ("ANSI C forbids use of %s expressions as lvalues",
+    pedwarn ("ANSI C forbids use of %s expressions as lvalues",
 	     code == COND_EXPR ? "conditional"
 	     : code == COMPOUND_EXPR ? "compound" : "cast");
 }
@@ -3980,7 +3989,7 @@ build_conditional_expr (ifexp, op1, op2)
   if (op1 == 0)
     {
       if (pedantic)
-	warning ("ANSI C forbids omitting the middle term of a ?: expression");
+	pedwarn ("ANSI C forbids omitting the middle term of a ?: expression");
       ifexp = op1 = save_expr (ifexp);
     }
 
@@ -4108,7 +4117,7 @@ build_conditional_expr (ifexp, op1, op2)
   else if (code1 == VOID_TYPE || code2 == VOID_TYPE)
     {
       if (pedantic && (code1 != VOID_TYPE || code2 != VOID_TYPE))
-	warning ("ANSI C forbids conditional expr with only one void side");
+	pedwarn ("ANSI C forbids conditional expr with only one void side");
       result_type = void_type_node;
     }
   else if (code1 == POINTER_TYPE && code2 == POINTER_TYPE)
@@ -4122,13 +4131,13 @@ build_conditional_expr (ifexp, op1, op2)
       else if (TYPE_MAIN_VARIANT (TREE_TYPE (type1)) == void_type_node)
 	{
 	  if (pedantic && TREE_CODE (type2) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids conditional expr between `void *' and function pointer");
+	    pedwarn ("ANSI C forbids conditional expr between `void *' and function pointer");
 	  result_type = qualify_type (type1, type2);
 	}
       else if (TYPE_MAIN_VARIANT (TREE_TYPE (type2)) == void_type_node)
 	{
 	  if (pedantic && TREE_CODE (type1) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids conditional expr between `void *' and function pointer");
+	    pedwarn ("ANSI C forbids conditional expr between `void *' and function pointer");
 	  result_type = qualify_type (type2, type1);
 	}
       /* C++ */
@@ -4160,7 +4169,7 @@ build_conditional_expr (ifexp, op1, op2)
 	{
 	  op2 = null_pointer_node;
 	  if (pedantic && TREE_CODE (type1) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids conditional expr between 0 and function pointer");
+	    pedwarn ("ANSI C forbids conditional expr between 0 and function pointer");
 	}
       result_type = type1;
     }
@@ -4172,7 +4181,7 @@ build_conditional_expr (ifexp, op1, op2)
 	{
 	  op1 = null_pointer_node;
 	  if (pedantic && TREE_CODE (type2) == FUNCTION_TYPE)
-	    warning ("ANSI C forbids conditional expr between 0 and function pointer");
+	    pedwarn ("ANSI C forbids conditional expr between 0 and function pointer");
 	}
       result_type = type2;
       op1 = null_pointer_node;
@@ -4363,7 +4372,7 @@ build_c_cast (type, expr)
 	{
 	  if (TREE_CODE (type) == RECORD_TYPE
 	      || TREE_CODE (type) == UNION_TYPE)
-	    warning ("ANSI C forbids casting nonscalar to the same type");
+	    pedwarn ("ANSI C forbids casting nonscalar to the same type");
 	}
       return value;
     }
@@ -4717,16 +4726,6 @@ build_modify_expr (lhs, modifycode, rhs)
 		    lhs,
 		    build_modify_expr (TREE_OPERAND (lhs, 0),
 				       modifycode, rhs));
-
-    case POSTDECREMENT_EXPR:
-    case POSTINCREMENT_EXPR:
-      if (TREE_SIDE_EFFECTS (TREE_OPERAND (lhs, 0)))
-	lhs = build (TREE_CODE (lhs), TREE_TYPE (lhs),
-		     stabilize_reference (TREE_OPERAND (lhs, 0)));
-      return build (COMPOUND_EXPR, lhstype,
-		    build_modify_expr (TREE_OPERAND (lhs, 0),
-				       modifycode, rhs),
-		    lhs);
 
       /* Handle (a, b) used as an "lvalue".  */
     case COMPOUND_EXPR:
@@ -5145,15 +5144,21 @@ build_modify_expr (lhs, modifycode, rhs)
 
   if (TREE_CODE (newrhs) == COND_EXPR)
     {
+      tree lhs1;
       tree cond = TREE_OPERAND (newrhs, 0);
 
       if (TREE_SIDE_EFFECTS (lhs))
 	cond = build_compound_expr (tree_cons (NULL_TREE, lhs,
 					       build_tree_list (NULL_TREE, cond)));
+      /* cannot have to identical lhs on this one tree (result) as preexpand
+	 calls will rip them out and fill in RTL for them, but when the
+	 rtl is generated, the calls will only be in the first side of the
+	 condition, not on both, or before the conditional jump! (mrs) */
+      lhs1 = break_out_calls (lhs);
       result = build (COND_EXPR, TREE_TYPE (newrhs),
 		      cond,
 		      build_modify_expr (lhs, modifycode, TREE_OPERAND (newrhs, 1)),
-		      build_modify_expr (lhs, modifycode, TREE_OPERAND (newrhs, 2)));
+		      build_modify_expr (lhs1, modifycode, TREE_OPERAND (newrhs, 2)));
     }
   else if (modifycode != INIT_EXPR && TREE_CODE (newrhs) == WITH_CLEANUP_EXPR)
     {
@@ -5168,7 +5173,7 @@ build_modify_expr (lhs, modifycode, rhs)
 	{
 	  slot = TREE_OPERAND (newrhs, 0);
 	}
-      else abort ();
+      else my_friendly_abort (118);
 
       /* Copy the value computed in SLOT into LHS.  */
       exprlist = tree_cons (NULL_TREE,
@@ -5503,7 +5508,7 @@ convert_for_assignment (type, rhs, errtype, fndecl, parmnum)
 	  else if (TREE_CODE (TREE_TYPE (rhs)) == METHOD_TYPE)
 	    {
 	      /* When does this happen?  */
-	      abort ();
+	      my_friendly_abort (119);
 	      /* Conversion of a pointer-to-member type to void *.  */
 	      rhs = build_unary_op (ADDR_EXPR, rhs, 0);
 	      TREE_TYPE (rhs) = type;
@@ -5512,7 +5517,7 @@ convert_for_assignment (type, rhs, errtype, fndecl, parmnum)
 	  else if (TREE_CODE (TREE_TYPE (rhs)) == OFFSET_TYPE)
 	    {
 	      /* When does this happen?  */
-	      abort ();
+	      my_friendly_abort (120);
 	      /* Conversion of a pointer-to-member type to void *.  */
 	      rhs = build_unary_op (ADDR_EXPR, rhs, 0);
 	      TREE_TYPE (rhs) = type;

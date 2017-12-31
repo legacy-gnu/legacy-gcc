@@ -27,7 +27,7 @@ do
 	# so don't treat it as a file name.
 	quote=yes
 	;;
-      -[cSE])
+      -[cSEM] | -MM)
 	# Don't specify libraries if we won't link,
 	# since that would cause a warning.
 	newargs="$newargs $arg"

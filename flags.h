@@ -192,6 +192,11 @@ extern int flag_unroll_all_loops;
 
 extern int flag_cse_follow_jumps;
 
+/* Nonzero for -fcse-skip-blocks:
+   have cse follow a branch around a block.  */
+
+extern int flag_cse_skip_blocks;
+
 /* Nonzero for -fexpensive-optimizations:
    perform miscellaneous relatively-expensive optimizations.  */
 extern int flag_expensive_optimizations;
@@ -219,6 +224,13 @@ extern int flag_no_peephole;
 /* Nonzero means all references through pointers are volatile.  */
 
 extern int flag_volatile;
+
+/* Nonzero allows GCC to violate some IEEE or ANSI rules regarding math
+   operations in the interest of optimization.  For example it allows
+   GCC to assume arguments to sqrt are nonnegative numbers, allowing
+   faster code for sqrt to be generated. */
+
+extern int flag_fast_math;
 
 /* Nonzero means make functions that look like good inline candidates
    go inline.  */
@@ -288,6 +300,13 @@ extern int flag_no_common;
    and it may be extended to other effects
    needed for crtstuff.c on other systems.  */
 extern int flag_inhibit_size_directive;
+
+/* -fverbose-asm causes extra commentary information to be produced in
+   the generated assembly code (to make it more readable).  This option
+   is generally only of use to those who actually need to read the
+   generated assembly code (perhaps while debugging the compiler itself).  */
+
+extern int flag_verbose_asm;
 
 /* -fgnu-linker specifies use of the GNU linker for initializations.
    -fno-gnu-linker says that collect will be used.  */

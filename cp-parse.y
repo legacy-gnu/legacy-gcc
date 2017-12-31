@@ -222,10 +222,10 @@ empty_parms ()
 %type <ttype> enumlist enumerator
 %type <ttype> typename absdcl absdcl1 type_quals abs_or_notype_decl
 %type <ttype> xexpr see_typename parmlist parms parm bad_parm
-%type <ttype> identifiers identifiers_or_typenames
+%type <ttype> identifiers_or_typenames
 
 /* C++ extensions */
-%type <ttype> TYPENAME_SCOPE
+%type <ttype> typename_scope
 %token <ttype> TYPENAME_COLON TYPENAME_ELLIPSIS
 %token <ttype> PTYPENAME SCOPED_TYPENAME
 %token <ttype> PRE_PARSED_FUNCTION_DECL EXTERN_LANG_STRING ALL
@@ -331,7 +331,7 @@ extdef:
 	| overloaddef
 	| ASM_KEYWORD '(' string ')' ';'
 		{ if (pedantic)
-		    warning ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C forbids use of `asm' keyword");
 		  if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  assemble_asm ($3); }
 	| extern_lang_string '{' extdefs '}'
@@ -447,7 +447,8 @@ template_def:
 		  int momentary;
 		  momentary = suspend_momentary ();
 		  d = start_decl ($2, /*current_declspecs*/0, 0, $3);
-		  finish_decl (d, NULL_TREE, $4);
+		  decl_attributes (d, $5);
+		  finish_decl (d, NULL_TREE, $4, 0);
 
 #if 0 /* Need to sort out destructor templates, and not give warnings
          for them.  */
@@ -471,7 +472,8 @@ template_def:
 		  current_declspecs = $2;
 		  momentary = suspend_momentary ();
 		  d = start_decl ($3, current_declspecs, 0, $4);
-		  finish_decl (d, NULL_TREE, $5);
+		  decl_attributes (d, $6);
+		  finish_decl (d, NULL_TREE, $5, 0);
 		  end_exception_decls ();
 		  end_template_decl ($1, d, 0);
 		  if ($7 != ';')
@@ -485,7 +487,7 @@ template_def:
 	| template_header declmods declarator fn_tmpl_end
 		{
 		  tree d = start_decl ($3, $<ttype>2, 0, NULL_TREE);
-		  finish_decl (d, NULL_TREE, NULL_TREE);
+		  finish_decl (d, NULL_TREE, NULL_TREE, 0);
 		  end_template_decl ($1, d, 0);
 		  if ($4 != ';')
 		    reinit_parse_for_template ($4, $1, d);
@@ -514,7 +516,7 @@ datadef:
 	| declmods declarator ';'
 		{ tree d;
 		  d = start_decl ($2, $<ttype>$, 0, NULL_TREE);
-		  finish_decl (d, NULL_TREE, NULL_TREE);
+		  finish_decl (d, NULL_TREE, NULL_TREE, 0);
 		}
 	| typed_declspecs initdecls ';'
 		{
@@ -525,7 +527,7 @@ datadef:
 	| typed_declspecs declarator ';'
 		{ tree d;
 		  d = start_decl ($2, $<ttype>$, 0, NULL_TREE);
-		  finish_decl (d, NULL_TREE, NULL_TREE);
+		  finish_decl (d, NULL_TREE, NULL_TREE, 0);
 		  end_exception_decls ();
 		  note_list_got_semicolon ($<ttype>$);
 		}
@@ -762,14 +764,14 @@ member_init_list:
 member_init: '(' nonnull_exprlist ')'
 		{
 		  if (current_class_name && pedantic)
-		    warning ("old style base class initialization; use `%s (...)'",
+		    pedwarn ("old style base class initialization; use `%s (...)'",
 			     IDENTIFIER_POINTER (current_class_name));
 		  expand_member_init (C_C_D, NULL_TREE, $2);
 		}
 	| LEFT_RIGHT
 		{
 		  if (current_class_name && pedantic)
-		    warning ("old style base class initialization; use `%s (...)'",
+		    pedwarn ("old style base class initialization; use `%s (...)'",
 			     IDENTIFIER_POINTER (current_class_name));
 		  expand_member_init (C_C_D, NULL_TREE, void_type_node);
 		}
@@ -909,7 +911,7 @@ template_instantiate_once:
 		      pushdecl_top_level (decl);
 		    }
 		}
-	  LC opt.component_decl_list '}'
+	  left_curly opt.component_decl_list '}'
 		{
 		  extern void end_template_instantiation ();
 		  tree id, members;
@@ -1060,12 +1062,12 @@ unary_expr:
 		illegal_new_array:
 		  absdcl = build_parse_node (ARRAY_REF, $5, $8);
 		  typename = build_decl_list ($4, absdcl);
-		  warning ("array dimensions with parenthesized type is disallowed in standard C++");
+		  pedwarn ("array dimensions with parenthesized type is disallowed in standard C++");
 		  if (!gave_warning)
 		    {
 		      gave_warning++;
-		      warning ("  (per grammar in Ellis & Stroustrup [1990], chapter 17)");
-		      warning ("  try rewriting, perhaps with a typedef");
+		      pedwarn ("  (per grammar in Ellis & Stroustrup [1990], chapter 17)");
+		      pedwarn ("  try rewriting, perhaps with a typedef");
 		    }
 		  $$ = build_new ($2, typename, NULL_TREE, $$);
 		}
@@ -1120,7 +1122,7 @@ unary_expr:
 		  if (yychar == YYEMPTY)
 		    yychar = YYLEX;
 
-		  warning ("use of array size with vector delete is anachronistic");
+		  pedwarn ("use of array size with vector delete is anachronistic");
 		  $$ = build_vec_delete (exp, maxindex, elt_size, NULL_TREE,
 					 integer_one_node, integer_two_node);
 		}
@@ -1135,7 +1137,7 @@ cast_expr:
 		{ tree type = groktypename ($2);
 		  tree init = build_nt (CONSTRUCTOR, NULL_TREE, nreverse ($5));
 		  if (pedantic)
-		    warning ("ANSI C forbids constructor-expressions");
+		    pedwarn ("ANSI C forbids constructor-expressions");
 		  /* Indicate that this was a GNU C constructor expression.  */
 		  TREE_HAS_CONSTRUCTOR (init) = 1;
 		  $$ = digest_init (type, init, 0);
@@ -1143,7 +1145,7 @@ cast_expr:
 		    {
 		      int failure = complete_array_type (type, $$, 1);
 		      if (failure)
-			abort ();
+			my_friendly_abort (78);
 		    }
 		}
 	| HEADOF '(' expr ')'
@@ -1261,7 +1263,7 @@ primary:
 	  compstmt ')'
 		{ tree rtl_exp;
 		  if (pedantic)
-		    warning ("ANSI C forbids braced-groups within expressions");
+		    pedwarn ("ANSI C forbids braced-groups within expressions");
 		  rtl_exp = expand_end_stmt_expr ($<ttype>2);
 		  /* The statements have side effects, so the group does.  */
 		  TREE_SIDE_EFFECTS (rtl_exp) = 1;
@@ -1421,7 +1423,7 @@ primary:
 		          $$ = error_mark_node;
 		          break;
 		        }
-		      else abort ();
+		      else my_friendly_abort (79);
 		      $$ = build_c_cast (type, build_compound_expr ($3));
 		    }
 		}
@@ -1499,7 +1501,7 @@ primary_no_id:
 		  $<ttype>$ = expand_start_stmt_expr (); }
 	  compstmt ')'
 		{ if (pedantic)
-		    warning ("ANSI C forbids braced-groups within expressions");
+		    pedwarn ("ANSI C forbids braced-groups within expressions");
 		  $$ = expand_end_stmt_expr ($<ttype>2); }
 	| primary_no_id '(' nonnull_exprlist ')'
 		{ $$ = build_x_function_call ($$, $3, current_class_decl); }
@@ -1598,7 +1600,7 @@ decl:
 		{ tree d;
 		  int yes = suspend_momentary ();
 		  d = start_decl ($2, $<ttype>$, 0, NULL_TREE);
-		  finish_decl (d, NULL_TREE, NULL_TREE);
+		  finish_decl (d, NULL_TREE, NULL_TREE, 0);
 		  resume_momentary (yes);
 		  note_list_got_semicolon ($<ttype>$);
 		}
@@ -1609,7 +1611,7 @@ decl:
 		{ tree d;
 		  int yes = suspend_momentary ();
 		  d = start_decl ($2, $<ttype>$, 0, NULL_TREE);
-		  finish_decl (d, NULL_TREE, NULL_TREE);
+		  finish_decl (d, NULL_TREE, NULL_TREE, 0);
 		  resume_momentary (yes);
 		}
 	| typed_declspecs ';'
@@ -1711,11 +1713,11 @@ typespec: structsp
 	| TYPEOF '(' expr ')'
 		{ $$ = TREE_TYPE ($3);
 		  if (pedantic)
-		    warning ("ANSI C forbids `typeof'"); }
+		    pedwarn ("ANSI C forbids `typeof'"); }
 	| TYPEOF '(' typename ')'
 		{ $$ = groktypename ($3);
 		  if (pedantic)
-		    warning ("ANSI C forbids `typeof'"); }
+		    pedwarn ("ANSI C forbids `typeof'"); }
 	| template_type
 	;
 
@@ -1743,7 +1745,7 @@ maybeasm:
 		{ if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  $$ = $3;
 		  if (pedantic)
-		    warning ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C forbids use of `asm' keyword");
 		}
 	;
 
@@ -1751,45 +1753,51 @@ initdcl0:
 	  declarator maybe_raises maybeasm maybe_attribute '='
 		{ current_declspecs = $<ttype>0;
 		  $<itype>5 = suspend_momentary ();
-		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2); }
+		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
+		  decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
-		{ finish_decl ($<ttype>6, $7, $3);
+		{ finish_decl ($<ttype>6, $7, $3, 0);
 		  $$ = $<itype>5; }
 	| declarator maybe_raises maybeasm maybe_attribute
 		{ tree d;
 		  current_declspecs = $<ttype>0;
 		  $$ = suspend_momentary ();
 		  d = start_decl ($1, current_declspecs, 0, $2);
-		  finish_decl (d, NULL_TREE, $3); }
+		  decl_attributes (d, $4);
+		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
 initdcl:
 	  declarator maybe_raises maybeasm maybe_attribute '='
-		{ $<ttype>$ = start_decl ($1, current_declspecs, 1, $2); }
+		{ $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
+		  decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
-		{ finish_decl ($<ttype>6, $7, $3); }
+		{ finish_decl ($<ttype>6, $7, $3, 0); }
 	| declarator maybe_raises maybeasm maybe_attribute
 		{ tree d = start_decl ($$, current_declspecs, 0, $2);
-		  finish_decl (d, NULL_TREE, $3); }
+		  decl_attributes ($<ttype>$, $4);
+		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
 notype_initdcl0:
 	  notype_declarator maybe_raises maybeasm maybe_attribute '='
 		{ current_declspecs = $<ttype>0;
 		  $<itype>5 = suspend_momentary ();
-		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2); }
+		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
+		  decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
-		{ finish_decl ($<ttype>6, $7, $3);
+		{ finish_decl ($<ttype>6, $7, $3, 0);
 		  $$ = $<itype>5; }
 	| notype_declarator maybe_raises maybeasm maybe_attribute
 		{ tree d;
 		  current_declspecs = $<ttype>0;
 		  $$ = suspend_momentary ();
 		  d = start_decl ($1, current_declspecs, 0, $2);
-		  finish_decl (d, NULL_TREE, $3); }
+		  decl_attributes (d, $4);
+		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
 /* the * rules are dummies to accept the Apollo extended syntax
@@ -1803,32 +1811,41 @@ maybe_attribute:
 
 attribute_list
     : attrib
+	{ $$ = tree_cons (NULL_TREE, $1, NULL_TREE); }
     | attribute_list ',' attrib
+	{ $$ = tree_cons (NULL_TREE, $3, $1); }
     ;
 
 attrib
     : IDENTIFIER
-	{ warning ("`%s' attribute directive ignored",
-		   IDENTIFIER_POINTER ($$)); }
-    | IDENTIFIER '(' CONSTANT ')'
-	{ /* if not "aligned(1)", then issue warning */
-	  if (strcmp (IDENTIFIER_POINTER ($$), "aligned") != 0
-	      || TREE_CODE ($3) != INTEGER_CST
-	      || TREE_INT_CST_LOW ($3) != 1)
+	{ if (strcmp (IDENTIFIER_POINTER ($1), "packed"))
 	    warning ("`%s' attribute directive ignored",
-		     IDENTIFIER_POINTER ($$)); }
-    | IDENTIFIER '(' identifiers ')'
-	{ warning ("`%s' attribute directive ignored",
-		   IDENTIFIER_POINTER ($$)); }
+		     IDENTIFIER_POINTER ($1));
+	  $$ = $1; }
+    | IDENTIFIER '(' CONSTANT ')'
+	{ /* if not "aligned(n)", then issue warning */
+	  if (strcmp (IDENTIFIER_POINTER ($1), "aligned") != 0
+	      || TREE_CODE ($3) != INTEGER_CST)
+	    {
+	      warning ("`%s' attribute directive ignored",
+		       IDENTIFIER_POINTER ($1));
+	      $$ = $1;
+	    }
+	  else
+	    $$ = tree_cons ($1, $3); }
+    | IDENTIFIER '(' IDENTIFIER ',' CONSTANT ',' CONSTANT ')'
+	{ /* if not "format(...)", then issue warning */
+	  if (strcmp (IDENTIFIER_POINTER ($1), "format") != 0
+	      || TREE_CODE ($5) != INTEGER_CST
+	      || TREE_CODE ($7) != INTEGER_CST)
+	    {
+	      warning ("`%s' attribute directive ignored",
+		       IDENTIFIER_POINTER ($1));
+	      $$ = $1;
+	    }
+	  else
+	    $$ = tree_cons ($1, tree_cons ($3, tree_cons ($5, $7))); }
     ;
-
-/* A nonempty list of identifiers.  */
-identifiers:
-	  IDENTIFIER
-		{ $$ = build_tree_list (NULL_TREE, $1); }
-	| identifiers ',' IDENTIFIER
-		{ $$ = chainon ($1, build_tree_list (NULL_TREE, $3)); }
-	;
 
 /* A nonempty list of identifiers, including typenames.  */
 identifiers_or_typenames:
@@ -1844,7 +1861,7 @@ init:
 		{ $$ = build_nt (CONSTRUCTOR, NULL_TREE, NULL_TREE);
 		  TREE_HAS_CONSTRUCTOR ($$) = 1;
 		  if (pedantic)
-		    warning ("ANSI C forbids empty initializer braces"); }
+		    pedwarn ("ANSI C forbids empty initializer braces"); }
 	| '{' initlist '}'
 		{ $$ = build_nt (CONSTRUCTOR, NULL_TREE, nreverse ($2));
 		  TREE_HAS_CONSTRUCTOR ($$) = 1; }
@@ -1898,7 +1915,7 @@ structsp:
 		{ $$ = xref_tag (enum_type_node, $2, NULL_TREE); }
 
 	/* C++ extensions, merged with C to avoid shift/reduce conflicts */
-	| class_head LC opt.component_decl_list '}'
+	| class_head left_curly opt.component_decl_list '}'
 		{
 		  int semi;
 #if 0
@@ -1947,7 +1964,7 @@ maybecomma:
 maybecomma_warn:
 	  /* empty */
 	| ','
-		{ if (pedantic) warning ("comma at end of enumerator list"); }
+		{ if (pedantic) pedwarn ("comma at end of enumerator list"); }
 	;
 
 aggr:	  AGGR
@@ -2102,7 +2119,7 @@ base_class_visibility_list:
 		    $$ = visibility_private_virtual; }
 	;
 
-LC: '{'
+left_curly: '{'
 		{ tree t;
 		  push_obstacks_nochange ();
 		  end_temporary_allocation ();
@@ -2117,12 +2134,12 @@ LC: '{'
                   if (TYPE_SIZE ($<ttype>0) || TYPE_BEING_DEFINED ($<ttype>0))
                     {
                       t = make_lang_type (TREE_CODE ($<ttype>0));
-                      pushtag (DECL_NAME (TYPE_NAME ($<ttype>0)), t);
+                      pushtag (TYPE_IDENTIFIER ($<ttype>0), t);
                       $<ttype>0 = t;
                     }
 		  pushclass ($<ttype>0, 0);
 		  TYPE_BEING_DEFINED ($<ttype>0) = 1;
-		  t = DECL_NAME (TYPE_NAME ($<ttype>0));
+		  t = TYPE_IDENTIFIER ($<ttype>0);
 		  if (IDENTIFIER_TEMPLATE (t))
 		    overload_template_name (t, 1);
 		}
@@ -2146,7 +2163,7 @@ component_decl_list:
 		    $$ = chainon ($$, $2); }
 	| component_decl_list ';'
 		{ if (pedantic)
-		    warning ("extra semicolon in struct or union specified"); }
+		    pedwarn ("extra semicolon in struct or union specified"); }
 	;
 
 component_decl:
@@ -2270,32 +2287,40 @@ components:
 	;
 
 component_declarator0:
-	  declarator maybe_raises maybeasm
+	  declarator maybe_raises maybeasm maybe_attribute
 		{ current_declspecs = $<ttype>0;
-		  $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3); }
-	| declarator maybe_raises maybeasm '=' init
+		  $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3);
+		  decl_attributes ($$, $4); }
+	| declarator maybe_raises maybeasm maybe_attribute '=' init
 		{ current_declspecs = $<ttype>0;
-		  $$ = grokfield ($$, current_declspecs, $2, $5, $3); }
-	| IDENTIFIER ':' expr_no_commas
+		  $$ = grokfield ($$, current_declspecs, $2, $6, $3);
+		  decl_attributes ($$, $4); }
+	| IDENTIFIER ':' expr_no_commas maybe_attribute
 		{ current_declspecs = $<ttype>0;
-		  $$ = grokbitfield ($$, current_declspecs, $3); }
-	| TYPENAME_COLON expr_no_commas
+		  $$ = grokbitfield ($$, current_declspecs, $3);
+		  decl_attributes ($$, $4); }
+	| TYPENAME_COLON expr_no_commas maybe_attribute
 		{ current_declspecs = $<ttype>0;
-		  $$ = grokbitfield ($$, current_declspecs, $2); }
+		  $$ = grokbitfield ($$, current_declspecs, $2);
+		  decl_attributes ($$, $3); }
 	| ':' expr_no_commas
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokbitfield (NULL_TREE, NULL_TREE, $2); }
 	;
 
 component_declarator:
-	  declarator maybe_raises maybeasm
-		{ $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3); }
-	| declarator maybe_raises maybeasm '=' init
-		{ $$ = grokfield ($$, current_declspecs, $2, $5, $3); }
-	| IDENTIFIER ':' expr_no_commas
-		{ $$ = grokbitfield ($$, current_declspecs, $3); }
-	| TYPENAME_COLON expr_no_commas
-		{ $$ = grokbitfield ($$, current_declspecs, $2); }
+	  declarator maybe_raises maybeasm maybe_attribute
+		{ $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3);
+		  decl_attributes ($$, $4); }
+	| declarator maybe_raises maybeasm maybe_attribute '=' init
+		{ $$ = grokfield ($$, current_declspecs, $2, $6, $3);
+		  decl_attributes ($$, $4); }
+	| IDENTIFIER ':' expr_no_commas maybe_attribute
+		{ $$ = grokbitfield ($$, current_declspecs, $3);
+		  decl_attributes ($$, $4); }
+	| TYPENAME_COLON expr_no_commas maybe_attribute
+		{ $$ = grokbitfield ($$, current_declspecs, $2);
+		  decl_attributes ($$, $3); }
 	| ':' expr_no_commas
 		{ $$ = grokbitfield (NULL_TREE, NULL_TREE, $2); }
 	;
@@ -2496,7 +2521,7 @@ notype_declarator:
 		{ $$ = build_parse_node (SCOPE_REF, NULL_TREE, $3); }
 	;
 
-scoped_id:	TYPENAME_SCOPE
+scoped_id:	typename_scope
 		{ $$ = resolve_scope_to_name (NULL_TREE, $$);
 		  if ($$ == NULL_TREE)
 		    {
@@ -2521,7 +2546,7 @@ scoped_id:	TYPENAME_SCOPE
 		}
 	;
 
-TYPENAME_SCOPE:
+typename_scope:
 	TYPENAME SCOPE;
 
 scoped_typename: SCOPED_TYPENAME
@@ -2532,7 +2557,7 @@ scoped_typename: SCOPED_TYPENAME
 		  else
 		    {
                       $$ = build_parse_node (SCOPE_REF,
-                                             DECL_NAME (TYPE_NAME ($$)),
+                                             TYPE_IDENTIFIER ($$),
                                              $4);
                     }
 		  if ($3) popclass (1);
@@ -3408,11 +3433,11 @@ forhead.2:
 maybe_type_qual:
 	/* empty */
 		{ if (pedantic)
-		    warning ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C forbids use of `asm' keyword");
 		  emit_line_note (input_filename, lineno); }
 	| TYPE_QUAL
 		{ if (pedantic)
-		    warning ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C forbids use of `asm' keyword");
 		  emit_line_note (input_filename, lineno); }
 	;
 
@@ -3917,7 +3942,7 @@ yyprint (file, yychar, yylval)
       else if (yylval.ttype == enum_type_node)
 	fprintf (file, " `enum'");
       else
-	abort ();
+	my_friendly_abort (80);
       break;
     case PRE_PARSED_CLASS_DECL:
       t = yylval.ttype;

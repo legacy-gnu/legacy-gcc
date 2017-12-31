@@ -25,17 +25,27 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Provide required defaults for linker -e and -d switches.  */
 
-#define LINK_SPEC "%{!e*:-e start} -dc -dp %{static:-Bstatic} %{assert*}"
+#define LINK_SPEC \
+ "%{!nostdlib:%{!e*:-e start}} -dc -dp %{static:-Bstatic} %{assert*}"
 
 /* Special flags to the Sun-4 assembler when using pipe for input.  */
 
 #define ASM_SPEC " %{pipe:-} %{fpic:-k} %{fPIC:-k}"
+
+/* Define macros to distinguish architectures.  */
+#define CPP_SPEC "%{msparclite:-D__sparclite__} %{mv8:-D__sparcv8__}"
 
 /* Prevent error on `-sun4' and `-target sun4' options.  */
 /* This used to translate -dalign to -malign, but that is no good
    because it can't turn off the usual meaning of making debugging dumps.  */
 
 #define CC1_SPEC "%{sun4:} %{target:}"
+
+#if 0
+/* Sparc ABI says that long double is 4 words.
+   ??? This doesn't work yet.  */
+#define LONG_DOUBLE_TYPE_SIZE 128
+#endif
 
 #define PTRDIFF_TYPE "int"
 #define SIZE_TYPE "int"
@@ -82,17 +92,23 @@ extern int target_flags;
    use fast return insns, but lose some generality.  */
 #define TARGET_EPILOGUE (target_flags & 2)
 
-/* Nonzero if we assume that all calls will fall within a 16MB
-   pc-relative range.  Useful with -fomit-frame-pointer.  */
-#define TARGET_TAIL_CALL (target_flags & 8)
-
 /* Nonzero means that reference doublewords as if they were guaranteed
    to be aligned...if they aren't, too bad for the user!
-   Like -fast in Sun cc.  */
+   Like -dalign in Sun cc.  */
 #define TARGET_HOPE_ALIGN (target_flags & 16)
 
-/* Nonzero means that make sure all doubles are on 8-byte boundaries.  */
+/* Nonzero means make sure all doubles are on 8-byte boundaries.
+   This option results in a calling convention that is incompatible with
+   every other sparc compiler in the world, and thus should only ever be
+   used for experimenting.  Also, varargs won't work with it, but it doesn't
+   seem worth trying to fix.  */
 #define TARGET_FORCE_ALIGN (target_flags & 32)
+
+/* Nonzero means that we should generate code for a v8 sparc.  */
+#define TARGET_V8 (target_flags & 64)
+
+/* Nonzero means that we should generate code for a sparclite.  */
+#define TARGET_SPARCLITE (target_flags & 128)
 
 /* Macro to define tables used to set the flags.
    This is a list in braces of pairs in braces,
@@ -105,9 +121,12 @@ extern int target_flags;
     {"soft-float", -1},		\
     {"epilogue", 2},		\
     {"no-epilogue", -2},	\
-    {"tail-call", 8},		\
     {"hope-align", 16},		\
     {"force-align", 48},	\
+    {"v8", 64},			\
+    {"no-v8", -64},		\
+    {"sparclite", 128},		\
+    {"no-sparclite", -128},	\
     { "", TARGET_DEFAULT}}
 
 #define TARGET_DEFAULT 3
@@ -166,16 +185,19 @@ extern int target_flags;
 /* No data type wants to be aligned rounder than this.  */
 #define BIGGEST_ALIGNMENT 64
 
+/* The best alignment to use in cases where we have a choice.  */
+#define FASTEST_ALIGNMENT 64
+
 /* Make strings word-aligned so strcpy from constants will be faster.  */
 #define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
   (TREE_CODE (EXP) == STRING_CST	\
-   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+   && (ALIGN) < FASTEST_ALIGNMENT ? FASTEST_ALIGNMENT : (ALIGN))
 
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN)		\
   (TREE_CODE (TYPE) == ARRAY_TYPE		\
    && TYPE_MODE (TREE_TYPE (TYPE)) == QImode	\
-   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+   && (ALIGN) < FASTEST_ALIGNMENT ? FASTEST_ALIGNMENT : (ALIGN))
 
 /* Set this nonzero if move instructions will actually fail to work
    when given unaligned data.  */
@@ -239,11 +261,10 @@ extern int target_flags;
    and are not available for the register allocator.
    0 is used for the condition code and not to represent %g0, which is
    hardwired to 0, so reg 0 is *not* fixed.
-   2 and 3 are free to use as temporaries.
-   4 through 7 are expected to become usefully defined in the future.
-   Your milage may vary.  */
+   g1 through g4 are free to use as temporaries.
+   g5 through g7 are reserved for the operating system.  */
 #define FIXED_REGISTERS  \
- {0, 0, 0, 0, 1, 1, 1, 1,	\
+ {0, 0, 0, 0, 0, 1, 1, 1,	\
   0, 0, 0, 0, 0, 0, 1, 0,	\
   0, 0, 0, 0, 0, 0, 0, 0,	\
   0, 0, 0, 0, 0, 0, 1, 1,	\
@@ -361,6 +382,13 @@ extern int leaf_function;
 #define INITIALIZE_PIC initialize_pic ()
 #define FINALIZE_PIC finalize_pic ()
 
+/* Sparc ABI says that quad-precision floats and all structures are returned
+   in memory.  We go along regarding floats, but for structures
+   we follow GCC's normal policy.  Use -fpcc-struct-value
+   if you want to follow the ABI.  */
+#define RETURN_IN_MEMORY(TYPE)	\
+  (TYPE_MODE (TYPE) == TFmode)
+
 /* Functions which return large structures get the address
    to place the wanted value at offset 64 from the frame.
    Must reserve 64 bytes for the in and local registers.  */
@@ -435,7 +463,7 @@ enum reg_class { NO_REGS, GENERAL_REGS, FP_REGS, ALL_REGS, LIM_REG_CLASSES };
   40, 41, 42, 43, 44, 45, 46, 47,	\
   48, 49, 50, 51, 52, 53, 54, 55,	\
   56, 57, 58, 59, 60, 61, 62, 63,	\
-  1, 4, 5, 6, 7, 0, 14, 30};
+  1, 4, 5, 6, 7, 0, 14, 30}
 
 /* This is the order in which to allocate registers for
    leaf functions.  If all registers can fit in the "i" registers,
@@ -448,7 +476,7 @@ enum reg_class { NO_REGS, GENERAL_REGS, FP_REGS, ALL_REGS, LIM_REG_CLASSES };
   40, 41, 42, 43, 44, 45, 46, 47,	\
   48, 49, 50, 51, 52, 53, 54, 55,	\
   56, 57, 58, 59, 60, 61, 62, 63,	\
-  1, 4, 5, 6, 7, 0, 14, 30, 31};
+  1, 4, 5, 6, 7, 0, 14, 30, 31}
 
 #define ORDER_REGS_FOR_LOCAL_ALLOC order_regs_for_local_alloc ()
 
@@ -460,7 +488,7 @@ enum reg_class { NO_REGS, GENERAL_REGS, FP_REGS, ALL_REGS, LIM_REG_CLASSES };
   1, 1, 1, 1, 1, 1, 1, 1,	\
   1, 1, 1, 1, 1, 1, 1, 1,	\
   1, 1, 1, 1, 1, 1, 1, 1,	\
-  1, 1, 1, 1, 1, 1, 1, 1};
+  1, 1, 1, 1, 1, 1, 1, 1}
 
 extern char leaf_reg_remap[];
 #define LEAF_REG_REMAP(REGNO) (leaf_reg_remap[REGNO])
@@ -517,7 +545,15 @@ extern char leaf_reg_backmap[];
    in class CLASS, return the class of reg to actually use.
    In general this is just CLASS; but on some machines
    in some cases it is preferable to use a more restrictive class.  */
-#define PREFERRED_RELOAD_CLASS(X,CLASS) CLASS
+/* We can't load constants into FP registers.  We can't load any FP constant
+   if an 'E' constraint fails to match it.  */
+#define PREFERRED_RELOAD_CLASS(X,CLASS)			\
+  (CONSTANT_P (X)					\
+   && ((CLASS) == FP_REGS				\
+       || (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT	\
+	   && (HOST_FLOAT_FORMAT != IEEE_FLOAT_FORMAT	\
+	       || HOST_BITS_PER_INT != BITS_PER_WORD)))	\
+   ? NO_REGS : (CLASS))
 
 /* Return the register class of a scratch register needed to load IN into
    a register of class CLASS in MODE.
@@ -563,14 +599,11 @@ extern char leaf_reg_backmap[];
 
 /* Offset of first parameter from the argument pointer register value.
    This is 64 for the ins and locals, plus 4 for the struct-return reg
-   even if this function isn't going to use it.  */
-#define FIRST_PARM_OFFSET(FNDECL) (STRUCT_VALUE_OFFSET + UNITS_PER_WORD)
-
-/* Offset from top-of-stack address to location to store the
-   function parameter if it can't go in a register.
-   Addresses for following parameters are computed relative to this one.  */
-#define FIRST_PARM_CALLER_OFFSET(FNDECL)	\
-  (STRUCT_VALUE_OFFSET + UNITS_PER_WORD - STACK_POINTER_OFFSET)
+   even if this function isn't going to use it.
+   If TARGET_FORCE_ALIGN, we must reserve 4 more bytes to ensure that the
+   stack remains aligned.  */
+#define FIRST_PARM_OFFSET(FNDECL) \
+  (STRUCT_VALUE_OFFSET + UNITS_PER_WORD + (TARGET_FORCE_ALIGN ? 4 : 0))
 
 /* When a parameter is passed in a register, stack space is still
    allocated for it.  */
@@ -729,10 +762,12 @@ extern char leaf_reg_backmap[];
    ? (NPARM_REGS - ROUND_REG ((CUM), (MODE)))				\
    : 0)
 
-/* The SPARC ABI stipulates passing struct arguments (of any size)
-   by invisible reference.  */
+/* The SPARC ABI stipulates passing struct arguments (of any size) and
+   quad-precision floats by invisible reference.  */
 #define FUNCTION_ARG_PASS_BY_REFERENCE(CUM, MODE, TYPE, NAMED)		\
-  (TYPE && (TREE_CODE (TYPE) == RECORD_TYPE || TREE_CODE (TYPE) == UNION_TYPE))
+  ((TYPE && (TREE_CODE (TYPE) == RECORD_TYPE				\
+	    || TREE_CODE (TYPE) == UNION_TYPE))				\
+   || (MODE == TFmode))
 
 /* If defined, a C expression that gives the alignment boundary, in
    bits, of an argument with the specified mode and type.  If it is
@@ -762,20 +797,23 @@ extern struct rtx_def *sparc_compare_op0, *sparc_compare_op1;
 
 extern struct rtx_def *gen_compare_reg ();
 
+/* Generate the special assembly code needed to tell the assembler whatever
+   it might need to know about the return value of a function.
+
+   For Sparc assemblers, we need to output a .proc pseudo-op which conveys
+   information to the assembler relating to peephole optimization (done in
+   the assembler).  */
+
+#define ASM_DECLARE_RESULT(FILE, RESULT) \
+  fprintf ((FILE), "\t.proc\t0%o\n", sparc_type_code (TREE_TYPE (RESULT)))
+
 /* Output the label for a function definition.  */
 
-#define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL) \
-{							\
-  extern tree double_type_node, float_type_node;	\
-  if (TREE_TYPE (DECL) == float_type_node)		\
-    fprintf (FILE, "\t.proc 6\n");			\
-  else if (TREE_TYPE (DECL) == double_type_node)	\
-    fprintf (FILE, "\t.proc 7\n");			\
-  else if (TREE_TYPE (DECL) == void_type_node)		\
-    fprintf (FILE, "\t.proc 0\n");			\
-  else fprintf (FILE, "\t.proc 1\n");			\
-  ASM_OUTPUT_LABEL (FILE, NAME);			\
-}
+#define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL)			\
+do {									\
+  ASM_DECLARE_RESULT (FILE, DECL_RESULT (DECL));			\
+  ASM_OUTPUT_LABEL (FILE, NAME);					\
+} while (0)
 
 /* Two views of the size of the current frame.  */
 extern int actual_fsize;
@@ -859,7 +897,7 @@ extern int current_function_outgoing_args_size;
 extern union tree_node *current_function_decl;
 
 #define FUNCTION_EPILOGUE(FILE, SIZE)				\
-  output_function_epilogue (FILE, SIZE, leaf_function, 1)
+  output_function_epilogue (FILE, SIZE, leaf_function)
 
 #define DELAY_SLOTS_FOR_EPILOGUE 1
 #define ELIGIBLE_FOR_EPILOGUE_DELAY(trial, slots_filled)	\
@@ -1021,16 +1059,19 @@ extern union tree_node *current_function_decl;
 #define REG_OK_FOR_BASE_P(X) (((unsigned) REGNO (X)) - 32 >= 32 && REGNO (X) != 0)
 
 #define EXTRA_CONSTRAINT(OP, C)				\
-  ((C) == 'Q' ?						\
-   ((GET_CODE (OP) == MEM				\
-     && memory_address_p (GET_MODE (OP), XEXP (OP, 0))	\
-     && ! symbolic_memory_operand (OP, VOIDmode)))	\
-   : ((C) == 'R' ?					\
-      (GET_CODE (OP) == LO_SUM				\
-       && GET_CODE (XEXP (OP, 0)) == REG		\
-       && REG_OK_FOR_BASE_P (XEXP (OP, 0)))		\
-      : ((C) == 'S'					\
-	 ? CONSTANT_P (OP) || memory_address_p (Pmode, OP) : 0)))
+  ((C) == 'Q'						\
+   ? ((GET_CODE (OP) == MEM				\
+       && memory_address_p (GET_MODE (OP), XEXP (OP, 0))	\
+       && ! symbolic_memory_operand (OP, VOIDmode))	\
+      || (reload_in_progress && GET_CODE (OP) == REG	\
+	  && REGNO (OP) >= FIRST_PSEUDO_REGISTER))	\
+   : (C) == 'R'						\
+   ? (GET_CODE (OP) == LO_SUM				\
+      && GET_CODE (XEXP (OP, 0)) == REG			\
+      && REG_OK_FOR_BASE_P (XEXP (OP, 0)))		\
+   : (C) == 'S'						\
+   ? (CONSTANT_P (OP) || memory_address_p (Pmode, OP))	\
+   : 0)
 
 #else
 
@@ -1065,56 +1106,59 @@ extern union tree_node *current_function_decl;
 
    If you change this, execute "rm explow.o recog.o reload.o".  */
 
+#define RTX_OK_FOR_BASE_P(X)						\
+  ((GET_CODE (X) == REG && REG_OK_FOR_BASE_P (X))			\
+  || (GET_CODE (X) == SUBREG						\
+      && GET_CODE (SUBREG_REG (X)) == REG				\
+      && REG_OK_FOR_BASE_P (SUBREG_REG (X))))
+
+#define RTX_OK_FOR_INDEX_P(X)						\
+  ((GET_CODE (X) == REG && REG_OK_FOR_INDEX_P (X))			\
+  || (GET_CODE (X) == SUBREG						\
+      && GET_CODE (SUBREG_REG (X)) == REG				\
+      && REG_OK_FOR_INDEX_P (SUBREG_REG (X))))
+
+#define RTX_OK_FOR_OFFSET_P(X)						\
+  (GET_CODE (X) == CONST_INT && INTVAL (X) >= -0x1000 && INTVAL (X) < 0x1000)
+
 #define GO_IF_LEGITIMATE_ADDRESS(MODE, X, ADDR)		\
-{ if (GET_CODE (X) == REG)				\
-    { if (REG_OK_FOR_BASE_P (X)) goto ADDR; }		\
+{ if (RTX_OK_FOR_BASE_P (X))				\
+    goto ADDR;						\
   else if (GET_CODE (X) == PLUS)			\
     {							\
-      if (flag_pic && XEXP (X, 0) == pic_offset_table_rtx)\
+      register rtx op0 = XEXP (X, 0);			\
+      register rtx op1 = XEXP (X, 1);			\
+      if (flag_pic && op0 == pic_offset_table_rtx)	\
 	{						\
-	  if (GET_CODE (XEXP (X, 1)) == REG		\
-	      && REG_OK_FOR_BASE_P (XEXP (X, 1)))	\
+	  if (RTX_OK_FOR_BASE_P (op1))			\
 	    goto ADDR;					\
 	  else if (flag_pic == 1			\
-		   && GET_CODE (XEXP (X, 1)) != REG	\
-		   && GET_CODE (XEXP (X, 1)) != LO_SUM	\
-		   && GET_CODE (XEXP (X, 1)) != MEM)	\
+		   && GET_CODE (op1) != REG		\
+		   && GET_CODE (op1) != LO_SUM		\
+		   && GET_CODE (op1) != MEM)		\
 	    goto ADDR;					\
 	}						\
-      else if (GET_CODE (XEXP (X, 0)) == REG		\
-	  && REG_OK_FOR_BASE_P (XEXP (X, 0)))		\
+      else if (RTX_OK_FOR_BASE_P (op0))			\
 	{						\
-	  if (GET_CODE (XEXP (X, 1)) == REG		\
-	      && REG_OK_FOR_INDEX_P (XEXP (X, 1)))	\
-	    goto ADDR;					\
-	  if (GET_CODE (XEXP (X, 1)) == CONST_INT	\
-	      && INTVAL (XEXP (X, 1)) >= -0x1000	\
-	      && INTVAL (XEXP (X, 1)) < 0x1000)		\
+	  if (RTX_OK_FOR_INDEX_P (op1)			\
+	      || RTX_OK_FOR_OFFSET_P (op1))		\
 	    goto ADDR;					\
 	}						\
-      else if (GET_CODE (XEXP (X, 1)) == REG		\
-	  && REG_OK_FOR_BASE_P (XEXP (X, 1)))		\
+      else if (RTX_OK_FOR_BASE_P (op1))			\
 	{						\
-	  if (GET_CODE (XEXP (X, 0)) == REG		\
-	      && REG_OK_FOR_INDEX_P (XEXP (X, 0)))	\
-	    goto ADDR;					\
-	  if (GET_CODE (XEXP (X, 0)) == CONST_INT	\
-	      && INTVAL (XEXP (X, 0)) >= -0x1000	\
-	      && INTVAL (XEXP (X, 0)) < 0x1000)		\
+	  if (RTX_OK_FOR_INDEX_P (op0)			\
+	      || RTX_OK_FOR_OFFSET_P (op0))		\
 	    goto ADDR;					\
 	}						\
     }							\
-  else if (GET_CODE (X) == LO_SUM			\
-	   && GET_CODE (XEXP (X, 0)) == REG		\
-	   && REG_OK_FOR_BASE_P (XEXP (X, 0))		\
-	   && CONSTANT_P (XEXP (X, 1)))			\
-    goto ADDR;						\
-  else if (GET_CODE (X) == LO_SUM			\
-	   && GET_CODE (XEXP (X, 0)) == SUBREG		\
-	   && GET_CODE (SUBREG_REG (XEXP (X, 0))) == REG\
-	   && REG_OK_FOR_BASE_P (SUBREG_REG (XEXP (X, 0)))\
-	   && CONSTANT_P (XEXP (X, 1)))			\
-    goto ADDR;						\
+  else if (GET_CODE (X) == LO_SUM)			\
+    {							\
+      register rtx op0 = XEXP (X, 0);			\
+      register rtx op1 = XEXP (X, 1);			\
+      if (RTX_OK_FOR_BASE_P (op0)			\
+	  && CONSTANT_P (op1))				\
+	goto ADDR;					\
+    }							\
   else if (GET_CODE (X) == CONST_INT && SMALL_INT (X))	\
     goto ADDR;						\
 }
@@ -1190,7 +1234,7 @@ extern struct rtx_def *legitimize_pic_address ();
 
 /* Max number of bytes we can move from memory to memory
    in one reasonably fast instruction.  */
-#define MOVE_MAX 4
+#define MOVE_MAX 8
 
 /* Define if normal loads of shorter-than-word items from memory clears
    the rest of the bigs in the register.  */
@@ -1233,23 +1277,26 @@ extern struct rtx_def *legitimize_pic_address ();
    subtract insn is used to set the condition code.  Different branches are
    used in this case for some operations.
 
-   We also have a mode to indicate that the relevant condition code is
-   in the floating-point condition code.  This really should be a separate
-   register, but we don't want to go to 65 registers.  */
-#define EXTRA_CC_MODES CC_NOOVmode, CCFPmode
+   We also have two modes to indicate that the relevant condition code is
+   in the floating-point condition code register.  One for comparisons which
+   will generate an exception if the result is unordered (CCFPEmode) and
+   one for comparisons which will never trap (CCFPmode).  This really should
+   be a separate register, but we don't want to go to 65 registers.  */
+#define EXTRA_CC_MODES CC_NOOVmode, CCFPmode, CCFPEmode
 
 /* Define the names for the modes specified above.  */
-#define EXTRA_CC_NAMES "CC_NOOV", "CCFP"
+#define EXTRA_CC_NAMES "CC_NOOV", "CCFP", "CCFPE"
 
 /* Given a comparison code (EQ, NE, etc.) and the first operand of a COMPARE,
-   return the mode to be used for the comparison.  For floating-point, CCFPmode
-   should be used.  CC_NOOVmode should be used when the first operand is a
+   return the mode to be used for the comparison.  For floating-point,
+   CCFP[E]mode is used.  CC_NOOVmode should be used when the first operand is a
    PLUS, MINUS, or NEG.  CCmode should be used when no special processing is
    needed.  */
 #define SELECT_CC_MODE(OP,X) \
-  (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CCFPmode		    \
-   : (GET_CODE (X) == PLUS || GET_CODE (X) == MINUS || GET_CODE (X) == NEG) \
-   ? CC_NOOVmode : CCmode)
+  (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT				\
+   ? ((OP == EQ || OP == NE) ? CCFPmode : CCFPEmode)		\
+   : ((GET_CODE (X) == PLUS || GET_CODE (X) == MINUS || GET_CODE (X) == NEG) \
+      ? CC_NOOVmode : CCmode))
 
 /* A function address in a call instruction
    is a byte address (for indexing purposes)
@@ -1281,7 +1328,7 @@ extern struct rtx_def *legitimize_pic_address ();
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     if (INTVAL (RTX) == 0)					\
       return 0;							\
@@ -1322,7 +1369,7 @@ extern struct rtx_def *legitimize_pic_address ();
    If we need more than 12 insns to do a multiply, then go out-of-line,
    since the call overhead will be < 10% of the cost of the multiply.  */
 
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)			\
   case MULT:						\
     return COSTS_N_INSNS (25);				\
   case DIV:						\
@@ -1377,6 +1424,15 @@ extern struct rtx_def *legitimize_pic_address ();
  "%f8", "%f9", "%f10", "%f11", "%f12", "%f13", "%f14", "%f15",		\
  "%f16", "%f17", "%f18", "%f19", "%f20", "%f21", "%f22", "%f23",	\
  "%f24", "%f25", "%f26", "%f27", "%f28", "%f29", "%f30", "%f31"}
+
+/* Define additional names for use in asm clobbers and asm declarations.
+
+   We define the fake Condition Code register as an alias for reg 0 (which
+   is our `condition code' register), so that condition codes can easily
+   be clobbered by an asm.  No such register actually exists.  Condition
+   codes are partly stored in the PSR and partly in the FSR.  */
+
+#define ADDITIONAL_REGISTER_NAMES	{"ccr", 0, "cc", 0}
 
 /* How to renumber registers for dbx and gdb.  */
 
@@ -1497,13 +1553,25 @@ extern struct rtx_def *legitimize_pic_address ();
 /* This is how to output an element of a case-vector that is absolute.  */
 
 #define ASM_OUTPUT_ADDR_VEC_ELT(FILE, VALUE)  \
-  fprintf (FILE, "\t.word L%d\n", VALUE)
+do {									\
+  char label[30];							\
+  ASM_GENERATE_INTERNAL_LABEL (label, "L", VALUE);			\
+  fprintf (FILE, "\t.word\t");						\
+  assemble_name (FILE, label);						\
+  fprintf (FILE, "\n");							\
+} while (0)
 
 /* This is how to output an element of a case-vector that is relative.
    (SPARC uses such vectors only when generating PIC.)  */
 
-#define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, VALUE, REL)  \
-  fprintf (FILE, "\t.word L%d-1b\n", VALUE)
+#define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, VALUE, REL)			\
+do {									\
+  char label[30];							\
+  ASM_GENERATE_INTERNAL_LABEL (label, "L", VALUE);			\
+  fprintf (FILE, "\t.word\t");						\
+  assemble_name (FILE, label);						\
+  fprintf (FILE, "-1b\n");						\
+} while (0)
 
 /* This is how to output an assembler line
    that says to advance the location counter
@@ -1631,13 +1699,16 @@ extern struct rtx_def *legitimize_pic_address ();
 
 extern char *singlemove_string ();
 extern char *output_move_double ();
+extern char *output_move_quad ();
 extern char *output_fp_move_double ();
+extern char *output_fp_move_quad ();
 extern char *output_block_move ();
 extern char *output_scc_insn ();
 extern char *output_cbranch ();
 extern char *output_return ();
 extern char *output_floatsisf2 ();
 extern char *output_floatsidf2 ();
+extern char *output_floatsitf2 ();
 
 /* Defined in flags.h, but insn-emit.c does not include flags.h.  */
 

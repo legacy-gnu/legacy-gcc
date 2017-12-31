@@ -49,18 +49,32 @@ enum cmp_type {
 enum delay_type {
   DELAY_NONE,				/* no delay slot */
   DELAY_LOAD,				/* load from memory delay */
-  DELAY_HILO				/* move from/to hi/lo registers */
+  DELAY_HILO,				/* move from/to hi/lo registers */
+  DELAY_FCMP				/* delay after doing c.<xx>.{d,s} */
 };
 
 /* Which processor to schedule for.  Since there is no difference between
    a R2000 and R3000 in terms of the scheduler, we collapse them into
-   just an R3000.  */
+   just an R3000.  The elements of the enumeration must match exactly
+   the cpu attribute in the mips.md machine description.  */
 
 enum processor_type {
   PROCESSOR_DEFAULT,
   PROCESSOR_R3000,
   PROCESSOR_R6000,
   PROCESSOR_R4000
+};
+
+/* Recast the cpu class to be the cpu attribute.  */
+#define mips_cpu_attr ((enum attr_cpu)mips_cpu)
+
+/* Which type of block move to do (whether or not the last store is
+   split out so it can fill a branch delay slot).  */
+
+enum block_move_type {
+  BLOCK_MOVE_NORMAL,			/* generate complete block move */
+  BLOCK_MOVE_NOT_LAST,			/* generate all but last store */
+  BLOCK_MOVE_LAST			/* generate just the last store */
 };
 
 extern char mips_reg_names[][8];	/* register names (a0 vs. $4). */
@@ -105,19 +119,20 @@ extern struct rtx_def *mips_load_reg4;	/* 4th reg to check for load delay */
 extern void		abort_with_insn ();
 extern int		arith32_operand ();
 extern int		arith_operand ();
-extern int		call_memory_operand ();
 extern int		cmp_op ();
 extern int		cmp2_op ();
 extern unsigned long	compute_frame_size ();
 extern void		expand_block_move ();
 extern int		equality_op ();
 extern int		fcmp_op ();
+extern int		fpsw_register_operand ();
 extern struct rtx_def *	function_arg ();
 extern void		function_arg_advance ();
 extern int		function_arg_partial_nregs ();
 extern void		function_epilogue ();
 extern void		function_prologue ();
 extern void		gen_conditional_branch ();
+extern struct rtx_def * gen_int_relational ();
 extern void		init_cumulative_args ();
 extern int		large_int ();
 extern int		md_register_operand ();
@@ -132,10 +147,14 @@ extern int		mips_epilogue_delay_slots ();
 extern char	       *mips_fill_delay_slot ();
 extern char	       *mips_move_1word ();
 extern char	       *mips_move_2words ();
+extern void		mips_output_double ();
 extern int		mips_output_external ();
+extern void		mips_output_float ();
 extern void		mips_output_filename ();
 extern void		mips_output_lineno ();
+extern char	       *output_block_move ();
 extern void		override_options ();
+extern int		pc_or_label_operand ();
 extern void		print_operand_address ();
 extern void		print_operand ();
 extern void		print_options ();
@@ -157,9 +176,14 @@ extern void		text_section ();
 
 #ifndef HALF_PIC_P
 #define HALF_PIC_P() 0
+#define HALF_PIC_NUMBER_PTRS 0
+#define HALF_PIC_NUMBER_REFS 0
 #define HALF_PIC_ENCODE(DECL)
+#define HALF_PIC_DECLARE(NAME)
 #define HALF_PIC_INIT()	error ("half-pic init called on systems that don't support it.")
 #define HALF_PIC_ADDRESS_P(X) 0
+#define HALF_PIC_PTR(X) X
+#define HALF_PIC_FINISH(STREAM)
 #endif
 
 
@@ -235,6 +259,9 @@ while (0)
 
 #define OPTIMIZATION_OPTIONS(LEVEL)					\
 {									\
+  flag_no_function_cse			= TRUE;				\
+  flag_gnu_linker			= FALSE;			\
+									\
   if (LEVEL)								\
     {									\
       flag_omit_frame_pointer		= TRUE;				\
@@ -375,10 +402,6 @@ while (0)
 %{save-temps: }"
 #endif
 
-#ifndef CC1PLUS_SPEC
-#define CC1PLUS_SPEC "%{!fgnu-binutils: -fno-gnu-binutils}"
-#endif
-
 /* Preprocessor specs */
 
 #ifndef CPP_SPEC
@@ -405,7 +428,7 @@ while (0)
 
 /* Print subsidiary information on the compiler version in use.  */
 
-#define MIPS_VERSION "[AL 1.1, MM 14]"
+#define MIPS_VERSION "[AL 1.1, MM 19]"
 
 #ifndef MACHINE_TYPE
 #define MACHINE_TYPE "BSD Mips"
@@ -596,6 +619,13 @@ do {							\
 #define EXTENDED_COFF		/* ECOFF, not normal coff */
 #endif
 
+/* Don't use the default definitions, because we don't have gld.
+   Also, we don't want stabs when generating ECOFF output.
+   Instead we depend on collect to handle these.  */
+
+#define ASM_OUTPUT_CONSTRUCTOR(file, name)
+#define ASM_OUTPUT_DESTRUCTOR(file, name)
+
 
 /* Run-time compilation parameters selecting different hardware subsets.  */
 
@@ -635,8 +665,8 @@ do {							\
 #define MASK_DEBUG	0x40000000	/* Eliminate version # in .s file */
 #define MASK_DEBUG_A	0x20000000	/* don't allow <label>($reg) addrs */
 #define MASK_DEBUG_B	0x10000000	/* GO_IF_LEGITIMATE_ADDRESS debug */
-#define MASK_DEBUG_C	0x08000000	/* suppress normal divmod patterns */
-#define MASK_DEBUG_D	0x04000000	/* make multiply cost 2 */
+#define MASK_DEBUG_C	0x08000000	/* don't expand seq, etc. */
+#define MASK_DEBUG_D	0x04000000	/* don't do define_split's */
 #define MASK_DEBUG_E	0x02000000	/* function_arg debug */
 #define MASK_DEBUG_F	0x01000000	/* don't try to suppress load nop's */
 #define MASK_DEBUG_G	0x00800000	/* don't support 64 bit arithmetic */
@@ -1269,8 +1299,8 @@ extern enum reg_class mips_regno_to_class[];
    'f'	Floating point registers
    'h'	Hi register
    'l'	Lo register
-   's'	Status registers
-   'x'	Multiply/divide registers  */
+   'x'	Multiply/divide registers
+   'z'	FP Status register */
 
 extern enum reg_class mips_char_to_class[];
 
@@ -1990,7 +2020,7 @@ __enable_execute_stack (addr)						\
    addition to `const_int' and `const_double' expressions.  */
 
 #define CONSTANT_ADDRESS_P(X)						\
-  (CONSTANT_P (X) && (!HALF_PIC_P () || HALF_PIC_ADDRESS_P (X)))
+  (CONSTANT_P (X) && (!HALF_PIC_P () || !HALF_PIC_ADDRESS_P (X)))
 
 
 /* Nonzero if the constant value X is a legitimate general operand.
@@ -2104,7 +2134,9 @@ while (0)
 #define EASY_DIV_EXPR TRUNC_DIV_EXPR
 
 /* Define this as 1 if `char' should by default be signed; else as 0.  */
+#ifndef DEFAULT_SIGNED_CHAR
 #define DEFAULT_SIGNED_CHAR 1
+#endif
 
 /* Max number of bytes we can move from memory to memory
    in one reasonably fast instruction.  */
@@ -2182,7 +2214,7 @@ while (0)
    CODE is the expression code--redundant, since it can be obtained
    with `GET_CODE (X)'.  */
 
-#define CONST_COSTS(X,CODE)						\
+#define CONST_COSTS(X,CODE,OUTER_CODE)					\
   case CONST_INT:							\
     /* Always return 0, since we don't have different sized		\
        instructions, hence different costs according to Richard		\
@@ -2232,7 +2264,7 @@ while (0)
    strength reduction, and also makes it easier to identify what the
    compiler is doing.  */
 
-#define RTX_COSTS(X,CODE)						\
+#define RTX_COSTS(X,CODE,OUTER_CODE)					\
   case MEM:								\
     {									\
       int num_words = (GET_MODE_SIZE (GET_MODE (X)) > UNITS_PER_WORD) ? 2 : 1; \
@@ -2311,7 +2343,7 @@ while (0)
       if (xmode == DFmode)						\
 	return COSTS_N_INSNS (5);					\
 									\
-      return COSTS_N_INSNS ((TARGET_DEBUG_D_MODE) ? 2 : 12);		\
+      return COSTS_N_INSNS (12);					\
     }									\
 									\
   case DIV:								\
@@ -2447,7 +2479,6 @@ while (0)
   {"md_register_operand",	{ REG }},				\
   {"mips_const_double_ok",	{ CONST_DOUBLE }},			\
   {"simple_memory_operand",	{ MEM, SUBREG }},			\
-  {"call_memory_operand",	{ MEM, SUBREG }},			\
   {"equality_op",		{ EQ, NE }},				\
   {"cmp_op",			{ EQ, NE, GT, GE, GTU, GEU, LT, LE,	\
 				  LTU, LEU }},				\
@@ -2537,47 +2568,34 @@ do									\
   }									\
 while (0)
 
-/* A list of names to be used for additional modes for condition
-   code values in registers (*note Jump Patterns::.).  These names
-   are added to `enum machine_mode' and all have class `MODE_CC'. 
-   By convention, they should start with `CC' and end with `mode'.
+/* A list of names to be used for additional modes for condition code
+   values in registers.  These names are added to `enum machine_mode'
+   and all have class `MODE_CC'.  By convention, they should start
+   with `CC' and end with `mode'.
 
    You should only define this macro if your machine does not use
    `cc0' and only if additional modes are required.
 
-   On the MIPS, we use CC_FPmode for all floating point, CC_EQmode for
-   integer equality/inequality comparisons, CC_0mode for comparisons
-   against 0, and CCmode for other integer comparisons.  */
+   On the MIPS, we use CC_FPmode for all floating point except for not
+   equal, CC_REV_FPmode for not equal (to reverse the sense of the
+   jump), CC_EQmode for integer equality/inequality comparisons,
+   CC_0mode for comparisons against 0, and CCmode for other integer
+   comparisons. */
 
-#define EXTRA_CC_MODES CC_EQmode, CC_FPmode, CC_0mode
+#define EXTRA_CC_MODES CC_EQmode, CC_FPmode, CC_0mode, CC_REV_FPmode
 
 /* A list of C strings giving the names for the modes listed in
-   `EXTRA_CC_MODES'.  For example, the Sparc defines this macro and
-   `EXTRA_CC_MODES' as
+   `EXTRA_CC_MODES'.  */
 
-          #define EXTRA_CC_MODES CC_NOOVmode, CCFPmode
-          #define EXTRA_CC_NAMES "CC_NOOV", "CCFP"
-
-   This macro is not required if `EXTRA_CC_MODES' is not defined.  */
-
-#define EXTRA_CC_NAMES "CC_EQ", "CC_FP", "CC_0"
+#define EXTRA_CC_NAMES "CC_EQ", "CC_FP", "CC_0", "CC_REV_FP"
 
 /* Returns a mode from class `MODE_CC' to be used when comparison
-   operation code OP is applied to rtx X.  For example, on the
-   Sparc, `SELECT_CC_MODE' is defined as (see *note Jump
-   Patterns::. for a description of the reason for this definition)
+   operation code OP is applied to rtx X.  */
 
-          #define SELECT_CC_MODE(OP,X)					\
-            (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CCFPmode	\
-             : (GET_CODE (X) == PLUS || GET_CODE (X) == MINUS		\
-                || GET_CODE (X) == NEG)					\
-             ? CC_NOOVmode : CCmode)
-
-   This macro is not required if `EXTRA_CC_MODES' is not defined.  */
-
-#define SELECT_CC_MODE (OP, X)						\
-  (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CC_FPmode :		\
-   (OP == EQ || OP == NE) ? CC_EQmode : CCmode)
+#define SELECT_CC_MODE(OP, X)						\
+  (GET_MODE_CLASS (GET_MODE (X)) != MODE_FLOAT				\
+	? SImode							\
+	: ((OP == NE) ? CC_REV_FPmode : CC_FPmode))
 
 
 /* Control the assembler format that we output.  */
@@ -2755,6 +2773,9 @@ while (0)
   { "sp",	29 + GP_REG_FIRST },					\
   { "fp",	30 + GP_REG_FIRST },					\
   { "ra",	31 + GP_REG_FIRST },					\
+  { "$sp",	29 + GP_REG_FIRST },					\
+  { "$fp",	30 + GP_REG_FIRST },					\
+  { "cc",	FPSW_REGNUM },						\
 }
 
 /* Define results of standard character escape sequences.  */
@@ -2872,7 +2893,7 @@ while (0)
    pattern $L[a-z].*.  The machine independent portion of GCC creates
    labels matching:  $L[A-Z][0-9]+ and $L[0-9]+.
 
-	LM[0-9]+	Sillicon graphics/ECOFF stabs label before each stmt.
+	LM[0-9]+	Silicon Graphics/ECOFF stabs label before each stmt.
 	$Lb[0-9]+	Begin blocks for MIPS debug support
 	$Lc[0-9]+	Label for use in s<xx> operation.
 	$Le[0-9]+	End blocks for MIPS debug support
@@ -2906,7 +2927,12 @@ do {									\
    in the usual manner as a label (by means of `ASM_OUTPUT_LABEL').  */
 
 #define ASM_DECLARE_OBJECT_NAME(STREAM, NAME, DECL)			\
-  mips_declare_object (STREAM, NAME, "", ":\n", 0);
+do									\
+ {									\
+   mips_declare_object (STREAM, NAME, "", ":\n", 0);			\
+   HALF_PIC_DECLARE (NAME);						\
+ }									\
+while (0)
 
 
 /* This is how to output a command to make the user-level label named NAME
@@ -2924,7 +2950,7 @@ do {									\
 #define ASM_OUTPUT_COMMON(STREAM, NAME, SIZE, ROUNDED)			\
   mips_declare_object (STREAM, NAME, "\n\t.comm\t", ",%u\n", (ROUNDED))
 
-/* This says how to define a local common symbol (ie, not visable to
+/* This says how to define a local common symbol (ie, not visible to
    linker).  */
 
 #define ASM_OUTPUT_LOCAL(STREAM, NAME, SIZE, ROUNDED)			\
@@ -2957,6 +2983,7 @@ do {									\
     STREAM = asm_out_text_file;						\
 									\
   current_function_name = NAME;						\
+  HALF_PIC_DECLARE (NAME);						\
 }
 
 /* This is how to output a reference to a user-level label named NAME.
@@ -2981,21 +3008,14 @@ do {									\
 /* This is how to output an assembler line defining a `double' constant.  */
 
 #define ASM_OUTPUT_DOUBLE(STREAM,VALUE)					\
-{									\
-  union { double d; long l[2]; } u2;					\
-  u2.d = VALUE;								\
-  fprintf (STREAM, "\t.word\t0x%08lx\t\t# %.20g\n\t.word\t0x%08lx\n",	\
-	   u2.l[0], u2.d, u2.l[1]);					\
-}
+  mips_output_double (STREAM, VALUE)
+
 
 /* This is how to output an assembler line defining a `float' constant.  */
 
 #define ASM_OUTPUT_FLOAT(STREAM,VALUE)					\
-{									\
-  union { float f; long l; } u2;					\
-  u2.f = VALUE;								\
-  fprintf (STREAM, "\t.word\t0x%08lx\t\t# %.12g\n", u2.l, u2.f);	\
-}
+  mips_output_float (STREAM, VALUE)
+
 
 /* This is how to output an assembler line defining an `int' constant.  */
 
@@ -3152,22 +3172,12 @@ do {									\
 }
 
 
-/* Output before read-only data.  */
-
-#define TEXT_SECTION_ASM_OP ".text"
-
-/* Output before writable data.  */
-
-#define DATA_SECTION_ASM_OP ".data"
-
-/* Output before writable  short data.  */
-
-#define SDATA_SECTION_ASM_OP ".sdata"
-
-/* Output before read-only data.  */
-
-#define RDATA_SECTION_ASM_OP ".rdata"
-#define READONLY_DATA_SECTION rdata_section
+/* Define the strings to put out for each section in the object file.  */
+#define TEXT_SECTION_ASM_OP	"\t.text"	/* instructions */
+#define DATA_SECTION_ASM_OP	"\t.data"	/* large data */
+#define SDATA_SECTION_ASM_OP	"\t.sdata"	/* small data */
+#define RDATA_SECTION_ASM_OP	"\t.rdata"	/* read-only data */
+#define READONLY_DATA_SECTION	rdata_section
 
 /* What other sections we support other than the normal .data/.text.  */
 
@@ -3300,3 +3310,4 @@ while (0)
 #define MIPS_IS_STAB(sym) (((sym)->index & 0xFFF00) == CODE_MASK)
 #define MIPS_MARK_STAB(code) ((code)+CODE_MASK)
 #define MIPS_UNMARK_STAB(code) ((code)-CODE_MASK)
+

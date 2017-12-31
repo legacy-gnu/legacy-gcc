@@ -323,6 +323,26 @@ clobbered_register (op, mode)
 {
   return (GET_CODE (op) == REG && call_used_regs[REGNO (op)]);
 }
+
+/* True iff OP can be the source of a move to a general register.  */
+int
+srcsi_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  /* Not intended for other modes than SImode.  */
+  if (mode != SImode)
+    return 0;
+
+  /* Accept any register or memory reference.  */
+  if (nonimmediate_operand (op, mode))
+    return 1;
+
+  /* OK if ldo or ldil can be used.  */
+  return (GET_CODE (op) == CONST_INT
+	  && (INT_14_BITS (op) || (INTVAL (op) & 0x7ff) == 0));
+}
+
 
 /* Legitimize PIC addresses.  If the address is already
    position-independent, we return ORIG.  Newly generated
@@ -633,7 +653,7 @@ read_only_operand (operand)
 /* Return the best assembler insn template
    for moving operands[1] into operands[0] as a fullword.  */
 
-static char *
+char *
 singlemove_string (operands)
      rtx *operands;
 {
@@ -822,6 +842,13 @@ output_move_double (operands)
       if (addreg1)
 	output_asm_insn ("addi -4,%0", &addreg1);
       /* Then clobber.  */
+      return singlemove_string (operands);
+    }
+
+  if (optype0 == REGOP && optype1 == REGOP
+      && REGNO (operands[0]) == REGNO (operands[1]) + 1)
+    {
+      output_asm_insn (singlemove_string (latehalf), latehalf);
       return singlemove_string (operands);
     }
 
@@ -1036,7 +1063,7 @@ output_block_move (operands, size_is_constant)
 	    goto copy_with_loop;
 
 	  /* Read and store using two registers, and hide latency
-	     by defering the stores until three instructions after
+	     by deferring the stores until three instructions after
 	     the corresponding load.  The last load insn will read
 	     the entire word were the last bytes are, possibly past
 	     the end of the source block, but since loads are aligned,
@@ -1124,7 +1151,7 @@ output_block_move (operands, size_is_constant)
       output_asm_insn ("addib,<,n -4,%2,.+16", operands);
     }
 
-  /* Copying loop.  Note that the first load is in the anulled delay slot
+  /* Copying loop.  Note that the first load is in the annulled delay slot
      of addib.  Is it OK on PA to have a load in a delay slot, i.e. is a
      possible page fault stopped in time?  */
   output_asm_insn ("ldws,ma 4(0,%1),%3", operands);
@@ -1150,7 +1177,7 @@ output_block_move (operands, size_is_constant)
       output_asm_insn ("addib,=,n 4,%2,.+16", operands);
 
       /* Read the entire word of the source block tail.  (Also this
-	 load is in an anulled delay slot.)  */
+	 load is in an annulled delay slot.)  */
       output_asm_insn ("ldw 0(0,%1),%3", operands);
 
       /* Make %0 point at the first byte after the destination block.  */
@@ -1358,7 +1385,10 @@ output_function_prologue (file, size, leaf_function)
   extern int frame_pointer_needed;
   int i, offset;
 
-   actual_fsize = compute_frame_size (size, leaf_function) + 32;
+  actual_fsize = compute_frame_size (size, leaf_function) + 32;
+  if (TARGET_SNAKE)
+    actual_fsize = (actual_fsize + 63) & ~63;
+
   /* Let's not try to bullshit more than we need to here. */
   /* This might be right a lot of the time */
   fprintf (file, "\t.PROC\n\t.CALLINFO FRAME=%d", actual_fsize);
@@ -1368,31 +1398,10 @@ output_function_prologue (file, size, leaf_function)
       fprintf (file, ",NO_CALLS\n");
   fprintf (file, "\t.ENTRY\n");
 
-  /* Instead of taking one argument, the counter label, as most normal
-     mcounts do, _mcount appears to behave differently on the HPPA. It
-     takes the return address of the caller, the address of this
-     routine, and the address of the label. Also, it isn't magic, so
-     caller saves have to be preserved. We get around this by calling
-     our own gcc_mcount, which takes arguments on the stack and saves
-     argument registers. */
-  
-  if (profile_flag)
-    {
-      fprintf (file,"\tstw 2,-20(30)\n\tldo 48(30),30\n\
-\taddil L'LP$%04d-$global$,27\n\tldo R'LP$%04d-$global$(1),1\n\
-\tbl __gcc_mcount,2\n\tstw 1,-16(30)\n\tldo -48(30),30\n\tldw -20(30),2\n",
-	       hp_profile_labelno, hp_profile_labelno);
-    }
   /* Some registers have places to go in the current stack
      structure.  */
 
-#if 0
-  /* However, according to the hp docs, there's no need to save the
-     sp.  */
-  fprintf (file, "\tstw 30,-4(30)\n");
-#endif
-
-  if (regs_ever_live[2])
+  if (regs_ever_live[2] || profile_flag)
     fprintf (file, "\tstw 2,-20(0,30)\n");
 
   /* Reserve space for local variables.  */
@@ -1417,7 +1426,36 @@ output_function_prologue (file, size, leaf_function)
 	fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),30\n",
 		 actual_fsize, actual_fsize);
     }
-  
+  /* Instead of taking one argument, the counter label, as most normal
+     mcounts do, _mcount appears to behave differently on the HPPA. It
+     takes the return address of the caller, the address of this
+     routine, and the address of the label. Also, it isn't magic, so
+     argument registers have to be preserved. */
+
+  if (profile_flag)
+    {
+      unsigned int pc_offset =
+	(4 + (frame_pointer_needed
+	      ? (VAL_14_BITS_P (actual_fsize) ? 12 : 20)
+	      : (VAL_14_BITS_P (actual_fsize) ? 4 : 8)));
+      int i, arg_offset;
+
+      for (i = 26, arg_offset = -36; i >= 23; i--, arg_offset -= 4)
+	if (regs_ever_live[i])
+	  {
+	    print_stw (file, i, arg_offset, 4);
+	    pc_offset += 4;
+	  }
+      fprintf (file,
+	       "\tcopy %%r2,%%r26\n\taddil L'LP$%04d-$global$,%%r27\n\
+\tldo R'LP$%04d-$global$(%%r1),%%r24\n\tbl _mcount,%%r2\n\
+\tldo %d(%%r2),%%r25\n",
+	       hp_profile_labelno, hp_profile_labelno, -pc_offset - 12 - 8);
+      for (i = 26, arg_offset = -36; i >= 23; i--, arg_offset -= 4)
+	if (regs_ever_live[i])
+	  print_ldw (file, i, arg_offset, 4);
+    }
+
   /* Normal register save. */
   if (frame_pointer_needed)
     {
@@ -1569,7 +1607,8 @@ output_function_epilogue (file, size, leaf_function)
 	fprintf (file,
 		 "\taddil L'%d,30\n\tldw %d(1),2\n\tbv 0(2)\n\tldo R'%d(1),30\n",
 		 - actual_fsize,
-		 - ((actual_fsize + 20) - (actual_fsize & ~0x7ff)),
+		 - (actual_fsize + 20 + ((-actual_fsize) & ~0x7ff)),
+		 /* - ((actual_fsize + 20) - (actual_fsize & ~0x7ff)), */
 		 - actual_fsize);
       else if (VAL_14_BITS_P (actual_fsize))
 	fprintf (file, "\tbv 0(2)\n\tldo %d(30),30\n", - actual_fsize);
@@ -2161,14 +2200,18 @@ output_arg_descriptor (insn)
       arg_mode = GET_MODE (XEXP (PATTERN (prev_insn), 0));
       regno = REGNO (XEXP (PATTERN (prev_insn), 0));
       if (regno >= 23 && regno <= 26)
-	arg_regs[26 - regno] = "GR";
+	{
+	  arg_regs[26 - regno] = "GR";
+	  if (arg_mode == DImode)
+	    arg_regs[25 - regno] = "GR";
+	}
       else if (!TARGET_SNAKE)	/* fp args */
 	{
 	  if (arg_mode == SFmode)
 	    arg_regs[regno - 36] = "FR";
 	  else
 	    {
-#ifdef hpux8
+#ifdef HP_FP_ARG_DESCRIPTOR_REVERSED
 	      arg_regs[regno - 37] = "FR";
 	      arg_regs[regno - 36] = "FU";
 #else
@@ -2183,8 +2226,13 @@ output_arg_descriptor (insn)
 	    arg_regs[(regno - 56) / 2] = "FR";
 	  else
 	    {
-	      arg_regs[regno - 58] = "FR";
-	      arg_regs[regno - 57] = "FU";
+#ifdef HP_FP_ARG_DESCRIPTOR_REVERSED
+	      arg_regs[(regno - 58) / 2] = "FR";
+	      arg_regs[(regno - 58) / 2 + 1] = "FU";
+#else
+	      arg_regs[(regno - 58) / 2] = "FU";
+	      arg_regs[(regno - 58) / 2 + 1] = "FR";
+#endif
 	    }
 	}
     }

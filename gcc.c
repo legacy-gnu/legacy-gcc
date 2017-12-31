@@ -34,20 +34,20 @@ compilation is specified by a string called a "spec".  */
 #include <sys/types.h>
 #include <ctype.h>
 #include <signal.h>
-#include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/file.h>   /* May get R_OK, etc. on some systems.  */
 
 #include "config.h"
 #include "obstack.h"
 #include "gvarargs.h"
 
-#ifdef USG
 #ifndef R_OK
 #define R_OK 4
 #define W_OK 2
 #define X_OK 1
 #endif
 
+#ifdef USG
 #define vfork fork
 #endif /* USG */
 
@@ -71,11 +71,12 @@ compilation is specified by a string called a "spec".  */
 
 /* By default there is no special suffix for executables.  */
 #ifndef EXECUTABLE_SUFFIX
-#if __MSDOS__
-#define EXECUTABLE_SUFFIX ".exe"
-#else
 #define EXECUTABLE_SUFFIX ""
 #endif
+
+/* By default, colon separates directories in a path.  */
+#ifndef PATH_SEPARATOR
+#define PATH_SEPARATOR ':'
 #endif
 
 #define obstack_chunk_alloc xmalloc
@@ -93,6 +94,11 @@ extern int execv (), execvp ();
    compilation of that file ceases.  */
 
 #define MIN_FATAL_STATUS 1
+
+/* Flag saying to print the full filename of libgcc.a
+   as found through our usual search mechanism.  */
+
+static int print_libgcc_file_name;
 
 /* Flag indicating whether we should print the command and arguments */
 
@@ -125,7 +131,7 @@ static int cross_compile = 0;
 static struct obstack obstack;
 
 /* This is the obstack to build an environment variable to pass to
-   collect2 that describes all of the relavant switches of what to
+   collect2 that describes all of the relevant switches of what to
    pass the compiler in building the list of pointers to constructors
    and destructors.  */
 
@@ -201,6 +207,7 @@ or with constant text in a single argument.
  %P	like %p, but puts `__' before and after the name of each macro.
 	(Except macros that already have __.)
 	This is for ANSI C.
+ %I	Substitute a -iprefix option made from GCC_EXEC_PREFIX.
  %s     current argument is the name of a library or startup file of some sort.
         Search for that file in a standard list of directories
 	and substitute the full name found.
@@ -237,7 +244,7 @@ or with constant text in a single argument.
  %{S*:X} substitutes X if one or more switches whose names with -S are
 	specified to CC.  Note that the tail part of the -S option
 	(i.e. the part matched by the `*') will be substituted for each
-	occurance of %* within X.
+	occurrence of %* within X.
  %{S:X} substitutes X, but only if the -S switch was given to CC.
  %{!S:X} substitutes X, but only if the -S switch was NOT given to CC.
  %{|S:X} like %{S:X}, but if no S switch, substitute `-'.
@@ -395,7 +402,7 @@ static struct compiler default_compilers[] =
 {
   {".c", "@c"},
   {"@c",
-   "cpp -lang-c %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+   "cpp -lang-c %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C does not support -C without using -E}}\
 	%{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d}\
         -undef -D__GNUC__=2 %{ansi:-trigraphs -$ -D__STRICT_ANSI__}\
@@ -415,7 +422,7 @@ static struct compiler default_compilers[] =
 		      %{c:%W{o*}%{!o*:-o %w%b.o}}%{!c:-o %d%w%b.o}\
                       %{!pipe:%g.s} %A\n }}}}"},
   {"-",
-   "%{E:cpp -lang-c %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+   "%{E:cpp -lang-c %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C does not support -C without using -E}}\
 	%{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d}\
         -undef -D__GNUC__=2 %{ansi:-trigraphs -$ -D__STRICT_ANSI__}\
@@ -427,7 +434,7 @@ static struct compiler default_compilers[] =
     %{!E:%e-E required when input is from standard input}"},
   {".m", "@objective-c"},
   {"@objective-c",
-   "cpp -lang-objc %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+   "cpp -lang-objc %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C does not support -C without using -E}}\
 	%{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d}\
         -undef -D__OBJC__ -D__GNUC__=2 %{ansi:-trigraphs -$ -D__STRICT_ANSI__}\
@@ -450,7 +457,7 @@ static struct compiler default_compilers[] =
   {".h", "@c-header"},
   {"@c-header",
    "%{!E:%eCompilation of header file requested} \
-    cpp %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+    cpp %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C does not support -C without using -E}}\
 	 %{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d} \
         -undef -D__GNUC__=2 %{ansi:-trigraphs -$ -D__STRICT_ANSI__}\
@@ -463,7 +470,7 @@ static struct compiler default_compilers[] =
   {".cxx", "@c++"},
   {".C", "@c++"},
   {"@c++",
-   "cpp -lang-c++ %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+   "cpp -lang-c++ %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C++ does not support -C without using -E}}\
 	%{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d} \
 	-undef -D__GNUC__=2 -D__GNUG__=2 -D__cplusplus \
@@ -509,7 +516,7 @@ static struct compiler default_compilers[] =
             %{c:%W{o*}%{!o*:-o %w%b.o}}%{!c:-o %d%w%b.o} %i %A\n }"},
   {".S", "@assembler-with-cpp"},
   {"@assembler-with-cpp",
-   "cpp -lang-asm %{nostdinc} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P}\
+   "cpp -lang-asm %{nostdinc*} %{C} %{v} %{A*} %{D*} %{U*} %{I*} %{i*} %{P} %I\
 	%{C:%{!E:%eGNU C does not support -C without using -E}}\
 	%{M} %{MM} %{MD:-MD %b.d} %{MMD:-MMD %b.d} %{trigraphs} \
         -undef -$ %{!undef:%p %P} -D__ASSEMBLER__ \
@@ -532,23 +539,24 @@ static int n_default_compilers
 /* Here is the spec for running the linker, after compiling all files.  */
 
 #ifdef LINK_LIBGCC_SPECIAL
-/* Have gcc do the search.  */
+/* Have gcc do the search for libgcc.a.  */
+/* -u* was put back because both BSD and SysV seem to support it.  */
 static char *link_command_spec = "\
-%{!c:%{!M:%{!MM:%{!E:%{!S:ld %X %l %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
-			%{r} %{s} %{T*} %{t} %{x} %{z}\
+%{!c:%{!M:%{!MM:%{!E:%{!S:ld %l %X %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
+			%{r} %{s} %{T*} %{t} %{u*} %{x} %{z}\
 			%{!A:%{!nostdlib:%S}} \
 			%{L*} %D %o %{!nostdlib:libgcc.a%s %L libgcc.a%s %{!A:%E}}\n }}}}}";
 #else
-/* Use -l and have the linker do the search.  */
+/* Use -L and have the linker do the search for -lgcc.  */
 static char *link_command_spec = "\
-%{!c:%{!M:%{!MM:%{!E:%{!S:ld %X %l %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
-			%{r} %{s} %{T*} %{t} %{x} %{z}\
+%{!c:%{!M:%{!MM:%{!E:%{!S:ld %l %X %{o*} %{A} %{d} %{e*} %{m} %{N} %{n} \
+			%{r} %{s} %{T*} %{t} %{u*} %{x} %{z}\
 			%{!A:%{!nostdlib:%S}} \
 			%{L*} %D %o %{!nostdlib:-lgcc %L -lgcc %{!A:%E}}\n }}}}}";
 #endif
 
 /* A vector of options to give to the linker.
-   These options are accumlated by %x
+   These options are accumulated by %x
    and substituted into the linker command with %X.  */
 static int n_linker_options;
 static char **linker_options;
@@ -733,7 +741,7 @@ set_spec (name, spec)
 
   old_spec = sl->spec;
   if (name && spec[0] == '+' && isspace (spec[1]))
-    sl->spec = concat (name, spec + 1, "");
+    sl->spec = concat (old_spec, spec + 1, "");
   else
     sl->spec = save_string (spec, strlen (spec));
 
@@ -823,11 +831,16 @@ static struct path_prefix library_prefix = { 0, 0, "libraryfile" };
 
 static char *machine_suffix = 0;
 
+/* Adjusted value of GCC_EXEC_PREFIX envvar.  */
+
+static char *gcc_exec_prefix;
+
 /* Default prefixes to attach to command names.  */
 
 #ifdef CROSS_COMPILE  /* Don't use these prefixes for a cross compiler.  */
 #undef MD_EXEC_PREFIX
 #undef MD_STARTFILE_PREFIX
+#undef MD_STARTFILE_PREFIX_1
 #endif
 
 #ifndef STANDARD_EXEC_PREFIX
@@ -846,6 +859,9 @@ static char *md_exec_prefix = MD_EXEC_PREFIX;
 
 #ifdef MD_STARTFILE_PREFIX
 static char *md_startfile_prefix = MD_STARTFILE_PREFIX;
+#endif
+#ifdef MD_STARTFILE_PREFIX_1
+static char *md_startfile_prefix_1 = MD_STARTFILE_PREFIX_1;
 #endif
 static char *standard_startfile_prefix = STANDARD_STARTFILE_PREFIX;
 static char *standard_startfile_prefix_1 = "/lib/";
@@ -1073,7 +1089,6 @@ choose_temp_base ()
 putenv (str)
      char *str;
 {
-#ifndef __MSDOS__		/* not sure about MS/DOS */
 #ifndef VMS			/* nor about VMS */
 
   extern char **environ;
@@ -1109,7 +1124,6 @@ putenv (str)
   bcopy (old_environ, environ+1, sizeof (char *) * (num_envs+1));
 
 #endif	/* VMS */
-#endif	/* __MSDOS__ */
 }
 
 #endif	/* HAVE_PUTENV */
@@ -1354,6 +1368,7 @@ static int last_pipe_input;
    NOT_LAST is nonzero if this is not the last subcommand
    (i.e. its output should be piped to the next one.)  */
 
+#ifndef OS2
 #ifdef __MSDOS__
 
 /* Declare these to avoid compilation error.  They won't be called.  */
@@ -1361,9 +1376,9 @@ int execv(const char *a, const char **b){}
 int execvp(const char *a, const char **b){}
 
 static int
-pexecute (func, program, argv, not_last)
+pexecute (search_flag, program, argv, not_last)
+     int search_flag;
      char *program;
-     int (*func)();
      char *argv[];
      int not_last;
 {
@@ -1371,31 +1386,41 @@ pexecute (func, program, argv, not_last)
   FILE *argfile;
   int i;
 
-  scmd = (char *)malloc(strlen(program) + strlen(temp_filename) + 6);
-  sprintf(scmd, "%s @%s.gp", program, temp_filename);
-  argfile = fopen(scmd+strlen(program)+2, "w");
+  scmd = (char *)malloc (strlen (program) + strlen (temp_filename) + 6);
+  sprintf (scmd, "%s @%s.gp", program, temp_filename);
+  argfile = fopen (scmd+strlen (program) + 2, "w");
   if (argfile == 0)
-    pfatal_with_name(scmd+strlen(program)+2);
+    pfatal_with_name (scmd + strlen (program) + 2);
 
   for (i=1; argv[i]; i++)
-    fprintf(argfile, "%s\n", argv[i]);
-  fclose(argfile);
+  {
+    char *cp;
+    for (cp = argv[i]; *cp; cp++)
+      {
+	if (*cp == '"' || *cp == '\'' || *cp == '\\' || isspace (*cp))
+	  fputc ('\\', argfile);
+	fputc (*cp, argfile);
+      }
+    fputc ('\n', argfile);
+  }
+  fclose (argfile);
 
-  i = system(scmd);
+  i = system (scmd);
 
-  remove(scmd+strlen(program)+2);
+  remove (scmd + strlen (program) + 2);
   return i << 8;
 }
 
 #else /* not __MSDOS__ */
 
 static int
-pexecute (func, program, argv, not_last)
+pexecute (search_flag, program, argv, not_last)
+     int search_flag;
      char *program;
-     int (*func)();
      char *argv[];
      int not_last;
 {
+  int (*func)() = (search_flag ? execv : execvp);
   int pid;
   int pdes[2];
   int input_desc = last_pipe_input;
@@ -1477,6 +1502,18 @@ pexecute (func, program, argv, not_last)
 }
 
 #endif /* not __MSDOS__ */
+#else /* not OS2 */
+
+static int
+pexecute (search_flag, program, argv, not_last)
+     int search_flag;
+     char *program;
+     char *argv[];
+     int not_last;
+{
+  return (search_flag ? spawnv : spawnvp) (1, program, argv);
+}
+#endif /* not OS2 */
 
 /* Execute the command specified by the arguments on the current line of spec.
    When using pipes, this includes several piped-together commands
@@ -1571,7 +1608,7 @@ execute ()
     {
       char *string = commands[i].argv[0];
 
-      commands[i].pid = pexecute ((string != commands[i].prog ? execv : execvp),
+      commands[i].pid = pexecute (string != commands[i].prog,
 				  string, commands[i].argv,
 				  i + 1 < n_commands);
 
@@ -1669,17 +1706,18 @@ process_command (argc, argv)
   char *spec_lang = 0;
   int last_language_n_infiles;
 
+  gcc_exec_prefix = getenv ("GCC_EXEC_PREFIX");
+
   n_switches = 0;
   n_infiles = 0;
   spec_version = version_string;
 
   /* Set up the default search paths.  */
 
-  temp = getenv ("GCC_EXEC_PREFIX");
-  if (temp)
+  if (gcc_exec_prefix)
     {
-      add_prefix (&exec_prefix, temp, 0, 0, 0);
-      add_prefix (&startfile_prefix, temp, 0, 0, 0);
+      add_prefix (&exec_prefix, gcc_exec_prefix, 0, 0, 0);
+      add_prefix (&startfile_prefix, gcc_exec_prefix, 0, 0, 0);
     }
 
   /* COMPILER_PATH and LIBRARY_PATH have values
@@ -1694,7 +1732,7 @@ process_command (argc, argv)
       startp = endp = temp;
       while (1)
 	{
-	  if ((*endp == ':') || (*endp == 0))
+	  if (*endp == PATH_SEPARATOR || *endp == 0)
 	    {
 	      strncpy (nstore, startp, endp-startp);
 	      if (endp == startp)
@@ -1727,7 +1765,7 @@ process_command (argc, argv)
       startp = endp = temp;
       while (1)
 	{
-	  if ((*endp == ':') || (*endp == 0))
+	  if (*endp == PATH_SEPARATOR || *endp == 0)
 	    {
 	      strncpy (nstore, startp, endp-startp);
 	      if (endp == startp)
@@ -1763,7 +1801,7 @@ process_command (argc, argv)
       startp = endp = temp;
       while (1)
 	{
-	  if ((*endp == ':') || (*endp == 0))
+	  if (*endp == PATH_SEPARATOR || *endp == 0)
 	    {
 	      strncpy (nstore, startp, endp-startp);
 	      if (endp == startp)
@@ -1817,6 +1855,10 @@ process_command (argc, argv)
 	{
 	  printf ("%s\n", version_string);
 	  exit (0);
+	}
+      else if (! strcmp (argv[i], "-print-libgcc-file-name"))
+	{
+	  print_libgcc_file_name = 1;
 	}
       else if (! strcmp (argv[i], "-Xlinker"))
 	{
@@ -1885,6 +1927,7 @@ process_command (argc, argv)
 	      if (!strcmp (p, "save-temps"))
 		{
 		  save_temps_flag = 1;
+		  n_switches++;
 		  break;
 		}
 	    default:
@@ -1930,6 +1973,8 @@ process_command (argc, argv)
   for (i = 1; i < argc; i++)
     {
       if (!strcmp (argv[i], "-Xlinker"))
+	i++;
+      else if (! strcmp (argv[i], "-print-libgcc-file-name"))
 	i++;
       else if (argv[i][0] == '-' && argv[i][1] != 0 && argv[i][1] != 'l')
 	{
@@ -2005,6 +2050,19 @@ process_command (argc, argv)
 
   switches[n_switches].part1 = 0;
   infiles[n_infiles].name = 0;
+
+  /* If we have a GCC_EXEC_PREFIX envvar, modify it for cpp's sake.  */
+  if (gcc_exec_prefix)
+    {
+      temp = (char *) xmalloc (strlen (gcc_exec_prefix) + strlen (spec_version)
+			       + strlen (spec_machine) + 3);
+      strcpy (temp, gcc_exec_prefix);
+      strcat (temp, spec_machine);
+      strcat (temp, "/");
+      strcat (temp, spec_version);
+      strcat (temp, "/");
+      gcc_exec_prefix = temp;
+    }
 }
 
 /* Process a spec string, accumulating and running commands.  */
@@ -2210,6 +2268,10 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 	      {
 		struct prefix_list *pl
 		  = (i == 0 ? library_prefix.plist : startfile_prefix.plist);
+		int bufsize = 100;
+		char *buffer = (char *) xmalloc (bufsize);
+		int idx;
+
 		for (; pl; pl = pl->next)
 		  {
 #ifdef RELATIVE_PREFIX_NOT_LINKDIR
@@ -2230,7 +2292,15 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 			    do_spec_1 (" ", 0, 0);
 #endif
 			    do_spec_1 (pl->prefix, 1, 0);
-			    do_spec_1 (machine_suffix, 1, 0);
+			    /* Remove slash from machine_suffix.  */
+			    if (strlen (machine_suffix) >= bufsize)
+			      bufsize = strlen (machine_suffix) * 2 + 1;
+			    buffer = (char *) xrealloc (buffer, bufsize);
+			    strcpy (buffer, machine_suffix);
+			    idx = strlen (buffer);
+			    if (buffer[idx - 1] == '/')
+			      buffer[idx - 1] = 0;
+			    do_spec_1 (buffer, 1, 0);
 			    /* Make this a separate argument.  */
 			    do_spec_1 (" ", 0, 0);
 			  }
@@ -2243,12 +2313,21 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 #ifdef SPACE_AFTER_L_OPTION
 			    do_spec_1 (" ", 0, 0);
 #endif
-			    do_spec_1 (pl->prefix, 1, 0);
+			    /* Remove slash from pl->prefix.  */
+			    if (strlen (pl->prefix) >= bufsize)
+			      bufsize = strlen (pl->prefix) * 2 + 1;
+			    buffer = (char *) xrealloc (buffer, bufsize);
+			    strcpy (buffer, pl->prefix);
+			    idx = strlen (buffer);
+			    if (buffer[idx - 1] == '/')
+			      buffer[idx - 1] = 0;
+			    do_spec_1 (buffer, 1, 0);
 			    /* Make this a separate argument.  */
 			    do_spec_1 (" ", 0, 0);
 			  }
 		      }
 		  }
+		free (buffer);
 	      }
 	    break;
 
@@ -2281,6 +2360,17 @@ do_spec_1 (spec, inswitch, soft_matched_part)
 	  case 'i':
 	    obstack_grow (&obstack, input_filename, input_filename_length);
 	    arg_going = 1;
+	    break;
+
+	  case 'I':
+	    if (gcc_exec_prefix)
+	      {
+		do_spec_1 ("-imacros", 1, 0);
+		/* Make this a separate argument.  */
+		do_spec_1 (" ", 0, 0);
+		do_spec_1 (gcc_exec_prefix, 1, 0);
+		do_spec_1 (" ", 0, 0);
+	      }
 	    break;
 
 	  case 'o':
@@ -2990,6 +3080,10 @@ main (argc, argv)
       add_prefix (&startfile_prefix, md_startfile_prefix, 0, 0, 0);
 #endif
 
+#ifdef MD_STARTFILE_PREFIX_1
+      add_prefix (&startfile_prefix, md_startfile_prefix_1, 0, 0, 0);
+#endif
+
       add_prefix (&startfile_prefix, standard_startfile_prefix, 0, 0, 0);
       add_prefix (&startfile_prefix, standard_startfile_prefix_1, 0, 0, 0);
       add_prefix (&startfile_prefix, standard_startfile_prefix_2, 0, 0, 0);
@@ -3008,6 +3102,12 @@ main (argc, argv)
   for (i = 0; i < n_switches; i++)
     if (! switches[i].valid)
       error ("unrecognized option `-%s'", switches[i].part1);
+
+  if (print_libgcc_file_name)
+    {
+      printf ("%s\n", find_file ("libgcc.a"));
+      exit (0);
+    }
 
   /* Obey some of the options.  */
 

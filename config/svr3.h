@@ -161,6 +161,32 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 #undef ASM_OUTPUT_LABELREF
 #define ASM_OUTPUT_LABELREF(FILE,NAME) fprintf (FILE, "_%s", NAME)
 
+/* This is how to output an internal numbered label where
+   PREFIX is the class of label and NUM is the number within the class.
+
+   For most svr3 systems, the convention is that any symbol which begins
+   with a period is not put into the linker symbol table by the assembler.  */
+
+#undef ASM_OUTPUT_INTERNAL_LABEL
+#define ASM_OUTPUT_INTERNAL_LABEL(FILE,PREFIX,NUM)	\
+  asm_fprintf (FILE, "%0L%s%d:\n", PREFIX, NUM)
+
+/* This is how to store into the string LABEL
+   the symbol_ref name of an internal numbered label where
+   PREFIX is the class of label and NUM is the number within the class.
+   This is suitable for output with `assemble_name'.
+
+   For most svr3 systems, the convention is that any symbol which begins
+   with a period is not put into the linker symbol table by the assembler.  */
+
+#undef ASM_GENERATE_INTERNAL_LABEL
+#define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)	\
+  sprintf (LABEL, "*%s%s%d", LOCAL_LABEL_PREFIX, PREFIX, NUM)
+
+/* We want local labels to start with period if made with asm_fprintf.  */
+#undef LOCAL_LABEL_PREFIX
+#define LOCAL_LABEL_PREFIX "."
+
 /* Support const sections and the ctors and dtors sections for g++.
    Note that there appears to be two different ways to support const
    sections at the moment.  You can either #define the symbol
@@ -192,12 +218,30 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 /* CTOR_LIST_BEGIN and CTOR_LIST_END are machine-dependent
    because they push on the stack.  */
 
-#define DO_GLOBAL_CTORS_BODY						\
-do {									\
-  func_ptr *__CTOR_LIST__ = __builtin_alloca (0), *p;			\
-  for (p = __CTOR_LIST__; *p; )						\
-    (*p++) ();								\
+#ifdef STACK_GROWS_DOWNWARD
+
+/* Constructor list on stack is in reverse order.  Go to the end of the
+   list and go backwards to call constructors in the right order.  */
+#define DO_GLOBAL_CTORS_BODY					\
+do {								\
+  func_ptr *p, *beg = alloca (0);				\
+  for (p = beg; *p; p++)					\
+    ;								\
+  while (p != beg)						\
+    (*--p) ();							\
 } while (0)
+
+#else
+
+/* Constructor list on stack is in correct order.  Just call them.  */
+#define DO_GLOBAL_CTORS_BODY					\
+do {								\
+  func_ptr *p, *beg = alloca (0);				\
+  for (p = beg; *p; )						\
+    (*p++) ();							\
+} while (0)
+
+#endif /* STACK_GROWS_DOWNWARD */
 
 /* Add extra sections .init and .fini, in addition to .bss from att386.h. */
 

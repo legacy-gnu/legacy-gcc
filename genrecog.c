@@ -57,6 +57,7 @@ struct obstack *rtl_obstack = &obstack;
 #define obstack_chunk_free free
 
 extern void free ();
+extern rtx read_rtx ();
 
 /* Data structure for a listhead of decision trees.  The alternatives
    to a node are kept in a doublely-linked list so we can easily add nodes
@@ -632,7 +633,7 @@ not_both_true (d1, d2, toplevel)
 
    We would like to list nodes testing for specific codes before those
    that test predicates to avoid unnecessary function calls.  Similarly,
-   tests for specific modes should preceed nodes that allow any mode.
+   tests for specific modes should precede nodes that allow any mode.
 
    This function returns the merit (with 0 being the best) of inserting
    a test involving the specified MODE and CODE after node P.  If P is
@@ -990,7 +991,7 @@ static char *indents[]
    of the same mode, we also group tests with the same code, followed by a
    group that does not test a code.
 
-   Occasionally, we cannot arbitarily reorder the tests so that multiple
+   Occasionally, we cannot arbitrarily reorder the tests so that multiple
    sequence of groups as described above are present.
 
    We generate two nested switch statements, the outer statement for
@@ -1650,7 +1651,6 @@ main (argc, argv)
   struct decision_head recog_tree;
   struct decision_head split_tree;
   FILE *infile;
-  extern rtx read_rtx ();
   register int c;
 
   obstack_init (rtl_obstack);

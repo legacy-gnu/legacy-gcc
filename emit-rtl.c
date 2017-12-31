@@ -529,13 +529,116 @@ gen_lowpart_common (mode, x)
      from the low-order part of the constant.  */
   else if (GET_MODE_CLASS (mode) == MODE_INT && GET_MODE (x) == VOIDmode
 	   && (GET_CODE (x) == CONST_INT || GET_CODE (x) == CONST_DOUBLE))
-    return (GET_MODE_BITSIZE (mode) > HOST_BITS_PER_INT ? x
-	    : (GET_MODE_BITSIZE (mode) == HOST_BITS_PER_INT
-	       && GET_CODE (x) == CONST_INT) ? x
-	    : gen_rtx (CONST_INT, VOIDmode,
-		       (GET_MODE_MASK (mode)
-			& (GET_CODE (x) == CONST_INT
-			   ? INTVAL (x) : CONST_DOUBLE_LOW (x)))));
+    {
+      /* If MODE is twice the host word size, X is already the desired
+	 representation.  Otherwise, if MODE is wider than a word, we can't
+	 do this.  If MODE is exactly a word, return just one CONST_INT.
+	 If MODE is smaller than a word, clear the bits that don't belong
+	 in our mode, unless they and our sign bit are all one.  So we get
+	 either a reasonable negative value or a reasonable unsigned value
+	 for this mode.  */
+
+      if (GET_MODE_BITSIZE (mode) == 2 * HOST_BITS_PER_INT)
+	return x;
+      else if (GET_MODE_BITSIZE (mode) > HOST_BITS_PER_INT)
+	return 0;
+      else if (GET_MODE_BITSIZE (mode) == HOST_BITS_PER_INT)
+	return (GET_CODE (x) == CONST_INT ? x
+		: gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (x)));
+      else
+	{
+	  /* MODE must be narrower than HOST_BITS_PER_INT.  */
+	  int width = GET_MODE_BITSIZE (mode);
+	  int val = (GET_CODE (x) == CONST_INT ? INTVAL (x)
+		     : CONST_DOUBLE_LOW (x));
+
+	  if (((val & ((-1) << (width - 1))) != ((-1) << (width - 1))))
+	    val &= (1 << width) - 1;
+
+	  return (GET_CODE (x) == CONST_INT && INTVAL (x) == val ? x
+		  : gen_rtx (CONST_INT, VOIDmode, val));
+	}
+    }
+
+  /* If X is an integral constant but we want it in floating-point, it
+     must be the case that we have a union of an integer and a floating-point
+     value.  If the machine-parameters allow it, simulate that union here
+     and return the result.  The two-word and single-word cases are 
+     different.  */
+
+  else if (((HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT
+	     && HOST_BITS_PER_INT == BITS_PER_WORD)
+	    || flag_pretend_float)
+	   && GET_MODE_CLASS (mode) == MODE_FLOAT
+	   && GET_MODE_SIZE (mode) == UNITS_PER_WORD
+	   && GET_CODE (x) == CONST_INT
+	   && sizeof (float) * HOST_BITS_PER_CHAR == HOST_BITS_PER_INT)
+    {
+      union {int i; float d; } u;
+
+      u.i = INTVAL (x);
+      return immed_real_const_1 (u.d, mode);
+    }
+
+  else if (((HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT
+	     && HOST_BITS_PER_INT == BITS_PER_WORD)
+	    || flag_pretend_float)
+	   && GET_MODE_CLASS (mode) == MODE_FLOAT
+	   && GET_MODE_SIZE (mode) == 2 * UNITS_PER_WORD
+	   && (GET_CODE (x) == CONST_INT || GET_CODE (x) == CONST_DOUBLE)
+	   && GET_MODE (x) == VOIDmode
+	   && sizeof (double) * HOST_BITS_PER_CHAR == 2 * HOST_BITS_PER_INT)
+    {
+      union {int i[2]; double d; } u;
+      int low, high;
+
+      if (GET_CODE (x) == CONST_INT)
+	low = INTVAL (x), high = low >> (HOST_BITS_PER_INT -1);
+      else
+	low = CONST_DOUBLE_LOW (x), high = CONST_DOUBLE_HIGH (x);
+
+#ifdef HOST_WORDS_BIG_ENDIAN
+      u.i[0] = high, u.i[1] = low;
+#else
+      u.i[0] = low, u.i[1] = high;
+#endif
+
+      return immed_real_const_1 (u.d, mode);
+    }
+
+  /* Similarly, if this is converting a floating-point value into a
+     single-word integer.  Only do this is the host and target parameters are
+     compatible.  */
+
+  else if (((HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT
+	     && HOST_BITS_PER_INT == BITS_PER_WORD)
+	    || flag_pretend_float)
+	   && GET_MODE_CLASS (mode) == MODE_INT
+	   && GET_CODE (x) == CONST_DOUBLE
+	   && GET_MODE_CLASS (GET_MODE (x)) == MODE_FLOAT
+	   && GET_MODE_BITSIZE (mode) == BITS_PER_WORD)
+    return operand_subword (x, 0, 0, GET_MODE (x));
+
+  /* Similarly, if this is converting a floating-point value into a
+     two-word integer, we can do this one word at a time and make an
+     integer.  Only do this is the host and target parameters are
+     compatible.  */
+
+  else if (((HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT
+	     && HOST_BITS_PER_INT == BITS_PER_WORD)
+	    || flag_pretend_float)
+	   && GET_MODE_CLASS (mode) == MODE_INT
+	   && GET_CODE (x) == CONST_DOUBLE
+	   && GET_MODE_CLASS (GET_MODE (x)) == MODE_FLOAT
+	   && GET_MODE_BITSIZE (mode) == 2 * BITS_PER_WORD)
+    {
+      rtx lowpart = operand_subword (x, WORDS_BIG_ENDIAN, 0, GET_MODE (x));
+      rtx highpart = operand_subword (x, ! WORDS_BIG_ENDIAN, 0, GET_MODE (x));
+
+      if (lowpart && GET_CODE (lowpart) == CONST_INT
+	  && highpart && GET_CODE (highpart) == CONST_INT)
+	return immed_double_const (INTVAL (lowpart), INTVAL (highpart), mode);
+    }
 
   /* Otherwise, we can't do this.  */
   return 0;
@@ -696,7 +799,15 @@ operand_subword (op, i, validate_address, mode)
       && GET_MODE_SIZE (mode) == 2 * UNITS_PER_WORD
       && GET_CODE (op) == CONST_DOUBLE)
     return gen_rtx (CONST_INT, VOIDmode,
-		    i ? CONST_DOUBLE_HIGH (op) : CONST_DOUBLE_LOW (op));
+		    i ^ (WORDS_BIG_ENDIAN !=
+/* The constant is stored in the host's word-ordering,
+   but we want to access it in the target's word-ordering.  */
+#ifdef HOST_WORDS_BIG_ENDIAN
+			 1
+#else
+			 0
+#endif
+			 ) ? CONST_DOUBLE_HIGH (op) : CONST_DOUBLE_LOW (op));
 
   /* Single word float is a little harder, since single- and double-word
      values often do not have the same high-order bits.  We have already
@@ -1436,6 +1547,23 @@ prev_label (insn)
 }
 
 #ifdef HAVE_cc0
+/* INSN uses CC0 and is being moved into a delay slot.  Set up REG_CC_SETTER
+   and REG_CC_USER notes so we can find it.  */
+
+void
+link_cc0_insns (insn)
+     rtx insn;
+{
+  rtx user = next_nonnote_insn (insn);
+
+  if (GET_CODE (user) == INSN && GET_CODE (PATTERN (user)) == SEQUENCE)
+    user = XVECEXP (PATTERN (user), 0, 0);
+
+  REG_NOTES (user) = gen_rtx (INSN_LIST, REG_CC_SETTER, insn,
+			      REG_NOTES (user));
+  REG_NOTES (insn) = gen_rtx (INSN_LIST, REG_CC_USER, user, REG_NOTES (insn));
+}
+
 /* Return the next insn that uses CC0 after INSN, which is assumed to
    set it.  This is the inverse of prev_cc0_setter (i.e., prev_cc0_setter
    applied to the result of this function should yield INSN).

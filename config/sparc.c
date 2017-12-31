@@ -20,6 +20,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include <stdio.h>
 #include "config.h"
+#include "tree.h"
 #include "rtl.h"
 #include "regs.h"
 #include "hard-reg-set.h"
@@ -328,7 +329,8 @@ normal_comp_operator (op, mode)
   if (GET_RTX_CLASS (code) != '<')
     return 0;
 
-  if (GET_MODE (XEXP (op, 0)) == CCFPmode)
+  if (GET_MODE (XEXP (op, 0)) == CCFPmode
+      || GET_MODE (XEXP (op, 0)) == CCFPEmode)
     return 1;
 
   return (code != NE && code != EQ && code != GEU && code != LTU);
@@ -490,8 +492,9 @@ eligible_for_epilogue_delay (trial, slot)
   if (get_attr_length (trial) != 1)
     return 0;
 
-  /* In the case of a true leaf function, anything can
-     go into the delay slot.  */
+  /* In the case of a true leaf function, anything can go into the delay slot.
+     A delay slot only exists however if the frame size is zero, otherwise
+     we will put an insn to adjust the stack after the return.  */
   if (leaf_function)
     {
       if (leaf_return_peephole_ok ())
@@ -504,13 +507,10 @@ eligible_for_epilogue_delay (trial, slot)
   pat = PATTERN (trial);
   if (GET_CODE (SET_DEST (pat)) != REG
       || REGNO (SET_DEST (pat)) == 0
-      || (leaf_function
-	  && REGNO (SET_DEST (pat)) < 32
-	  && REGNO (SET_DEST (pat)) >= 16)
-      || (! leaf_function
-	  && (REGNO (SET_DEST (pat)) >= 32
-	      || REGNO (SET_DEST (pat)) < 24)))
+      || REGNO (SET_DEST (pat)) >= 32
+      || REGNO (SET_DEST (pat)) < 24)
     return 0;
+
   src = SET_SRC (pat);
   if (arith_operand (src, GET_MODE (src)))
     return GET_MODE_SIZE (GET_MODE (src)) <= GET_MODE_SIZE (SImode);
@@ -938,53 +938,178 @@ singlemove_string (operands)
       else
 	abort ();
     }
-  if (GET_CODE (operands[1]) == MEM)
+  else if (GET_CODE (operands[1]) == MEM)
     return "ld %1,%0";
-  if (GET_CODE (operands[1]) == CONST_INT
-      && ! CONST_OK_FOR_LETTER_P (INTVAL (operands[1]), 'I'))
+  else if (GET_CODE (operands[1]) == CONST_DOUBLE)
     {
-      int i = INTVAL (operands[1]);
+      int i;
+      union real_extract u;
+      union float_extract { float f; int i; } v;
 
-      /* If all low order 12 bits are clear, then we only need a single
-	 sethi insn to load the constant.  */
-      if (i & 0x00000FFF)
+      /* Must be SFmode, otherwise this doesn't make sense.  */
+      if (GET_MODE (operands[1]) != SFmode)
+	abort ();
+
+      bcopy (&CONST_DOUBLE_LOW (operands[1]), &u, sizeof u);
+      v.f = REAL_VALUE_TRUNCATE (SFmode, u.d);
+      i = v.i;
+
+      operands[1] = gen_rtx (CONST_INT, VOIDmode, i);
+
+      if (CONST_OK_FOR_LETTER_P (i, 'I'))
+	return "mov %1,%0";
+      else if ((i & 0x000003FF) != 0)
 	return "sethi %%hi(%a1),%0\n\tor %0,%%lo(%a1),%0";
       else
 	return "sethi %%hi(%a1),%0";
     }
-  /* ??? Wrong if target is DImode?  */
+  else if (GET_CODE (operands[1]) == CONST_INT
+	   && ! CONST_OK_FOR_LETTER_P (INTVAL (operands[1]), 'I'))
+    {
+      int i = INTVAL (operands[1]);
+
+      /* If all low order 10 bits are clear, then we only need a single
+	 sethi insn to load the constant.  */
+      if ((i & 0x000003FF) != 0)
+	return "sethi %%hi(%a1),%0\n\tor %0,%%lo(%a1),%0";
+      else
+	return "sethi %%hi(%a1),%0";
+    }
+  /* Operand 1 must be a register, or a 'I' type CONST_INT.  */
   return "mov %1,%0";
 }
 
+/* Return non-zero if it is OK to assume that the given memory operand is
+   aligned at least to a 8-byte boundary.  This should only be called
+   for memory accesses whose size is 8 bytes or larger.  */
+
+static int
+mem_aligned_8 (mem)
+     register rtx mem;
+{
+  register rtx addr;
+  register rtx base;
+  register rtx offset;
+
+  if (GET_CODE (mem) != MEM)
+    abort ();	/* It's gotta be a MEM! */
+
+  addr = XEXP (mem, 0);
+
+#if 1
+  /* Now that all misaligned double parms are copied on function entry,
+     we can assume any 64-bit object is 64-bit aligned.  */
+
+  /* See what register we use in the address.  */
+  base = 0;
+  if (GET_CODE (addr) == PLUS)
+    {
+      if (GET_CODE (XEXP (addr, 0)) == REG
+	  && GET_CODE (XEXP (addr, 1)) == CONST_INT)
+	{
+	  base = XEXP (addr, 0);
+	  offset = XEXP (addr, 1);
+	}
+    }
+  else if (GET_CODE (addr) == REG)
+    {
+      base = addr;
+      offset = const0_rtx;
+    }
+
+  /* If it's the stack or frame pointer, check offset alignment.
+     We can have improper aligment in the function entry code.  */
+  if (base
+      && (REGNO (base) == FRAME_POINTER_REGNUM
+	  || REGNO (base) == STACK_POINTER_REGNUM))
+    {
+      if ((INTVAL (offset) & 0x7) == 0)
+	return 1;
+    }
+  else
+    /* Anything else, we know is properly aligned.  */
+    return 1;
+#else
+  /* If the operand is known to have been allocated in static storage, then
+     it must be aligned.  */
+
+  if (CONSTANT_P (addr) || GET_CODE (addr) == LO_SUM)
+    return 1;
+
+  base = 0;
+  if (GET_CODE (addr) == PLUS)
+    {
+      if (GET_CODE (XEXP (addr, 0)) == REG
+          && GET_CODE (XEXP (addr, 1)) == CONST_INT)
+        {
+          base = XEXP (addr, 0);
+          offset = XEXP (addr, 1);
+        }
+    }
+  else if (GET_CODE (addr) == REG)
+    {
+      base = addr;
+      offset = const0_rtx;
+    }
+
+  /* Trust round enough offsets from the stack or frame pointer.
+     If TARGET_HOPE_ALIGN, trust round enough offset from any register.
+     If it is obviously unaligned, don't ever return true.  */
+  if (base
+      && (REGNO (base) == FRAME_POINTER_REGNUM
+          || REGNO (base) == STACK_POINTER_REGNUM
+	  || TARGET_HOPE_ALIGN))
+    {
+      if ((INTVAL (offset) & 0x7) == 0)
+	return 1;
+    }
+  /* Otherwise, we can assume that an access is aligned if it is to an
+     aggregate.  Also, if TARGET_HOPE_ALIGN, then assume everything that isn't
+     obviously unaligned is aligned.  */
+  else if (MEM_IN_STRUCT_P (mem) || TARGET_HOPE_ALIGN)
+    return 1;
+#endif
+
+  /* An obviously unaligned address.  */
+  return 0;
+}
+
+enum optype { REGOP, OFFSOP, MEMOP, PUSHOP, POPOP, CNSTOP, RNDOP };
+
 /* Output assembler code to perform a doubleword move insn
-   with operands OPERANDS.  */
+   with operands OPERANDS.  This is very similar to the following
+   output_move_quad function.  */
 
 char *
 output_move_double (operands)
      rtx *operands;
 {
-  enum { REGOP, OFFSOP, MEMOP, PUSHOP, POPOP, CNSTOP, RNDOP } optype0, optype1;
+  register rtx op0 = operands[0];
+  register rtx op1 = operands[1];
+  register enum optype optype0;
+  register enum optype optype1;
   rtx latehalf[2];
-  rtx addreg0 = 0, addreg1 = 0;
+  rtx addreg0 = 0;
+  rtx addreg1 = 0;
 
   /* First classify both operands.  */
 
-  if (REG_P (operands[0]))
+  if (REG_P (op0))
     optype0 = REGOP;
-  else if (offsettable_memref_p (operands[0]))
+  else if (offsettable_memref_p (op0))
     optype0 = OFFSOP;
-  else if (GET_CODE (operands[0]) == MEM)
+  else if (GET_CODE (op0) == MEM)
     optype0 = MEMOP;
   else
     optype0 = RNDOP;
 
-  if (REG_P (operands[1]))
+  if (REG_P (op1))
     optype1 = REGOP;
-  else if (CONSTANT_P (operands[1]))
+  else if (CONSTANT_P (op1))
     optype1 = CNSTOP;
-  else if (offsettable_memref_p (operands[1]))
+  else if (offsettable_memref_p (op1))
     optype1 = OFFSOP;
-  else if (GET_CODE (operands[1]) == MEM)
+  else if (GET_CODE (op1) == MEM)
     optype1 = MEMOP;
   else
     optype1 = RNDOP;
@@ -993,145 +1118,76 @@ output_move_double (operands)
      supposed to allow to happen.  Abort if we get one,
      because generating code for these cases is painful.  */
 
-  if (optype0 == RNDOP || optype1 == RNDOP)
+  if (optype0 == RNDOP || optype1 == RNDOP
+      || (optype0 == MEM && optype1 == MEM))
     abort ();
 
   /* If an operand is an unoffsettable memory ref, find a register
      we can increment temporarily to make it refer to the second word.  */
 
   if (optype0 == MEMOP)
-    addreg0 = find_addr_reg (XEXP (operands[0], 0));
+    addreg0 = find_addr_reg (XEXP (op0, 0));
 
   if (optype1 == MEMOP)
-    addreg1 = find_addr_reg (XEXP (operands[1], 0));
+    addreg1 = find_addr_reg (XEXP (op1, 0));
 
   /* Ok, we can do one word at a time.
-     Normally we do the low-numbered word first,
-     but if either operand is autodecrementing then we
-     do the high-numbered word first.
-
-     In either case, set up in LATEHALF the operands to use for the
+     Set up in LATEHALF the operands to use for the
      high-numbered (least significant) word and in some cases alter the
      operands in OPERANDS to be suitable for the low-numbered word.  */
 
   if (optype0 == REGOP)
-    latehalf[0] = gen_rtx (REG, SImode, REGNO (operands[0]) + 1);
+    latehalf[0] = gen_rtx (REG, SImode, REGNO (op0) + 1);
   else if (optype0 == OFFSOP)
-    latehalf[0] = adj_offsettable_operand (operands[0], 4);
+    latehalf[0] = adj_offsettable_operand (op0, 4);
   else
-    latehalf[0] = operands[0];
+    latehalf[0] = op0;
 
   if (optype1 == REGOP)
-    latehalf[1] = gen_rtx (REG, SImode, REGNO (operands[1]) + 1);
+    latehalf[1] = gen_rtx (REG, SImode, REGNO (op1) + 1);
   else if (optype1 == OFFSOP)
-    latehalf[1] = adj_offsettable_operand (operands[1], 4);
+    latehalf[1] = adj_offsettable_operand (op1, 4);
   else if (optype1 == CNSTOP)
-    split_double (operands[1], &operands[1], &latehalf[1]);
+    split_double (op1, &operands[1], &latehalf[1]);
   else
-    latehalf[1] = operands[1];
+    latehalf[1] = op1;
 
-  /* If the first move would clobber the source of the second one,
-     do them in the other order.
-
-     RMS says "This happens only for registers;
-     such overlap can't happen in memory unless the user explicitly
-     sets it up, and that is an undefined circumstance."
-
-     but it happens on the sparc when loading parameter registers,
-     so I am going to define that circumstance, and make it work
-     as expected.  */
-
-  /* Easy case: try moving both words at once.  */
-  /* First check for moving between an even/odd register pair
-     and a memory location.  */
+  /* Easy case: try moving both words at once.  Check for moving between
+     an even/odd register pair and a memory location.  */
   if ((optype0 == REGOP && optype1 != REGOP && optype1 != CNSTOP
-       && (REGNO (operands[0]) & 1) == 0)
+       && (REGNO (op0) & 1) == 0)
       || (optype0 != REGOP && optype0 != CNSTOP && optype1 == REGOP
-	  && (REGNO (operands[1]) & 1) == 0))
+	  && (REGNO (op1) & 1) == 0))
     {
-      rtx op1, op2;
-      rtx base = 0, offset = const0_rtx;
+      register rtx mem;
 
-      /* OP1 gets the register pair, and OP2 gets the memory address.  */
       if (optype0 == REGOP)
-	op1 = operands[0], op2 = operands[1];
+	mem = op1;
       else
-	op1 = operands[1], op2 = operands[0];
+	mem = op0;
 
-      /* Now see if we can trust the address to be 8-byte aligned.  */
-      /* Trust double-precision floats in global variables.  */
-
-      if (GET_CODE (XEXP (op2, 0)) == LO_SUM && GET_MODE (op2) == DFmode)
-	{
-	  if (final_sequence)
-	    abort ();
-	  return (op1 == operands[0] ? "ldd %1,%0" : "std %1,%0");
-	}
-
-      if (GET_CODE (XEXP (op2, 0)) == PLUS)
-	{
-	  rtx temp = XEXP (op2, 0);
-	  if (GET_CODE (XEXP (temp, 0)) == REG)
-	    base = XEXP (temp, 0), offset = XEXP (temp, 1);
-	  else if (GET_CODE (XEXP (temp, 1)) == REG)
-	    base = XEXP (temp, 1), offset = XEXP (temp, 0);
-	}
-
-      /* Trust round enough offsets from the stack or frame pointer.  */
-      if (base
-	  && (REGNO (base) == FRAME_POINTER_REGNUM
-	      || REGNO (base) == STACK_POINTER_REGNUM))
-	{
-	  if (GET_CODE (offset) == CONST_INT
-	      && (INTVAL (offset) & 0x7) == 0)
-	    {
-	      if (op1 == operands[0])
-		return "ldd %1,%0";
-	      else
-		return "std %1,%0";
-	    }
-	}
-      /* We know structs not on the stack are properly aligned.  Since a
-	 double asks for 8-byte alignment, we know it must have got that
-	 if it is in a struct.  But a DImode need not be 8-byte aligned,
-	 because it could be a struct containing two ints or pointers.  */
-      else if (GET_CODE (operands[1]) == MEM
-	       && GET_MODE (operands[1]) == DFmode
-	       && (CONSTANT_P (XEXP (operands[1], 0))
-		   /* Let user ask for it anyway.  */
-		   || TARGET_HOPE_ALIGN))
-	return "ldd %1,%0";
-      else if (GET_CODE (operands[0]) == MEM
-	       && GET_MODE (operands[0]) == DFmode
-	       && (CONSTANT_P (XEXP (operands[0], 0))
-		   || TARGET_HOPE_ALIGN))
-	return "std %1,%0";
+      if (mem_aligned_8 (mem))
+	return (mem == op1 ? "ldd %1,%0" : "std %1,%0");
     }
 
-  if (optype0 == REGOP && optype1 == REGOP
-      && REGNO (operands[0]) == REGNO (latehalf[1]))
-    {
-      /* Make any unoffsettable addresses point at high-numbered word.  */
-      if (addreg0)
-	output_asm_insn ("add %0,0x4,%0", &addreg0);
-      if (addreg1)
-	output_asm_insn ("add %0,0x4,%0", &addreg1);
+  /* If the first move would clobber the source of the second one,
+     do them in the other order.  */
 
+  /* Overlapping registers.  */
+  if (optype0 == REGOP && optype1 == REGOP
+      && REGNO (op0) == REGNO (latehalf[1]))
+    {
       /* Do that word.  */
       output_asm_insn (singlemove_string (latehalf), latehalf);
-
-      /* Undo the adds we just did.  */
-      if (addreg0)
-	output_asm_insn ("add %0,-0x4,%0", &addreg0);
-      if (addreg1)
-	output_asm_insn ("add %0,-0x4,%0", &addreg1);
-
       /* Do low-numbered word.  */
       return singlemove_string (operands);
     }
+  /* Loading into a register which overlaps a register used in the address.  */
   else if (optype0 == REGOP && optype1 != REGOP
-	   && reg_overlap_mentioned_p (operands[0], operands[1]))
+	   && reg_overlap_mentioned_p (op0, op1))
     {
+      /* ??? This fails if the address is a double register address, each
+	 of which is clobbered by operand 0.  */
       /* Do the late half first.  */
       output_asm_insn (singlemove_string (latehalf), latehalf);
       /* Then clobber.  */
@@ -1159,7 +1215,219 @@ output_move_double (operands)
 
   return "";
 }
+
+/* Output assembler code to perform a quadword move insn
+   with operands OPERANDS.  This is very similar to the preceeding
+   output_move_double function.  */
+
+char *
+output_move_quad (operands)
+     rtx *operands;
+{
+  register rtx op0 = operands[0];
+  register rtx op1 = operands[1];
+  register enum optype optype0;
+  register enum optype optype1;
+  rtx wordpart[4][2];
+  rtx addreg0 = 0;
+  rtx addreg1 = 0;
+
+  /* First classify both operands.  */
+
+  if (REG_P (op0))
+    optype0 = REGOP;
+  else if (offsettable_memref_p (op0))
+    optype0 = OFFSOP;
+  else if (GET_CODE (op0) == MEM)
+    optype0 = MEMOP;
+  else
+    optype0 = RNDOP;
+
+  if (REG_P (op1))
+    optype1 = REGOP;
+  else if (CONSTANT_P (op1))
+    optype1 = CNSTOP;
+  else if (offsettable_memref_p (op1))
+    optype1 = OFFSOP;
+  else if (GET_CODE (op1) == MEM)
+    optype1 = MEMOP;
+  else
+    optype1 = RNDOP;
+
+  /* Check for the cases that the operand constraints are not
+     supposed to allow to happen.  Abort if we get one,
+     because generating code for these cases is painful.  */
+
+  if (optype0 == RNDOP || optype1 == RNDOP
+      || (optype0 == MEM && optype1 == MEM))
+    abort ();
+
+  /* If an operand is an unoffsettable memory ref, find a register
+     we can increment temporarily to make it refer to the later words.  */
+
+  if (optype0 == MEMOP)
+    addreg0 = find_addr_reg (XEXP (op0, 0));
+
+  if (optype1 == MEMOP)
+    addreg1 = find_addr_reg (XEXP (op1, 0));
+
+  /* Ok, we can do one word at a time.
+     Set up in wordpart the operands to use for each word of the arguments.  */
+
+  if (optype0 == REGOP)
+    {
+      wordpart[0][0] = gen_rtx (REG, SImode, REGNO (op0) + 0);
+      wordpart[1][0] = gen_rtx (REG, SImode, REGNO (op0) + 1);
+      wordpart[2][0] = gen_rtx (REG, SImode, REGNO (op0) + 2);
+      wordpart[3][0] = gen_rtx (REG, SImode, REGNO (op0) + 3);
+    }
+  else if (optype0 == OFFSOP)
+    {
+      wordpart[0][0] = adj_offsettable_operand (op0, 0);
+      wordpart[1][0] = adj_offsettable_operand (op0, 4);
+      wordpart[2][0] = adj_offsettable_operand (op0, 8);
+      wordpart[3][0] = adj_offsettable_operand (op0, 12);
+    }
+  else
+    {
+      wordpart[0][0] = op0;
+      wordpart[1][0] = op0;
+      wordpart[2][0] = op0;
+      wordpart[3][0] = op0;
+    }
+
+  if (optype1 == REGOP)
+    {
+      wordpart[0][1] = gen_rtx (REG, SImode, REGNO (op1) + 0);
+      wordpart[1][1] = gen_rtx (REG, SImode, REGNO (op1) + 1);
+      wordpart[2][1] = gen_rtx (REG, SImode, REGNO (op1) + 2);
+      wordpart[3][1] = gen_rtx (REG, SImode, REGNO (op1) + 3);
+    }
+  else if (optype1 == OFFSOP)
+    {
+      wordpart[0][1] = adj_offsettable_operand (op1, 0);
+      wordpart[1][1] = adj_offsettable_operand (op1, 4);
+      wordpart[2][1] = adj_offsettable_operand (op1, 8);
+      wordpart[3][1] = adj_offsettable_operand (op1, 12);
+    }
+  else if (optype1 == CNSTOP)
+    {
+      /* This case isn't implemented yet, because there is no internal
+	 representation for quad-word constants, and there is no split_quad
+	 function.  */
+#if 0
+      split_quad (op1, &wordpart[0][1], &wordpart[1][1],
+		  &wordpart[2][1], &wordpart[3][1]);
+#else
+      abort ();
+#endif
+    }
+  else
+    {
+      wordpart[0][1] = op1;
+      wordpart[1][1] = op1;
+      wordpart[2][1] = op1;
+      wordpart[3][1] = op1;
+    }
+
+  /* Easy case: try moving the quad as two pairs.  Check for moving between
+     an even/odd register pair and a memory location.  */
+  /* ??? Should also handle the case of non-offsettable addresses here.
+     We can at least do the first pair as a ldd/std, and then do the third
+     and fourth words individually.  */
+  if ((optype0 == REGOP && optype1 == OFFSOP && (REGNO (op0) & 1) == 0)
+      || (optype0 == OFFSOP && optype1 == REGOP && (REGNO (op1) & 1) == 0))
+    {
+      rtx mem;
+
+      if (optype0 == REGOP)
+	mem = op1;
+      else
+	mem = op0;
+
+      if (mem_aligned_8 (mem))
+	{
+	  operands[2] = adj_offsettable_operand (mem, 8);
+	  if (mem == op1)
+	    return "ldd %1,%0;ldd %2,%S0";
+	  else
+	    return "std %1,%0;std %S1,%2";
+	}
+    }
+
+  /* If the first move would clobber the source of the second one,
+     do them in the other order.  */
+
+  /* Overlapping registers.  */
+  if (optype0 == REGOP && optype1 == REGOP
+      && (REGNO (op0) == REGNO (wordpart[1][3])
+	  || REGNO (op0) == REGNO (wordpart[1][2])
+	  || REGNO (op0) == REGNO (wordpart[1][1])))
+    {
+      /* Do fourth word.  */
+      output_asm_insn (singlemove_string (wordpart[3]), wordpart[3]);
+      /* Do the third word.  */
+      output_asm_insn (singlemove_string (wordpart[2]), wordpart[2]);
+      /* Do the second word.  */
+      output_asm_insn (singlemove_string (wordpart[1]), wordpart[1]);
+      /* Do lowest-numbered word.  */
+      return singlemove_string (wordpart[0]);
+    }
+  /* Loading into a register which overlaps a register used in the address.  */
+  if (optype0 == REGOP && optype1 != REGOP
+      && reg_overlap_mentioned_p (op0, op1))
+    {
+      /* ??? Not implemented yet.  This is a bit complicated, because we
+	 must load which ever part overlaps the address last.  If the address
+	 is a double-reg address, then there are two parts which need to
+	 be done last, which is impossible.  We would need a scratch register
+	 in that case.  */
+      abort ();
+    }
+
+  /* Normal case: move the four words in lowest to higest address order.  */
+
+  output_asm_insn (singlemove_string (wordpart[0]), wordpart[0]);
+
+  /* Make any unoffsettable addresses point at the second word.  */
+  if (addreg0)
+    output_asm_insn ("add %0,0x4,%0", &addreg0);
+  if (addreg1)
+    output_asm_insn ("add %0,0x4,%0", &addreg1);
+
+  /* Do the second word.  */
+  output_asm_insn (singlemove_string (wordpart[1]), wordpart[1]);
+
+  /* Make any unoffsettable addresses point at the third word.  */
+  if (addreg0)
+    output_asm_insn ("add %0,0x4,%0", &addreg0);
+  if (addreg1)
+    output_asm_insn ("add %0,0x4,%0", &addreg1);
+
+  /* Do the third word.  */
+  output_asm_insn (singlemove_string (wordpart[2]), wordpart[2]);
+
+  /* Make any unoffsettable addresses point at the fourth word.  */
+  if (addreg0)
+    output_asm_insn ("add %0,0x4,%0", &addreg0);
+  if (addreg1)
+    output_asm_insn ("add %0,0x4,%0", &addreg1);
+
+  /* Do the fourth word.  */
+  output_asm_insn (singlemove_string (wordpart[3]), wordpart[3]);
+
+  /* Undo the adds we just did.  */
+  if (addreg0)
+    output_asm_insn ("add %0,-0xc,%0", &addreg0);
+  if (addreg1)
+    output_asm_insn ("add %0,-0xc,%0", &addreg1);
+
+  return "";
+}
 
+/* Output assembler code to perform a doubleword move insn with operands
+   OPERANDS, one of which must be a floating point register.  */
+
 char *
 output_fp_move_double (operands)
      rtx *operands;
@@ -1170,35 +1438,15 @@ output_fp_move_double (operands)
     {
       if (FP_REG_P (operands[1]))
 	return "fmovs %1,%0\n\tfmovs %R1,%R0";
-      if (GET_CODE (operands[1]) == REG)
+      else if (GET_CODE (operands[1]) == REG)
 	{
 	  if ((REGNO (operands[1]) & 1) == 0)
 	    return "std %1,[%@-8]\n\tldd [%@-8],%0";
 	  else
 	    return "st %R1,[%@-4]\n\tst %1,[%@-8]\n\tldd [%@-8],%0";
 	}
-      addr = XEXP (operands[1], 0);
-
-      /* Use ldd if known to be aligned.  */
-      if (TARGET_HOPE_ALIGN
-	  || (GET_CODE (addr) == PLUS
-	      && (((XEXP (addr, 0) == frame_pointer_rtx
-		    || XEXP (addr, 0) == stack_pointer_rtx)
-		   && GET_CODE (XEXP (addr, 1)) == CONST_INT
-		   && (INTVAL (XEXP (addr, 1)) & 0x7) == 0)
-		  /* Arrays are known to be aligned,
-		     and reg+reg addresses are used (on this machine)
-		     only for array accesses.  */
-		  || (REG_P (XEXP (addr, 0)) && REG_P (XEXP (addr, 1)))))
-	  || (GET_MODE (operands[0]) == DFmode
-	      && (GET_CODE (addr) == LO_SUM || CONSTANT_P (addr))))
-	return "ldd %1,%0";
-
-      /* Otherwise use two ld insns.  */
-      operands[2]
-	= gen_rtx (MEM, GET_MODE (operands[1]),
-		   plus_constant_for_output (addr, 4));
-	return "ld %1,%0\n\tld %2,%R0";
+      else
+	return output_move_double (operands);
     }
   else if (FP_REG_P (operands[1]))
     {
@@ -1209,30 +1457,51 @@ output_fp_move_double (operands)
 	  else
 	    return "std %1,[%@-8]\n\tld [%@-4],%R0\n\tld [%@-8],%0";
 	}
-      addr = XEXP (operands[0], 0);
-
-      /* Use std if we can be sure it is well-aligned.  */
-      if (TARGET_HOPE_ALIGN
-	  || (GET_CODE (addr) == PLUS
-	      && (((XEXP (addr, 0) == frame_pointer_rtx
-		    || XEXP (addr, 0) == stack_pointer_rtx)
-		   && GET_CODE (XEXP (addr, 1)) == CONST_INT
-		   && (INTVAL (XEXP (addr, 1)) & 0x7) == 0)
-		  /* Arrays are known to be aligned,
-		     and reg+reg addresses are used (on this machine)
-		     only for array accesses.  */
-		  || (REG_P (XEXP (addr, 0)) && REG_P (XEXP (addr, 1)))))
-	  || (GET_MODE (operands[1]) == DFmode
-	      && (GET_CODE (addr) == LO_SUM || CONSTANT_P (addr))))
-	return "std %1,%0";
-
-      /* Otherwise use two st insns.  */
-      operands[2]
-	= gen_rtx (MEM, GET_MODE (operands[0]),
-		   plus_constant_for_output (addr, 4));
-      return "st %r1,%0\n\tst %R1,%2";
+      else
+	return output_move_double (operands);
     }
   else abort ();
+}
+
+/* Output assembler code to perform a quadword move insn with operands
+   OPERANDS, one of which must be a floating point register.  */
+
+char *
+output_fp_move_quad (operands)
+     rtx *operands;
+{
+  register rtx op0 = operands[0];
+  register rtx op1 = operands[1];
+  register rtx addr;
+
+  if (FP_REG_P (op0))
+    {
+      if (FP_REG_P (op1))
+	return "fmovs %1,%0\n\tfmovs %R1,%R0\n\tfmovs %S1,%S0\n\tfmovs %T1,%T0";
+      if (GET_CODE (op1) == REG)
+	{
+	  if ((REGNO (op1) & 1) == 0)
+	    return "std %1,[%@-8]\n\tldd [%@-8],%0\n\tstd %S1,[%@-8]\n\tldd [%@-8],%S0";
+	  else
+	    return "st %R1,[%@-4]\n\tst %1,[%@-8]\n\tldd [%@-8],%0\n\tst %T1,[%@-4]\n\tst %S1,[%@-8]\n\tldd [%@-8],%S0";
+	}
+      else
+	return output_move_quad (operands);
+    }
+  else if (FP_REG_P (op1))
+    {
+      if (GET_CODE (op0) == REG)
+	{
+	  if ((REGNO (op0) & 1) == 0)
+	    return "std %1,[%@-8]\n\tldd [%@-8],%0\n\tstd %S1,[%@-8]\n\tldd [%@-8],%S0";
+	  else
+	    return "std %S1,[%@-8]\n\tld [%@-4],%T0\n\tld [%@-8],%S0\n\tstd %1,[%@-8]\n\tld [%@-4],%R0\n\tld [%@-8],%0";
+	}
+      else
+	return output_move_quad (operands);
+    }
+  else
+    abort ();
 }
 
 /* Return a REG that occurs in ADDR with coefficient 1.
@@ -1425,6 +1694,7 @@ output_block_move (operands)
   rtx sizertx = operands[2];
   rtx alignrtx = operands[3];
   int align = INTVAL (alignrtx);
+  char label3[30], label5[30];
 
   xoperands[0] = operands[0];
   xoperands[1] = operands[1];
@@ -1523,6 +1793,9 @@ output_block_move (operands)
   xoperands[4] = gen_rtx (CONST_INT, VOIDmode, align);
   xoperands[5] = gen_rtx (CONST_INT, VOIDmode, movstrsi_label++);
 
+  ASM_GENERATE_INTERNAL_LABEL (label3, "Lm", INTVAL (xoperands[3]));
+  ASM_GENERATE_INTERNAL_LABEL (label5, "Lm", INTVAL (xoperands[5]));
+
   /* This is the size of the transfer.  Emit code to decrement the size
      value by ALIGN, and store the result in the temp1 register.  */
   output_size_for_block_move (sizertx, temp1, alignrtx);
@@ -1538,11 +1811,12 @@ output_block_move (operands)
      be a harmless insn between the branch here and the next label emitted
      below.  */
 
-#ifdef NO_UNDERSCORES
-  output_asm_insn ("cmp %2,0\n\tbl .Lm%5", xoperands);
-#else
-  output_asm_insn ("cmp %2,0\n\tbl Lm%5", xoperands);
-#endif
+  {
+    char pattern[100];
+
+    sprintf (pattern, "cmp %%2,0\n\tbl %s", &label5[1]);
+    output_asm_insn (pattern, xoperands);
+  }
 
   zoperands[0] = operands[0];
   zoperands[3] = plus_constant_for_output (operands[0], align);
@@ -1558,29 +1832,18 @@ output_block_move (operands)
 
   /* Output the first label separately, so that it is spaced properly.  */
 
-#ifdef NO_UNDERSCORES
-  ASM_OUTPUT_INTERNAL_LABEL (asm_out_file, ".Lm", INTVAL (xoperands[3]));
-#else
   ASM_OUTPUT_INTERNAL_LABEL (asm_out_file, "Lm", INTVAL (xoperands[3]));
-#endif
 
-#ifdef NO_UNDERSCORES
-  if (align == 1)
-    output_asm_insn ("ldub [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge .Lm%3\n\tstb %%g1,[%0+%2]\n.Lm%5:", xoperands);
-  else if (align == 2)
-    output_asm_insn ("lduh [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge .Lm%3\n\tsth %%g1,[%0+%2]\n.Lm%5:", xoperands);
-  else
-    output_asm_insn ("ld [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge .Lm%3\n\tst %%g1,[%0+%2]\n.Lm%5:", xoperands);
+  {
+    char pattern[200];
+    register char *ld_suffix = (align == 1) ? "ub" : (align == 2) ? "uh" : "";
+    register char *st_suffix = (align == 1) ? "b" : (align == 2) ? "h" : "";
+
+    sprintf (pattern, "ld%s [%%1+%%2],%%%%g1\n\tsubcc %%2,%%4,%%2\n\tbge %s\n\tst%s %%%%g1,[%%0+%%2]\n%s:", ld_suffix, &label3[1], st_suffix, &label5[1]);
+    output_asm_insn (pattern, xoperands);
+  }
+
   return "";
-#else
-  if (align == 1)
-    output_asm_insn ("ldub [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge Lm%3\n\tstb %%g1,[%0+%2]\nLm%5:", xoperands);
-  else if (align == 2)
-    output_asm_insn ("lduh [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge Lm%3\n\tsth %%g1,[%0+%2]\nLm%5:", xoperands);
-  else
-    output_asm_insn ("ld [%1+%2],%%g1\n\tsubcc %2,%4,%2\n\tbge Lm%3\n\tst %%g1,[%0+%2]\nLm%5:", xoperands);
-  return "";
-#endif
 }
 
 /* Output reasonable peephole for set-on-condition-code insns.
@@ -1676,8 +1939,9 @@ output_scc_insn (operands, insn)
    it can easily be got.  */
 
 /* Modes for condition codes.  */
-#define C_MODES		\
-  ((1 << (int) CCmode) | (1 << (int) CC_NOOVmode) | (1 << (int) CCFPmode))
+#define C_MODES						\
+  ((1 << (int) CCmode) | (1 << (int) CC_NOOVmode)	\
+   | (1 << (int) CCFPmode) | (1 << (int) CCFPEmode))
 
 /* Modes for single-word (and smaller) quantities.  */
 #define S_MODES						\
@@ -1832,45 +2096,63 @@ compute_frame_size (size, leaf_function)
   return actual_fsize;
 }
 
+/* Output code for the function prologue.  */
+
 void
 output_function_prologue (file, size, leaf_function)
      FILE *file;
      int size;
+     int leaf_function;
 {
   if (leaf_function)
     frame_base_name = "%sp+80";
   else
     frame_base_name = "%fp";
 
+  /* Need to use actual_fsize, since we are also allocating
+     space for our callee (and our own register save area).  */
   actual_fsize = compute_frame_size (size, leaf_function);
 
   fprintf (file, "\t!#PROLOGUE# 0\n");
-  if (actual_fsize == 0) /* do nothing.  */ ;
-  else if (actual_fsize < 4096)
+  if (actual_fsize == 0)
+    /* do nothing.  */ ;
+  else if (actual_fsize <= 4096)
     {
       if (! leaf_function)
 	fprintf (file, "\tsave %%sp,-%d,%%sp\n", actual_fsize);
       else
 	fprintf (file, "\tadd %%sp,-%d,%%sp\n", actual_fsize);
     }
-  else if (! leaf_function)
+  else if (actual_fsize <= 8192)
     {
-      /* Need to use actual_fsize, since we are also allocating space for
-	 our callee (and our own register save area).  */
-      fprintf (file, "\tsethi %%hi(%d),%%g1\n\tor %%g1,%%lo(%d),%%g1\n",
-	       -actual_fsize, -actual_fsize);
-      fprintf (file, "\tsave %%sp,%%g1,%%sp\n");
+      /* For frames in the range 4097..8192, we can use just two insns.  */
+      if (! leaf_function)
+	{
+	  fprintf (file, "\tsave %%sp,-4096,%%sp\n");
+	  fprintf (file, "\tadd %%sp,-%d,%%sp\n", actual_fsize - 4096);
+	}
+      else
+	{
+	  fprintf (file, "\tadd %%sp,-4096,%%sp\n");
+	  fprintf (file, "\tadd %%sp,-%d,%%sp\n", actual_fsize - 4096);
+	}
     }
   else
     {
-      /* Put pointer to parameters into %g4, and allocate
-	 frame space using result computed into %g1.  actual_fsize
-	 used instead of apparent_fsize for reasons stated above.  */
-      abort ();
-
-      fprintf (file, "\tsethi %%hi(%d),%%g1\n\tor %%g1,%%lo(%d),%%g1\n",
-	       -actual_fsize, -actual_fsize);
-      fprintf (file, "\tadd %%sp,64,%%g4\n\tadd %%sp,%%g1,%%sp\n");
+      if (! leaf_function)
+	{
+	  fprintf (file, "\tsethi %%hi(-%d),%%g1\n", actual_fsize);
+	  if ((actual_fsize & 0x3ff) != 0)
+	    fprintf (file, "\tor %%g1,%%lo(-%d),%%g1\n", actual_fsize);
+	  fprintf (file, "\tsave %%sp,%%g1,%%sp\n");
+	}
+      else
+	{
+	  fprintf (file, "\tsethi %%hi(-%d),%%g1\n", actual_fsize);
+	  if ((actual_fsize & 0x3ff) != 0)
+	    fprintf (file, "\tor %%g1,%%lo(-%d),%%g1\n", actual_fsize);
+	  fprintf (file, "\tadd %%sp,%%g1,%%sp\n");
+	}
     }
 
   /* If doing anything with PIC, do it now.  */
@@ -1910,18 +2192,19 @@ output_function_prologue (file, size, leaf_function)
     }
 }
 
+/* Output code for the function epilogue.  */
+
 void
-output_function_epilogue (file, size, leaf_function, true_epilogue)
+output_function_epilogue (file, size, leaf_function)
      FILE *file;
      int size;
+     int leaf_function;
 {
   int n_fregs, i;
   char *ret;
 
   if (leaf_label)
     {
-      if (leaf_function < 0)
-	abort ();
       emit_label_after (leaf_label, get_last_insn ());
       final_scan_insn (get_last_insn (), file, 0, 0, 1);
     }
@@ -1950,66 +2233,52 @@ output_function_epilogue (file, size, leaf_function, true_epilogue)
   else
     ret = (current_function_returns_struct ? "jmp %i7+12" : "ret");
 
-  /* Tail calls have to do this work themselves.  */
-  if (leaf_function >= 0)
+  if (TARGET_EPILOGUE || leaf_label)
     {
-      if (TARGET_EPILOGUE || leaf_label)
-	{
-	  int old_target_epilogue = TARGET_EPILOGUE;
-	  target_flags &= ~old_target_epilogue;
+      int old_target_epilogue = TARGET_EPILOGUE;
+      target_flags &= ~old_target_epilogue;
 
-	  if (! leaf_function)
+      if (! leaf_function)
+	{
+	  /* If we wound up with things in our delay slot, flush them here.  */
+	  if (current_function_epilogue_delay_list)
 	    {
-	      /* If we wound up with things in our delay slot,
-		 flush them here.  */
-	      if (current_function_epilogue_delay_list)
-		{
-		  rtx insn = emit_jump_insn_after (gen_rtx (RETURN, VOIDmode),
-						   get_last_insn ());
-		  PATTERN (insn) = gen_rtx (PARALLEL, VOIDmode,
-					    gen_rtvec (2,
-						       PATTERN (XEXP (current_function_epilogue_delay_list, 0)),
-						       PATTERN (insn)));
-		  final_scan_insn (insn, file, 1, 0, 1);
-		}
-	      else
-		fprintf (file, "\t%s\n\trestore\n", ret);
-	    }
-	  else if (actual_fsize < 4096)
-	    {
-	      if (current_function_epilogue_delay_list)
-		{
-		  fprintf (file, "\t%s\n", ret);
-		  final_scan_insn (XEXP (current_function_epilogue_delay_list, 0),
-				   file, 1, 0, 1);
-		}
-	      else
-		fprintf (file, "\t%s\n\tadd %%sp,%d,%%sp\n",
-			 ret, actual_fsize);
+	      rtx insn = emit_jump_insn_after (gen_rtx (RETURN, VOIDmode),
+					       get_last_insn ());
+	      PATTERN (insn) = gen_rtx (PARALLEL, VOIDmode,
+					gen_rtvec (2,
+						   PATTERN (XEXP (current_function_epilogue_delay_list, 0)),
+						   PATTERN (insn)));
+	      final_scan_insn (insn, file, 1, 0, 1);
 	    }
 	  else
-	    {
-	      if (current_function_epilogue_delay_list)
-		abort ();
-	      fprintf (file, "\tsethi %%hi(%d),%%g1\n\tor %%g1,%%lo(%d),%%g1\n\t%s\n\tadd %%sp,%%g1,%%sp\n",
-		       actual_fsize, actual_fsize, ret);
-	    }
-	  target_flags |= old_target_epilogue;
+	    fprintf (file, "\t%s\n\trestore\n", ret);
 	}
-    }
-  else if (true_epilogue)
-    {
-      /* We may still need a return insn!  Somebody could jump around
-	 the tail-calls that this function makes.  */
-      if (TARGET_EPILOGUE)
+      /* All of the following cases are for leaf functions.  */
+      else if (current_function_epilogue_delay_list)
 	{
-	  rtx last = get_last_insn ();
-
-	  last = prev_nonnote_insn (last);
-	  if (last == 0
-	      || (GET_CODE (last) != JUMP_INSN && GET_CODE (last) != BARRIER))
-	    fprintf (file, "\t%s\n\tnop\n", ret);
+	  /* eligible_for_epilogue_delay_slot ensures that if this is a
+	     leaf function, then we will only have insn in the delay slot
+	     if the frame size is zero, thus no adjust for the stack is
+	     needed here.  */
+	  if (actual_fsize != 0)
+	    abort ();
+	  fprintf (file, "\t%s\n", ret);
+	  final_scan_insn (XEXP (current_function_epilogue_delay_list, 0),
+			   file, 1, 0, 1);
 	}
+      else if (actual_fsize <= 4096)
+	fprintf (file, "\t%s\n\tsub %%sp,-%d,%%sp\n", ret, actual_fsize);
+      else if (actual_fsize <= 8192)
+	fprintf (file, "\tsub %%sp,-4096,%%sp\n\t%s\n\tsub %%sp,-%d,%%sp\n",
+		 ret, actual_fsize - 4096);
+      else if ((actual_fsize & 0x3ff) == 0)
+	fprintf (file, "\tsethi %%hi(%d),%%g1\n\t%s\n\tadd %%sp,%%g1,%%sp\n",
+		 actual_fsize, ret);
+      else		 
+	fprintf (file, "\tsethi %%hi(%d),%%g1\n\tor %%g1,%%lo(%d),%%g1\n\t%s\n\tadd %%sp,%%g1,%%sp\n",
+		 actual_fsize, actual_fsize, ret);
+      target_flags |= old_target_epilogue;
     }
 }
 
@@ -2038,32 +2307,33 @@ output_cbranch (op, label, reversed, annul, noop)
      Because there is currently no concept of pre-delay slots, we can fix
      this only by always emitting a nop before a floating point branch.  */
 
-  if (mode == CCFPmode)
+  if (mode == CCFPmode || mode == CCFPEmode)
     strcpy (string, "nop\n\t");
 
   /* If not floating-point or if EQ or NE, we can just reverse the code.  */
-  if (reversed && (mode != CCFPmode || code == EQ || code == NE))
+  if (reversed
+      && ((mode != CCFPmode && mode != CCFPEmode) || code == EQ || code == NE))
     code = reverse_condition (code), reversed = 0;
 
   /* Start by writing the branch condition.  */
   switch (code)
     {
     case NE:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	strcat (string, "fbne");
       else
 	strcpy (string, "bne");
       break;
 
     case EQ:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	strcat (string, "fbe");
       else
 	strcpy (string, "be");
       break;
 
     case GE:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	{
 	  if (reversed)
 	    strcat (string, "fbul");
@@ -2077,7 +2347,7 @@ output_cbranch (op, label, reversed, annul, noop)
       break;
 
     case GT:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	{
 	  if (reversed)
 	    strcat (string, "fbule");
@@ -2089,7 +2359,7 @@ output_cbranch (op, label, reversed, annul, noop)
       break;
 
     case LE:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	{
 	  if (reversed)
 	    strcat (string, "fbug");
@@ -2101,7 +2371,7 @@ output_cbranch (op, label, reversed, annul, noop)
       break;
 
     case LT:
-      if (mode == CCFPmode)
+      if (mode == CCFPmode || mode == CCFPEmode)
 	{
 	  if (reversed)
 	    strcat (string, "fbuge");
@@ -2144,6 +2414,8 @@ output_cbranch (op, label, reversed, annul, noop)
   return string;
 }
 
+/* Output assembler code to return from a function.  */
+
 char *
 output_return (operands)
      rtx *operands;
@@ -2155,20 +2427,43 @@ output_return (operands)
     }
   else if (leaf_function)
     {
+      /* If we didn't allocate a frame pointer for the current function,
+	 the stack pointer might have been adjusted.  Output code to
+	 restore it now.  */
+
       operands[0] = gen_rtx (CONST_INT, VOIDmode, actual_fsize);
-      if (actual_fsize < 4096)
+
+      /* Use sub of negated value in first two cases instead of add to
+	 allow actual_fsize == 4096.  */
+
+      if (actual_fsize <= 4096)
 	{
 	  if (current_function_returns_struct)
-	    return "jmp %%o7+12\n\tadd %%sp,%0,%%sp";
+	    return "jmp %%o7+12\n\tsub %%sp,-%0,%%sp";
 	  else
-	    return "retl\n\tadd %%sp,%0,%%sp";
+	    return "retl\n\tsub %%sp,-%0,%%sp";
+	}
+      else if (actual_fsize <= 8192)
+	{
+	  operands[0] = gen_rtx (CONST_INT, VOIDmode, actual_fsize - 4096);
+	  if (current_function_returns_struct)
+	    return "sub %%sp,-4096,%%sp\n\tjmp %%o7+12\n\tsub %%sp,-%0,%%sp";
+	  else
+	    return "sub %%sp,-4096,%%sp\n\tretl\n\tsub %%sp,-%0,%%sp";
+	}
+      else if (current_function_returns_struct)
+	{
+	  if ((actual_fsize & 0x3ff) != 0)
+	    return "sethi %%hi(%a0),%%g1\n\tor %%g1,%%lo(%a0),%%g1\n\tjmp %%o7+12\n\tadd %%sp,%%g1,%%sp";
+	  else
+	    return "sethi %%hi(%a0),%%g1\n\tjmp %%o7+12\n\tadd %%sp,%%g1,%%sp";
 	}
       else
 	{
-	  if (current_function_returns_struct)
-	    return "sethi %%hi(%a0),%%g1\n\tor %%g1,%%lo(%a0),%%g1\n\tjmp %%o7+12\n\tadd %%sp,%%g1,%%sp";
-	  else
+	  if ((actual_fsize & 0x3ff) != 0)
 	    return "sethi %%hi(%a0),%%g1\n\tor %%g1,%%lo(%a0),%%g1\n\tretl\n\tadd %%sp,%%g1,%%sp";
+	  else
+	    return "sethi %%hi(%a0),%%g1\n\tretl\n\tadd %%sp,%%g1,%%sp";
 	}
     }
   else
@@ -2179,6 +2474,8 @@ output_return (operands)
 	return "ret\n\trestore";
     }
 }
+
+/* Output assembler code for a SImode to SFmode conversion.  */
 
 char *
 output_floatsisf2 (operands)
@@ -2191,6 +2488,8 @@ output_floatsisf2 (operands)
   return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitos %0,%0";
 }
 
+/* Output assembler code for a SImode to DFmode conversion.  */
+
 char *
 output_floatsidf2 (operands)
      rtx *operands;
@@ -2202,23 +2501,17 @@ output_floatsidf2 (operands)
   return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitod %0,%0";
 }
 
-int
-tail_call_valid_p ()
+/* Output assembler code for a SImode to TFmode conversion.  */
+
+char *
+output_floatsitf2 (operands)
+     rtx *operands;
 {
-  static int checked = 0;
-  static int valid_p = 0;
-
-  if (! checked)
-    {
-      register int i;
-
-      checked = 1;
-      for (i = 32; i < FIRST_PSEUDO_REGISTER; i++)
-	if (! fixed_regs[i] && ! call_used_regs[i])
-	  return 0;
-      valid_p = 1;
-    }
-  return valid_p;
+  if (GET_CODE (operands[1]) == MEM)
+    return "ld %1,%0\n\tfitoq %0,%0";
+  else if (FP_REG_P (operands[1]))
+    return "fitoq %1,%0";
+  return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitoq %0,%0";
 }
 
 /* Leaf functions and non-leaf functions have different needs.  */
@@ -2295,93 +2588,107 @@ output_arc_profiler (arcno, insert_after)
   emit_insn_after (gen_rtx (SET, VOIDmode, mem_ref, profiler_reg),
 		   insert_after);
 }
-
-/* All the remaining routines in this file have been turned off.  */
-#if 0
-char *
-output_tail_call (operands, insn)
-     rtx *operands;
-     rtx insn;
+
+/* Return 1 if REGNO (reg1) is even and REGNO (reg1) == REGNO (reg2) - 1.
+   This makes them candidates for using ldd and std insns. 
+
+   Note reg1 and reg2 *must* be hard registers.  To be sure we will
+   abort if we are passed pseudo registers.  */
+
+int
+registers_ok_for_ldd (reg1, reg2)
+     rtx reg1, reg2;
 {
-  int this_fsize = actual_fsize;
-  rtx next;
-  int need_nop_at_end = 0;
 
-  next = next_real_insn (insn);
-  while (next && GET_CODE (next) == CODE_LABEL)
-    next = next_real_insn (insn);
+  /* We might have been passed a SUBREG.  */
+  if (GET_CODE (reg1) != REG || GET_CODE (reg2) != REG) 
+    return 0;
 
-  if (final_sequence && this_fsize > 0)
+  /* Should never happen.  */
+  if (REGNO (reg1) > FIRST_PSEUDO_REGISTER 
+      || REGNO (reg2) > FIRST_PSEUDO_REGISTER)
+    abort ();
+
+  if (REGNO (reg1) % 2 != 0)
+    return 0;
+
+  return (REGNO (reg1) == REGNO (reg2) - 1);
+  
+}
+
+/* Return 1 if addr1 and addr2 are suitable for use in an ldd or 
+   std insn.
+
+   This can only happen when addr1 and addr2 are consecutive memory
+   locations (addr1 + 4 == addr2).  addr1 must also be aligned on a 
+   64 bit boundary (addr1 % 8 == 0).  
+
+   We know %sp and %fp are kept aligned on a 64 bit boundary.  Other
+   registers are assumed to *never* be properly aligned and are 
+   rejected.
+
+   Knowing %sp and %fp are kept aligned on a 64 bit boundary, we 
+   need only check that the offset for addr1 % 8 == 0.  */
+
+int
+memory_ok_for_ldd (addr1, addr2)
+      rtx addr1, addr2;
+{
+  int reg1, offset1;
+
+  /* Extract a register number and offset (if used) from the first addr.  */
+  if (GET_CODE (addr1) == PLUS)
     {
-      rtx xoperands[1];
-
-      /* If we have to restore any registers, don't take any chances
-	 restoring a register before we discharge it into
-	 its home.  If the frame size is only 88, we are guaranteed
-	 that the epilogue will fit in the delay slot.  */
-      rtx delay_insn = XVECEXP (final_sequence, 0, 1);
-      if (GET_CODE (PATTERN (delay_insn)) == SET)
-	{
-	  rtx dest = SET_DEST (PATTERN (delay_insn));
-	  if (GET_CODE (dest) == REG
-	      && reg_mentioned_p (dest, insn))
-	    abort ();
-	}
-      else if (GET_CODE (PATTERN (delay_insn)) == PARALLEL)
-	abort ();
-      xoperands[0] = operands[0];
-      final_scan_insn (delay_insn, asm_out_file, 0, 0, 1);
-      operands[0] = xoperands[0];
-      final_sequence = 0;
-    }
-
-  /* Make sure we are clear to return.  */
-  output_function_epilogue (asm_out_file, get_frame_size (), -1, 0);
-
-  /* Strip the MEM.  */
-  operands[0] = XEXP (operands[0], 0);
-
-  if (final_sequence == 0
-      && (next == 0
-	  || GET_CODE (next) == CALL_INSN
-	  || GET_CODE (next) == JUMP_INSN))
-    need_nop_at_end = 1;
-
-  if (flag_pic)
-    return output_pic_sequence_2 (2, 3, 0, "jmpl %%g1+%3", operands, need_nop_at_end);
-
-  if (GET_CODE (operands[0]) == REG)
-    output_asm_insn ("jmpl %a0,%%g0", operands);
-  else if (TARGET_TAIL_CALL)
-    {
-      /* We assume all labels will be within 16 MB of our call.  */
-      if (need_nop_at_end || final_sequence)
-	output_asm_insn ("b %a0", operands);
+      /* If not a REG, return zero.  */
+      if (GET_CODE (XEXP (addr1, 0)) != REG)
+	return 0;
       else
-	output_asm_insn ("b,a %a0", operands);
+	{
+          reg1 = REGNO (XEXP (addr1, 0));
+	  /* The offset must be constant!  */
+	  if (GET_CODE (XEXP (addr1, 1)) != CONST_INT)
+            return 0;
+          offset1 = INTVAL (XEXP (addr1, 1));
+	}
     }
-  else if (! final_sequence)
-    {
-      output_asm_insn ("sethi %%hi(%a0),%%g1\n\tjmpl %%g1+%%lo(%a0),%%g1",
-		       operands);
-    }
+  else if (GET_CODE (addr1) != REG)
+    return 0;
   else
     {
-      int i;
-      rtx x = PATTERN (XVECEXP (final_sequence, 0, 1));
-      for (i = 1; i < 32; i++)
-	if ((i == 1 || ! fixed_regs[i])
-	    && call_used_regs[i]
-	    && ! refers_to_regno_p (i, i+1, x, 0))
-	  break;
-      if (i == 32)
-	abort ();
-      operands[1] = gen_rtx (REG, SImode, i);
-      output_asm_insn ("sethi %%hi(%a0),%1\n\tjmpl %1+%%lo(%a0),%1", operands);
+      reg1 = REGNO (addr1);
+      /* This was a simple (mem (reg)) expression.  Offset is 0.  */
+      offset1 = 0;
     }
-  return (need_nop_at_end ? "nop" : "");
+
+  /* Make sure the second address is a (mem (plus (reg) (const_int).  */
+  if (GET_CODE (addr2) != PLUS)
+    return 0;
+
+  if (GET_CODE (XEXP (addr2, 0)) != REG
+      || GET_CODE (XEXP (addr2, 1)) != CONST_INT)
+    return 0;
+
+  /* Only %fp and %sp are allowed.  Additionally both addresses must
+     use the same register.  */
+  if (reg1 != FRAME_POINTER_REGNUM && reg1 != STACK_POINTER_REGNUM)
+    return 0;
+
+  if (reg1 != REGNO (XEXP (addr2, 0)))
+    return 0;
+
+  /* The first offset must be evenly divisable by 8 to ensure the 
+     address is 64 bit aligned.  */
+  if (offset1 % 8 != 0)
+    return 0;
+
+  /* The offset for the second addr must be 4 more than the first addr.  */
+  if (INTVAL (XEXP (addr2, 1)) != offset1 + 4)
+    return 0;
+
+  /* All the tests passed.  addr1 and addr2 are valid for ldd and std
+     instructions.  */
+  return 1;
 }
-#endif
 
 /* Print operand X (an rtx) in assembler syntax to file FILE.
    CODE is a letter or dot (`z' in `%z0') or 0 if no letter was specified.
@@ -2422,9 +2729,19 @@ print_operand (file, x, code)
       fputs (frame_base_name, file);
       return;
     case 'R':
-      /* Print out the second register name of a register pair.
+      /* Print out the second register name of a register pair or quad.
 	 I.e., R (%o0) => %o1.  */
       fputs (reg_names[REGNO (x)+1], file);
+      return;
+    case 'S':
+      /* Print out the third register name of a register quad.
+	 I.e., S (%o0) => %o2.  */
+      fputs (reg_names[REGNO (x)+2], file);
+      return;
+    case 'T':
+      /* Print out the fourth register name of a register quad.
+	 I.e., T (%o0) => %o3.  */
+      fputs (reg_names[REGNO (x)+3], file);
       return;
     case 'm':
       /* Print the operand's address only.  */
@@ -2432,8 +2749,9 @@ print_operand (file, x, code)
       return;
     case 'r':
       /* In this case we need a register.  Use %g0 if the
-	 operand in const0_rtx.  */
-      if (x == const0_rtx)
+	 operand is const0_rtx.  */
+      if (x == const0_rtx
+	  || (GET_MODE (x) != VOIDmode && x == CONST0_RTX (GET_MODE (x))))
 	{
 	  fputs ("%g0", file);
 	  return;
@@ -2554,4 +2872,280 @@ output_double_int (file, value)
   else
     abort ();
 }
+
+#ifndef CHAR_TYPE_SIZE
+#define CHAR_TYPE_SIZE BITS_PER_UNIT
+#endif
 
+#ifndef SHORT_TYPE_SIZE
+#define SHORT_TYPE_SIZE (BITS_PER_UNIT * 2)
+#endif
+
+#ifndef INT_TYPE_SIZE
+#define INT_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef LONG_TYPE_SIZE
+#define LONG_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef LONG_LONG_TYPE_SIZE
+#define LONG_LONG_TYPE_SIZE (BITS_PER_WORD * 2)
+#endif
+
+#ifndef FLOAT_TYPE_SIZE
+#define FLOAT_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef DOUBLE_TYPE_SIZE
+#define DOUBLE_TYPE_SIZE (BITS_PER_WORD * 2)
+#endif
+
+#ifndef LONG_DOUBLE_TYPE_SIZE
+#define LONG_DOUBLE_TYPE_SIZE (BITS_PER_WORD * 2)
+#endif
+
+unsigned long
+sparc_type_code (type)
+     register tree type;
+{
+  register unsigned long qualifiers = 0;
+  register unsigned shift = 6;
+
+  for (;;)
+    {
+      switch (TREE_CODE (type))
+	{
+	case ERROR_MARK:
+	  return qualifiers;
+  
+	case ARRAY_TYPE:
+	  qualifiers |= (3 << shift);
+	  shift += 2;
+	  type = TREE_TYPE (type);
+	  break;
+
+	case FUNCTION_TYPE:
+	case METHOD_TYPE:
+	  qualifiers |= (2 << shift);
+	  shift += 2;
+	  type = TREE_TYPE (type);
+	  break;
+
+	case POINTER_TYPE:
+	case REFERENCE_TYPE:
+	case OFFSET_TYPE:
+	  qualifiers |= (1 << shift);
+	  shift += 2;
+	  type = TREE_TYPE (type);
+	  break;
+
+	case RECORD_TYPE:
+	  return (qualifiers | 8);
+
+	case UNION_TYPE:
+	  return (qualifiers | 9);
+
+	case ENUMERAL_TYPE:
+	  return (qualifiers | 10);
+
+	case VOID_TYPE:
+	  return (qualifiers | 16);
+
+	case INTEGER_TYPE:
+	  /* Carefully distinguish all the standard types of C,
+	     without messing up if the language is not C.
+	     Note that we check only for the names that contain spaces;
+	     other names might occur by coincidence in other languages.  */
+	  if (TYPE_NAME (type) != 0
+	      && TREE_CODE (TYPE_NAME (type)) == TYPE_DECL
+	      && DECL_NAME (TYPE_NAME (type)) != 0
+	      && TREE_CODE (DECL_NAME (TYPE_NAME (type))) == IDENTIFIER_NODE)
+	    {
+	      char *name = IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (type)));
+  
+	      if (!strcmp (name, "unsigned char"))
+		return (qualifiers | 12);
+	      if (!strcmp (name, "signed char"))
+		return (qualifiers | 2);
+	      if (!strcmp (name, "unsigned int"))
+		return (qualifiers | 14);
+	      if (!strcmp (name, "short int"))
+		return (qualifiers | 3);
+	      if (!strcmp (name, "short unsigned int"))
+		return (qualifiers | 13);
+	      if (!strcmp (name, "long int"))
+		return (qualifiers | 5);
+	      if (!strcmp (name, "long unsigned int"))
+		return (qualifiers | 15);
+	      if (!strcmp (name, "long long int"))
+		return (qualifiers | 5);	/* Who knows? */
+	      if (!strcmp (name, "long long unsigned int"))
+		return (qualifiers | 15);	/* Who knows? */
+	    }
+  
+	  /* Most integer types will be sorted out above, however, for the
+	     sake of special `array index' integer types, the following code
+	     is also provided.  */
+  
+	  if (TYPE_PRECISION (type) == INT_TYPE_SIZE)
+	    return (qualifiers | (TREE_UNSIGNED (type) ? 14 : 4));
+  
+	  if (TYPE_PRECISION (type) == LONG_TYPE_SIZE)
+	    return (qualifiers | (TREE_UNSIGNED (type) ? 15 : 5));
+  
+	  if (TYPE_PRECISION (type) == LONG_LONG_TYPE_SIZE)
+	    return (qualifiers | (TREE_UNSIGNED (type) ? 15 : 5));
+  
+	  if (TYPE_PRECISION (type) == SHORT_TYPE_SIZE)
+	    return (qualifiers | (TREE_UNSIGNED (type) ? 13 : 3));
+  
+	  if (TYPE_PRECISION (type) == CHAR_TYPE_SIZE)
+	    return (qualifiers | (TREE_UNSIGNED (type) ? 12 : 2));
+  
+	  abort ();
+  
+	case REAL_TYPE:
+	  /* Carefully distinguish all the standard types of C,
+	     without messing up if the language is not C.  */
+	  if (TYPE_NAME (type) != 0
+	      && TREE_CODE (TYPE_NAME (type)) == TYPE_DECL
+	      && DECL_NAME (TYPE_NAME (type)) != 0
+	      && TREE_CODE (DECL_NAME (TYPE_NAME (type))) == IDENTIFIER_NODE)
+	    {
+	      char *name = IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (type)));
+  
+	      if (!strcmp (name, "long double"))
+		return (qualifiers | 7);	/* Who knows? */
+	    }
+  
+	  if (TYPE_PRECISION (type) == DOUBLE_TYPE_SIZE)
+	    return (qualifiers | 7);
+	  if (TYPE_PRECISION (type) == FLOAT_TYPE_SIZE)
+	    return (qualifiers | 6);
+	  if (TYPE_PRECISION (type) == LONG_DOUBLE_TYPE_SIZE)
+	    return (qualifiers | 7);	/* Who knows? */
+	  abort ();
+  
+	case COMPLEX_TYPE:	/* GNU Fortran COMPLEX type.  */
+	case CHAR_TYPE:		/* GNU Pascal CHAR type.  Not used in C.  */
+	case BOOLEAN_TYPE:	/* GNU Fortran BOOLEAN type.  */
+	case FILE_TYPE:		/* GNU Pascal FILE type.  */
+	case STRING_TYPE:	/* GNU Fortran STRING type. */
+	case LANG_TYPE:		/* ? */
+	  abort ();
+  
+	default:
+	  abort ();		/* Not a type! */
+        }
+    }
+}
+
+#ifdef HANDLE_PRAGMA
+
+/* Handle a pragma directive.  HANDLE_PRAGMA conspires to parse the
+   input following #pragma into tokens based on yylex.  TOKEN is the
+   current token, and STRING is its printable form.  */
+
+void
+handle_pragma_token (string, token)
+     char *string;
+     tree token;
+{
+  static enum pragma_state
+    {
+      ps_start,
+      ps_done,
+      ps_bad,
+      ps_weak,
+      ps_name,
+      ps_equals,
+      ps_value,
+      } state = ps_start, type;
+  static char *name;
+  static char *value;
+  static int align;
+
+  if (string == 0)
+    {
+#ifdef WEAK_ASM_OP
+      if (type == ps_weak)
+	{
+	  if (state == ps_name || state == ps_value)
+	    {
+	      fprintf (asm_out_file, "\t%s\t", WEAK_ASM_OP);
+	      ASM_OUTPUT_LABELREF (asm_out_file, name);
+	      fputc ('\n', asm_out_file);
+	      if (state == ps_value)
+		{
+		  fputc ('\t', asm_out_file);
+		  ASM_OUTPUT_LABELREF (asm_out_file, name);
+		  fputs (" = ", asm_out_file);
+		  ASM_OUTPUT_LABELREF (asm_out_file, value);
+		  fputc ('\n', asm_out_file);
+		}
+	    }
+	  else if (! (state == ps_done || state == ps_start))
+	    warning ("ignoring malformed #pragma weak symbol [=value]");
+	}
+#endif /* WEAK_ASM_OP */
+
+      type = state = ps_start;
+      return;
+    }
+
+  switch (state)
+    {
+    case ps_start:
+      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
+	{
+#ifdef WEAK_ASM_OP
+	  if (strcmp (IDENTIFIER_POINTER (token), "weak") == 0)
+	    type = state = ps_weak;
+	  else
+#endif
+	    type = state = ps_done;
+	}
+      else
+	type = state = ps_done;
+      break;
+
+#ifdef WEAK_ASM_OP
+    case ps_weak:
+      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
+	{
+	  name = IDENTIFIER_POINTER (token);
+	  state = ps_name;
+	}
+      else
+	state = ps_bad;
+      break;
+
+    case ps_name:
+      state = (strcmp (string, "=") ? ps_bad : ps_equals);
+      break;
+
+    case ps_equals:
+      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
+	{
+	  value = IDENTIFIER_POINTER (token);
+	  state = ps_value;
+	}
+      else
+	state = ps_bad;
+      break;
+
+    case ps_value:
+      state = ps_bad;
+      break;
+#endif /* WEAK_ASM_OP */
+
+    case ps_bad:
+    case ps_done:
+      break;
+
+    default:
+      abort ();
+    }
+}
+#endif /* HANDLE_PRAGMA */

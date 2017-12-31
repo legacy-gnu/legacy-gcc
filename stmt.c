@@ -537,7 +537,6 @@ expand_computed_goto (exp)
   rtx x = expand_expr (exp, 0, VOIDmode, 0);
   emit_queue ();
   emit_indirect_jump (x);
-  emit_barrier ();
 }
 
 /* Handle goto statements and the labels that they can go to.  */
@@ -586,11 +585,9 @@ declare_nonlocal_label (label)
     {
       nonlocal_goto_handler_slot
 	= assign_stack_local (Pmode, GET_MODE_SIZE (Pmode), 0);
-      nonlocal_goto_stack_level
-	= assign_stack_local (Pmode, GET_MODE_SIZE (Pmode), 0);
-      emit_insn_before (gen_move_insn (nonlocal_goto_stack_level,
-				       stack_pointer_rtx),
-			tail_recursion_reentry);
+      emit_stack_save (SAVE_NONLOCAL,
+		       &nonlocal_goto_stack_level,
+		       PREV_INSN (tail_recursion_reentry));
     }
 }
 
@@ -609,27 +606,49 @@ expand_goto (label)
       struct function *p = find_function_data (context);
       rtx temp;
       p->has_nonlocal_label = 1;
+
+      /* Copy the rtl for the slots so that they won't be shared in
+	 case the virtual stack vars register gets instantiated differently
+	 in the parent than in the child.  */
+
 #if HAVE_nonlocal_goto
       if (HAVE_nonlocal_goto)
 	emit_insn (gen_nonlocal_goto (lookup_static_chain (label),
-				      p->nonlocal_goto_handler_slot,
-				      p->nonlocal_goto_stack_level,
+				      copy_rtx (p->nonlocal_goto_handler_slot),
+				      copy_rtx (p->nonlocal_goto_stack_level),
 				      gen_rtx (LABEL_REF, Pmode,
 					       label_rtx (label))));
       else
 #endif
 	{
+	  rtx addr;
+
 	  /* Restore frame pointer for containing function.
 	     This sets the actual hard register used for the frame pointer
 	     to the location of the function's incoming static chain info.
 	     The non-local goto handler will then adjust it to contain the
 	     proper value and reload the argument pointer, if needed.  */
 	  emit_move_insn (frame_pointer_rtx, lookup_static_chain (label));
+
+	  /* We have now loaded the frame pointer hardware register with
+	     the address of that corresponds to the start of the virtual
+	     stack vars.  So replace virtual_stack_vars_rtx in all
+	     addresses we use with stack_pointer_rtx.  */
+
 	  /* Get addr of containing function's current nonlocal goto handler,
 	     which will do any cleanups and then jump to the label.  */
-	  temp = copy_to_reg (p->nonlocal_goto_handler_slot);
+	  addr = copy_rtx (p->nonlocal_goto_handler_slot);
+	  temp = copy_to_reg (replace_rtx (addr, virtual_stack_vars_rtx,
+					   frame_pointer_rtx));
+	  
 	  /* Restore the stack pointer.  Note this uses fp just restored.  */
-	  emit_move_insn (stack_pointer_rtx, p->nonlocal_goto_stack_level);
+	  addr = p->nonlocal_goto_stack_level;
+	  if (addr)
+	    addr = replace_rtx (copy_rtx (addr),
+				virtual_stack_vars_rtx, frame_pointer_rtx);
+
+	  emit_stack_restore (SAVE_NONLOCAL, addr, 0);
+
 	  /* Put in the static chain register the nonlocal label address.  */
 	  emit_move_insn (static_chain_rtx,
 			  gen_rtx (LABEL_REF, Pmode, label_rtx (label)));
@@ -691,7 +710,7 @@ expand_goto_internal (body, label, last_insn)
 	     the stack pointer.  This one should be deleted as dead by flow. */
 	  clear_pending_stack_adjust ();
 	  do_pending_stack_adjust ();
-	  emit_move_insn (stack_pointer_rtx, stack_level);
+	  emit_stack_restore (SAVE_BLOCK, stack_level, 0);
 	}
 
       if (body != 0 && DECL_TOO_LATE (body))
@@ -902,8 +921,7 @@ fixup_gotos (thisblock, stack_level, cleanup_list, first_insn, dont_jump_in)
 	  /* Restore stack level for the biggest contour that this
 	     jump jumps out of.  */
 	  if (f->stack_level)
-	    emit_insn_after (gen_move_insn (stack_pointer_rtx, f->stack_level),
-			     f->before_jump);
+	    emit_stack_restore (SAVE_BLOCK, f->stack_level, f->before_jump);
 	  f->before_jump = 0;
 	}
     }
@@ -980,13 +998,23 @@ expand_asm_operands (string, outputs, inputs, clobbers, vol, filename, line)
   rtx body;
   int ninputs = list_length (inputs);
   int noutputs = list_length (outputs);
-  int nclobbers = list_length (clobbers);
+  int nclobbers;
   tree tail;
   register int i;
   /* Vector of RTX's of evaluated output operands.  */
   rtx *output_rtx = (rtx *) alloca (noutputs * sizeof (rtx));
   /* The insn we have emitted.  */
   rtx insn;
+
+  /* Count the number of meaningful clobbered registers, ignoring what
+     we would ignore later.  */
+  nclobbers = 0;
+  for (tail = clobbers; tail; tail = TREE_CHAIN (tail))
+    {
+      char *regname = TREE_STRING_POINTER (TREE_VALUE (tail));
+      if (decode_reg_name (regname) >= 0)
+	++nclobbers;
+    }
 
   last_expr_type = 0;
 
@@ -1148,19 +1176,22 @@ expand_asm_operands (string, outputs, inputs, clobbers, vol, filename, line)
 
       /* Store (clobber REG) for each clobbered register specified.  */
 
-      for (tail = clobbers; tail; tail = TREE_CHAIN (tail), i++)
+      for (tail = clobbers; tail; tail = TREE_CHAIN (tail))
 	{
 	  char *regname = TREE_STRING_POINTER (TREE_VALUE (tail));
 	  int j = decode_reg_name (regname);
 
 	  if (j < 0)
 	    {
+	      if (j == -3)
+		continue;
+
 	      error ("unknown register name `%s' in `asm'", regname);
 	      return;
 	    }
 
 	  /* Use QImode since that's guaranteed to clobber just one reg.  */
-	  XVECEXP (body, 0, i)
+	  XVECEXP (body, 0, i++)
 	    = gen_rtx (CLOBBER, VOIDmode, gen_rtx (REG, QImode, j));
 	}
 
@@ -1203,8 +1234,18 @@ expand_expr_stmt (exp)
       if (TYPE_MODE (TREE_TYPE (exp)) != BLKmode)
 	copy_to_reg (last_expr_value);
       else
-	/* This case needs to be written.  */
-	abort ();
+	{
+	  rtx lab = gen_label_rtx ();
+	  
+	  /* Compare the value with itself to reference it.  */
+	  emit_cmp_insn (last_expr_value, last_expr_value, EQ,
+			 expand_expr (TYPE_SIZE (last_expr_type),
+				      0, VOIDmode, 0),
+			 BLKmode, 0,
+			 TYPE_ALIGN (last_expr_type) / BITS_PER_UNIT);
+	  emit_jump_insn ((*bcc_gen_fctn[(int) EQ]) (lab));
+	  emit_label (lab);
+	}
     }
 
   /* If this expression is part of a ({...}) and is in memory, we may have
@@ -1262,6 +1303,9 @@ warn_if_unused_value (exp)
     case COMPOUND_EXPR:
       if (warn_if_unused_value (TREE_OPERAND (exp, 0)))
 	return 1;
+      /* Let people do `(foo (), 0)' without a warning.  */
+      if (TREE_CONSTANT (TREE_OPERAND (exp, 1)))
+	return 0;
       return warn_if_unused_value (TREE_OPERAND (exp, 1));
 
     case NOP_EXPR:
@@ -1285,6 +1329,11 @@ warn_if_unused_value (exp)
 	return 0;
 
     default:
+      /* Referencing a volatile value is a side effect, so don't warn.  */
+      if ((TREE_CODE_CLASS (TREE_CODE (exp)) == 'd'
+	   || TREE_CODE_CLASS (TREE_CODE (exp)) == 'r')
+	  && TREE_THIS_VOLATILE (exp))
+	return 0;
       warning_with_file_and_line (emit_filename, emit_lineno,
 				  "value computed is not used");
       return 1;
@@ -2571,14 +2620,15 @@ expand_end_bindings (vars, mark_ends, dont_jump_in)
 
       if (thisblock->data.block.stack_level != 0)
 	{
-	  emit_move_insn (stack_pointer_rtx,
-			  thisblock->data.block.stack_level);
-	  if (nonlocal_goto_stack_level != 0)
-	    emit_move_insn (nonlocal_goto_stack_level, stack_pointer_rtx);
+	  emit_stack_restore (thisblock->next ? SAVE_BLOCK : SAVE_FUNCTION,
+			      thisblock->data.block.stack_level, 0);
+	  if (nonlocal_goto_handler_slot != 0)
+	    emit_stack_save (SAVE_NONLOCAL, &nonlocal_goto_stack_level, 0);
 	}
 
       /* Any gotos out of this block must also do these things.
-	 Also report any gotos with fixups that came to labels in this level.  */
+	 Also report any gotos with fixups that came to labels in this
+	 level.  */
       fixup_gotos (thisblock,
 		   thisblock->data.block.stack_level,
 		   thisblock->data.block.cleanups,
@@ -2732,8 +2782,9 @@ expand_decl (decl)
       if (thisblock->data.block.stack_level == 0)
 	{
 	  do_pending_stack_adjust ();
-	  thisblock->data.block.stack_level
-	    = copy_to_reg (stack_pointer_rtx);
+	  emit_stack_save (thisblock->next ? SAVE_BLOCK : SAVE_FUNCTION,
+			   &thisblock->data.block.stack_level,
+			   thisblock->data.block.first_insn);
 	  stack_block_stack = thisblock;
 	}
 
@@ -2744,14 +2795,24 @@ expand_decl (decl)
 			  0, VOIDmode, 0);
       free_temp_slots ();
 
-      /* Allocate space on the stack for the variable.  */
-      address = allocate_dynamic_stack_space (size, 0);
+      /* This is equivalent to calling alloca.  */
+      current_function_calls_alloca = 1;
 
-      if (nonlocal_goto_stack_level != 0)
-	emit_move_insn (nonlocal_goto_stack_level, stack_pointer_rtx);
+      /* Allocate space on the stack for the variable.  */
+      address = allocate_dynamic_stack_space (size, 0, DECL_ALIGN (decl));
+
+      if (nonlocal_goto_handler_slot != 0)
+	emit_stack_save (SAVE_NONLOCAL, &nonlocal_goto_stack_level, 0);
 
       /* Reference the variable indirect through that rtx.  */
       DECL_RTL (decl) = gen_rtx (MEM, DECL_MODE (decl), address);
+
+      /* If this is a memory ref that contains aggregate components,
+	 mark it as such for cse and loop optimize.  */
+      MEM_IN_STRUCT_P (DECL_RTL (decl))
+	= (TREE_CODE (TREE_TYPE (decl)) == ARRAY_TYPE
+	   || TREE_CODE (TREE_TYPE (decl)) == RECORD_TYPE
+	   || TREE_CODE (TREE_TYPE (decl)) == UNION_TYPE);
 
       /* Indicate the alignment we actually gave this variable.  */
 #ifdef STACK_BOUNDARY
@@ -3636,7 +3697,6 @@ expand_end_case (orig_index)
 
 	      use_cost_table
 		= (TREE_CODE (TREE_TYPE (orig_index)) != ENUMERAL_TYPE
-		   && default_label != 0
 		   && estimate_case_costs (thiscase->data.case_stmt.case_list));
 	      balance_case_nodes (&thiscase->data.case_stmt.case_list, 0);
 	      emit_case_nodes (index, thiscase->data.case_stmt.case_list,
@@ -3650,17 +3710,33 @@ expand_end_case (orig_index)
 #ifdef HAVE_casesi
 	  if (HAVE_casesi)
 	    {
+	      enum machine_mode index_mode = SImode;
+	      int index_bits = GET_MODE_BITSIZE (index_mode);
+
 	      /* Convert the index to SImode.  */
-	      if (TYPE_MODE (TREE_TYPE (index_expr)) == DImode)
+	      if (GET_MODE_BITSIZE (TYPE_MODE (TREE_TYPE (index_expr)))
+		  > GET_MODE_BITSIZE (index_mode))
 		{
+		  enum machine_mode omode = TYPE_MODE (TREE_TYPE (index_expr));
+		  rtx rangertx = expand_expr (range, 0, VOIDmode, 0);
+
+		  /* We must handle the endpoints in the original mode.  */
 		  index_expr = build (MINUS_EXPR, TREE_TYPE (index_expr),
 				      index_expr, minval);
 		  minval = integer_zero_node;
+		  index = expand_expr (index_expr, 0, VOIDmode, 0);
+		  emit_cmp_insn (rangertx, index, LTU, 0, omode, 0, 0);
+		  emit_jump_insn (gen_bltu (default_label));
+		  /* Now we can safely truncate.  */
+		  index = convert_to_mode (index_mode, index, 0);
 		}
-	      if (TYPE_MODE (TREE_TYPE (index_expr)) != SImode)
-		index_expr = convert (type_for_size (GET_MODE_BITSIZE (SImode), 0),
-				      index_expr);
-	      index = expand_expr (index_expr, 0, VOIDmode, 0);
+	      else
+		{
+		  if (TYPE_MODE (TREE_TYPE (index_expr)) != index_mode)
+		    index_expr = convert (type_for_size (index_bits, 0),
+					  index_expr);
+		  index = expand_expr (index_expr, 0, VOIDmode, 0);
+		}
 	      emit_queue ();
 	      index = protect_from_queue (index, 0);
 	      do_pending_stack_adjust ();
@@ -3679,14 +3755,12 @@ expand_end_case (orig_index)
 						 TREE_TYPE (index_expr),
 						 index_expr, minval)));
 	      index = expand_expr (index_expr, 0, VOIDmode, 0);
-	      index = convert_to_mode (Pmode, index, 1);
 	      emit_queue ();
 	      index = protect_from_queue (index, 0);
 	      do_pending_stack_adjust ();
 
-	      do_tablejump (index, Pmode,
-			    gen_rtx (CONST_INT, VOIDmode,
-				     TREE_INT_CST_LOW (range)),
+	      do_tablejump (index, TYPE_MODE (TREE_TYPE (index_expr)),
+			    expand_expr (range, 0, VOIDmode, 0),
 			    table_label, default_label);
 	      win = 1;
 	    }
@@ -3748,7 +3822,8 @@ expand_end_case (orig_index)
 #endif
 	}
 
-      reorder_insns (NEXT_INSN (before_case), get_last_insn (),
+      before_case = squeeze_notes (NEXT_INSN (before_case), get_last_insn ());
+      reorder_insns (before_case, get_last_insn (),
 		     thiscase->data.case_stmt.start);
     }
   if (thiscase->exit_label)
@@ -3906,7 +3981,7 @@ group_case_nodes (head)
 
 /* Take an ordered list of case nodes
    and transform them into a near optimal binary tree,
-   on the assumtion that any target code selection value is as
+   on the assumption that any target code selection value is as
    likely as any other.
 
    The transformation is performed by splitting the ordered

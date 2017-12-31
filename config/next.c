@@ -19,6 +19,8 @@ static int pragma_initialized;
 
 static int initial_optimize_flag;
 
+extern char *get_directive_line ();
+
 /* Called from check_newline via the macro HANDLE_PRAGMA.
    FINPUT is the source file input stream.  */
 

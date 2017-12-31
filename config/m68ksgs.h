@@ -38,6 +38,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define LONG_ASM_OP		".long"
 #define SPACE_ASM_OP		".space"
 #define ALIGN_ASM_OP		".align"
+#undef GLOBAL_ASM_OP
 #define GLOBAL_ASM_OP		".global"
 #define SWBEG_ASM_OP		".swbeg"
 #define SET_ASM_OP		".set"
@@ -198,17 +199,6 @@ do { union { float f; long l;} tem;			\
 
 #undef TARGET_VERSION
 #define TARGET_VERSION fprintf (stderr, " (68k, SGS/AT&T syntax)");
-
-/* This is how to output a command to make the user-level label named NAME
-   defined for reference from other files.  */
-
-#undef ASM_GLOBALIZE_LABEL
-#define ASM_GLOBALIZE_LABEL(FILE,NAME)				\
-    do {							\
-	fprintf ((FILE), "\t%s ", GLOBAL_ASM_OP);		\
-	assemble_name ((FILE), NAME);				\
-	fputs ("\n", FILE);					\
-    } while (0)
 
 #undef PRINT_OPERAND_PRINT_FLOAT
 #define PRINT_OPERAND_PRINT_FLOAT(CODE,FILE)			\
@@ -392,17 +382,20 @@ do { union { float f; long l;} tem;			\
 
 /* At end of a switch table, define LDnnn iff the symbol LInnn was defined.
    Some SGS assemblers have a bug such that "Lnnn-LInnn-2.b(pc,d0.l*2)"
-   fails to assemble.  Luckily "Lnnn(pc,d0.l*2)" produces the results
-   we want.  This difference can be accommodated by using an assembler
+   fails to assemble.  Luckily "LDnnn(pc,d0.l*2)" produces the results
+   we want.  This difference can be accommodated by making the assembler
    define such "LDnnn" to be either "Lnnn-LInnn-2.b", "Lnnn", or any other
    string, as necessary.  This is accomplished via the ASM_OUTPUT_CASE_END
    macro. */
 
 #undef ASM_OUTPUT_CASE_END
 #define ASM_OUTPUT_CASE_END(FILE,NUM,TABLE)		\
-  if (RTX_INTEGRATED_P (TABLE))				\
+{ if (switch_table_difference_label_flag)		\
     asm_fprintf (FILE, "\t%s %LLD%d,%LL%d-%LLI%d-2.b\n",\
-		 SET_ASM_OP, (NUM), (NUM), (NUM))
+		 SET_ASM_OP, (NUM), (NUM), (NUM))	\
+  switch_table_difference_label_flag = 0; }
+
+int switch_table_difference_label_flag;
 
 /* This is how to output an element of a case-vector that is relative.  */
 

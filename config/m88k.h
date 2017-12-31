@@ -104,7 +104,6 @@ extern void m88k_handle_pragma_token ();
 
 extern void emit_bcnd ();
 extern void expand_block_move ();
-extern void check_float_value ();
 extern void m88k_layout_frame ();
 extern void m88k_output_prologue ();
 extern void m88k_output_epilogue ();
@@ -204,9 +203,9 @@ extern char * reg_names[];
 /* Print subsidiary information on the compiler version in use.
    Redefined in m88kv4.h, and m88kluna.h.  */
 #define VERSION_INFO1	"88open OCS/BCS, "
-#define VERSION_INFO2	"20 Mar 1992"
+#define VERSION_INFO2	"29 May 1992"
 #define VERSION_STRING	version_string
-#define	TM_SCCS_ID	"@(#)m88k.h	2.0.3.6 20 Mar 1992 08:33:40"
+#define	TM_SCCS_ID	"@(#)m88k.h	2.1.11.11 29 May 1992 13:20:31"
 
 /* Run-time compilation parameters selecting different hardware subsets.  */
 
@@ -425,10 +424,10 @@ extern char * reg_names[];
    replaces a BLKmode type. */
 /* #define MAX_FIXED_MODE_SIZE 0 */
 
-/* Report errors on floating point, if we are given NaN's, or such.  Leave
-   the number as is, though, since we output the number in hex, and the
-   assembler won't choke on it.  */
-#define CHECK_FLOAT_VALUE(MODE,VALUE) check_float_value (MODE, VALUE)
+/* Check a `double' value for validity for a particular machine mode.
+   This is defined to avoid crashes outputting certain constants.
+   Since we output the number in hex, the assembler won't choke on it.  */
+/* #define CHECK_FLOAT_VALUE(MODE,VALUE) */
 
 /* A code distinguishing the floating point format of the target machine.  */
 /* #define TARGET_FLOAT_FORMAT IEEE_FLOAT_FORMAT */
@@ -441,21 +440,107 @@ extern char * reg_names[];
    All registers that the compiler knows about must be given numbers,
    even those that are not normally considered general registers.
 
-   The m88100 has 32 fullword registers.
+   The m88100 has a General Register File (GRF) of 32 32-bit registers.
+   The m88110 adds an Extended Register File (XRF) of 32 80-bit registers.  */
+#define FIRST_PSEUDO_REGISTER 64
+#define FIRST_EXTENDED_REGISTER 32
 
-   The pseudo argument pointer is said to be register 0.  This prohibits
-   the use of r0 as a general register and causes no trouble.
-   Using register 0 is useful, in that it keeps the number of
-   registers down to 32, and GNU can use a long as a bitmask
-   for the registers.  */
-#define FIRST_PSEUDO_REGISTER 32
+/*  General notes on extended registers, their use and misuse.
 
-/* 1 for registers that have pervasive standard uses
-   and are not available for the register allocator.
-   Registers 14-25 are expected to be preserved across
-   function calls.
+    Possible good uses:
 
-   On the 88000, these are:
+    spill area instead of memory.
+      -waste if only used once
+
+    floating point caluclations
+      -probably a waste unless we have run out of general purpose registers
+
+    freeing up general purpose registers
+      -e.g. may be able to have more loop invariants if floating
+       point is moved into extended registers.
+
+
+    I've noticed wasteful moves into and out of extended registers; e.g. a load
+    into x21, then inside a loop a move into r24, then r24 used as input to
+    an fadd.  Why not just load into r24 to begin with?  Maybe the new cse.c
+    will address this.  This wastes a move, but the load,store and move could
+    have been saved had extended registers been used throughout.
+    E.g. in the code following code, if z and xz are placed in extended
+    registers, there is no need to save preserve registers.
+
+	long c=1,d=1,e=1,f=1,g=1,h=1,i=1,j=1,k;
+
+	double z=0,xz=4.5;
+
+	foo(a,b)
+	long a,b;
+	{
+	  while (a < b)
+	    {
+	      k = b + c + d + e + f + g + h + a + i + j++;
+	      z += xz;
+	      a++;
+	    }
+	  printf("k= %d; z=%f;\n", k, z);
+	}
+
+    I've found that it is possible to change the constraints (putting * before
+    the 'r' constraints int the fadd.ddd instruction) and get the entire
+    addition and store to go into extended registers.  However, this also
+    forces simple addition and return of floating point arguments to a
+    function into extended registers.  Not the correct solution.
+
+    Found the following note in local-alloc.c which may explain why I can't
+    get both registers to be in extended registers since two are allocated in
+    local-alloc and one in global-alloc.  Doesn't explain (I don't believe)
+    why an extended register is used instead of just using the preserve
+    register.
+
+	from local-alloc.c:
+	We have provision to exempt registers, even when they are contained
+	within the block, that can be tied to others that are not contained in it.
+	This is so that global_alloc could process them both and tie them then.
+	But this is currently disabled since tying in global_alloc is not
+	yet implemented.
+
+    The explaination of why the preserved register is not used is as follows,
+    I believe.  The registers are being allocated in order.  Tieing is not
+    done so efficiently, so when it comes time to do the first allocation,
+    there are no registers left to use without spilling except extended
+    registers.  Then when the next pseudo register needs a hard reg, there
+    are still no registers to be had for free, but this one must be a GRF
+    reg instead of an extended reg, so a preserve register is spilled.  Thus
+    the move from extended to GRF is necessitated.  I do not believe this can
+    be 'fixed' through the config/*m88k* files.
+
+    gcc seems to sometimes make worse use of register allocation -- not counting
+    moves -- whenever extended registers are present.  For example in the
+    whetstone, the simple for loop (slightly modified)
+      for(i = 1; i <= n1; i++)
+	{
+	  x1 = (x1 + x2 + x3 - x4) * t;
+	  x2 = (x1 + x2 - x3 + x4) * t;
+	  x3 = (x1 - x2 + x3 + x4) * t;
+	  x4 = (x1 + x2 + x3 + x4) * t;
+	}
+    in general loads the high bits of the addresses of x2-x4 and i into registers
+    outside the loop.  Whenever extended registers are used, it loads all of
+    these inside the loop. My conjecture is that since the 88110 has so many
+    registers, and gcc makes no distinction at this point -- just that they are
+    not fixed, that in loop.c it believes it can expect a number of registers
+    to be available.  Then it allocates 'too many' in local-alloc which causes
+    problems later.  'Too many' are allocated because a large portion of the
+    registers are extended registers and cannot be used for certain purposes
+    ( e.g. hold the address of a variable).  When this loop is compiled on its
+    own, the problem does not occur.  I don't know the solution yet, though it
+    is probably in the base sources.  Possibly a different way to calculate
+    "threshold".  */
+
+/* 1 for registers that have pervasive standard uses and are not available
+   for the register allocator.  Registers r14-r25 and x22-x29 are expected
+   to be preserved across function calls.
+
+   On the 88000, the standard uses of the General Register File (GRF) are:
    Reg 0	= Pseudo argument pointer (hardware fixed to 0).
    Reg 1	= Subroutine return pointer (hardware).
    Reg 2-9	= Parameter registers (OCS).
@@ -466,11 +551,29 @@ extern char * reg_names[];
    Reg 14-25	= Preserved register set.
    Reg 26-29	= Reserved by OCS and ABI.
    Reg 30	= Frame pointer (Common use).
-   Reg 31	= Stack pointer.  */
+   Reg 31	= Stack pointer.
+
+   The following follows the current 88open UCS specification for the
+   Extended Register File (XRF):
+   Reg 32       = x0		Always equal to zero
+   Reg 33-53	= x1-x21	Tempory registers (Caller Save)
+   Reg 54-61	= x22-x29	Preserver registers (Callee Save)
+   Reg 62-63	= x30-x31	Reserved for future ABI use.
+
+   Note:  The current 88110 extended register mapping is subject to change.
+	  The bias towards caller-save registers is based on the
+	  presumption that memory traffic can potentially be reduced by
+	  allowing the "caller" to save only that part of the register
+	  which is actually being used.  (i.e. don't do a st.x if a st.d
+	  is sufficient).  Also, in scientific code (a.k.a. Fortran), the
+	  large number of variables defined in common blocks may require
+	  that almost all registers be saved across calls anyway.  */
 
 #define FIXED_REGISTERS \
- {1, 1, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0, \
-  0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 1, 1,  1, 1, 1, 1}
+ {1, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0, \
+  0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 1, 1,  1, 1, 1, 1, \
+  1, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0, \
+  0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 1, 1}
 
 /* 1 for registers not available across function calls.
    These must include the FIXED_REGISTERS and also any
@@ -481,13 +584,29 @@ extern char * reg_names[];
 
 #define CALL_USED_REGISTERS \
  {1, 1, 1, 1,  1, 1, 1, 1,   1, 1, 1, 1,  1, 1, 0, 0, \
-  0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 1, 1,  1, 1, 1, 1}
+  0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 1, 1,  1, 1, 1, 1, \
+  1, 1, 1, 1,  1, 1, 1, 1,   1, 1, 1, 1,  1, 1, 1, 1, \
+  1, 1, 1, 1,  1, 1, 0, 0,   0, 0, 0, 0,  0, 0, 1, 1}
 
 /* Macro to conditionally modify fixed_regs/call_used_regs.  */
 #define CONDITIONAL_REGISTER_USAGE			\
   {							\
+    if (! TARGET_88110)					\
+      {							\
+	register int i;					\
+	  for (i = FIRST_EXTENDED_REGISTER; i < FIRST_PSEUDO_REGISTER; i++) \
+	    {						\
+	      fixed_regs[i] = 1;			\
+	      call_used_regs[i] = 1;			\
+	    }						\
+      }							\
     if (flag_pic)					\
-      fixed_regs[PIC_OFFSET_TABLE_REGNUM] = 1;		\
+      {							\
+	/* Current hack to deal with -fpic -O2 problems.  */ \
+	fixed_regs[PIC_OFFSET_TABLE_REGNUM] = 1;	\
+	call_used_regs[PIC_OFFSET_TABLE_REGNUM] = 1;	\
+	global_regs[PIC_OFFSET_TABLE_REGNUM] = 1;	\
+      }							\
   }
 
 /* These interfaces that don't apply to the m88000.  */
@@ -500,21 +619,27 @@ extern char * reg_names[];
    This is ordinarily the length in words of a value of mode MODE
    but can be less for certain modes in special long registers.
 
-   On the m88000, ordinary registers hold 32 bits worth;
-   a single floating point register is always enough for
-   anything that can be stored in them at all.  */
-#define HARD_REGNO_NREGS(REGNO, MODE)   \
-  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
+   On the m88000, GRF registers hold 32-bits and XRF registers hold 80-bits.
+   An XRF register can hold any mode, but two GRF registers are required
+   for larger modes.  */
+#define HARD_REGNO_NREGS(REGNO, MODE)					\
+  ((REGNO < FIRST_PSEUDO_REGISTER && REGNO >= FIRST_EXTENDED_REGISTER)	\
+   ? 1 : ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD))
 
 /* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.
 
    For double integers, we never put the value into an odd register so that
    the operators don't run into the situation where the high part of one of
-   the inputs is the low part of the result register (it's ok if the output
-   registers are the same as the input registers.  */
-#define HARD_REGNO_MODE_OK(REGNO, MODE)	\
-  (((MODE) != DImode && (MODE) != DFmode && (MODE) != DCmode) ||	\
-   ((REGNO) & 1) == 0)
+   the inputs is the low part of the result register.  (It's ok if the output
+   registers are the same as the input registers.)  The XRF registers can
+   hold all modes, but only DF and SF modes can be manipulated in these
+   registers.  The compiler should be allowed to use these as a fast spill
+   area.  */
+#define HARD_REGNO_MODE_OK(REGNO, MODE)					\
+  ((REGNO < FIRST_PSEUDO_REGISTER && REGNO >= FIRST_EXTENDED_REGISTER)	\
+    ? TARGET_88110							\
+    : (((MODE) != DImode && (MODE) != DFmode && (MODE) != DCmode)	\
+       || ((REGNO) & 1) == 0))
 
 /* Value is 1 if it is a good idea to tie two pseudo registers
    when one has mode MODE1 and one has mode MODE2.
@@ -556,13 +681,41 @@ extern char * reg_names[];
 /* Order in which registers are preferred (most to least).  Use temp
    registers, then param registers top down.  Preserve registers are
    top down to maximize use of double memory ops for register save.
-   The 88open reserved registers (26-29) may commonly be used in most
-   environments with the -fcall-used- or -fcall-saved- options.  */
-#define REG_ALLOC_ORDER \
- {13, 12, 11, 10, 29, 28, 27, 26, \
-   1,  9,  8,  7,  6,  5,  4,  3, \
-   2, 25, 24, 23, 22, 21, 20, 19, \
-  18, 17, 16, 15, 14, 30, 31, 0}
+   The 88open reserved registers (r26-r29 and x30-x31) may commonly be used
+   in most environments with the -fcall-used- or -fcall-saved- options.  */
+#define REG_ALLOC_ORDER		  \
+ {				  \
+  13, 12, 11, 10, 29, 28, 27, 26, \
+  62, 63,  9,  8,  7,  6,  5,  4, \
+   3,  2,  1, 53, 52, 51, 50, 49, \
+  48, 47, 46, 45, 44, 43, 42, 41, \
+  40, 39, 38, 37, 36, 35, 34, 33, \
+  25, 24, 23, 22, 21, 20, 19, 18, \
+  17, 16, 15, 14, 61, 60, 59, 58, \
+  57, 56, 55, 54, 30, 31,  0, 32}
+
+/* Order for leaf functions.  */
+#define REG_LEAF_ALLOC_ORDER	  \
+ {				  \
+   9,  8,  7,  6, 13, 12, 11, 10, \
+  29, 28, 27, 26, 62, 63,  5,  4, \
+   3,  2,  0, 53, 52, 51, 50, 49, \
+  48, 47, 46, 45, 44, 43, 42, 41, \
+  40, 39, 38, 37, 36, 35, 34, 33, \
+  25, 24, 23, 22, 21, 20, 19, 18, \
+  17, 16, 15, 14, 61, 60, 59, 58, \
+  57, 56, 55, 54, 30, 31,  1, 32}
+
+/* Switch between the leaf and non-leaf orderings.  The purpose is to avoid
+   write-over scoreboard delays between caller and callee.  */
+#define ORDER_REGS_FOR_LOCAL_ALLOC				\
+{								\
+  static int leaf[] = REG_LEAF_ALLOC_ORDER;			\
+  static int nonleaf[] = REG_ALLOC_ORDER;			\
+								\
+  bcopy (regs_ever_live[1] ? nonleaf : leaf, reg_alloc_order,	\
+	 FIRST_PSEUDO_REGISTER * sizeof (int));			\
+}
 
 /*** Register Classes ***/
 
@@ -586,34 +739,45 @@ extern char * reg_names[];
    For any two classes, it is very desirable that there be another
    class that represents their union.  */
 
-/* The m88100 hardware has one kind of register.  However, we denote
+/* The m88000 hardware has two kinds of registers.  In addition, we denote
    the arg pointer as a separate class.  */
 
-enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
+enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
+		 XGRF_REGS, ALL_REGS, LIM_REG_CLASSES };
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
 
 /* Give names of register classes as strings for dump file.   */
-#define REG_CLASS_NAMES {"NO_REGS", "AP_REG", "GENERAL_REGS", "ALL_REGS" }
+#define REG_CLASS_NAMES {"NO_REGS", "AP_REG", "XRF_REGS", "GENERAL_REGS", \
+			 "AGRF_REGS", "XGRF_REGS", "ALL_REGS" }
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
    of length N_REG_CLASSES.  */
-#define REG_CLASS_CONTENTS {0, 1, -2, -1}
+#define REG_CLASS_CONTENTS {{0x00000000, 0x00000000},	\
+			    {0x00000001, 0x00000000},	\
+			    {0x00000000, 0xffffffff},	\
+			    {0xfffffffe, 0x00000000},	\
+			    {0xffffffff, 0x00000000},	\
+			    {0xfffffffe, 0xffffffff},	\
+			    {0xffffffff, 0xffffffff}}
 
 /* The same information, inverted:
    Return the class number of the smallest class containing
    reg number REGNO.  This could be a conditional expression
    or could index an array.  */
-#define REGNO_REG_CLASS(REGNO) ((REGNO) ? GENERAL_REGS : AP_REG)
+#define REGNO_REG_CLASS(REGNO) \
+  ((REGNO) ? ((REGNO < 32) ? GENERAL_REGS : XRF_REGS) : AP_REG)
 
 /* The class value for index registers, and the one for base regs.  */
-#define BASE_REG_CLASS ALL_REGS
+#define BASE_REG_CLASS AGRF_REGS
 #define INDEX_REG_CLASS GENERAL_REGS
 
-/* Get reg_class from a letter such as appears in the machine description.  */
-
-#define REG_CLASS_FROM_LETTER(C) NO_REGS
+/* Get reg_class from a letter such as appears in the machine description.
+   For the 88000, the following class/letter is defined for the XRF:
+	x - Extended register file  */
+#define REG_CLASS_FROM_LETTER(C) 	\
+   (((C) == 'x') ? XRF_REGS : NO_REGS)
 
 /* Macros to check register numbers against specific register classes.
    These assume that REGNO is a hard or pseudo reg number.
@@ -621,24 +785,26 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
    or a pseudo reg currently allocated to a suitable hard reg.
    Since they use reg_renumber, they are safe only once reg_renumber
    has been allocated, which happens in local-alloc.c.  */
-#define REGNO_OK_FOR_BASE_P(REGNO) \
-  ((REGNO) < FIRST_PSEUDO_REGISTER || \
-   (unsigned) reg_renumber[REGNO] < FIRST_PSEUDO_REGISTER)
-#define REGNO_OK_FOR_INDEX_P(REGNO) \
-  (((REGNO) && (REGNO) < FIRST_PSEUDO_REGISTER) || \
-   (unsigned) reg_renumber[REGNO] < FIRST_PSEUDO_REGISTER)
+#define REGNO_OK_FOR_BASE_P(REGNO)				\
+  ((REGNO) < FIRST_EXTENDED_REGISTER				\
+   || (unsigned) reg_renumber[REGNO] < FIRST_EXTENDED_REGISTER)
+#define REGNO_OK_FOR_INDEX_P(REGNO)				\
+  (((REGNO) && (REGNO) < FIRST_EXTENDED_REGISTER)		\
+   || (unsigned) reg_renumber[REGNO] < FIRST_EXTENDED_REGISTER)
 
 /* Given an rtx X being reloaded into a reg required to be
    in class CLASS, return the class of reg to actually use.
    In general this is just CLASS; but on some machines
    in some cases it is preferable to use a more restrictive class.
    Double constants should be in a register iff they can be made cheaply.  */
-#define PREFERRED_RELOAD_CLASS(X,CLASS) (CLASS)
+#define PREFERRED_RELOAD_CLASS(X,CLASS)	\
+   (CONSTANT_P(X) && (CLASS == XRF_REGS) ? NO_REGS : (CLASS))
 
 /* Return the maximum number of consecutive registers
    needed to represent mode MODE in a register of class CLASS.  */
-#define CLASS_MAX_NREGS(CLASS, MODE)	\
-  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
+#define CLASS_MAX_NREGS(CLASS, MODE) \
+  ((((CLASS) == XRF_REGS) ? 1 \
+    : ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)))
 
 /* Letters in the range `I' through `P' in a register constraint string can
    be used to stand for particular ranges of immediate operands.  The C
@@ -1221,6 +1387,11 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
   {"equality_op", {EQ, NE}},						\
   {"pc_or_label_ref", {PC, LABEL_REF}},
 
+/* The case table contains either words or branch instructions.  This says
+   which.  We always claim that the vector is PC-relative.  It is position
+   independent when -fpic is used.  */
+#define CASE_VECTOR_INSNS (TARGET_88100 || flag_pic)
+
 /* An alias for a machine mode name.  This is the machine mode that
    elements of a jump-table should have.  */
 #define CASE_VECTOR_MODE SImode
@@ -1325,6 +1496,11 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
    so give the MEM rtx word mode.  */
 #define FUNCTION_MODE SImode
 
+/* A barrier will be aligned so account for the possible expansion.  */
+#define ADJUST_INSN_LENGTH(INSN, LENGTH)	\
+  if (GET_CODE (INSN) == BARRIER)		\
+    LENGTH += 1;
+
 /* Compute the cost of computing a constant rtl expression RTX
    whose rtx-code is CODE.  The body of this macro is a portion
    of a switch statement.  If the code is computed here,
@@ -1338,7 +1514,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
    is as good as a register; since it can't be placed in any insn, it
    won't do anything in cse, but it will cause expand_binop to pass the
    constant to the define_expands).  */
-#define CONST_COSTS(RTX,CODE)				\
+#define CONST_COSTS(RTX,CODE,OUTER_CODE)		\
   case CONST_INT:					\
     if (SMALL_INT (RTX))				\
       return 0;						\
@@ -1372,7 +1548,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 
 /* Provide the costs of a rtl expression.  This is in the body of a
    switch on CODE.  */
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)				\
   case MEM:						\
     return COSTS_N_INSNS (2);				\
   case MULT:						\
@@ -1407,7 +1583,6 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 /* Allow pseudo-ops to be overridden.  Override these in svr[34].h.  */
 #undef	INT_ASM_OP
 #undef	ASCII_DATA_ASM_OP
-#undef	INIT_SECTION_ASM_OP
 #undef	CONST_SECTION_ASM_OP
 #undef	CTORS_SECTION_ASM_OP
 #undef	DTORS_SECTION_ASM_OP
@@ -1415,6 +1590,10 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 #undef	FINI_SECTION_ASM_OP
 #undef	TYPE_ASM_OP
 #undef	SIZE_ASM_OP
+#undef	WEAK_ASM_OP
+#undef	SET_ASM_OP
+#undef	SKIP_ASM_OP
+#undef	COMMON_ASM_OP
 
 /* These are used in varasm.c as well.  */
 #define TEXT_SECTION_ASM_OP	"text"
@@ -1438,12 +1617,12 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 #define IDENT_ASM_OP		"ident"
 #define FILE_ASM_OP		"file"
 #define SECTION_ASM_OP		"section"
-#define DEF_ASM_OP		"def"
+#define SET_ASM_OP		"def"
 #define GLOBAL_ASM_OP		"global"
 #define ALIGN_ASM_OP		"align"
 #define SKIP_ASM_OP		"zero"
 #define COMMON_ASM_OP		"comm"
-#define LOCAL_ASM_OP		"bss"
+#define BSS_ASM_OP		"bss"
 #define FLOAT_ASM_OP		"float"
 #define DOUBLE_ASM_OP		"double"
 #define INT_ASM_OP		"word"
@@ -1469,9 +1648,10 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 /* These are specific to version 03.00 assembler syntax.  */
 #define INTERNAL_ASM_OP		"local"
 #define VERSION_ASM_OP		"version"
-#define ASM_DWARF_POP_SECTION(FILE) fputs ("\tprevious\n", FILE)
 #define UNALIGNED_SHORT_ASM_OP	"uahalf"
 #define UNALIGNED_INT_ASM_OP	"uaword"
+#define PUSHSECTION_ASM_OP	"section"
+#define POPSECTION_ASM_OP	"previous"
 
 /* Output any initial stuff to the assembly file.  Always put out
    a file directive, even if not debugging.
@@ -1542,7 +1722,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 #define ASM_OUTPUT_IDENT(FILE, NAME)
 #else
 #define ASM_OUTPUT_IDENT(FILE, NAME) \
-  fprintf (FILE, "\t%s\t \"%s\"\n", IDENT_ASM_OP, NAME)
+  output_ascii (FILE, IDENT_ASM_OP, 4000, NAME, strlen (NAME));
 #endif
 
 /* Output to assembler file text saying following lines
@@ -1579,7 +1759,11 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
   {"#r0"+1, "#r1"+1, "#r2"+1, "#r3"+1, "#r4"+1, "#r5"+1, "#r6"+1, "#r7"+1, \
    "#r8"+1, "#r9"+1, "#r10"+1,"#r11"+1,"#r12"+1,"#r13"+1,"#r14"+1,"#r15"+1,\
    "#r16"+1,"#r17"+1,"#r18"+1,"#r19"+1,"#r20"+1,"#r21"+1,"#r22"+1,"#r23"+1,\
-   "#r24"+1,"#r25"+1,"#r26"+1,"#r27"+1,"#r28"+1,"#r29"+1,"#r30"+1,"#r31"+1}
+   "#r24"+1,"#r25"+1,"#r26"+1,"#r27"+1,"#r28"+1,"#r29"+1,"#r30"+1,"#r31"+1,\
+   "#x0"+1, "#x1"+1, "#x2"+1, "#x3"+1, "#x4"+1, "#x5"+1, "#x6"+1, "#x7"+1, \
+   "#x8"+1, "#x9"+1, "#x10"+1,"#x11"+1,"#x12"+1,"#x13"+1,"#x14"+1,"#x15"+1,\
+   "#x16"+1,"#x17"+1,"#x18"+1,"#x19"+1,"#x20"+1,"#x21"+1,"#x22"+1,"#x23"+1,\
+   "#x24"+1,"#x25"+1,"#x26"+1,"#x27"+1,"#x28"+1,"#x29"+1,"#x30"+1,"#x31"+1}
 
 /* How to renumber registers for dbx and gdb.  */
 #define DBX_REGISTER_NUMBER(REGNO) (REGNO)
@@ -1674,6 +1858,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
    PREFIX is the class of label and NUM is the number within the class.
    For V.4, labels use `.' rather than `@'.  */
 
+#undef ASM_OUTPUT_INTERNAL_LABEL
 #ifdef AS_BUG_DOT_LABELS /* The assembler requires a declaration of local.  */
 #define ASM_OUTPUT_INTERNAL_LABEL(FILE,PREFIX,NUM)			\
   fprintf (FILE, VERSION_0300_SYNTAX ? ".%s%d:\n\t%s\t .%s%d\n" : "@%s%d:\n", \
@@ -1690,6 +1875,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
    with ASM_OUTPUT_INTERNAL_LABEL above, except for being prefixed
    with an `*'.  */
 
+#undef ASM_GENERATE_INTERNAL_LABEL
 #define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)			\
   sprintf (LABEL, VERSION_0300_SYNTAX ? "*.%s%d" : "*@%s%d", PREFIX, NUM)
 
@@ -1767,25 +1953,28 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 #define ASM_OUTPUT_BYTE(FILE,VALUE)  \
   fprintf (FILE, "\t%s\t 0x%x\n", CHAR_ASM_OP, (VALUE))
 
-/* The singl-byte pseudo-op is the default.  Override svr[34].h.  */
+/* The single-byte pseudo-op is the default.  Override svr[34].h.  */
 #undef	ASM_BYTE_OP
-#define ASM_BYTE_OP "\tbyte"
+#define ASM_BYTE_OP "byte"
 #undef	ASM_OUTPUT_ASCII
 #define ASM_OUTPUT_ASCII(FILE, P, SIZE)  \
-  output_ascii ((FILE), (P), (SIZE))
+  output_ascii (FILE, ASCII_DATA_ASM_OP, 48, P, SIZE)
 
 /* Epilogue for case labels.  This jump instruction is called by casesi
    to transfer to the appropriate branch instruction within the table.
    The label `@L<n>e' is coined to mark the end of the table.  */
 #define ASM_OUTPUT_CASE_END(FILE, NUM, TABLE)				\
   do {									\
-    char label[256];							\
-    ASM_GENERATE_INTERNAL_LABEL (label, "L", NUM);			\
-    fprintf (FILE, "%se:\n", &label[1]);				\
-    if (! flag_delayed_branch)						\
-      fprintf (FILE, "\tlda\t %s,%s[%s]\n", reg_names[1], reg_names[1],	\
-	       reg_names[m88k_case_index]);				\
-    fprintf (FILE, "\tjmp\t %s\n", reg_names[1]);			\
+    if (CASE_VECTOR_INSNS)						\
+      {									\
+	char label[256]; 						\
+	ASM_GENERATE_INTERNAL_LABEL (label, "L", NUM);			\
+	fprintf (FILE, "%se:\n", &label[1]);				\
+	if (! flag_delayed_branch)					\
+	  fprintf (FILE, "\tlda\t %s,%s[%s]\n", reg_names[1],		\
+		   reg_names[1], reg_names[m88k_case_index]);		\
+	fprintf (FILE, "\tjmp\t %s\n", reg_names[1]);			\
+      }									\
   } while (0)
 
 /* This is how to output an element of a case-vector that is absolute.  */
@@ -1793,7 +1982,8 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
   do {									\
     char buffer[256];							\
     ASM_GENERATE_INTERNAL_LABEL (buffer, "L", VALUE);			\
-    fprintf (FILE, "\tbr\t %s\n", &buffer[1]);				\
+    fprintf (FILE, CASE_VECTOR_INSNS ? "\tbr\t %s\n" : "\tword\t %s\n",	\
+	     &buffer[1]);						\
   } while (0)
 
 /* This is how to output an element of a case-vector that is relative.  */
@@ -1837,7 +2027,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 #undef	ASM_OUTPUT_ALIGNED_LOCAL
 #define ASM_OUTPUT_LOCAL(FILE, NAME, SIZE, ROUNDED)	\
 ( fprintf ((FILE), "\t%s\t ",				\
-	   ((SIZE) ? (SIZE) : 1) <= m88k_gp_threshold ? SBSS_ASM_OP : LOCAL_ASM_OP), \
+	   ((SIZE) ? (SIZE) : 1) <= m88k_gp_threshold ? SBSS_ASM_OP : BSS_ASM_OP), \
   assemble_name ((FILE), (NAME)),			\
   fprintf ((FILE), ",%u,%d\n", (SIZE) ? (SIZE) : 1, (SIZE) <= 4 ? 4 : 8))
 
@@ -2108,6 +2298,7 @@ enum reg_class { NO_REGS, AP_REG, GENERAL_REGS, ALL_REGS, LIM_REG_CLASSES };
 
 #else /* m88kluna or other not based on svr[34].h.  */
 
+#undef INIT_SECTION_ASM_OP
 #define EXTRA_SECTIONS in_const, in_tdesc, in_sdata
 #define CONST_SECTION_FUNCTION						\
 void									\

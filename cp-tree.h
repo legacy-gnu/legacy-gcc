@@ -358,8 +358,8 @@ TYPE_IDENTIFIER_PTR(NODE) tree NODE; { return
    &DECL_NAME (TYPE_NAME (NODE))) ;}
 #endif
 
-#define TYPE_NAME_STRING(NODE) (IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (NODE))))
-#define TYPE_NAME_LENGTH(NODE) (IDENTIFIER_LENGTH (DECL_NAME (TYPE_NAME (NODE))))
+#define TYPE_NAME_STRING(NODE) (IDENTIFIER_POINTER (TYPE_IDENTIFIER (NODE)))
+#define TYPE_NAME_LENGTH(NODE) (IDENTIFIER_LENGTH (TYPE_IDENTIFIER (NODE)))
 
 #define IS_AGGR_TYPE_2(TYPE1,TYPE2) \
   (TREE_CODE (TYPE1) == TREE_CODE (TYPE2)	\
@@ -579,7 +579,7 @@ struct lang_type
 #define TYPE_GETS_CONST_INIT_REF(NODE) (TYPE_LANG_SPECIFIC(NODE)->type_flags.gets_const_init_ref)
 
 /* Nonzero means that this _CLASSTYPE node has an X(X ...) constructor.
-   Note that there must be other arguments, or this constructor is flaged
+   Note that there must be other arguments, or this constructor is flagged
    as being erroneous.  */
 #define TYPE_GETS_INIT_AGGR(NODE) (TYPE_LANG_SPECIFIC(NODE)->type_flags.gets_init_aggr)
 
@@ -1298,6 +1298,7 @@ extern tree error_not_base_type ();
 
 /* in cp-type2.c */
 extern tree binfo_or_else ();
+extern void my_friendly_abort ();
 
 /* in tree.c */
 extern tree build_let ();
@@ -1315,6 +1316,7 @@ extern tree layout_basetypes ();
 extern tree copy_to_permanent ();
 extern tree get_decl_list ();
 extern tree break_out_cleanups ();
+extern tree break_out_calls ();
 extern tree array_type_nelts_total ();
 extern tree array_type_nelts_top ();
 
@@ -1415,7 +1417,9 @@ extern int current_function_parms_stored;
 #define AUTO_TEMP_NAME "_$tmp_"
 #define AUTO_TEMP_FORMAT "_$tmp_%d"
 #define VTBL_PTR_TYPE "$vtbl_ptr_type"
+#define VTABLE_BASE "$vb"
 #define VTABLE_NAME_FORMAT "_vt$%s"
+#define VFIELD_BASE "$vf"
 #define VFIELD_NAME "_vptr$"
 #define VFIELD_NAME_FORMAT "_vptr$%s"
 #define VBASE_NAME "_vb$"
@@ -1440,7 +1444,9 @@ extern int current_function_parms_stored;
 #define AUTO_TEMP_NAME "_.tmp_"
 #define AUTO_TEMP_FORMAT "_.tmp_%d"
 #define VTBL_PTR_TYPE ".vtbl_ptr_type"
+#define VTABLE_BASE ".vb"
 #define VTABLE_NAME_FORMAT "_vt.%s"
+#define VFIELD_BASE ".vf"
 #define VFIELD_NAME "_vptr."
 #define VFIELD_NAME_FORMAT "_vptr.%s"
 #define VBASE_NAME "_vb."

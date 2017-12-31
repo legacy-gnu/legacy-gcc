@@ -335,12 +335,12 @@ dump_type_prefix (t, p)
 	OB_PUTS ("const ");
       if (TYPE_VOLATILE (t))
 	OB_PUTS ("volatile ");
-      OB_PUTID (DECL_NAME (TYPE_NAME (t)));
+      OB_PUTID (TYPE_IDENTIFIER (t));
       OB_PUTC (' ');
       break;
 
     default:
-      abort ();
+      my_friendly_abort (65);
     }
 }
 
@@ -391,7 +391,7 @@ dump_type_suffix (t, p)
 	    OB_PUTC (')');
 	    dump_type_suffix (TREE_TYPE (type), p);
 #else
-	    abort ();
+	    my_friendly_abort (66);
 #endif
 	  }
 	return;
@@ -451,7 +451,7 @@ dump_type_suffix (t, p)
       return;
 
     default:
-      abort ();
+      my_friendly_abort (67);
     }
 }
 
@@ -551,7 +551,7 @@ dump_type (t, p)
 	  && (TYPE_READONLY (t) | TYPE_VOLATILE (t)))
 	OB_PUTS ("unsigned ");
 #endif
-      OB_PUTID (DECL_NAME (TYPE_NAME (t)));
+      OB_PUTID (TYPE_IDENTIFIER (t));
       OB_PUTC (' ');
       break;
 
@@ -559,13 +559,13 @@ dump_type (t, p)
     case VOID_TYPE:
       if (TYPE_READONLY (t) | TYPE_VOLATILE (t))
 	dump_readonly_or_volatile (t);
-      OB_PUTID (DECL_NAME (TYPE_NAME (t)));
+      OB_PUTID (TYPE_IDENTIFIER (t));
       OB_PUTC (' ');
       break;
 
     case TEMPLATE_TYPE_PARM:
       OB_PUTS ("<template type parm ");
-      OB_PUTID (DECL_NAME (TYPE_NAME (t)));
+      OB_PUTID (TYPE_IDENTIFIER (t));
       OB_PUTC ('>');
       break;
 
@@ -575,7 +575,7 @@ dump_type (t, p)
       break;
 
     default:
-      abort ();
+      my_friendly_abort (68);
     }
 }
 
@@ -632,7 +632,7 @@ dump_decl (t)
       break;
 
     case TYPE_EXPR:
-      abort ();
+      my_friendly_abort (69);
       break;
 
     case IDENTIFIER_NODE:
@@ -679,7 +679,7 @@ dump_decl (t)
       return;
 
     default:
-      abort ();
+      my_friendly_abort (70);
     }
 }
 
@@ -824,7 +824,7 @@ dump_init (t)
       return;
 
     case NEW_EXPR:
-      OB_PUTID (DECL_NAME (TYPE_NAME (TREE_TYPE (t))));
+      OB_PUTID (TYPE_IDENTIFIER (TREE_TYPE (t)));
       OB_PUTC ('(');
       dump_init_list (TREE_CHAIN (TREE_OPERAND (t, 1)));
       OB_PUTC (')');
@@ -1329,13 +1329,12 @@ static int nofold;
        while (t) { TREE_USED (TREE_VALUE (t)) = 0; t = TREE_CHAIN (t); } \
   } while (0)
 
-/* Code to concatenate an asciified integer to a string,
-   and return the end of the string.  */
+/* Code to concatenate an asciified integer to a string.  */
 static
 #ifdef __GNUC__
 __inline
 #endif
-char *
+void
 icat (i)
      int i;
 {
@@ -1403,7 +1402,6 @@ static void
 build_overload_value (type, value)
      tree type, value;
 {
-  char buf[40];
   while (TREE_CODE (value) == NON_LVALUE_EXPR)
     value = TREE_OPERAND (value, 0);
   assert (TREE_CODE (type) == PARM_DECL);
@@ -1449,7 +1447,7 @@ build_overload_value (type, value)
 	sprintf (bufp, "%e", val);
 	bufp = strchr (bufp, 'e');
 	if (!bufp)
-	  strcat (buf, "e0");
+	  strcat (digit_buffer, "e0");
 	else
 	  {
 	    char *p;
@@ -1475,7 +1473,7 @@ build_overload_value (type, value)
 		*bufp = 0;
 	      }
 	  }
-	OB_PUTCP (buf);
+	OB_PUTCP (digit_buffer);
 	return;
       }
 #endif
@@ -1487,16 +1485,22 @@ build_overload_value (type, value)
 	  build_overload_identifier (DECL_NAME (value));
 	  return;
 	}
+      else if (TREE_CODE (value) == FUNCTION_DECL)
+	{
+	  assert (DECL_NAME (value) != 0);
+	  build_overload_identifier (DECL_NAME (value));
+	  return;
+	}
       else
 	{
 	  debug_tree (type);
 	  debug_tree (value);
-	  abort ();
+	  my_friendly_abort (71);
 	}
     default:
       sorry ("conversion of %s as PT parameter",
 	     tree_code_name [(int) TREE_CODE (type)]);
-      abort ();
+      my_friendly_abort (72);
     }
 }
 
@@ -1767,10 +1771,12 @@ build_overload_name (parmtypes, begin, end)
 		OB_PUTC ('s');
 	      break;
 	    case QImode:
+	      if (parmtype == signed_char_type_node)
+	        OB_PUTC ('S');
 	      OB_PUTC ('c');
 	      break;
 	    default:
-	      abort ();
+	      my_friendly_abort (73);
 	    }
 	  break;
 
@@ -1782,7 +1788,7 @@ build_overload_name (parmtypes, begin, end)
 	    OB_PUTC ('d');
 	  else if (parmtype == float_type_node)
 	    OB_PUTC ('f');
-	  else abort ();
+	  else my_friendly_abort (74);
 	  break;
 
 	case VOID_TYPE:
@@ -1861,7 +1867,7 @@ build_overload_name (parmtypes, begin, end)
 	  break;
 
 	default:
-	  abort ();
+	  my_friendly_abort (75);
 	}
 
     next:
@@ -2056,7 +2062,7 @@ declare_overloaded (name)
   else if (current_lang_name == lang_name_c)
     error ("overloading function `%s' cannot be done in C language context");
   else
-    abort ();
+    my_friendly_abort (76);
 #endif
 }
 
@@ -2642,7 +2648,7 @@ build_component_type_expr (of, component, basetype_path, protect)
 	  break;
 
 	default:
-	  abort ();
+	  my_friendly_abort (77);
 	}
       last = tmp;
       tmp = TREE_OPERAND (tmp, 0);

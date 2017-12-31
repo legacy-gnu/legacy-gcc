@@ -142,7 +142,7 @@ cplus_expand_expr (exp, target, tmode, modifier)
 
 	    if (GET_CODE (call_target) == REG
 		&& REGNO (call_target) < FIRST_PSEUDO_REGISTER)
-	      abort ();
+	      my_friendly_abort (39);
 
 	    type = TREE_TYPE (exp);
 
@@ -168,7 +168,7 @@ cplus_expand_expr (exp, target, tmode, modifier)
     default:
       break;
     }
-  abort ();
+  my_friendly_abort (40);
   /* NOTREACHED */
   return NULL;
 }

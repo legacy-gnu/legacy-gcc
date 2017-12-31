@@ -128,7 +128,7 @@ enum machine_mode word_mode;	/* Mode whose width is BITS_PER_WORD */
 
 /* Indexed by rtx code, gives a sequence of operand-types for
    rtx's of that code.  The sequence is a C string in which
-   each charcter describes one operand.  */
+   each character describes one operand.  */
 
 char *rtx_format[] = {
   /* "*" undefined.
@@ -369,83 +369,6 @@ copy_most_rtx (orig, may_share)
 	}
     }
   return copy;
-}
-
-/* Helper functions for instruction scheduling.  */
-
-/* Add ELEM wrapped in an INSN_LIST with reg note kind DEP_TYPE to the
-   LOG_LINKS of INSN, if not already there.  DEP_TYPE indicates the type
-   of dependence that this link represents.  */
-
-void
-add_dependence (insn, elem, dep_type)
-     rtx insn;
-     rtx elem;
-     enum reg_note dep_type;
-{
-  rtx link;
-
-  /* Don't depend an insn on itself.  */
-  if (insn == elem)
-    return;
-
-  /* If elem is part of a sequence that must be scheduled together, then
-     make the dependence point to the last insn of the sequence.  */
-  if (NEXT_INSN (elem) && SCHED_GROUP_P (NEXT_INSN (elem)))
-    {
-      while (NEXT_INSN (elem) && SCHED_GROUP_P (NEXT_INSN (elem)))
-	elem = NEXT_INSN (elem);
-      /* Again, don't depend an insn of itself.  */
-      if (insn == elem)
-	return;
-    }
-
-  /* Check that we don't already have this dependence.  */
-  for (link = LOG_LINKS (insn); link; link = XEXP (link, 1))
-    if (XEXP (link, 0) == elem)
-      {
-	/* If this is a more restrictive type of dependence than the existing
-	   one, then change the existing dependence to this type.  */
-	if ((int) dep_type < (int) REG_NOTE_KIND (link))
-	  PUT_REG_NOTE_KIND (link, dep_type);
-	return;
-      }
-  /* Might want to check one level of transitivity to save conses.  */
-
-  link = rtx_alloc (INSN_LIST);
-  /* Insn dependency, not data dependency.  */
-  PUT_REG_NOTE_KIND (link, dep_type);
-  XEXP (link, 0) = elem;
-  XEXP (link, 1) = LOG_LINKS (insn);
-  LOG_LINKS (insn) = link;
-}
-
-/* Remove ELEM wrapped in an INSN_LIST from the LOG_LINKS
-   of INSN.  Abort if not found.  */
-void
-remove_dependence (insn, elem)
-     rtx insn;
-     rtx elem;
-{
-  rtx prev, link;
-  int found = 0;
-
-  for (prev = 0, link = LOG_LINKS (insn); link;
-       prev = link, link = XEXP (link, 1))
-    {
-      if (XEXP (link, 0) == elem)
-	{
-	  if (prev)
-	    XEXP (prev, 1) = XEXP (link, 1);
-	  else
-	    LOG_LINKS (insn) = XEXP (link, 1);
-	  found = 1;
-	}
-    }
-
-  if (! found)
-    abort ();
-  return;
 }
 
 /* Subroutines of read_rtx.  */
@@ -719,36 +642,29 @@ read_rtx (infile)
 	    }
 	  if (c != '"')
 	    dump_and_abort ('"', c, infile);
-	  j = 0;
-	  stringbufsize = 10;
-	  stringbuf = (char *) xmalloc (stringbufsize + 1);
 
 	  while (1)
 	    {
-	      if (j >= stringbufsize - 4)
+	      c = getc (infile); /* Read the string  */
+	      if (c == '\\')
 		{
-		  stringbufsize *= 2;
-		  stringbuf = (char *) xrealloc (stringbuf, stringbufsize + 1);
-		}
-	      stringbuf[j] = getc (infile); /* Read the string  */
-	      if (stringbuf[j] == '\\')
-		{
-		  stringbuf[j] = getc (infile);	/* Read the string  */
+		  c = getc (infile);	/* Read the string  */
 		  /* \; makes stuff for a C string constant containing
 		     newline and tab.  */
-		  if (stringbuf[j] == ';')
+		  if (c == ';')
 		    {
-		      strcpy (&stringbuf[j], "\\n\\t");
-		      j += 3;
+		      obstack_grow (rtl_obstack, "\\n\\t", 4);
+		      continue;
 		    }
 		}
-	      else if (stringbuf[j] == '"')
+	      else if (c == '"')
 		break;
-	      j++;
+
+	      obstack_1grow (rtl_obstack, c);
 	    }
 
-	  stringbuf[j] = 0;	/* NUL terminate the string  */
-	  stringbuf = (char *) xrealloc (stringbuf, j + 1);
+	  obstack_1grow (rtl_obstack, 0);
+	  stringbuf = (char *) obstack_finish (rtl_obstack);
 
 	  if (saw_paren)
 	    {
@@ -835,6 +751,9 @@ init_rtl ()
   for (i = 0; i < (int) MAX_MODE_CLASS; i++)
     min_class_size[i] = 1000;
 
+  byte_mode = VOIDmode;
+  word_mode = VOIDmode;
+
   for (mode = VOIDmode; (int) mode < (int) MAX_MACHINE_MODE;
        mode = (enum machine_mode) ((int) mode + 1))
     {
@@ -844,11 +763,24 @@ init_rtl ()
 	  min_class_size[(int) GET_MODE_CLASS (mode)] = GET_MODE_SIZE (mode);
 	}
       if (GET_MODE_CLASS (mode) == MODE_INT
-	  && GET_MODE_BITSIZE (mode) == BITS_PER_UNIT)
+	  && GET_MODE_BITSIZE (mode) == BITS_PER_UNIT
+	  && byte_mode == VOIDmode)
 	byte_mode = mode;
 
       if (GET_MODE_CLASS (mode) == MODE_INT
-	  && GET_MODE_BITSIZE (mode) == BITS_PER_WORD)
+	  && GET_MODE_BITSIZE (mode) == BITS_PER_WORD
+	  && word_mode == VOIDmode)
 	word_mode = mode;
     }
 }
+
+#ifdef memset
+gcc_memset (dest, value, len)
+     char *dest;
+     int value;
+     int len;
+{
+  while (len-- > 0)
+    *dest++ = value;
+}
+#endif /* memset */

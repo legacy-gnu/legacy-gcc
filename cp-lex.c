@@ -390,20 +390,20 @@ init_lex ()
   tree_code_name
     = (char **) realloc (tree_code_name,
 			 sizeof (char *) * LAST_CPLUS_TREE_CODE);
-  bcopy (cplus_tree_code_type,
-	 tree_code_type + (int) LAST_AND_UNUSED_TREE_CODE,
+  bcopy ((char *)cplus_tree_code_type,
+	 (char *)(tree_code_type + (int) LAST_AND_UNUSED_TREE_CODE),
 	 (LAST_CPLUS_TREE_CODE - (int)LAST_AND_UNUSED_TREE_CODE) * sizeof (char *));
-  bcopy (cplus_tree_code_length,
-	 tree_code_length + (int) LAST_AND_UNUSED_TREE_CODE,
+  bcopy ((char *)cplus_tree_code_length,
+	 (char *)(tree_code_length + (int) LAST_AND_UNUSED_TREE_CODE),
 	 (LAST_CPLUS_TREE_CODE - (int)LAST_AND_UNUSED_TREE_CODE) * sizeof (int));
-  bcopy (cplus_tree_code_name,
-	 tree_code_name + (int) LAST_AND_UNUSED_TREE_CODE,
+  bcopy ((char *)cplus_tree_code_name,
+	 (char *)(tree_code_name + (int) LAST_AND_UNUSED_TREE_CODE),
 	 (LAST_CPLUS_TREE_CODE - (int)LAST_AND_UNUSED_TREE_CODE) * sizeof (char *));
 
   opname_tab = (char **)oballoc ((int)LAST_CPLUS_TREE_CODE * sizeof (char *));
-  bzero (opname_tab, (int)LAST_CPLUS_TREE_CODE * sizeof (char *));
+  bzero ((char *)opname_tab, (int)LAST_CPLUS_TREE_CODE * sizeof (char *));
   assignop_tab = (char **)oballoc ((int)LAST_CPLUS_TREE_CODE * sizeof (char *));
-  bzero (assignop_tab, (int)LAST_CPLUS_TREE_CODE * sizeof (char *));
+  bzero ((char *)assignop_tab, (int)LAST_CPLUS_TREE_CODE * sizeof (char *));
 
   ansi_opname[0] = get_identifier ("<invalid operator>");
   for (i = 0; i < (int) LAST_CPLUS_TREE_CODE; i++)
@@ -880,9 +880,10 @@ set_vardecl_interface_info (prev, vars)
     {
       if (CLASSTYPE_INTERFACE_ONLY (type))
 	set_typedecl_interface_info (prev, TYPE_NAME (type));
+      else
+	CLASSTYPE_VTABLE_NEEDS_WRITING (type) = 1;
       TREE_EXTERNAL (vars) = CLASSTYPE_INTERFACE_ONLY (type);
-      TREE_PUBLIC (vars) = ! CLASSTYPE_INTERFACE_ONLY (type);
-      CLASSTYPE_VTABLE_NEEDS_WRITING (type) |= TREE_PUBLIC (vars);
+      TREE_PUBLIC (vars) = 1;
     }
 }
 
@@ -1011,7 +1012,7 @@ consume_string (this_obstack)
       if (c == '\n')
 	{
 	  if (pedantic)
-	    warning ("ANSI C forbids newline in string constant");
+	    pedwarn ("ANSI C forbids newline in string constant");
 	  lineno++;
 	}
       obstack_1grow (this_obstack, c);
@@ -1179,7 +1180,7 @@ store_pending_inline (decl, t)
 	    delay_to_eof = 1;
 	}
       else
-	abort ();
+	my_friendly_abort (58);
     }
 
   if (delay_to_eof)
@@ -1191,8 +1192,8 @@ store_pending_inline (decl, t)
 	  char *free_to = t->buf;
 	  t->buf = (char *) obstack_copy (&permanent_obstack, t->buf,
 					  t->len + 1);
-	  t = (struct pending_inline *) obstack_copy (&permanent_obstack, t,
-						      sizeof (*t));
+	  t = (struct pending_inline *) obstack_copy (&permanent_obstack, 
+						      (char *)t, sizeof (*t));
 	  obstack_free (&inline_text_obstack, free_to);
 	}
       inlines = &pending_template_expansions;
@@ -1447,7 +1448,7 @@ cons_up_default_function (type, name, kind)
       break;
 
     default:
-      abort ();
+      my_friendly_abort (59);
     }
 
   fn = start_method (declspecs,
@@ -1515,7 +1516,7 @@ note_got_semicolon (type)
      tree type;
 {
   if (TREE_CODE_CLASS (TREE_CODE (type)) != 't')
-    abort ();
+    my_friendly_abort (60);
   if (IS_AGGR_TYPE (type))
     CLASSTYPE_GOT_SEMICOLON (type) = 1;
 }
@@ -2317,7 +2318,7 @@ tree do_identifier (token)
 	       || TREE_CODE (field) == CONST_DECL)
 	id = field;
       else if (TREE_CODE (field) != FIELD_DECL)
-	abort ();
+	my_friendly_abort (61);
       else
 	{
 	  error_with_decl (field, "invalid use of member `%s' from base class `%s'",
@@ -2401,7 +2402,7 @@ identifier_typedecl_value (node)
   /* Will this one ever happen?  */
   if (TYPE_NAME (type))
     return TYPE_NAME (type);
-  abort ();
+  my_friendly_abort (62);
 }
 
 struct try_type
@@ -2627,7 +2628,7 @@ real_yylex ()
 			  yylval.itype = visibility_protected;
 			  break;
 			default:
-			  abort ();
+			  my_friendly_abort (63);
 			}
 		    }
 		  else
@@ -3241,7 +3242,7 @@ real_yylex ()
 	    else if (c == '\n')
 	      {
 		if (pedantic)
-		  warning ("ANSI C forbids newline in character constant");
+		  pedwarn ("ANSI C forbids newline in character constant");
 		lineno++;
 	      }
 
@@ -3326,7 +3327,7 @@ real_yylex ()
 	    else if (c == '\n')
 	      {
 		if (pedantic)
-		  warning ("ANSI C forbids newline in string constant");
+		  pedwarn ("ANSI C forbids newline in string constant");
 		lineno++;
 	      }
 
@@ -3647,7 +3648,7 @@ build_lang_decl (code, name, type)
     }
   else if (current_lang_name == lang_name_c)
     DECL_LANGUAGE (t) = lang_c;
-  else abort ();
+  else my_friendly_abort (64);
 
 #if 0 /* not yet, should get fixed properly later */
   if (code == TYPE_DECL)
@@ -3712,7 +3713,7 @@ copy_lang_decl (node)
   else
     size = sizeof (struct lang_decl);
   pi = (int *)obstack_alloc (&permanent_obstack, size);
-  bcopy (DECL_LANG_SPECIFIC (node), pi, size);
+  bcopy ((char *)DECL_LANG_SPECIFIC (node), (char *)pi, size);
   DECL_LANG_SPECIFIC (node) = (struct lang_decl *)pi;
 }
 

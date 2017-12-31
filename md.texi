@@ -3,7 +3,7 @@
 @c For copying conditions, see the file gcc.texi.
 
 @ifset INTERNALS
-@node Machine Desc, Target Macros, RTL, Top
+@node Machine Desc
 @chapter Machine Descriptions
 @cindex machine descriptions
 
@@ -329,6 +329,53 @@ However, if parts of its @var{operands} are matched by
 @code{match_operand} patterns, those parts may have constraints of
 their own.
 
+@findex match_parallel
+@item (match_parallel @var{n} @var{predicate} [@var{subpat}@dots{}])
+This pattern is a placeholder for an insn that consists of a
+@code{parallel} expression with a variable number of elements.  This
+expression should only appear at the top level of an insn pattern.
+
+When constructing an insn, operand number @var{n} will be substituted at
+this point.  When matching an insn, it matches if the body of the insn
+is a @code{parallel} expression with at least as many elements as the
+vector of @var{subpat} expressions in the @code{match_parallel}, if each
+@var{subpat} matches the corresponding element of the @code{parallel},
+@emph{and} the function @var{predicate} returns nonzero on the
+@code{parallel} that is the body of the insn.  It is the responsibility
+of the predicate to validate elements of the @code{parallel} beyond
+those listed in the @code{match_parallel}.@refill
+
+A typical use of @code{match_parallel} is to match load and store
+multiple expressions, which can contains a variable number of elements
+in a @code{parallel}.  For example,
+
+@example
+(define_insn ""
+  [(match_parallel 0 "load_multiple_operation"
+		   [(set (match_operand:SI 1 "gen_reg_operand" "=r")
+			 (match_operand:SI 2 "memory_operand" "m"))
+		    (use (reg:SI 179))
+		    (clobber (reg:SI 179))])]
+  ""
+  "loadm 0,0,%1,%2")
+@end example
+
+This example comes from @file{a29k.md}.  The function
+@code{load_multiple_operations} is defined in @file{a29k.c} and checks
+that subsequent elements in the @code{parallel} are the same as the
+@code{set} in the pattern, except that they are referencing subsequent
+registers and memory locations.
+
+An insn that matches this pattern might look like:
+
+@example
+(parallel [(set (reg:SI 20) (mem:SI (reg:SI 100)))
+	   (use (reg:SI 179))
+	   (clobber (reg:SI 179))
+	   (set (reg:SI 21) (mem:SI (plus:SI (reg:SI 100) (const_int 4))))
+	   (set (reg:SI 22) (mem:SI (plus:SI (reg:SI 100) (const_int 8))))])
+@end example
+
 @findex address
 @item (address (match_operand:@var{m} @var{n} "address_operand" ""))
 This complex of expressions is a placeholder for an operand number
@@ -444,7 +491,7 @@ might write this pattern:
 
 @example
 (define_insn "addsi3"
-  [(set (match_operand:SI 0 "general_operand" "r,m")
+  [(set (match_operand:SI 0 "general_operand" "=r,m")
         (plus:SI (match_operand:SI 1 "general_operand" "0,0")
                  (match_operand:SI 2 "general_operand" "g,r")))]
   ""
@@ -495,7 +542,7 @@ a pattern could use @code{which_alternative} to choose between them:
 
 @example
 (define_insn ""
-  [(set (match_operand:SI 0 "general_operand" "r,m")
+  [(set (match_operand:SI 0 "general_operand" "=r,m")
         (const_int 0))]
   ""
   "*
@@ -510,7 +557,7 @@ as follows, having the output control string start with a @samp{@@}:
 
 @example
 (define_insn ""
-  [(set (match_operand:SI 0 "general_operand" "r,m")
+  [(set (match_operand:SI 0 "general_operand" "=r,m")
         (const_int 0))]
   ""
   "@@
@@ -687,11 +734,15 @@ digit should come last.
 This is called a @dfn{matching constraint} and what it really means is
 that the assembler has only a single operand that fills two roles
 considered separate in the RTL insn.  For example, an add insn has two
-input operands and one output operand in the RTL, but on most machines
-an add instruction really has only two operands, one of them an
-input-output operand.
+input operands and one output operand in the RTL, but on most CISC
+machines an add instruction really has only two operands, one of them an
+input-output operand:
 
-Matching constraints work only in circumstances like that add insn.
+@example
+addl #35,r12
+@end example
+
+Matching constraints are used in these circumstances.
 More precisely, the two operands that match must include one input-only
 operand and one output-only operand.  Moreover, the digit must be a
 smaller number than the number of the operand that uses it in the
@@ -745,7 +796,7 @@ Contrast, therefore, the two instruction patterns that follow:
 
 @example
 (define_insn ""
-  [(set (match_operand:SI 0 "general_operand" "r")
+  [(set (match_operand:SI 0 "general_operand" "=r")
         (plus:SI (match_dup 0)
                  (match_operand:SI 1 "general_operand" "r")))]
   ""
@@ -757,7 +808,7 @@ which has two operands, one of which must appear in two places, and
 
 @example
 (define_insn ""
-  [(set (match_operand:SI 0 "general_operand" "r")
+  [(set (match_operand:SI 0 "general_operand" "=r")
         (plus:SI (match_operand:SI 1 "general_operand" "0")
                  (match_operand:SI 2 "general_operand" "r")))]
   ""
@@ -1135,8 +1186,8 @@ floating point registers, then the constraints of the fixed point
 @samp{move@var{m}} instructions must be designed to avoid ever trying to
 reload into a floating point register.
 
-@findex reload_in
-@findex reload_out
+@cindex @code{reload_in} instruction pattern
+@cindex @code{reload_out} instruction pattern
 @item @samp{reload_in@var{m}}
 @itemx @samp{reload_out@var{m}}
 Like @samp{mov@var{m}}, but used when a scratch register is required to
@@ -1150,6 +1201,37 @@ Like @samp{mov@var{m}} except that if operand 0 is a @code{subreg}
 with mode @var{m} of a register whose natural mode is wider,
 the @samp{movstrict@var{m}} instruction is guaranteed not to alter
 any of the register except the part which belongs to mode @var{m}.
+
+@cindex @code{load_multiple} instruction pattern
+@item @code{load_multiple}
+Load several consecutive memory locations into consecutive registers.
+Operand 0 is the first of the consecutive registers, operand 1
+is the first memory location, and operand 2 is a constant: the
+number of consecutive registers.
+
+Define this only if the target machine really has such an instruction;
+do not define this if the most efficient way of loading consecutive
+registers from memory is to do them one at a time.
+
+On some machines, there are restrictions as to which consecutive
+registers can be stored into memory, such as particular starting or
+ending register numbers or only a range of valid counts.  For those
+machines, use a @code{define_expand} (@pxref{Expander Definitions})
+and make the pattern fail if the restrictions are not met.
+
+Write the generated insn as a @code{parallel} with elements being a
+@code{set} of one register from the appropriate memory location (you may
+also need @code{use} or @code{clobber} elements).  Use a
+@code{match_parallel} (@pxref{RTL Template}) to recognize the insn.  See
+@file{a29k.md} and @file{rs6000.md} for examples of the use of this insn
+pattern.
+
+@cindex @samp{store_multiple} instruction pattern
+@item @code{store_multiple}
+Similar to @samp{load_multiple}, but store several consecutive registers
+into consecutive memory locations.  Operand 0 is the first of the
+consecutive memory locations, operand 1 is the first register, and
+operand 2 is a constant: the number of consecutive registers.
 
 @cindex @code{add@var{m}3} instruction pattern
 @item @samp{add@var{m}3}
@@ -1217,9 +1299,11 @@ Similar, but does unsigned division.
 
 @cindex @code{ashl@var{m}3} instruction pattern
 @item @samp{ashl@var{m}3}
-Arithmetic-shift operand 1 left by a number of bits specified by
-operand 2, and store the result in operand 0.  Operand 2 has
-mode @code{SImode}, not mode @var{m}.
+Arithmetic-shift operand 1 left by a number of bits specified by operand
+2, and store the result in operand 0.  Here @var{m} is the mode of
+operand 0 and operand 1; operand 2's mode is specified by the
+instruction pattern, and the compiler will convert the operand to that
+mode before generating the instruction.
 
 @cindex @code{ashr@var{m}3} instruction pattern
 @cindex @code{lshl@var{m}3} instruction pattern
@@ -1227,7 +1311,8 @@ mode @code{SImode}, not mode @var{m}.
 @cindex @code{rotl@var{m}3} instruction pattern
 @cindex @code{rotr@var{m}3} instruction pattern
 @item @samp{ashr@var{m}3}, @samp{lshl@var{m}3}, @samp{lshr@var{m}3}, @samp{rotl@var{m}3}, @samp{rotr@var{m}3}
-Other shift and rotate instructions.
+Other shift and rotate instructions, analogous to the
+@code{ashl@var{m}3} instructions.
 
 Logical and arithmetic left shift are the same.  Machines that do not
 allow negative shift counts often have only one instruction for
@@ -1246,6 +1331,9 @@ Store the absolute value of operand 1 into operand 0.
 @item @samp{sqrt@var{m}2}
 Store the square root of operand 1 into operand 0.
 
+The @code{sqrt} built-in function of C always uses the mode which
+corresponds to the C data type @code{double}.
+
 @cindex @code{ffs@var{m}2} instruction pattern
 @item @samp{ffs@var{m}2}
 Store into operand 0 one plus the index of the least significant 1-bit
@@ -1253,6 +1341,9 @@ of operand 1.  If operand 1 is zero, store zero.  @var{m} is the mode
 of operand 0; operand 1's mode is specified by the instruction
 pattern, and the compiler will convert the operand to that mode before
 generating the instruction.
+
+The @code{ffs} built-in function of C always uses the mode which
+corresponds to the C data type @code{int}.
 
 @cindex @code{one_cmpl@var{m}2} instruction pattern
 @item @samp{one_cmpl@var{m}2}
@@ -1580,12 +1671,83 @@ This pattern requires two operands: the address or offset, and a label
 which should immediately precede the jump table.  If the macro
 @code{CASE_VECTOR_PC_RELATIVE} is defined then the first operand is an
 offset which counts from the address of the table; otherwise, it is an
-absolute address to jump to.
+absolute address to jump to.  In either case, the first operand has
+mode @code{Pmode}.
 
 The @samp{tablejump} insn is always the last insn before the jump
 table it uses.  Its assembler code normally has no need to use the
 second operand, but you should incorporate it in the RTL pattern so
 that the jump optimizer will not delete the table as unreachable code.
+
+@cindex @code{save_stack_block} instruction pattern
+@cindex @code{save_stack_function} instruction pattern
+@cindex @code{save_stack_nonlocal} instruction pattern
+@cindex @code{restore_stack_block} instruction pattern
+@cindex @code{restore_stack_function} instruction pattern
+@cindex @code{restore_stack_nonlocal} instruction pattern
+@item @samp{save_stack_block}
+@itemx @samp{save_stack_function}
+@itemx @samp{save_stack_nonlocal}
+@itemx @samp{restore_stack_block}
+@itemx @samp{restore_stack_function}
+@itemx @samp{restore_stack_nonlocal}
+Most machines save and restore the stack pointer by copying it to or
+from an object of mode @code{Pmode}.  Do not define these patterns on
+such machines.
+
+Some machines require special handling for stack pointer saves and
+restores.  On those machines, define the patterns corresponding to the
+non-standard cases by using a @code{define_expand} (@pxref{Expander
+Definitions}) that produces the required insns.  The three types of
+saves and restores are:
+
+@enumerate
+@item
+@samp{save_stack_block} saves the stack pointer at the start of a block
+that allocates a variable-sized object and @samp{restore_stack_block}
+restores the stack pointer when the block is exited.
+
+@item
+@samp{save_stack_function} and @samp{restore_stack_function} operate
+similarly for the outermost block of a function and are used when the
+function allocates variable-sized objects or calls @code{alloca}.  Only
+the epilogue uses the restored stack pointer, allowing a simpler save or
+restore sequence on some machines.
+
+@item
+@samp{save_stack_nonlocal} is used in functions that contain labels
+branched to by nested functions.  It saves the stack pointer in such a
+way that the inner function can use @samp{restore_stack_nonlocal} to
+restore the stack pointer.  The compiler generates code to restore the
+frame and argument pointer registers, but some machines require saving
+and restoring additional data such as register window information or
+stack backchains.  Place insns in these patterns to save and restore any
+such required data.
+@end enumerate
+
+When saving the stack pointer, operand 0 is the save area and operand 1
+is the stack pointer.  The mode used to allocate the save area is the
+mode of operand 0.  You must specify an integral mode, or
+@code{VOIDmode} if no save area is needed for a particular type of save
+(either because no save is needed or because a machine-specific save
+area can be used).  Operand 0 is the stack pointer and operand 1 is the
+save area for restore operations.  If @samp{save_stack_block} is
+defined, operand 0 must not be @code{VOIDmode} since these saves can be
+arbitrarily nested.
+
+A save area is a @code{mem} that is at a constant offset from
+@code{virtual_stack_vars_rtx} when the stack pointer is saved for use by
+nonlocal gotos and a @code{reg} in the other two cases.
+
+@cindex @code{allocate_stack} instruction pattern
+@item @samp{allocate_stack}
+Subtract operand 0 from the stack pointer to create space for
+for dynamically allocated data.
+
+Do not define this pattern if all that must be done is the subtraction.
+On some machines require other operations such as stack probes or
+maintaining the back chain.  Define this pattern to emit those
+operations in addition to updating the stack pointer.
 @end table
 
 @node Pattern Ordering, Dependent Patterns, Standard Names, Machine Desc
@@ -2032,7 +2194,7 @@ Here is an example, taken from the 68000 machine description:
 @example
 (define_peephole
   [(set (reg:SI 15) (plus:SI (reg:SI 15) (const_int 4)))
-   (set (match_operand:DF 0 "register_operand" "f")
+   (set (match_operand:DF 0 "register_operand" "=f")
         (match_operand:DF 1 "register_operand" "ad"))]
   "FP_REG_P (operands[0]) && ! FP_REG_P (operands[1])"
   "*
@@ -2307,24 +2469,34 @@ in the compiler.@refill
 @cindex instruction splitting
 @cindex splitting instructions
 
-On machines that have instructions requiring delay slots (@pxref{Delay
-Slots}) or that have instructions whose output is not available for
-multiple cycles (@pxref{Function Units}), the compiler phases that
-optimize these cases need to be able to move insns into one-cycle
-delay slots.  However, some insns may generate more than one machine
-instruction.  These insns would be unable to be placed into a delay
-slot.
+There are two cases where you should specify how to split a pattern into
+multiple insns.  On machines that have instructions requiring delay
+slots (@pxref{Delay Slots}) or that have instructions whose output is
+not available for multiple cycles (@pxref{Function Units}), the compiler
+phases that optimize these cases need to be able to move insns into
+one-cycle delay slots.  However, some insns may generate more than one
+machine instruction.  These insns cannot be placed into a delay slot.
 
-It is often possible to write the single insn as a list of individual
-insns, each corresponding to one machine instruction.  The disadvantage
-of doing so is that it will cause the compilation to be slower and
-require more space.  If the resulting insns are too complex, it may also
-suppress some optimizations.
+Often you can rewrite the single insn as a list of individual insns,
+each corresponding to one machine instruction.  The disadvantage of
+doing so is that it will cause the compilation to be slower and require
+more space.  If the resulting insns are too complex, it may also
+suppress some optimizations.  The compiler splits the insn if there is a
+reason to believe that it might improve instruction or delay slot
+scheduling.
 
+The insn combiner phase also splits putative insns.  If three insns are
+merged into one insn with a complex expression that cannot be matched by
+some @code{define_insn} pattern, the combiner phase attempts to split
+the complex pattern into two insns that are recognized.  Usually it can
+break the complex pattern into two patterns by splitting out some
+subexpression.  However, in some other cases, such as performing an
+addition of a large constant in two insns on a RISC machine, the way to
+split the addition into two insns is machine-dependent.
+
+@cindex define_split
 The @code{define_split} definition tells the compiler how to split a
-complex insn into several simpler insns.  This spilling will be
-performed if there is a reason to believe that it might improve
-instruction or delay slot scheduling.  The definition looks like this:
+complex insn into several simpler insns.  It looks like this:
 
 @example
 (define_split
@@ -2338,20 +2510,28 @@ instruction or delay slot scheduling.  The definition looks like this:
 
 @var{insn-pattern} is a pattern that needs to be split and
 @var{condition} is the final condition to be tested, as in a
-@code{define_insn}.  Any insn matched by a @code{define_split} must also
-be matched by a @code{define_insn} in case it does not need to be split.
-
-When an insn matching @var{insn-pattern} and satisfying @var{condition}
-is found, it is replaced in the insn list with the insns given by
-@var{new-insn-pattern-1}, @var{new-insn-pattern-2}, etc.
+@code{define_insn}.  When an insn matching @var{insn-pattern} and
+satisfying @var{condition} is found, it is replaced in the insn list
+with the insns given by @var{new-insn-pattern-1},
+@var{new-insn-pattern-2}, etc.
 
 The @var{preparation statements} are similar to those specified for
 @code{define_expand} (@pxref{Expander Definitions}) and are executed
 before the new RTL is generated to prepare for the generated code
 or emit some insns whose pattern is not fixed.
 
-As a simple case, consider the following example from the AMD 29000
-machine description, which splits a @code{sign_extend} from
+Patterns are matched against @var{insn-pattern} in two different
+circumstances.  If an insn needs to be split for delay slot scheduling
+or insn scheduling, the insn is already known to be valid, which means
+that it must have been matched by some @code{define_insn} and, if
+@code{reload_completed} is non-zero, is known to satisfy the constraints
+of that @code{define_insn}.  In that case, the new insn patterns must
+also be insns that are matched by some @code{define_insn} and, if
+@code{reload_completed} is non-zero, must also satisfy the constraints
+of those definitions.
+
+As an example of this usage of @code{define_split}, consider the following
+example from @file{a29k.md}, which splits a @code{sign_extend} from
 @code{HImode} to @code{SImode} into a pair of shift insns:
 
 @example
@@ -2368,6 +2548,81 @@ machine description, which splits a @code{sign_extend} from
   "
 @{ operands[1] = gen_lowpart (SImode, operands[1]); @}")
 @end example
+
+When the combiner phase tries to split an insn pattern, it is always the
+case that the pattern is @emph{not} matched by any @code{define_insn}.
+The combiner pass first tries to split a single @code{set} expression
+and then the same @code{set} expression inside a @code{parallel}, but
+followed by a @code{clobber} of a pseudo-reg to use as a scratch
+register.  In these cases, the combiner expects exactly two new insn
+patterns to be generated.  It will verify that these patterns match some
+@code{define_insn} definitions, so you need not do this test in the
+@code{define_split} (of course, there is no point in writing a
+@code{define_split} that will never produce insns that match).
+
+Here is an example of this use of @code{define_split}, taken from
+@file{rs6000.md}:
+
+@example
+(define_split
+  [(set (match_operand:SI 0 "gen_reg_operand" "")
+	(plus:SI (match_operand:SI 1 "gen_reg_operand" "")
+		 (match_operand:SI 2 "non_add_cint_operand" "")))]
+  ""
+  [(set (match_dup 0) (plus:SI (match_dup 1) (match_dup 3)))
+   (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 4)))]
+"
+@{
+  int low = INTVAL (operands[2]) & 0xffff;
+  int high = (unsigned) INTVAL (operands[2]) >> 16;
+
+  if (low & 0x8000)
+    high++, low |= 0xffff0000;
+
+  operands[3] = gen_rtx (CONST_INT, VOIDmode, high << 16);
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, low);
+@}")
+@end example
+
+Here the predicate @code{non_add_cint_operand} matches any
+@code{const_int} that is @emph{not} a valid operand of a single add
+insn.  Write the add with the smaller displacement is written so that it
+can be substituted into the address of a subsequent operation.
+
+An example that uses a scratch register, from the same file, generates
+an equality comparison of a register and a large constant:
+
+@example
+(define_split
+  [(set (match_operand:CC 0 "cc_reg_operand" "")
+	(compare:CC (match_operand:SI 1 "gen_reg_operand" "")
+		    (match_operand:SI 2 "non_short_cint_operand" "")))
+   (clobber (match_operand:SI 3 "gen_reg_operand" ""))]
+  "find_single_use (operands[0], insn, 0)
+   && (GET_CODE (*find_single_use (operands[0], insn, 0)) == EQ
+       || GET_CODE (*find_single_use (operands[0], insn, 0)) == NE)"
+  [(set (match_dup 3) (xor:SI (match_dup 1) (match_dup 4)))
+   (set (match_dup 0) (compare:CC (match_dup 3) (match_dup 5)))]
+  "
+@{
+  /* Get the constant we are comparing against, C,  and see what it looks like
+     sign-extended to 16 bits.  Then see what constant could be XOR'ed
+     with C to get the sign-extended value.  */
+
+  int c = INTVAL (operands[2]);
+  int sextc = (c << 16) >> 16;
+  int xorv = c ^ sextc;
+
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, xorv);
+  operands[5] = gen_rtx (CONST_INT, VOIDmode, sextc);
+@}")
+@end example
+
+To avoid confusion, don't write a single @code{define_split} that
+accepts some insns that match some @code{define_insn} as well as some
+insns that don't.  Instead, write two separate @code{define_split}
+definitions, one for the insns that are valid and one for the insns that
+are not valid.
 
 @node Insn Attributes,, Insn Splitting, Machine Desc
 @section Instruction Attributes
@@ -2873,10 +3128,10 @@ as follows:
 @subsection Constant Attributes
 @cindex constant attributes
 
-A special form of DEFINE_ATTR, where the expression for the default
-value is a CONST expression, indicates an attribute that is constant for
-a given run of the compiler.  Constant attributes may be used to specify
-which variety of processor is used.  For example,
+A special form of @code{define_attr}, where the expression for the
+default value is a @code{const} expression, indicates an attribute that
+is constant for a given run of the compiler.  Constant attributes may be
+used to specify which variety of processor is used.  For example,
 
 @example
 (define_attr "cpu" "m88100,m88110,m88000"
@@ -2893,10 +3148,10 @@ which variety of processor is used.  For example,
 @end example
 
 The routine generated for constant attributes has no parameters as it
-does not depend on any particular insn.  RTL expressions used to
-define the value of a constant attribute may use the SYMBOL_REF form,
-but may not use either the MATCH_OPERAND form or EQ_ATTR forms
-involving insn attributes.
+does not depend on any particular insn.  RTL expressions used to define
+the value of a constant attribute may use the @code{symbol_ref} form,
+but may not use either the @code{match_operand} form or @code{eq_attr}
+forms involving insn attributes.
 
 @node Delay Slots, Function Units, Constant Attributes, Insn Attributes
 @subsection Delay Slot Scheduling

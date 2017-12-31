@@ -638,8 +638,9 @@ struct rt_cargs {int gregs, fregs; };
 
 #define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)				\
   (! (NAMED) ? 0							\
-  : USE_FP_REG(MODE,CUM) ? gen_rtx(REG, (MODE),(CUM.fregs) + 17)	\
-  : (CUM).gregs < 4 ? gen_rtx(REG, (MODE), 2 + (CUM).gregs) : 0)
+   : ((TYPE) != 0 && TREE_CODE (TYPE_SIZE (TYPE)) != INTEGER_CST) ? 0	\
+   : USE_FP_REG(MODE,CUM) ? gen_rtx(REG, (MODE),(CUM.fregs) + 17)	\
+   : (CUM).gregs < 4 ? gen_rtx(REG, (MODE), 2 + (CUM).gregs) : 0)
 
 /* For an arg passed partly in registers and partly in memory,
    this is the number of registers used.
@@ -1225,19 +1226,31 @@ struct rt_cargs {int gregs, fregs; };
    few bits. */
 #define SHIFT_COUNT_TRUNCATED
 
-/* Compute the cost of computing a constant rtl expression RTX
-   whose rtx-code is CODE.  The body of this macro is a portion
-   of a switch statement.  If the code is computed here,
-   return it with a return statement.  Otherwise, break from the switch.  */
+/* Compute the cost of computing a constant rtl expression RTX whose
+   rtx-code is CODE, contained within an expression of code OUTER_CODE.
+   The body of this macro is a portion of a switch statement.  If the
+   code is computed here, return it with a return statement.  Otherwise,
+   break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
-    return 0;							\
+    if ((OUTER_CODE) == IOR && exact_log2 (INTVAL (RTX)) >= 0	\
+	|| (OUTER_CODE) == AND && exact_log2 (~INTVAL (RTX)) >= 0 \
+	|| (((OUTER_CODE) == PLUS || (OUTER_CODE) == MINUS)	\
+	    && (unsigned int) (INTVAL (RTX) + 15) < 31)		\
+	|| ((OUTER_CODE) == SET && (unsigned int) INTVAL (RTX) < 16))\
+      return 0;							\
+    return ((unsigned int) (INTVAL(RTX) + 0x8000) < 0x10000		\
+	    || (INTVAL (RTX) & 0xffff0000) == 0) ? 0 : COSTS_N_INSNS (2);\
   case CONST:							\
   case LABEL_REF:						\
   case SYMBOL_REF:						\
+    if (current_function_operand (RTX, Pmode)) return 0;	\
+    return COSTS_N_INSNS (2);					\
   case CONST_DOUBLE:						\
-    return COSTS_N_INSNS (2);
+    if ((RTX) == CONST0_RTX (GET_MODE (RTX))) return 2;		\
+    return ((GET_MODE_CLASS (GET_MODE (RTX)) == MODE_FLOAT)	\
+	    ? COSTS_N_INSNS (5) : COSTS_N_INSNS (4));
 
 /* Provide the costs of a rtl expression.  This is in the body of a
    switch on CODE. 
@@ -1245,11 +1258,12 @@ struct rt_cargs {int gregs, fregs; };
    References to our own data area are really references to r14, so they
    are very cheap.  Multiples and divides are very expensive.  */
 
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)			\
   case MEM:						\
     return current_function_operand (X, Pmode) ? 0 : COSTS_N_INSNS (2);	\
   case MULT:						\
-    return TARGET_IN_LINE_MUL ? COSTS_N_INSNS (19) : COSTS_N_INSNS (25); \
+    return (TARGET_IN_LINE_MUL && GET_MODE_CLASS (GET_MODE (X)) == MODE_INT)\
+	   ? COSTS_N_INSNS (19) : COSTS_N_INSNS (25);	\
   case DIV:						\
   case UDIV:						\
   case MOD:						\

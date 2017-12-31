@@ -203,7 +203,7 @@ value_safe_from_gc (to, from)
       return 1;
 
     default:
-      abort ();
+      my_friendly_abort (41);
     }
 
   if (to == 0)
@@ -250,7 +250,7 @@ value_safe_from_gc (to, from)
       return 1;
 
     default:
-      abort ();
+      my_friendly_abort (42);
     }
 
   /* Catch-all case is that TO/FROM is not safe.  */
@@ -289,7 +289,7 @@ build_static_gc_entry (decl, type)
 	 
 	 Cons up a static variable that holds address and length info
 	 and add that to ___ARR_LIST__.  */
-      abort ();
+      my_friendly_abort (43);
     }
 }
 
@@ -324,7 +324,7 @@ protect_value_from_gc (to, from)
 
   /* Should never need to protect a value that's headed for static storage.  */
   if (TREE_STATIC (to))
-    abort ();
+    my_friendly_abort (44);
 
   switch (TREE_CODE (to))
     {
@@ -360,7 +360,7 @@ protect_value_from_gc (to, from)
     }
 
   /* If we fall through the switch, assume we lost.  */
-  abort ();
+  my_friendly_abort (45);
   /* NOTREACHED */
   return NULL_TREE;
 }

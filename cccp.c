@@ -53,6 +53,11 @@ typedef unsigned char U_CHAR;
 #define STDC_VALUE 1
 #endif
 
+/* By default, colon separates directories in a path.  */
+#ifndef PATH_SEPARATOR
+#define PATH_SEPARATOR ':'
+#endif
+
 /* In case config.h defines these.  */
 #undef bcopy
 #undef bzero
@@ -65,7 +70,6 @@ typedef unsigned char U_CHAR;
 #include <signal.h>
 
 #ifndef VMS
-#include <sys/file.h>
 #ifndef USG
 #include <sys/time.h>		/* for __DATE__ and __TIME__ */
 #include <sys/resource.h>
@@ -329,9 +333,6 @@ static enum {dump_none, dump_only, dump_names, dump_definitions}
    where they are defined.  */
 static int debug_output = 0;
 
-/* Holds local startup time.  */
-static struct tm *timebuf = NULL;
-
 /* Nonzero indicates special processing used by the pcp program.  The
    special effects of this mode are: 
      
@@ -523,6 +524,10 @@ static struct file_name_list *dont_repeat_files = 0;
    around the entire contents, and ->control_macro gives the macro name.  */
 static struct file_name_list *all_include_files = 0;
 
+/* Directory prefix that should replace `/usr' in the standard
+   include file directories.  */
+static char *include_prefix;
+
 /* Global list of strings read in from precompiled files.  This list
    is kept in the order the strings are read in, with new strings being
    added at the end through stringlist_tailp.  We use this list to output
@@ -572,12 +577,14 @@ struct definition {
   U_CHAR *expansion;
   int line;			/* Line number of definition */
   char *file;			/* File of definition */
+  char rest_args;		/* Nonzero if last arg. absorbs the rest */
   struct reflist {
     struct reflist *next;
     char stringify;		/* nonzero if this arg was preceded by a
 				   # operator. */
     char raw_before;		/* Nonzero if a ## operator before arg. */
     char raw_after;		/* Nonzero if a ## operator after arg. */
+    char rest_args;		/* Nonzero if this arg. absorbs the rest */
     int nchars;			/* Number of literal chars to copy before
 				   this arg occurrence.  */
     int argno;			/* Number of arg to substitute (origin-0) */
@@ -600,6 +607,20 @@ union hashval {
   KEYDEF *keydef;
 };
 
+/*
+ * special extension string that can be added to the last macro argument to 
+ * allow it to absorb the "rest" of the arguments when expanded.  Ex:
+ * 		#define wow(a, b...)		process(b, a, b)
+ *		{ wow(1, 2, 3); }	->	{ process( 2, 3, 1,  2, 3); }
+ *		{ wow(one, two); }	->	{ process( two, one,  two); }
+ * if this "rest_arg" is used with the concat token '##' and if it is not
+ * supplied then the token attached to with ## will not be outputed.  Ex:
+ * 		#define wow(a, b...)		process(b ## , a, ## b)
+ *		{ wow(1, 2); }		->	{ process( 2, 1,2); }
+ *		{ wow(one); }		->	{ process( one); {
+ */
+static char rest_extension[] = "...";
+#define REST_EXTENSION_LENGTH	(sizeof (rest_extension) - 1)
 
 /* The structure of a node in the hash table.  The hash table
    has entries for all tokens defined by #define commands (type T_MACRO),
@@ -886,6 +907,7 @@ main (argc, argv)
   char **pend_assertion_options = (char **) xmalloc (argc * sizeof (char *));
   int inhibit_predefs = 0;
   int no_standard_includes = 0;
+  int no_standard_cplusplus_includes = 0;
   int missing_newline = 0;
 
   /* Non-0 means don't output the preprocessed program.  */
@@ -983,6 +1005,12 @@ main (argc, argv)
 	    fatal ("Filename missing after -imacros option");
 	  else
 	    pend_files[i] = argv[i+1], i++;
+	}
+	if (!strcmp (argv[i], "-iprefix")) {
+	  if (i + 1 == argc)
+	    fatal ("Filename missing after -iprefix option");
+	  else
+	    include_prefix = argv[++i];
 	}
 	/* Add directory to end of path for includes.  */
 	if (!strcmp (argv[i], "-idirafter")) {
@@ -1266,6 +1294,9 @@ main (argc, argv)
 	  /* -nostdinc causes no default include directories.
 	     You must specify all include-file directories with -I.  */
 	  no_standard_includes = 1;
+	else if (!strcmp (argv[i], "-nostdinc++"))
+	  /* -nostdinc++ causes no default C++-specific include directories. */
+	  no_standard_cplusplus_includes = 1;
 	else if (!strcmp (argv[i], "-noprecomp"))
 	  no_precomp = 1;
 	break;
@@ -1446,7 +1477,7 @@ main (argc, argv)
       char *startp, *endp;
 
       for (num_dirs = 1, startp = epath; *startp; startp++)
-	if (*startp == ':')
+	if (*startp == PATH_SEPARATOR)
 	  num_dirs++;
       include_defaults
 	= (struct default_include *) xmalloc ((num_dirs
@@ -1456,12 +1487,14 @@ main (argc, argv)
       num_dirs = 0;
       while (1) {
         /* Handle cases like c:/usr/lib:d:/gcc/lib */
-        if ((*endp == ':'
+        if ((*endp == PATH_SEPARATOR
+#if 0 /* Obsolete, now that we use semicolons as the path separator.  */
 #ifdef __MSDOS__
 	     && (endp-startp != 1 || !isalpha (*startp)))
 #endif
+#endif
 	     )
-            || (*endp == 0)) {
+            || *endp == 0) {
 	  strncpy (nstore, startp, endp-startp);
 	  if (endp == startp)
 	    strcpy (nstore, ".");
@@ -1488,7 +1521,7 @@ main (argc, argv)
      tack on the standard include file dirs to the specified list */
   if (!no_standard_includes) {
     struct default_include *p = include_defaults;
-    char *specd_prefix = getenv ("GCC_EXEC_PREFIX");
+    char *specd_prefix = include_prefix;
     char *default_prefix = savestring (GCC_INCLUDE_DIR);
     int default_len = 0;
     /* Remove the `include' from /usr/local/lib/gcc.../include.  */
@@ -1501,7 +1534,7 @@ main (argc, argv)
     if (specd_prefix != 0 && default_len != 0)
       for (p = include_defaults; p->fname; p++) {
 	/* Some standard dirs are only for C++.  */
-	if (!p->cplusplus || cplusplus) {
+	if (!p->cplusplus || (cplusplus && !no_standard_cplusplus_includes)) {
 	  /* Does this dir start with the prefix?  */
 	  if (!strncmp (p->fname, default_prefix, default_len)) {
 	    /* Yes; change prefix and add to search list.  */
@@ -1533,7 +1566,7 @@ main (argc, argv)
     /* Search ordinary names for GNU include directories.  */
     for (p = include_defaults; p->fname; p++) {
       /* Some standard dirs are only for C++.  */
-      if (!p->cplusplus || cplusplus) {
+      if (!p->cplusplus || (cplusplus && !no_standard_cplusplus_includes)) {
 	struct file_name_list *new
 	  = (struct file_name_list *) xmalloc (sizeof (struct file_name_list));
 	new->control_macro = 0;
@@ -1828,12 +1861,7 @@ path_include (path)
       struct file_name_list *dirtmp;
 
       /* Find the end of this name.  */
-#ifdef __MSDOS__
-      /* Handle cases like c:/usr/lib:d:/gcc/lib */
-      while (*q != 0 && (*q != ':' || (q - p == 1 && isalpha (*p)))) q++;
-#else
-      while (*q != 0 && *q != ':') q++;
-#endif
+      while (*q != 0 && *q != PATH_SEPARATOR) q++;
       if (p == q) {
 	/* An empty name in the path stands for the current directory.  */
 	name = (char *) xmalloc (2);
@@ -3315,6 +3343,8 @@ handle_directive (ip, op)
 		*cp++ = *xp++;
 		SKIP_WHITE_SPACE (xp);
 	      }
+	    } else {
+	      *cp++ = *xp++;
 	    }
 	    break;
 
@@ -3322,7 +3352,7 @@ handle_directive (ip, op)
 	  case '\"':
 	    {
 	      register U_CHAR *bp1
-		= skip_quoted_string (xp - 1, limit, ip->lineno, 0, 0, 0);
+		= skip_quoted_string (xp - 1, bp, ip->lineno, 0, 0, 0);
 	      while (xp != bp1)
 		if (*xp == '\\') {
 		  if (*++xp != '\n')
@@ -3405,6 +3435,17 @@ handle_directive (ip, op)
   return 0;
 }
 
+static struct tm *
+timestamp ()
+{
+  static struct tm *timebuf;
+  if (!timebuf) {
+    time_t t = time (0);
+    timebuf = localtime (&t);
+  }
+  return timebuf;
+}
+
 static char *monthnames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 			     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 			    };
@@ -3423,6 +3464,7 @@ special_symbol (hp, op)
   int i, len;
   int true_indepth;
   FILE_BUF *ip = NULL;
+  struct tm *timebuf;
 
   int paren = 0;		/* For special `defined' keyword */
 
@@ -3508,6 +3550,7 @@ special_symbol (hp, op)
   case T_DATE:
   case T_TIME:
     buf = (char *) alloca (20);
+    timebuf = timestamp ();
     if (hp->type == T_DATE)
       sprintf (buf, "\"%s %2d %4d\"", monthnames[timebuf->tm_mon],
 	      timebuf->tm_mday, timebuf->tm_year + 1900);
@@ -3966,7 +4009,7 @@ finclude (f, fname, op, system_header_p, dirptr)
   fp->dir = dirptr;
 
   if (S_ISREG (st_mode)) {
-    fp->buf = (U_CHAR *) alloca (st_size + 2);
+    fp->buf = (U_CHAR *) xmalloc (st_size + 2);
     fp->bufp = fp->buf;
 
     /* Read the file contents, knowing that st_size is an upper bound
@@ -4041,12 +4084,14 @@ finclude (f, fname, op, system_header_p, dirptr)
   indepth--;
   input_file_stack_tick++;
   output_line_command (&instack[indepth], op, 0, leave_file);
+  free (fp->buf);
   return;
 
  nope:
 
   perror_with_name (fname);
   close (f);
+  free (fp->buf);
 }
 
 /* Record that inclusion of the file named FILE
@@ -4491,7 +4536,12 @@ pass_thru_directive (buf, limit, op, keyword)
     *op->bufp++ = ' ';
   bcopy (buf, op->bufp, limit - buf);
   op->bufp += (limit - buf);
+#if 0
   *op->bufp++ = '\n';
+  /* Count the line we have just made in the output,
+     to get in sync properly.  */
+  op->lineno++;
+#endif
 }
 
 /* The arglist structure is built by do_define to tell
@@ -4510,6 +4560,7 @@ struct arglist {
   U_CHAR *name;
   int length;
   int argno;
+  char rest_args;
 };
 
 /* Create a DEFINITION node from a #define directive.  Arguments are 
@@ -4524,6 +4575,7 @@ create_definition (buf, limit, op)
   int sym_length;		/* and how long it is */
   int line = instack[indepth].lineno;
   char *file = instack[indepth].nominal_fname;
+  int rest_args = 0;
 
   DEFINITION *defn;
   int arglengths = 0;		/* Accumulate lengths of arg names
@@ -4558,16 +4610,30 @@ create_definition (buf, limit, op)
       temp->name = bp;
       temp->next = arg_ptrs;
       temp->argno = argno++;
+      temp->rest_args = 0;
       arg_ptrs = temp;
 
-      if (!is_idstart[*bp])
-	pedwarn ("parameter name starts with a digit in `#define'");
+      if (rest_args)
+	pedwarn ("another parameter follows `%s'",
+		 rest_extension);
 
+      if (!is_idstart[*bp])
+	pedwarn ("invalid character in macro parameter name");
+      
       /* Find the end of the arg name.  */
       while (is_idchar[*bp]) {
 	bp++;
+	/* do we have a "special" rest-args extension here? */
+	if (limit - bp > REST_EXTENSION_LENGTH &&
+	    strncmp (rest_extension, bp, REST_EXTENSION_LENGTH) == 0) {
+	  rest_args = 1;
+	  temp->rest_args = 1;
+	  break;
+	}
       }
       temp->length = bp - temp->name;
+      if (rest_args == 1)
+	bp += REST_EXTENSION_LENGTH;
       arglengths += temp->length + 2;
       SKIP_WHITE_SPACE (bp);
       if (temp->length == 0 || (*bp != ',' && *bp != ')')) {
@@ -4604,6 +4670,7 @@ create_definition (buf, limit, op)
     if (bp < limit && (*bp == ' ' || *bp == '\t')) ++bp;
     /* now everything from bp before limit is the definition. */
     defn = collect_expansion (bp, limit, argno, arg_ptrs);
+    defn->rest_args = rest_args;
 
     /* Now set defn->args.argnames to the result of concatenating
        the argument names in reverse order
@@ -5046,6 +5113,7 @@ collect_expansion (buf, end, nargs, arglist)
 	    tpat->next = NULL;
 	    tpat->raw_before = concat == id_beg;
 	    tpat->raw_after = 0;
+	    tpat->rest_args = arg->rest_args;
 	    tpat->stringify = (traditional ? expected_delimiter != '\0'
 			       : stringify == id_beg);
 
@@ -5719,7 +5787,7 @@ do_warning (buf, limit, op, keyword)
   bcopy (buf, copy, length);
   copy[length] = 0;
   SKIP_WHITE_SPACE (copy);
-  error ("#warning %s", copy);
+  warning ("#warning %s", copy);
   return 0;
 }
 
@@ -5772,7 +5840,10 @@ do_pragma (buf, limit)
   while (*buf == ' ' || *buf == '\t')
     buf++;
   if (!strncmp (buf, "once", 4)) {
-    warning ("`#pragma once' is obsolete");
+    /* Allow #pragma once in system headers, since that's not the user's
+       fault.  */
+    if (!instack[indepth].system_header_p)
+      warning ("`#pragma once' is obsolete");
     do_once ();
   }
   return 0;
@@ -6720,6 +6791,7 @@ macroexpand (hp, op)
   register U_CHAR *xbuf;
   int xbuf_len;
   int start_line = instack[indepth].lineno;
+  int rest_args, rest_zero;
 
   CHECK_DEPTH (return;);
 
@@ -6753,13 +6825,24 @@ macroexpand (hp, op)
 
     /* Parse all the macro args that are supplied.  I counts them.
        The first NARGS args are stored in ARGS.
-       The rest are discarded.  */
+       The rest are discarded.
+       If rest_args is set then we assume macarg absorbed the rest of the args.
+       */
     i = 0;
+    rest_args = 0;
     do {
       /* Discard the open-parenthesis or comma before the next arg.  */
       ++instack[indepth].bufp;
-      parse_error
-	= macarg ((i < nargs || (nargs == 0 && i == 0)) ? &args[i] : 0);
+      if (rest_args)
+	continue;
+      if (i < nargs || (nargs == 0 && i == 0)) {
+	/* if we are working on last arg which absorbes rest of args... */
+	if (i == nargs - 1 && defn->rest_args)
+	  rest_args = 1;
+	parse_error = macarg (&args[i], rest_args);
+      }
+      else
+	parse_error = macarg (0, 0);
       if (parse_error) {
 	error_with_line (line_for_error (start_line), parse_error);
 	break;
@@ -6776,12 +6859,16 @@ macroexpand (hp, op)
 	i = 0;
     }
 
+    rest_zero = 0;
     if (nargs == 0 && i > 0)
       error ("arguments given to macro `%s'", hp->name);
     else if (i < nargs) {
       /* traditional C allows foo() if foo wants one argument.  */
       if (nargs == 1 && i == 0 && traditional)
 	;
+      /* the rest args token is allowed to absorb 0 tokens */
+      else if (i == nargs - 1 && defn->rest_args)
+	rest_zero = 1;
       else if (i == 0)
 	error ("macro `%s' used without args", hp->name);
       else if (i == 1)
@@ -6805,7 +6892,7 @@ macroexpand (hp, op)
 				   copied a piece at a time */
       register int totlen;	/* total amount of exp buffer filled so far */
 
-      register struct reflist *ap;
+      register struct reflist *ap, *last_ap;
 
       /* Macro really takes args.  Compute the expansion of this call.  */
 
@@ -6832,11 +6919,16 @@ macroexpand (hp, op)
 	 OFFSET is the index in the definition
 	 of where we are copying from.  */
       offset = totlen = 0;
-      for (ap = defn->pattern; ap != NULL; ap = ap->next) {
+      for (last_ap = NULL, ap = defn->pattern; ap != NULL;
+	   last_ap = ap, ap = ap->next) {
 	register struct argdata *arg = &args[ap->argno];
 
-	for (i = 0; i < ap->nchars; i++)
-	  xbuf[totlen++] = exp[offset++];
+	/* add chars to XBUF unless rest_args was zero with concatenation */
+	for (i = 0; i < ap->nchars; i++, offset++)
+	  if (! (rest_zero && ((ap->rest_args && ap->raw_before)
+			       || (last_ap != NULL && last_ap->rest_args
+				   && last_ap->raw_after))))
+	    xbuf[totlen++] = exp[offset];
 
 	if (ap->stringify != 0) {
 	  int arglen = arg->raw_length;
@@ -6960,8 +7052,14 @@ macroexpand (hp, op)
       /* if there is anything left of the definition
 	 after handling the arg list, copy that in too. */
 
-      for (i = offset; i < defn->length; i++)
-	xbuf[totlen++] = exp[i];
+      for (i = offset; i < defn->length; i++) {
+	/* if we've reached the end of the macro */
+	if (exp[i] == ')')
+	  rest_zero = 0;
+	if (! (rest_zero && last_ap != NULL && last_ap->rest_args
+	       && last_ap->raw_after))
+	  xbuf[totlen++] = exp[i];
+      }
 
       xbuf[totlen] = 0;
       xbuf_len = totlen;
@@ -7007,12 +7105,14 @@ macroexpand (hp, op)
 
 /*
  * Parse a macro argument and store the info on it into *ARGPTR.
+ * REST_ARGS is passed to macarg1 to make it absorb the rest of the args.
  * Return nonzero to indicate a syntax error.
  */
 
 static char *
-macarg (argptr)
+macarg (argptr, rest_args)
      register struct argdata *argptr;
+     int rest_args;
 {
   FILE_BUF *ip = &instack[indepth];
   int paren = 0;
@@ -7022,7 +7122,7 @@ macarg (argptr)
   /* Try to parse as much of the argument as exists at this
      input stack level.  */
   U_CHAR *bp = macarg1 (ip->bufp, ip->buf + ip->length,
-			&paren, &newlines, &comments);
+			&paren, &newlines, &comments, rest_args);
 
   /* If we find the end of the argument at this level,
      set up *ARGPTR to point at it in the input stack.  */
@@ -7060,7 +7160,7 @@ macarg (argptr)
       newlines = 0;
       comments = 0;
       bp = macarg1 (ip->bufp, ip->buf + ip->length, &paren,
-		    &newlines, &comments);
+		    &newlines, &comments, rest_args);
       final_start = bufsize;
       bufsize += bp - ip->bufp;
       extra += newlines;
@@ -7149,13 +7249,15 @@ macarg (argptr)
    Value returned is pointer to stopping place.
 
    Increment *NEWLINES each time a newline is passed.
+   REST_ARGS notifies macarg1 that it should absorb the rest of the args.
    Set *COMMENTS to 1 if a comment is seen.  */
 
 static U_CHAR *
-macarg1 (start, limit, depthptr, newlines, comments)
+macarg1 (start, limit, depthptr, newlines, comments, rest_args)
      U_CHAR *start;
      register U_CHAR *limit;
      int *depthptr, *newlines, *comments;
+     int rest_args;
 {
   register U_CHAR *bp = start;
 
@@ -7226,7 +7328,8 @@ macarg1 (start, limit, depthptr, newlines, comments)
       }
       break;
     case ',':
-      if ((*depthptr) == 0)
+      /* if we've returned to lowest level and we aren't absorbing all args */
+      if ((*depthptr) == 0 && rest_args == 0)
 	return bp;
       break;
     }
@@ -7972,11 +8075,6 @@ initialize_builtins (inp, outp)
      FILE_BUF *inp;
      FILE_BUF *outp;
 {
-  time_t t;
-
-  t = time (0);
-  timebuf = localtime (&t);
-
   install ("__LINE__", -1, T_SPECLINE, 0, -1);
   install ("__DATE__", -1, T_DATE, 0, -1);
   install ("__FILE__", -1, T_FILE, 0, -1);
@@ -7999,39 +8097,40 @@ initialize_builtins (inp, outp)
     {
       char directive[2048];
       register struct directive *dp = &directive_table[0];
+      struct tm *timebuf = timestamp ();
 
-      sprintf (directive, " __BASE_FILE__ \"%s\"",
+      sprintf (directive, " __BASE_FILE__ \"%s\"\n",
 	       instack[0].nominal_fname);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __VERSION__ \"%s\"", version_string);
+      sprintf (directive, " __VERSION__ \"%s\"\n", version_string);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __SIZE_TYPE__ %s", SIZE_TYPE);
+      sprintf (directive, " __SIZE_TYPE__ %s\n", SIZE_TYPE);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __PTRDIFF_TYPE__ %s", PTRDIFF_TYPE);
+      sprintf (directive, " __PTRDIFF_TYPE__ %s\n", PTRDIFF_TYPE);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __WCHAR_TYPE__ %s", WCHAR_TYPE);
+      sprintf (directive, " __WCHAR_TYPE__ %s\n", WCHAR_TYPE);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __WCHAR_TYPE__ %s", WCHAR_TYPE);
+      sprintf (directive, " __WCHAR_TYPE__ %s\n", WCHAR_TYPE);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __DATE__ \"%s %2d %4d\"",
+      sprintf (directive, " __DATE__ \"%s %2d %4d\"\n",
 	       monthnames[timebuf->tm_mon],
 	       timebuf->tm_mday, timebuf->tm_year + 1900);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
-      sprintf (directive, " __TIME__ \"%02d:%02d:%02d\"",
+      sprintf (directive, " __TIME__ \"%02d:%02d:%02d\"\n",
 	       timebuf->tm_hour, timebuf->tm_min, timebuf->tm_sec);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);

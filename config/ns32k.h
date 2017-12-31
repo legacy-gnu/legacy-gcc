@@ -330,7 +330,11 @@ enum reg_class { NO_REGS, GENERAL_REGS, FLOAT_REGS, FRAME_POINTER_REG, STACK_POI
    In general this is just CLASS; but on some machines
    in some cases it is preferable to use a more restrictive class.  */
 
-#define PREFERRED_RELOAD_CLASS(X,CLASS)  (CLASS)
+/* We return GENERAL_REGS instead of GEN_AND_MEM_REGS.
+   The latter offers no real additional possibilities
+   and can cause spurious secondary reloading.  */ 
+#define PREFERRED_RELOAD_CLASS(X,CLASS) \
+ ((CLASS) == GEN_AND_MEM_REGS ? GENERAL_REGS : (CLASS))
 
 /* Return the maximum number of consecutive registers
    needed to represent mode MODE in a register of class CLASS.  */
@@ -678,7 +682,9 @@ operands on the 32k are stored).  */
 #define TRAMPOLINE_TEMPLATE(FILE)					\
 {									\
   fprintf (FILE, "\taddr .,r2\n" );					\
-  fprintf (FILE, "\tjump @__trampoline\n" );				\
+  fprintf (FILE, "\tjump " );						\
+  PUT_ABSOLUTE_PREFIX (FILE);						\
+  fprintf (FILE, "__trampoline\n" );					\
   ASM_OUTPUT_INT (FILE, const0_rtx);					\
   ASM_OUTPUT_INT (FILE, const0_rtx);					\
 }
@@ -824,39 +830,56 @@ __transfer_from_trampoline ()		\
    || (GET_CODE (X) == PLUS						\
        && GET_CODE (XEXP (X, 0)) == REG					\
        && REG_OK_FOR_BASE_P (XEXP (X, 0))				\
-       && CONSTANT_ADDRESS_P (XEXP (X, 1))))
+       && CONSTANT_ADDRESS_P (XEXP (X, 1))				\
+       && (GET_CODE (X) != CONST_INT || NS32K_DISPLACEMENT_P (INTVAL (X)))))
 
+/* 1 if integer I will fit in a 4 byte displacement field.
+   Strictly speaking, we can't be sure that a symbol will fit this range.
+   But, in practice, it always will.  */
+
+#define NS32K_DISPLACEMENT_P(i) 				\
+ (((i) <= 16777215 && (i) >= -16777216)			\
+  || ((TARGET_32532 || TARGET_32332)			\
+      && (i) <= 536870913 && (i) >= -536870912))
+
+/* Check for frame pointer or stack pointer.  */
 #define MEM_REG(X) \
-  ((GET_CODE (X) == REG && (REGNO (X) ^ 16) < 2)			\
-   || (TARGET_SB && CONSTANT_ADDRESS_P (X)))
+  (GET_CODE (X) == REG && (REGNO (X) ^ 16) < 2)
 
+/* A memory ref whose address is the FP or SP, with optional integer offset,
+   or (on certain machines) a constant address.  */
 #define INDIRECTABLE_2_ADDRESS_P(X)  \
   (GET_CODE (X) == MEM							\
    && (((xfoo0 = XEXP (X, 0), MEM_REG (xfoo0))				\
        || (GET_CODE (xfoo0) == PLUS					\
-	   && GET_CODE (XEXP (xfoo0, 0)) == REG				\
 	   && MEM_REG (XEXP (xfoo0, 0))					\
 	   && CONSTANT_ADDRESS_NO_LABEL_P (XEXP (xfoo0, 1))))		\
        || (TARGET_SB && CONSTANT_ADDRESS_P (xfoo0))))
-
-#define INDIRECTABLE_ADDRESS_P(X)  \
-  (INDIRECTABLE_1_ADDRESS_P(X)						\
-   || INDIRECTABLE_2_ADDRESS_P (X)					\
-   || (GET_CODE (X) == PLUS						\
-       && CONSTANT_ADDRESS_NO_LABEL_P (XEXP (X, 1))			\
-       && INDIRECTABLE_2_ADDRESS_P (XEXP (X, 0))))
 
 /* Go to ADDR if X is a valid address not using indexing.
    (This much is the easy part.)  */
 #define GO_IF_NONINDEXED_ADDRESS(X, ADDR)  \
 { register rtx xfoob = (X);						\
-  if (GET_CODE (xfoob) == REG && REG_OK_FOR_BASE_P (xfoob)) goto ADDR;	\
-  if (INDIRECTABLE_1_ADDRESS_P(X)) goto ADDR;				\
+  if (INDIRECTABLE_1_ADDRESS_P (X)) goto ADDR;				\
   if (INDIRECTABLE_2_ADDRESS_P (X)) goto ADDR;				\
   if (GET_CODE (X) == PLUS)						\
     if (CONSTANT_ADDRESS_NO_LABEL_P (XEXP (X, 1)))			\
       if (INDIRECTABLE_2_ADDRESS_P (XEXP (X, 0)))			\
 	goto ADDR;							\
+}
+
+/* Go to ADDR if X is a valid address not using indexing.
+   (This much is the easy part.)  */
+#define GO_IF_INDEXING(X, MODE, ADDR)  \
+{ register rtx xfoob = (X);						\
+  if (GET_CODE (xfoob) == PLUS && INDEX_TERM_P (XEXP (xfoob, 0), MODE))	\
+    GO_IF_INDEXABLE_ADDRESS (XEXP (xfoob, 1), ADDR);			\
+  if (GET_CODE (xfoob) == PLUS && INDEX_TERM_P (XEXP (xfoob, 1), MODE))	\
+    GO_IF_INDEXABLE_ADDRESS (XEXP (xfoob, 0), ADDR); }			\
+
+#define GO_IF_INDEXABLE_ADDRESS(X, ADDR) \
+{ if (GET_CODE (X) == REG && REG_OK_FOR_BASE_P (X)) goto ADDR;		\
+  if (INDIRECTABLE_2_ADDRESS_P (X)) goto ADDR;				\
 }
 
 /* 1 if PROD is either a reg times size of mode MODE
@@ -879,8 +902,9 @@ __transfer_from_trampoline ()		\
   ((xfoo2 = (unsigned)(X)-1),						\
    ((xfoo2 < 4 && xfoo2 != 2) || xfoo2 == 7))
 
+/* Note that xfoo0, xfoo1, xfoo2 are used in some of the submacros above.  */
 #define GO_IF_LEGITIMATE_ADDRESS(MODE, X, ADDR)  \
-{ register rtx xfooy, xfooz, xfoo0, xfoo1;				\
+{ register rtx xfooy, xfoo0, xfoo1;					\
   unsigned xfoo2;							\
   xfooy = X;								\
   GO_IF_NONINDEXED_ADDRESS (xfooy, ADDR);				\
@@ -892,12 +916,7 @@ __transfer_from_trampoline ()		\
       else if (CONSTANT_ADDRESS_NO_LABEL_P (XEXP (xfooy, 0))		\
 	  && GET_CODE (XEXP (xfooy, 1)) == PLUS)			\
 	xfooy = XEXP (xfooy, 1);					\
-      xfooz = XEXP (xfooy, 1);						\
-      if (INDEX_TERM_P (xfooz, MODE))					\
-	{ rtx t = XEXP (xfooy, 0); GO_IF_NONINDEXED_ADDRESS (t, ADDR); }\
-      xfooz = XEXP (xfooy, 0);						\
-      if (INDEX_TERM_P (xfooz, MODE))					\
-	{ rtx t = XEXP (xfooy, 1); GO_IF_NONINDEXED_ADDRESS (t, ADDR); }\
+      GO_IF_INDEXING (xfooy, MODE, ADDR);				\
     }									\
   else if (INDEX_TERM_P (xfooy, MODE))					\
     goto ADDR;								\
@@ -994,7 +1013,7 @@ __transfer_from_trampoline ()		\
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     if (INTVAL (RTX) <= 7 && INTVAL (RTX) >= -8) return 0;	\
     if (INTVAL (RTX) < 0x4000 && INTVAL (RTX) >= -0x4000)	\

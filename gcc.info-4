@@ -1,27 +1,197 @@
-This is Info file gcc.info, produced by Makeinfo-1.44 from the input
+This is Info file gcc.info, produced by Makeinfo-1.47 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
 
    Copyright (C) 1988, 1989, 1992 Free Software Foundation, Inc.
 
-   Permission is granted to make and distribute verbatim copies of
-this manual provided the copyright notice and this permission notice
-are preserved on all copies.
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
 
    Permission is granted to copy and distribute modified versions of
 this manual under the conditions for verbatim copying, provided also
-that the section entitled "GNU General Public License" is included
-exactly as in the original, and provided that the entire resulting
-derived work is distributed under the terms of a permission notice
-identical to this one.
+that the sections entitled "GNU General Public License" and "Boycott"
+are included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
 
    Permission is granted to copy and distribute translations of this
 manual into another language, under the above conditions for modified
-versions, except that the section entitled "GNU General Public
-License" and this permission notice may be included in translations
-approved by the Free Software Foundation instead of in the original
-English.
+versions, except that the sections entitled "GNU General Public
+License" and "Boycott", and this permission notice, may be included in
+translations approved by the Free Software Foundation instead of in the
+original English.
+
+
+File: gcc.info,  Node: Cross-Compiler,  Next: PA Install,  Prev: Other Dir,  Up: Installation
+
+Building and Installing a Cross-Compiler
+========================================
+
+   GNU CC can function as a cross-compiler for many machines, but not
+all.
+
+   * Cross-compilers for the Mips as target do not work because the
+     auxiliary programs `mips-tdump.c' and `mips-tfile.c' can't be
+     compiled on anything but a Mips.
+
+   * Cross-compilers to or from the Vax probably don't work completely
+     because the Vax uses an incompatible floating point format (not
+     IEEE format).
+
+   Since GNU CC generates assembler code, you probably need a
+cross-assembler that GNU CC can run, in order to produce object files.
+If you want to link on other than the target machine, you need a
+cross-linker as well.  You also need header files and libraries suitable
+for the target machine that you can install on the host machine.
+
+   To build GNU CC as a cross-compiler, you start out by running
+`configure'.  You must specify two different configureations, the host
+and the target.  Use the `--host=HOST' option for the host and
+`--target=TARGET' to specify the target type.  For example, here is how
+to configure for a cross-compiler that runs on a hypothetical Intel 386
+system and produces code for an HP 68030 system running BSD:
+
+     configure --target=m68k-hp-bsd4.3 --host=i386-bozotheclone-bsd4.3
+
+   Next you should install the cross-assembler and cross-linker (and
+`ar' and `ranlib').  Put them in the directory `/usr/local/TARGET'. 
+The installation of GNU CC will find them there and copy or link them
+to the proper place to find them when you run the cross-compiler later.
+
+   If you want to install any additional libraries to use with the
+cross-compiler, put them in the directory `/usr/local/TARGET/lib'; all
+files in that subdirectory will be installed in the proper place when
+you install the cross-compiler. Likewise, put the header files for the
+target machine in `/usr/local/TARGET/include'.
+
+   Then you can proceed just as for compiling a single-machine compiler
+through the step of building stage 1.
+
+   When you are using a cross-compiler configuration, building stage 1
+does not compile all of GNU CC.  This is because one part of building,
+the compilation of `libgcc2.c', requires use of the cross-compiler.
+
+   However, when you type `make install' to install the bulk of the
+cross-compiler, that will also compile `libgcc2.c' and install the
+resulting `libgcc.a'.
+
+   You will find it necessary to produce a substitute for `libgcc1.a'.
+Normally this file is compiled with the "native compiler" for the
+target machine; compiling it with GNU CC does not work.  But compiling
+it with the host machine's compiler also doesn't work--that produces a
+file that would run on the host, and you need it to run on the target.
+
+   We can't give you any automatic way to produce this substitute.  For
+some targets, the subroutines in `libgcc1.c' are not actually used. You
+need not provide the ones that won't be used.  The ones that most
+commonly are used are the multiplication, division and remainder
+routines--many RISC machines rely on the library for this.  One way to
+make them work is to define the appropriate `perform_...' macros for
+the subroutines that you need.  If these definitions do not use the C
+arithmetic operators that they are meant to implement, you might be
+able to compile them with the cross-compiler you have just built.
+
+   Do not try to build stage 2 for a cross-compiler.  It doesn't work to
+rebuild GNU CC as a cross-compiler using the cross-compiler, because
+that would produce a program that runs on the target machine, not on the
+host.  For example, if you compile a 386-to-68030 cross-compiler with
+itself, the result will not be right either for the 386 (because it was
+compiled into 68030 code) or for the 68030 (because it was configured
+for a 386 as the host).  If you want to compile GNU CC into 68030 code,
+whether you compile it on a 68030 or with a cross-compiler on a 386, you
+must specify a 68030 as the host when you configure it.
+
+
+File: gcc.info,  Node: PA Install,  Next: Sun Install,  Prev: Cross-Compiler,  Up: Installation
+
+Installing GNU CC on the HP Precision Architecture
+==================================================
+
+   There are two variants of this CPU, called 1.0 and 1.1, which have
+different machine descriptions.  You must use the right one for your
+machine.  All 7NN machines and 8N7 machines use 1.1, while all other
+8NN machines use 1.0.
+
+   The easiest way to handle this problem is to use `configure hpNNN'
+or `configure hpNNN-hpux', where NNN is the model number of the
+machine.  Then `configure' will figure out if the machine is a 1.0 or
+1.1.  Use `uname -a' to find out the model number of your machine.
+
+   `-g' does not work on HP-UX, since that system uses a peculiar
+debugging format which GNU CC does not know about.  There is a
+preliminary version available of some modified GNU tools including the
+GDB debugger which do work with GNU CC for debugging.  You can get them
+by anonymous ftp from `mancos.cs.utah.edu' in the `dist' subdirectory. 
+You would need to install GAS in the file
+
+     /usr/local/lib/gcc-lib/CONFIGURATION/GCCVERSION/as
+
+where CONFIGURATION is the configuration name (perhaps `hpNNN-hpux')
+and GCCVERSION is the GNU CC version number.
+
+   If you do this, delete the line
+
+     #undef DBX_DEBUGGING_INFO
+
+from `tm.h' before you build GNU CC, to enable generation of debugging
+information.
+
+
+File: gcc.info,  Node: Sun Install,  Next: 3b1 Install,  Prev: PA Install,  Up: Installation
+
+Installing GNU CC on the Sun
+============================
+
+   Make sure the environment variable `FLOAT_OPTION' is not set when
+you compile `libgcc.a'.  If this option were set to `f68881' when
+`libgcc.a' is compiled, the resulting code would demand to be linked
+with a special startup file and would not link properly without special
+pains.
+
+   There is a bug in `alloca' in certain versions of the Sun library.
+To avoid this bug, install the binaries of GNU CC that were compiled by
+GNU CC.  They use `alloca' as a built-in function and never the one in
+the library.
+
+   Some versions of the Sun compiler crash when compiling GNU CC.  The
+problem is a segmentation fault in cpp.  This problem seems to be due to
+the bulk of data in the environment variables.  You may be able to avoid
+it by using the following command to compile GNU CC with Sun CC:
+
+     make CC="TERMCAP=x OBJS=x LIBFUNCS=x STAGESTUFF=x cc"
+
+
+File: gcc.info,  Node: 3b1 Install,  Next: Unos Install,  Prev: Sun Install,  Up: Installation
+
+Installing GNU CC on the 3b1
+============================
+
+   Installing GNU CC on the 3b1 is difficult if you do not already have
+GNU CC running, due to bugs in the installed C compiler.  However, the
+following procedure might work.  We are unable to test it.
+
+  1. Comment out the `#include "config.h"' line on line 37 of `cccp.c'
+     and do `make cpp'.  This makes a preliminary version of GNU cpp.
+
+  2. Save the old `/lib/cpp' and copy the preliminary GNU cpp to that
+     file name.
+
+  3. Undo your change in `cccp.c', or reinstall the original version,
+     and do `make cpp' again.
+
+  4. Copy this final version of GNU cpp into `/lib/cpp'.
+
+  5. Replace every occurrence of `obstack_free' in the file `tree.c'
+     with `_obstack_free'.
+
+  6. Run `make' to get the first-stage GNU CC.
+
+  7. Reinstall the original version of `/lib/cpp'.
+
+  8. Now you can compile GNU CC with itself and install it in the normal
+     fashion.
 
 
 File: gcc.info,  Node: Unos Install,  Next: VMS Install,  Prev: 3b1 Install,  Up: Installation
@@ -44,16 +214,20 @@ are installed:
 To allow GNU CC to function, either change all references to `-lc' in
 `gcc.c' to `-lunos' or link `/lib/libc.a' to `/lib/libunos.a'.
 
-   When compiling GNU CC with the standard compiler, to overcome bugs
-in the support of `alloca', do not use `-O' when making stage 2.  Then
-use the stage 2 compiler with `-O' to make the stage 3 compiler.  This
+   When compiling GNU CC with the standard compiler, to overcome bugs in
+the support of `alloca', do not use `-O' when making stage 2. Then use
+the stage 2 compiler with `-O' to make the stage 3 compiler.  This
 compiler will have the same characteristics as the usual stage 2
 compiler on other systems.  Use it to make a stage 4 compiler and
 compare that with stage 3 to verify proper compilation.
 
+   (Perhaps simply defining `ALLOCA' in `x-crds' as described in the
+comments there will make the above paragraph superfluous.  Please
+inform us of whether this works.)
+
    Unos uses memory segmentation instead of demand paging, so you will
 need a lot of memory.  5 Mb is barely enough if no other tasks are
-running.  If linking `cc1' fails, try putting the object files into a
+running. If linking `cc1' fails, try putting the object files into a
 library and linking from that library.
 
 
@@ -66,24 +240,23 @@ Installing GNU CC on VMS
 containing both source code and precompiled binaries.
 
    To install the `gcc' command so you can use the compiler easily, in
-the same manner as you use the VMS C compiler, you must install the
-VMS CLD file for GNU CC as follows:
+the same manner as you use the VMS C compiler, you must install the VMS
+CLD file for GNU CC as follows:
 
   1. Define the VMS logical names `GNU_CC' and `GNU_CC_INCLUDE' to
      point to the directories where the GNU CC executables (`gcc-cpp',
-     `gcc-cc1', etc.) and the C include files are kept.  This should
-     be done with the commands:
+     `gcc-cc1', etc.) and the C include files are kept.  This should be
+     done with the commands:
 
           $ assign /system /translation=concealed -
             disk:[gcc.] gnu_cc
           $ assign /system /translation=concealed -
             disk:[gcc.include.] gnu_cc_include
 
-     with the appropriate disk and directory names.  These commands
-     can be placed in your system startup file so they will be
-     executed whenever the machine is rebooted.  You may, if you
-     choose, do this via the `GCC_INSTALL.COM' script in the `[GCC]'
-     directory.
+     with the appropriate disk and directory names.  These commands can
+     be placed in your system startup file so they will be executed
+     whenever the machine is rebooted.  You may, if you choose, do this
+     via the `GCC_INSTALL.COM' script in the `[GCC]' directory.
 
   2. Install the `GCC' command with the command line:
 
@@ -104,29 +277,29 @@ perform the following steps:
 
   1. Define the VMS logical name `GNU_GXX_INCLUDE' to point to the
      directory where the preprocessor will search for the C++ header
-     files.  This can be done with the command:
+     files. This can be done with the command:
 
           $ assign /system /translation=concealed -
             disk:[gcc.gxx_include.] gnu_gxx_include
 
-     with the appropriate disk and directory name.  If you are going
-     to be using libg++, this is where the libg++ install procedure
-     will install the libg++ header files.
+     with the appropriate disk and directory name.  If you are going to
+     be using libg++, this is where the libg++ install procedure will
+     install the libg++ header files.
 
   2. Obtain the file `gcc-cc1plus.exe', and place this in the same
      directory that `gcc-cc1.exe' is kept.
 
-        The GNU C++ compiler can be invoked with a command like `gcc
-     /plus /verbose file.cc', which is equivalent to the command `g++
-     -v -c file.cc' in Unix.
+     The GNU C++ compiler can be invoked with a command like `gcc /plus
+     /verbose file.cc', which is equivalent to the command `g++ -v -c
+     file.cc' in Unix.
 
    We try to put corresponding binaries and sources on the VMS
 distribution tape.  But sometimes the binaries will be from an older
 version that the sources, because we don't always have time to update
 them.  (Use the `/version' option to determine the version number of
 the binaries and compare it with the source file `version.c' to tell
-whether this is so.)  In this case, you should use the binaries you
-get to recompile the sources.  If you must recompile, here is how:
+whether this is so.)  In this case, you should use the binaries you get
+to recompile the sources.  If you must recompile, here is how:
 
   1. Copy the file `vms.h' to `tm.h', `xm-vms.h' to `config.h',
      `vax.md' to `md.' and `vax.c' to `aux-output.c'.  The files to be
@@ -143,8 +316,8 @@ get to recompile the sources.  If you must recompile, here is how:
           $ assign /system /translation=concealed -
             disk:[bison.] gnu_bison
 
-        You may, if you choose, use the `INSTALL_BISON.COM' script in
-     the `[BISON]' directory.
+     You may, if you choose, use the `INSTALL_BISON.COM' script in the
+     `[BISON]' directory.
 
   3. Install the `BISON' command with the command line:
 
@@ -155,58 +328,76 @@ get to recompile the sources.  If you must recompile, here is how:
 
   4. Type `@make-gcc' to recompile everything (alternatively, you may
      submit the file `make-gcc.com' to a batch queue).  If you wish to
-     build the GNU C++ compiler as well as the GNU CC compiler, you
-     must first edit `make-gcc.com' and follow the instructions that
-     appear in the comments.
+     build the GNU C++ compiler as well as the GNU CC compiler, you must
+     first edit `make-gcc.com' and follow the instructions that appear
+     in the comments.
 
   5. In order to use GCC, you need a library of functions which GCC
      compiled code will call to perform certain tasks, and these
      functions are defined in the file `libgcc2.c'.  To compile this
      you should use the command procedure `make-l2.com', which will
-     generate the library `libgcc2.olb'.  `libgcc2.olb' should be
-     built using the compiler built from the same distribution that
+     generate the library `libgcc2.olb'. `libgcc2.olb' should be built
+     using the compiler built from the same distribution that
      `libgcc2.c' came from, and `make-gcc.com' will automatically do
      all of this for you.
 
-        To install the library, use the following commands:
+     To install the library, use the following commands:
 
           $ lib gnu_cc:[000000]gcclib/delete=(new,eprintf)
           $ lib libgcc2/extract=*/output=libgcc2.obj
           $ lib gnu_cc:[000000]gcclib libgcc2.obj
 
-        The first command simply removes old modules that will be
-     replaced with modules from libgcc2.  If the VMS librarian
-     complains about those modules not being present, simply ignore
-     the message and continue on with the next command.
+     The first command simply removes old modules that will be replaced
+     with modules from libgcc2.  If the VMS librarian complains about
+     those modules not being present, simply ignore the message and
+     continue on with the next command.
 
-        Whenever you update the compiler on your system, you should
-     also update the library with the above procedure.
+     Whenever you update the compiler on your system, you should also
+     update the library with the above procedure.
 
-        *If you are building GNU CC with a previous version of GNU CC,
-     you also should check to see that you have the newest version of
-     the assembler*.  In particular, GNU CC version 2 treats global
-     constant variables slightly differently from GNU CC version 1,
-     and GAS version 1.38.1 does not have the patches required to work
-     with GCC version 2.  If you use GAS 1.38.1, then `extern const'
-     variables will not have the read-only bit set, and the linker
-     will generate warning messages about mismatched psect attributes
-     for these variables.  These warning messages are merely a
-     nuisance, and can safely be ignored.
+     You may wish to build GCC in such a way that no files are written
+     to the directory where the source files reside.  An example would
+     be the when the source files are on a read-only disk.  In these
+     cases, execute the following DCL commands (substituting your
+     actual path names):
 
-        If you are compiling with a version of GNU CC older than 1.33,
+          $ assign dua0:[gcc.build_dir.]tran=conc, -
+                   dua1:[gcc.source_dir.]/tran=conc gcc_build
+          $ set default gcc_build:[000000]
+
+     where `dua1:[gcc.source_dir.]' contains the source code, and
+     `dua0:[gcc.build_dir.]' is meant to contain all of the generated
+     object files and executables.  Once you have done this, you can
+     proceed building GCC as described above.  (Keep in mind that
+     `gcc_build' is a rooted logical name, and thus the device names in
+     each element of the search list must be an actual physical device
+     name rather than another rooted logical name).
+
+     *If you are building GNU CC with a previous version of GNU CC, you
+     also should check to see that you have the newest version of the
+     assembler*.  In particular, GNU CC version 2 treats global constant
+     variables slightly differently from GNU CC version 1, and GAS
+     version 1.38.1 does not have the patches required to work with GCC
+     version 2. If you use GAS 1.38.1, then `extern const' variables
+     will not have the read-only bit set, and the linker will generate
+     warning messages about mismatched psect attributes for these
+     variables.  These warning messages are merely a nuisance, and can
+     safely be ignored.
+
+     If you are compiling with a version of GNU CC older than 1.33,
      specify `/DEFINE=("inline=")' as an option in all the
      compilations.  This requires editing all the `gcc' commands in
-     `make-cc1.com'.  (The older versions had problems supporting
+     `make-cc1.com'. (The older versions had problems supporting
      `inline'.)  Once you have a working 1.33 or newer GNU CC, you can
      change this file back.
 
    Under previous versions of GNU CC, the generated code would
-occasionally give strange results when linked to the sharable
-`VAXCRTL' library.  Now this should work.
+occasionally give strange results when linked to the sharable `VAXCRTL'
+library. Now this should work.
 
    Even with this version, however, GNU CC itself should not be linked
-to the sharable `VAXCRTL'.  The `qsort' routine supplied with
-`VAXCRTL' has a bug which can cause a compiler crash.
+to the sharable `VAXCRTL'.  The `qsort' routine supplied with `VAXCRTL'
+has a bug which can cause a compiler crash.
 
    Similarly, the preprocessor should not be linked to the sharable
 `VAXCRTL'.  The `strncat' routine supplied with `VAXCRTL' has a bug
@@ -216,442 +407,26 @@ which can cause the preprocessor to go into an infinite loop.
 will strongly resist any effort to force it to use the `qsort' and
 `strncat' routines from `gcclib'.  Until the bugs in `VAXCRTL' have
 been fixed, linking any of the compiler components to the sharable
-VAXCRTL is not recommended.  (These routines can be bypassed by
-placing duplicate copies of `qsort' and `strncat' in `gcclib' under
-different names, and patching the compiler sources to use these
-routines).  Both of the bugs in `VAXCRTL' are still present in VMS
-version 5.4-1, which is the most recent version as of this writing.
+VAXCRTL is not recommended.  (These routines can be bypassed by placing
+duplicate copies of `qsort' and `strncat' in `gcclib' under different
+names, and patching the compiler sources to use these routines).  Both
+of the bugs in `VAXCRTL' are still present in VMS version 5.4-1, which
+is the most recent version as of this writing.
 
    The executables that are generated by `make-cc1.com' and
 `make-cccp.com' use the nonshared version of `VAXCRTL' (and thus use
 the `qsort' and `strncat' routines from `gcclib.olb').
 
 
-File: gcc.info,  Node: Trouble,  Next: Service,  Prev: Installation,  Up: Top
-
-Known Causes of Trouble with GNU CC
-***********************************
-
-   Here are some of the things that have caused trouble for people
-installing or using GNU CC.
-
-   * On certain systems, defining certain environment variables such as
-     `CC' can interfere with the functioning of `make'.
-
-   * If you encounter seemingly strange errors when trying to build the
-     compiler in a directory other than the source directory, make
-     sure you have done all the necessary preparations.  *Note Other
-     Dir::.
-
-   * In previous versions of GNU CC, the `gcc' driver program looked
-     for `as' and `ld' in various places such as files beginning with
-     `/usr/local/lib/gcc-'.  GNU CC version 2 looks for them in the
-     directory `/usr/local/lib/gcc/TARGET/VERSION'.
-
-     Thus, to use a version of `as' or `ld' that is not the system
-     default, for example `gas' or GNU `ld', you must put them in that
-     directory (or make links to them from that directory).
-
-   * Some commands executed when making the compiler may fail (return a
-     non-zero status) and be ignored by `make'.  These failes, which
-     are often due to files that were not found, are expected, and can
-     safely be ignored.
-
-   * Cross compilation can run into trouble for certain machines
-     because some target machines' assemblers require floating point
-     numbers to be written as *integer* constants in certain contexts.
-
-     The compiler writes these integer constants by examining the
-     floating point value as an integer and printing that integer,
-     because this is simple to write and independent of the details of
-     the floating point representation.  But this does not work if the
-     compiler is running on a different machine with an incompatible
-     floating point format, or even a different byte-ordering.
-
-     In addition, correct constant folding of floating point values
-     requires representing them in the target machine's format.  (The
-     C standard does not quite require this, but in practice it is the
-     only way to win.)
-
-     It is now possible to overcome these problems by defining macros
-     such as `REAL_VALUE_TYPE'.  But doing so is a substantial amount
-     of work for each target machine.  *Note Cross-compilation::.
-
-   * Users often think it is a bug when GNU CC reports an error for
-     code like this:
-
-          int foo (short);
-          
-          int foo (x)
-               short x;
-          {...}
-
-     The error message is correct: this code really is erroneous,
-     because the old-style non-prototype definition passes subword
-     integers in their promoted types.  In other words, the argument
-     is really an `int', not a `short'.  The correct prototype is this:
-
-          int foo (int);
-
-   * Users often think it is a bug when GNU CC reports an error for
-     code like this:
-
-          int foo (struct mumble *);
-          
-          struct mumble { ... };
-          
-          int foo (struct mumble *x)
-          { ... }
-
-     This code really is erroneous, because the scope of `struct
-     mumble' the prototype is limited to the argument list containing
-     it.  It does not refer to the `struct mumble' defined with file
-     scope immediately below--they are two unrelated types with
-     similar names in different scopes.
-
-     But in the definition of `foo', the file-scope type is used
-     because that is available to be inherited.  Thus, the definition
-     and the prototype do not match, and you get an error.
-
-     This behavior may seem silly, but it's what the ANSI standard
-     specifies.  It is easy enough for you to make your code work by
-     moving the definition of `struct mumble' above the prototype. 
-     It's not worth being incompatible with ANSI C just to avoid an
-     error for the example shown above.
-
-   * Programs that use preprocessor directives in the middle of macro
-     arguments do not work with GNU CC.  For example, a program like
-     this will not work:
-
-          foobar (
-          #define luser
-                  hack)
-
-     ANSI C does not permit such a construct, and it does not seem
-     worth the trouble of implementing, given that it is not required.
-
-   * Certain local variables aren't recognized by debuggers when you
-     compile with optimization.
-
-     This occurs because sometimes GNU CC optimizes the variable out of
-     existence.  There is no way to tell the debugger how to compute
-     the value such a variable "would have had", and it is not clear
-     that would be desirable anyway.  So GNU CC simply does not
-     mention the eliminated variable when it writes debugging
-     information.
-
-     You have to expect a certain amount of disagreement between the
-     executable and your source code, when you use optimization.
-
-   * `-2147483648' is positive.
-
-     This is because 2147483648 cannot fit in the type `int', so
-     (following the ANSI C rules) its data type is `unsigned long int'. 
-     Negating this value yields 2147483648 again.
-
-   * The GNU assembler (GAS) does not support PIC.  To generate PIC
-     code, you must use some other assembler, such as `/bin/as'.
-
-   * Sometimes on a Sun 4 you may observe a crash in the program
-     `genflags' or `genoutput' while building GCC.  This is said to be
-     due to a bug in `sh'.  You can probably get around it by running
-     `genflags' or `genoutput' manually and then retrying the `make'.
-
-   * On a Sun, linking using GNU CC fails to find a shared library and
-     reports that the library doesn't exist at all.
-
-     This happens if you are using the GNU linker, because it does only
-     static linking and looks only for unshared libraries.  If you
-     have a shared library with no unshared counterpart, the GNU
-     linker won't find anything.
-
-     We hope to make a linker which supports Sun shared libraries, but
-     please don't ask when it will be finished--we don't know.
-
-   * On some versions of Ultrix, the system supplied compiler cannot
-     compile `cp-parse.c' because it cannot handle so many cases in a
-     `switch' statement.  You can work around this problem by
-     compiling with GNU CC.
-
-   * On some BSD systems including some versions of Ultrix, use of
-     profiling causes static variable destructors (currently used only
-     in C++) not to be run.
-
-   * On HP 9000 series 300 or 400 running HP-UX release 8.0, there is
-     a bug in the assembler that must be fixed before GNU CC can be
-     built.  This bug manifests itself during the first stage of
-     compilation, while building `libgcc2.a':
-
-          _floatdisf
-          cc1: warning: `-g' option not supported on this version of GCC
-          cc1: warning: `-g1' option not supported on this version of GCC
-          ./gcc: Internal compiler error: program as got fatal signal 11
-
-     A patched version of the assembler is available by anonymous ftp
-     from `altdorf.ai.mit.edu' as the file
-     `archive/cph/hpux-8.0-assembler'.  If you have HP software
-     support, the patch can also be obtained directly from HP, as
-     described in the following note:
-
-          This is the patched assembler, to patch SR#1653-010439,
-          where the assembler aborts on floating point constants.
-
-          The bug is not really in the assembler, but in the shared
-          library version of the function "cvtnum(3c)".  The bug on
-          "cvtnum(3c)" is SR#4701-078451.  Anyway, the attached
-          assembler uses the archive library version of "cvtnum(3c)"
-          and thus does not exhibit the bug.
-
-     This patch is also known as PHCO_0800.
-
-   * The current version of the assembler (`/bin/as') for the RS/6000
-     has certain problems that prevent the `-g' option in GCC from
-     working.
-
-     IBM has produced a fixed version of the assembler.  The
-     replacement assembler is not a standard component of either AIX
-     3.1.5 or AIX 3.2, but is expected to become standard in a future
-     distribution.  This assembler is available from IBM as APAR
-     IX22829.  See the file `README.RS6000' for more details on how to
-     obtain this assembler.
-
-   * Sun forgot to include a static version of `libdl.a' with some
-     versions of SunOS (mainly 4.1).  This results in undefined
-     symbols when linking static binaries (that is, if you use
-     `-static').  If you see undefined symbols `_dlclose', `_dlsym' or
-     `_dlopen' when linking, compile and link against the file
-     `mit/util/misc/dlsym.c' from the MIT version of X windows.
-
-   * On the IBM RS/6000, compiling code of the form
-
-          extern int foo;
-          
-          ... foo ...
-          
-          static int foo;
-
-     will cause the linker to report an undefined symbol `foo'. 
-     Although this behavior differs from most other systems, it is not
-     a bug because redefining an `extern' variable as `static' is
-     undefined in ANSI C.
-
-   * On VMS, GAS versions 1.38.1 and earlier may cause spurious warning
-     messages from the linker.  These warning messages complain of
-     mismatched psect attributes.  You can ignore them.  *Note VMS
-     Install::.
-
-   For additional common problems, see *Note Incompatibilities::.
-
-
-File: gcc.info,  Node: Service,  Next: Incompatibilities,  Prev: Trouble,  Up: Top
-
-How To Get Help with GNU CC
-***************************
-
-   If you need help installing, using or changing GNU CC, there are two
-ways to find it:
-
-   * Send a message to a suitable network mailing list.  First try
-     `bug-gcc@prep.ai.mit.edu', and if that brings no response, try
-     `help-gcc@prep.ai.mit.edu'.
-
-   * Look in the service directory for someone who might help you for
-     a fee.  The service directory is found in the file named
-     `SERVICE' in the GNU CC distribution.
-
-
-File: gcc.info,  Node: Incompatibilities,  Next: Extensions,  Prev: Service,  Up: Top
-
-Incompatibilities of GNU CC
-***************************
-
-   There are several noteworthy incompatibilities between GNU C and
-most existing (non-ANSI) versions of C.  The `-traditional' option
-eliminates most of these incompatibilities, *but not all*, by telling
-GNU C to behave like the other C compilers.
-
-   * GNU CC normally makes string constants read-only.  If several
-     identical-looking string constants are used, GNU CC stores only
-     one copy of the string.
-
-     One consequence is that you cannot call `mktemp' with a string
-     constant argument.  The function `mktemp' always alters the
-     string its argument points to.
-
-     Another consequence is that `sscanf' does not work on some systems
-     when passed a string constant as its format control string or
-     input.  This is because `sscanf' incorrectly tries to write into
-     the string constant.  Likewise `fscanf' and `scanf'.
-
-     The best solution to these problems is to change the program to
-     use `char'-array variables with initialization strings for these
-     purposes instead of string constants.  But if this is not
-     possible, you can use the `-fwritable-strings' flag, which
-     directs GNU CC to handle string constants the same way most C
-     compilers do.  `-traditional' also has this effect, among others.
-
-   * GNU CC does not substitute macro arguments when they appear
-     inside of string constants.  For example, the following macro in
-     GNU CC
-
-          #define foo(a) "a"
-
-     will produce output `"a"' regardless of what the argument A is.
-
-     The `-traditional' option directs GNU CC to handle such cases
-     (among others) in the old-fashioned (non-ANSI) fashion.
-
-   * When you use `setjmp' and `longjmp', the only automatic variables
-     guaranteed to remain valid are those declared `volatile'.  This
-     is a consequence of automatic register allocation.  Consider this
-     function:
-
-          jmp_buf j;
-          
-          foo ()
-          {
-            int a, b;
-          
-            a = fun1 ();
-            if (setjmp (j))
-              return a;
-          
-            a = fun2 ();
-            /* `longjmp (j)' may occur in `fun3'. */
-            return a + fun3 ();
-          }
-
-     Here `a' may or may not be restored to its first value when the
-     `longjmp' occurs.  If `a' is allocated in a register, then its
-     first value is restored; otherwise, it keeps the last value stored
-     in it.
-
-     If you use the `-W' option with the `-O' option, you will get a
-     warning when GNU CC thinks such a problem might be possible.
-
-     The `-traditional' option directs GNU C to put variables in the
-     stack by default, rather than in registers, in functions that
-     call `setjmp'.  This results in the behavior found in traditional
-     C compilers.
-
-   * Declarations of external variables and functions within a block
-     apply only to the block containing the declaration.  In other
-     words, they have the same scope as any other declaration in the
-     same place.
-
-     In some other C compilers, a `extern' declaration affects all the
-     rest of the file even if it happens within a block.
-
-     The `-traditional' option directs GNU C to treat all `extern'
-     declarations as global, like traditional compilers.
-
-   * In traditional C, you can combine `long', etc., with a typedef
-     name, as shown here:
-
-          typedef int foo;
-          typedef long foo bar;
-
-     In ANSI C, this is not allowed: `long' and other type modifiers
-     require an explicit `int'.  Because this criterion is expressed
-     by Bison grammar rules rather than C code, the `-traditional'
-     flag cannot alter it.
-
-   * PCC allows typedef names to be used as function parameters.  The
-     difficulty described immediately above applies here too.
-
-   * PCC allows whitespace in the middle of compound assignment
-     operators such as `+='.  GNU CC, following the ANSI standard,
-     does not allow this.  The difficulty described immediately above
-     applies here too.
-
-   * GNU CC will flag unterminated character constants inside of
-     preprocessor conditionals that fail.  Some programs have English
-     comments enclosed in conditionals that are guaranteed to fail; if
-     these comments contain apostrophes, GNU CC will probably report
-     an error.  For example, this code would produce an error:
-
-          #if 0
-          You can't expect this to work.
-          #endif
-
-     The best solution to such a problem is to put the text into an
-     actual C comment delimited by `/*...*/'.  However, `-traditional'
-     suppresses these error messages.
-
-   * When compiling functions that return `float', PCC converts it to
-     a double.  GNU CC actually returns a `float'.  If you are
-     concerned with PCC compatibility, you should declare your
-     functions to return `double'; you might as well say what you mean.
-
-   * When compiling functions that return structures or unions, GNU CC
-     output code normally uses a method different from that used on
-     most versions of Unix.  As a result, code compiled with GNU CC
-     cannot call a structure-returning function compiled with PCC, and
-     vice versa.
-
-     The method used by GNU CC is as follows: a structure or union
-     which is 1, 2, 4 or 8 bytes long is returned like a scalar.  A
-     structure or union with any other size is stored into an address
-     supplied by the caller (usually in a special, fixed register, but
-     on some machines it is passed on the stack).  The
-     machine-description macros `STRUCT_VALUE' and
-     `STRUCT_INCOMING_VALUE' tell GNU CC where to pass this address.
-
-     By contrast, PCC on most target machines returns structures and
-     unions of any size by copying the data into an area of static
-     storage, and then returning the address of that storage as if it
-     were a pointer value.  The caller must copy the data from that
-     memory area to the place where the value is wanted.  GNU CC does
-     not use this method because it is slower and nonreentrant.
-
-     On some newer machines, PCC uses a reentrant convention for all
-     structure and union returning.  GNU CC on most of these machines
-     uses a compatible convention when returning structures and unions
-     in memory, but still returns small structures and unions in
-     registers.
-
-     You can tell GNU CC to use a compatible convention for all
-     structure and union returning with the option
-     `-fpcc-struct-return'.
-
-   There are also system-specific incompatibilities.
-
-   * On the Alliant, the system's own convention for returning
-     structures and unions is unusual, and is not compatible with GNU
-     CC no matter what options are used.
-
-   * On the IBM RT PC, the MetaWare HighC compiler (hc) uses yet
-     another convention for structure and union returning.  Use
-     `-mhc-struct-return' to tell GNU CC to use a convention compatible
-     with it.
-
-   * On Ultrix, the Fortran compiler expects registers 2 through 5 to
-     be saved by function calls.  However, the C compiler uses
-     conventions compatible with BSD Unix: registers 2 through 5 may
-     be clobbered by function calls.
-
-     GNU CC uses the same convention as the Ultrix C compiler.  You
-     can use these options to produce code compatible with the Fortran
-     compiler:
-
-          -fcall-saved-r2 -fcall-saved-r3 -fcall-saved-r4 -fcall-saved-r5
-
-   * DBX rejects some files produced by GNU CC, though it accepts
-     similar constructs in output from PCC.  Until someone can supply
-     a coherent description of what is valid DBX input and what is
-     not, there is nothing I can do about these problems.  You are on
-     your own.
-
-
-File: gcc.info,  Node: Extensions,  Next: Bugs,  Prev: Incompatibilities,  Up: Top
+File: gcc.info,  Node: Extensions,  Next: Trouble,  Prev: Installation,  Up: Top
 
 GNU Extensions to the C Language
 ********************************
 
    GNU C provides several language features not found in ANSI standard
-C.  (The `-pedantic' option directs GNU CC to print a warning message
-if any of these features is used.)  To test for the availability of
-these features in conditional compilation, check for a predefined macro
+C. (The `-pedantic' option directs GNU CC to print a warning message if
+any of these features is used.)  To test for the availability of these
+features in conditional compilation, check for a predefined macro
 `__GNUC__', which is always defined under GNU CC.
 
 * Menu:
@@ -667,6 +442,7 @@ these features in conditional compilation, check for a predefined macro
 * Long Long::		Double-word integers--`long long int'.
 * Zero Length::         Zero-length arrays.
 * Variable Length::     Arrays whose length is computed at run time.
+* Macro Varargs::	Macros with variable number of arguments.
 * Subscripting::        Any array can be subscripted, even if not an lvalue.
 * Pointer Arith::       Arithmetic on `void'-pointers and function pointers.
 * Initializers::        Non-constant initializers.
@@ -677,6 +453,7 @@ these features in conditional compilation, check for a predefined macro
 * Case Ranges::		`case 1 ... 9' and such.
 * Function Attributes:: Declaring that functions have no side effects,
                          or that they can never return.
+* Function Prototypes:: Prototype declarations and old-style definitions.
 * Dollar Signs::        Dollar sign is allowed in identifiers.
 * Character Escapes::   `\e' stands for the character ESC.
 * Variable Attributes::	Specifying attributes of variables.
@@ -695,22 +472,32 @@ File: gcc.info,  Node: Statement Exprs,  Next: Local Labels,  Up: Extensions
 Statements and Declarations within Expressions
 ==============================================
 
-   A compound statement in parentheses may appear inside an expression
-in GNU C.  This allows you to declare variables within an expression. 
-For example:
+   A compound statement enclosed in parentheses may appear as an
+expression in GNU C.  This allows you to use loops, switches, and local
+variables within an expression.
+
+   Recall that a compound statement is a sequence of statements
+surrounded by braces; in this construct, parentheses go around the
+braces.  For example:
 
      ({ int y = foo (); int z;
         if (y > 0) z = y;
         else z = - y;
         z; })
 
-is a valid (though slightly more complex than necessary) expression
-for the absolute value of `foo ()'.
+is a valid (though slightly more complex than necessary) expression for
+the absolute value of `foo ()'.
 
-   This feature is especially useful in making macro definitions
-"safe" (so that they evaluate each operand exactly once).  For
-example, the "maximum" function is commonly defined as a macro in
-standard C as follows:
+   The last thing in the compound statement should be an expression
+followed by a semicolon; the value of this subexpression serves as the
+value of the entire construct.  (If you use some other kind of statement
+last within the braces, the construct has type `void', and thus
+effectively no value.)
+
+   This feature is especially useful in making macro definitions "safe"
+(so that they evaluate each operand exactly once).  For example, the
+"maximum" function is commonly defined as a macro in standard C as
+follows:
 
      #define max(a,b) ((a) > (b) ? (a) : (b))
 
@@ -757,9 +544,9 @@ the label itself.  You must do this in the usual way, with `LABEL:',
 within the statements of the statement expression.
 
    The local label feature is useful because statement expressions are
-often used in macros.  If the macro contains nested loops, a `goto'
-can be useful for breaking out of them.  However, an ordinary label
-whose scope is the whole function cannot be used: if the macro can be
+often used in macros.  If the macro contains nested loops, a `goto' can
+be useful for breaking out of them.  However, an ordinary label whose
+scope is the whole function cannot be used: if the macro can be
 expanded several times in one function, the label will be multiply
 defined in that function.  A local label avoids this problem.  For
 example:
@@ -787,9 +574,9 @@ Labels as Values
 ================
 
    You can get the address of a label defined in the current function
-(or a containing function) with the unary operator `&&'.  The value
-has type `void *'.  This value is a constant and can be used wherever
-a constant of that type is valid.  For example:
+(or a containing function) with the unary operator `&&'.  The value has
+type `void *'.  This value is a constant and can be used wherever a
+constant of that type is valid.  For example:
 
      void *ptr;
      ...
@@ -819,9 +606,14 @@ indexing in C never does that.
 rather than an array unless the problem does not fit a `switch'
 statement very well.
 
-   Another use of label values is in an interpreter for threaded code. 
+   Another use of label values is in an interpreter for threaded code.
 The labels within the interpreter function can be stored in the
 threaded code for super-fast dispatching.
+
+   You can use this mechanism to jump to code in a different function. 
+If you do that, totally unpredictable things will happen.  The best way
+to avoid this is to store the label address only in automatic variables
+and never pass it as an argument.
 
    ---------- Footnotes ----------
 
@@ -835,8 +627,8 @@ File: gcc.info,  Node: Nested Functions,  Next: Naming Types,  Prev: Labels as V
 Nested Functions
 ================
 
-   A "nested function" is a function defined inside another function. 
-The nested function's name is local to the block where it is defined. 
+   A "nested function" is a function defined inside another function.
+The nested function's name is local to the block where it is defined.
 For example, here we define a nested function named `square', and call
 it twice:
 
@@ -862,8 +654,8 @@ which uses an inherited variable named `offset':
          ... access (array, i) ...
      }
 
-   It is possible to call the nested function from outside the scope
-of its name by storing its address or passing the address to another
+   It is possible to call the nested function from outside the scope of
+its name by storing its address or passing the address to another
 function:
 
      hack (int *array, int size)
@@ -874,12 +666,12 @@ function:
        intermediate (store, size);
      }
 
-   Here, the function `intermediate' receives the address of `store'
-as an argument.  If `intermediate' calls `store', the arguments given
-to `store' are used to store into `array'.  But this technique works
-only so long as the containing function (`hack', in this example) does
-not exit.  If you try to call the nested function through its address
-after the containing function has exited, all hell will break loose.
+   Here, the function `intermediate' receives the address of `store' as
+an argument.  If `intermediate' calls `store', the arguments given to
+`store' are used to store into `array'.  But this technique works only
+so long as the containing function (`hack', in this example) does not
+exit.  If you try to call the nested function through its address after
+the containing function has exited, all hell will break loose.
 
    A nested function can jump to a label inherited from a containing
 function, provided the label was explicitly declared in the containing
@@ -962,7 +754,7 @@ File: gcc.info,  Node: Typeof,  Next: Lvalues,  Prev: Naming Types,  Up: Extensi
 Referring to a Type with `typeof'
 =================================
 
-   Another way to refer to the type of an expression is with `typeof'. 
+   Another way to refer to the type of an expression is with `typeof'.
 The syntax of using of this keyword looks like `sizeof', but the
 construct acts semantically like a type name defined with `typedef'.
 
@@ -981,7 +773,7 @@ that of the values of the functions.
 Here the type described is that of pointers to `int'.
 
    If you are writing a header file that must work when included in
-ANSI C programs, write `__typeof__' instead of `typeof'.  *Note
+ANSI C programs, write `__typeof__' instead of `typeof'. *Note
 Alternate Keywords::.
 
    A `typeof'-construct can be used anywhere a typedef name could be
@@ -1005,8 +797,7 @@ inside of `sizeof' or `typeof'.
           char *y[4];
 
      To see the meaning of the declaration using `typeof', and why it
-     might be a useful way to write, let's rewrite it with these
-     macros:
+     might be a useful way to write, let's rewrite it with these macros:
 
           #define pointer(T)  typeof(T *)
           #define array(T, N) typeof(T [N])
@@ -1028,9 +819,9 @@ Generalized Lvalues
 as lvalues provided their operands are lvalues.  This means that you
 can take their addresses or store values into them.
 
-   For example, a compound expression can be assigned, provided the
-last expression in the sequence is an lvalue.  These two expressions
-are equivalent:
+   For example, a compound expression can be assigned, provided the last
+expression in the sequence is an lvalue.  These two expressions are
+equivalent:
 
      (a, b) += 5
      a, (b += 5)
@@ -1067,11 +858,11 @@ expressions are equivalent:
      (int)a += 5
      (int)(a = (char *)(int) ((int)a + 5))
 
-   You cannot take the address of an lvalue cast, because the use of
-its address would not work out coherently.  Suppose that `&(int)f' were
+   You cannot take the address of an lvalue cast, because the use of its
+address would not work out coherently.  Suppose that `&(int)f' were
 permitted, where `f' has type `float'.  Then the following statement
-would try to store an integer bit-pattern where a floating point
-number belongs:
+would try to store an integer bit-pattern where a floating point number
+belongs:
 
      *&(int)f = 1;
 
@@ -1119,7 +910,7 @@ Double-Word Integers
 `long int'.  Simply write `long long int' for a signed integer, or
 `unsigned long long int' for an unsigned integer.
 
-   You can use these types in arithmetic like any other integer types. 
+   You can use these types in arithmetic like any other integer types.
 Addition, subtraction, and bitwise boolean operations on these types
 are open-coded on all types of machines.  Multiplication is open-coded
 if the machine supports fullword-to-doubleword a widening multiply
@@ -1129,11 +920,11 @@ special library routines that come with GNU CC.
 
    There may be pitfalls when you use `long long' types for function
 arguments, unless you declare function prototypes.  If a function
-expects type `int' for its argument, and you pass a value of type
-`long long int', confusion will result because the caller and the
-subroutine will disagree about the number of bytes for the argument. 
-Likewise, if the function expects `long long int' and you pass `int'. 
-The best way to avoid such problems is to use prototypes.
+expects type `int' for its argument, and you pass a value of type `long
+long int', confusion will result because the caller and the subroutine
+will disagree about the number of bytes for the argument. Likewise, if
+the function expects `long long int' and you pass `int'.  The best way
+to avoid such problems is to use prototypes.
 
 
 File: gcc.info,  Node: Zero Length,  Next: Variable Length,  Prev: Long Long,  Up: Extensions
@@ -1156,21 +947,20 @@ variable-length object:
        thisline->length = this_length;
      }
 
-   In standard C, you would have to give `contents' a length of 1,
-which means either you waste space or complicate the argument to
-`malloc'.
+   In standard C, you would have to give `contents' a length of 1, which
+means either you waste space or complicate the argument to `malloc'.
 
 
-File: gcc.info,  Node: Variable Length,  Next: Subscripting,  Prev: Zero Length,  Up: Extensions
+File: gcc.info,  Node: Variable Length,  Next: Macro Varargs,  Prev: Zero Length,  Up: Extensions
 
 Arrays of Variable Length
 =========================
 
-   Variable-length automatic arrays are allowed in GNU C.  These
-arrays are declared like any other automatic arrays, but with a length
-that is not a constant expression.  The storage is allocated at the
-point of declaration and deallocated when the brace-level is exited. 
-For example:
+   Variable-length automatic arrays are allowed in GNU C.  These arrays
+are declared like any other automatic arrays, but with a length that is
+not a constant expression.  The storage is allocated at the point of
+declaration and deallocated when the brace-level is exited.  For
+example:
 
      FILE *
      concat_fopen (char *s1, char *s2, char *mode)
@@ -1191,7 +981,7 @@ other C implementations (but not in all).  On the other hand,
 variable-length arrays are more elegant.
 
    There are other differences between these two methods.  Space
-allocated with `alloca' exists until the containing *function* returns. 
+allocated with `alloca' exists until the containing *function* returns.
 The space for a variable-length array is deallocated as soon as the
 array name's scope ends.  (If you use both variable-length arrays and
 `alloca' in the same function, deallocation of a variable-length array
@@ -1205,13 +995,12 @@ will also deallocate anything more recently allocated with `alloca'.)
        ...
      }
 
-   The length of an array is computed once when the storage is
-allocated and is remembered for the scope of the array in case you
-access it with `sizeof'.
+   The length of an array is computed once when the storage is allocated
+and is remembered for the scope of the array in case you access it with
+`sizeof'.
 
-   If you want to pass the array first and the length afterward, you
-can use a forward declaration in the parameter list--another GNU
-extension.
+   If you want to pass the array first and the length afterward, you can
+use a forward declaration in the parameter list--another GNU extension.
 
      struct entry
      tester (int len; char data[len][len], int len)
@@ -1224,13 +1013,55 @@ declaration", and it serves the purpose of making the name `len' known
 when the declaration of `data' is parsed.
 
    You can write any number of such parameter forward declarations in
-the parameter list.  They can be separated by commas or semicolons,
-but the last one must end with a semicolon, which is followed by the
-"real" parameter declarations.  Each forward declaration must match a
-"real" declaration in parameter name and data type.
+the parameter list.  They can be separated by commas or semicolons, but
+the last one must end with a semicolon, which is followed by the "real"
+parameter declarations.  Each forward declaration must match a "real"
+declaration in parameter name and data type.
 
 
-File: gcc.info,  Node: Subscripting,  Next: Pointer Arith,  Prev: Variable Length,  Up: Extensions
+File: gcc.info,  Node: Macro Varargs,  Next: Subscripting,  Prev: Variable Length,  Up: Extensions
+
+Macros with Variable Numbers of Arguments
+=========================================
+
+   In GNU C, a macro can accept a variable number of arguments, much as
+a function can.  The syntax for defining the macro looks much like that
+used for a function.  Here is an example:
+
+     #define eprintf(format, args...)  \
+      fprintf (stderr, format, ## args)
+
+   Here `args' is a "rest argument": it takes in zero or more
+arguments, as many as the call contains.  All of them plus the commas
+between them form the value of `args', which is substituted into the
+macro body where `args' is used.  Thus, we have these expansions:
+
+     eprintf ("%s:%d: ", input_file_name, line_number)
+     ==>
+     fprintf (stderr, "%s:%d: ", input_file_name, line_number)
+
+Note that the comma after the string constant comes from the definition
+of `eprintf', whereas the last comma comes from the value of `args'.
+
+   The reason for using `##' is to handle the case when `args' matches
+no arguments at all.  In this case, `args' has an empty value.  In this
+case, the second comma in the definition becomes an embarrassment: if
+it got through to the expansion of the macro, we would get something
+like this:
+
+     fprintf (stderr, "success!\n", )
+
+which is invalid C syntax.  `##' gets rid of the comma, so we get the
+following instead:
+
+     fprintf (stderr, "success!\n")
+
+   This is a special feature of the GNU C preprocessor: `##' adjacent
+to a rest argument discards the token on the other side of the `##', if
+the rest argument value is empty.
+
+
+File: gcc.info,  Node: Subscripting,  Next: Pointer Arith,  Prev: Macro Varargs,  Up: Extensions
 
 Non-Lvalue Arrays May Have Subscripts
 =====================================
@@ -1258,8 +1089,8 @@ Arithmetic on `void'- and Function-Pointers
 pointers to `void' and on pointers to functions.  This is done by
 treating the size of a `void' or of a function as 1.
 
-   A consequence of this is that `sizeof' is also allowed on `void'
-and on function types, and returns 1.
+   A consequence of this is that `sizeof' is also allowed on `void' and
+on function types, and returns 1.
 
    The option `-Wpointer-arith' requests a warning if these extensions
 are used.
@@ -1279,5 +1110,184 @@ example of an initializer with run-time varying elements:
        float beat_freqs[2] = { f-g, f+g };
        ...
      }
+
+
+File: gcc.info,  Node: Constructors,  Next: Labeled Elements,  Prev: Initializers,  Up: Extensions
+
+Constructor Expressions
+=======================
+
+   GNU C supports constructor expressions.  A constructor looks like a
+cast containing an initializer.  Its value is an object of the type
+specified in the cast, containing the elements specified in the
+initializer.
+
+   Usually, the specified type is a structure.  Assume that `struct
+foo' and `structure' are declared as shown:
+
+     struct foo {int a; char b[2];} structure;
+
+Here is an example of constructing a `struct foo' with a constructor:
+
+     structure = ((struct foo) {x + y, 'a', 0});
+
+This is equivalent to writing the following:
+
+     {
+       struct foo temp = {x + y, 'a', 0};
+       structure = temp;
+     }
+
+   You can also construct an array.  If all the elements of the
+constructor are (made up of) simple constant expressions, suitable for
+use in initializers, then the constructor is an lvalue and can be
+coerced to a pointer to its first element, as shown here:
+
+     char **foo = (char *[]) { "x", "y", "z" };
+
+   Array constructors whose elements are not simple constants are not
+very useful, because the constructor is not an lvalue.  There are only
+two valid ways to use it: to subscript it, or initialize an array
+variable with it.  The former is probably slower than a `switch'
+statement, while the latter does the same thing an ordinary C
+initializer would do.  Here is an example of subscripting an array
+constructor:
+
+     output = ((int[]) { 2, x, 28 }) [input];
+
+   Constructor expressions for scalar types and union types are is also
+allowed, but then the constructor expression is equivalent to a cast.
+
+
+File: gcc.info,  Node: Labeled Elements,  Next: Cast to Union,  Prev: Constructors,  Up: Extensions
+
+Labeled Elements in Initializers
+================================
+
+   Standard C requires the elements of an initializer to appear in a
+fixed order, the same as the order of the elements in the array or
+structure being initialized.
+
+   In GNU C you can give the elements in any order, specifying the array
+indices or structure field names they apply to.
+
+   To specify an array index, write `[INDEX]' before the element value.
+ For example,
+
+     int a[6] = { [4] 29, [2] 15 };
+
+is equivalent to
+
+     int a[6] = { 0, 0, 15, 0, 29, 0 };
+
+The index values must be constant expressions, even if the array being
+initialized is automatic.
+
+   In a structure initializer, specify the name of a field to initialize
+with `FIELDNAME:' before the element value.  For example, given the
+following structure,
+
+     struct point { int x, y; };
+
+the following initialization
+
+     struct point p = { y: yvalue, x: xvalue };
+
+is equivalent to
+
+     struct point p = { xvalue, yvalue };
+
+   You can also use an element label when initializing a union, to
+specify which element of the union should be used.  For example,
+
+     union foo { int i; double d; };
+     
+     union foo f = { d: 4 };
+
+will convert 4 to a `double' to store it in the union using the second
+element.  By contrast, casting 4 to type `union foo' would store it
+into the union as the integer `i', since it is an integer.  (*Note Cast
+to Union::.)
+
+   You can combine this technique of naming elements with ordinary C
+initialization of successive elements.  Each initializer element that
+does not have a label applies to the next consecutive element of the
+array or structure.  For example,
+
+     int a[6] = { [1] v1, v2, [4] v4 };
+
+is equivalent to
+
+     int a[6] = { 0, v1, v2, 0, v4, 0 };
+
+   Labeling the elements of an array initializer is especially useful
+when the indices are characters or belong to an `enum' type. For
+example:
+
+     int whitespace[256]
+       = { [' '] 1, ['\t'] 1, ['\h'] 1,
+           ['\f'] 1, ['\n'] 1, ['\r'] 1 };
+
+
+File: gcc.info,  Node: Case Ranges,  Next: Function Attributes,  Prev: Cast to Union,  Up: Extensions
+
+Case Ranges
+===========
+
+   You can specify a range of consecutive values in a single `case'
+label, like this:
+
+     case LOW ... HIGH:
+
+This has the same effect as the proper number of individual `case'
+labels, one for each integer value from LOW to HIGH, inclusive.
+
+   This feature is especially useful for ranges of ASCII character
+codes:
+
+     case 'A' ... 'Z':
+
+   *Be careful:* Write spaces around the `...', for otherwise it may be
+parsed wrong when you use it with integer values.  For example, write
+this:
+
+     case 1 ... 5:
+
+rather than this:
+
+     case 1...5:
+
+
+File: gcc.info,  Node: Cast to Union,  Next: Case Ranges,  Prev: Labeled Elements,  Up: Extensions
+
+Cast to a Union Type
+====================
+
+   A cast to union type is like any other cast, except that the type
+specified is a union type.  You can specify the type either with `union
+TAG' or with a typedef name.
+
+   The types that may be cast to the union type are those of the members
+of the union.  Thus, given the following union and variables:
+
+     union foo { int i; double d; };
+     int x;
+     double y;
+
+both `x' and `y' can be cast to type `union' foo.
+
+   Using the cast as the right-hand side of an assignment to a variable
+of union type is equivalent to storing in a member of the union:
+
+     union foo u;
+     ...
+     u = (union foo) x  ==  u.i = x
+     u = (union foo) y  ==  u.d = y
+
+   You can also use the union cast as a function argument:
+
+     void hack (union foo);
+     ...
+     hack ((union foo) x);
 
 

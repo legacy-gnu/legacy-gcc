@@ -68,6 +68,7 @@ int first_token;
 #ifdef SPEW_DEBUG
 static int spew_debug = 0;
 static int yylex_ctr = 0;
+static int debug_yychar ();
 #endif
 
 static char follows_typename[END_OF_SAVED_INPUT+1];
@@ -358,7 +359,7 @@ yylex()
 		}
 	      break;
 	    default:
-	      abort ();
+	      my_friendly_abort (101);
 	    }
 	}
       else
@@ -530,7 +531,7 @@ do_aggr ()
 	  nth_token (1)->yychar = IDENTIFIER_DEFN;
 	  break;
 	default:
-	  abort ();
+	  my_friendly_abort (102);
 	}
     }
   return 0;
@@ -564,8 +565,13 @@ frob_identifier ()
 
   if (nth_token(1)->yychar == SCOPE)
     {
+#if 0
       t1 = hack_more_ids(0);
       if (t1 && TREE_CODE(t1) == SCOPE_REF)
+#else
+      t1 = hack_more_ids(0, nth_token (0)->yylval.ttype);
+      if (t1)
+#endif
 	{
 	  rt.yylval.ttype = t1;
 	  rt.yychar = SCOPED_TYPENAME ;
@@ -847,6 +853,7 @@ hack_ptype()
 }
 #endif
 
+#if 0
 static tree
 hack_more_ids (n)
      int n;
@@ -895,6 +902,39 @@ hack_more_ids (n)
     }
   return NULL_TREE;		/* @@ may need to backtrack */
 }
+#else
+/* niklas@appli.se says:  I didn't understand how the code above was intended
+ * to work, so I rewrote it (also changed the interface a bit).  This code
+ * dives down an IDENTIFIER/TYPENAME SCOPE ... chain as long as the parsed
+ * type prefix constitutes recognizable (by resolve_scope_to_name) types.
+ * Interface changed like this:
+ * 1. Takes an extra argument containing the name of the the type recognized
+ *    so far.
+ * 2. Now returns the name of the type instead of a SCOPE_REF. */
+static tree
+hack_more_ids(n, outer)
+  int n;
+  tree outer;
+{
+  int ch;
+  tree type, val;
+
+  scan_tokens (n + 2);
+  if (nth_token (n + 1)->yychar != SCOPE
+      || ((ch = nth_token (n + 2)->yychar) != IDENTIFIER && ch != TYPENAME))
+    return NULL_TREE;
+  val = build_parse_node (SCOPE_REF, outer, nth_token (n + 2)->yylval.ttype);
+  type = resolve_scope_to_name (NULL_TREE, val);
+  if (! type)
+    return NULL_TREE;
+  consume_token ();
+  consume_token ();
+  val = hack_more_ids (n, type);
+  if (! val)
+    consume_token ();
+  return val ? val : type;
+}
+#endif
 
 #if 0
 static struct token

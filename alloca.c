@@ -42,8 +42,8 @@ you
 lose
 -- must know STACK_DIRECTION at compile-time
 #endif /* STACK_DIRECTION undefined */
-#endif static
-#endif emacs
+#endif /* static */
+#endif /* emacs */
 
 #ifndef alloca  /* If compiling with GCC, this file's not needed.  */
 

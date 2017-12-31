@@ -51,8 +51,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define LINK_SPEC "-T512 -H512 -btextro -bhalt:4 -bnodelcsect"
 
-/* Add -lfp_p when running with -p or -pg.  */
-#define LIB_SPEC "%{pg:-lfp_p}%{p:-lfp_p} %{!p:%{!pg:-lc}}%{p:-lc_p}%{pg:-lc_p}"
+/* Profiled library versions are used by linking with special directories.  */
+#define LIB_SPEC "%{pg:-L/lib/profiled -L/usr/lib/profiled}\
+   %{p:-L/lib/profiled -L/usr/lib/profiled} %{g*:-lg} -lc"
 
 /* gcc must do the search itself to find libgcc.a, not use -l.  */
 #define LINK_LIBGCC_SPECIAL
@@ -93,13 +94,11 @@ extern int target_flags;
     }					\
 }
 
-/* Define this to modify the options specified by the user.
-
-   We turn off profiling because we don't know how to do it.  */
+/* Define this to modify the options specified by the user.  */
 
 #define OVERRIDE_OPTIONS		\
 {					\
-   profile_flag = profile_block_flag = 0; \
+   profile_block_flag = 0;		\
 }
 
 /* target machine storage layout */
@@ -131,6 +130,9 @@ extern int target_flags;
 
 /* Width of a word, in units (bytes).  */
 #define UNITS_PER_WORD 4
+
+/* Type used for ptrdiff_t, as a string used in a declaration.  */
+#define PTRDIFF_TYPE "int"
 
 /* Type used for wchar_t, as a string used in a declaration.  */
 #define WCHAR_TYPE "short unsigned int"
@@ -712,7 +714,8 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 
 #define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)				\
   (! (NAMED) ? 0							\
-  : USE_FP_FOR_ARG_P (CUM, MODE, TYPE)					\
+   : ((TYPE) != 0 && TREE_CODE (TYPE_SIZE (TYPE)) != INTEGER_CST) ? 0	\
+   : USE_FP_FOR_ARG_P (CUM, MODE, TYPE)					\
    ? ((CUM).nargs_prototype > 0						\
       ? gen_rtx (REG, MODE, (CUM).fregno)				\
       : ((CUM).words < 8						\
@@ -781,12 +784,10 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 #define FUNCTION_PROLOGUE(FILE, SIZE) output_prolog (FILE, SIZE)
 
 /* Output assembler code to FILE to increment profiler label # LABELNO
-   for profiling a function entry.
-
-   I have no real idea what r3 should point to here.  */
+   for profiling a function entry.  */
 
 #define FUNCTION_PROFILER(FILE, LABELNO)	\
-  fprintf(FILE, "\tbl mcount\n");
+  output_function_profiler ((FILE), (LABELNO));
 
 /* EXIT_IGNORE_STACK should be nonzero if, when returning from a function,
    the stack pointer does not matter. No definition is equivalent to
@@ -1080,11 +1081,15 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 				  gen_rtx (CONST_INT, VOIDmode, \
 						      high_int << 16)), 0),\
 		     gen_rtx (CONST_INT, VOIDmode, low_int));	\
+      goto WIN;							\
     }								\
   else if (GET_CODE (X) == PLUS && GET_CODE (XEXP (X, 0)) == REG \
 	   && GET_CODE (XEXP (X, 1)) != CONST_INT) 		\
-    (X) = gen_rtx (PLUS, SImode, XEXP (X, 0),			\
-		   force_operand (XEXP (X, 1), 0));		\
+    {								\
+      (X) = gen_rtx (PLUS, SImode, XEXP (X, 0),			\
+		     force_reg (SImode, force_operand (XEXP (X, 1), 0))); \
+      goto WIN;							\
+    }								\
 }
 
 /* Go to LABEL if ADDR (a legitimate address expression)
@@ -1152,6 +1157,9 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 
 #define XCOFF_DEBUGGING_INFO
 
+/* Define if the object format being used is COFF or a superset.  */
+#define OBJECT_FORMAT_COFF
+
 /* We don't have GAS for the RS/6000 yet, so don't write out special
    .stabs in cc1plus.  */
    
@@ -1193,7 +1201,7 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
    On the RS/6000, if it is legal in the insn, it is free.  So this
    always returns 0.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
   case CONST:							\
   case LABEL_REF:						\
@@ -1204,7 +1212,7 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 /* Provide the costs of a rtl expression.  This is in the body of a
    switch on CODE.  */
 
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)			\
   case MULT:						\
     return (GET_CODE (XEXP (X, 1)) != CONST_INT		\
 	    ? COSTS_N_INSNS (5)				\
@@ -1245,22 +1253,26 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 /* Add any extra modes needed to represent the condition code.
 
    For the RS/6000, we need separate modes when unsigned (logical) comparisons
-   are being done and we need a separate mode for floating-point.  */
+   are being done and we need a separate mode for floating-point.  We also
+   use a mode for the case when we are comparing the results of two
+   comparisons.  */
 
-#define EXTRA_CC_MODES CCUNSmode, CCFPmode
+#define EXTRA_CC_MODES CCUNSmode, CCFPmode, CCEQmode
 
 /* Define the names for the modes specified above.  */
-#define EXTRA_CC_NAMES "CCUNS", "CCFP"
+#define EXTRA_CC_NAMES "CCUNS", "CCFP", "CCEQ"
 
 /* Given a comparison code (EQ, NE, etc.) and the first operand of a COMPARE,
    return the mode to be used for the comparison.  For floating-point, CCFPmode
-   should be used.  CC_NOOVmode should be used when the first operand is a
-   PLUS, MINUS, or NEG.  CCmode should be used when no special processing is
-   needed.  */
+   should be used.  CCUNSmode should be used for unsigned comparisons.
+   CCEQmode should be used when we are doing an inequality comparison on
+   the result of a comparison. CCmode should be used in all other cases.  */
+
 #define SELECT_CC_MODE(OP,X) \
   (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CCFPmode	\
-   : ((OP) == GTU || (OP) == LTU || (OP) == GEU || (OP) == LEU	\
-      ? CCUNSmode : CCmode))
+   : (OP) == GTU || (OP) == LTU || (OP) == GEU || (OP) == LEU ? CCUNSmode \
+   : (((OP) == EQ || (OP) == NE) && GET_RTX_CLASS (GET_CODE (X)) == '<'   \
+      ? CCEQmode : CCmode))
 
 /* Define the information needed to generate branch and scc insns.  This is
    stored from the compare operation.  Note that we can't use "rtx" here
@@ -1296,7 +1308,6 @@ extern int rs6000_trunc_used;
 			   main_input_filename, ".ro_");	\
 								\
   toc_section ();						\
-  bss_section ();						\
   if (write_symbols != NO_DEBUG)				\
     private_data_section ();					\
 }
@@ -1390,18 +1401,7 @@ toc_section ()						\
     fprintf (asm_out_file, "\t.toc\n");			\
 							\
   in_section = toc;					\
-}							\
-							\
-void							\
-bss_section ()						\
-{							\
-  if (in_section != bss)				\
-    {							\
-      fprintf (asm_out_file, "\t.csect %s[BS]\n",	\
-	       xcoff_bss_section_name);		\
-      in_section = bss;					\
-    }							\
-}							\
+}
 
 /* This macro produces the initial definition of a function name.
    On the RS/6000, we need to place an extra '.' in the function name and
@@ -1438,18 +1438,7 @@ bss_section ()						\
   RS6000_OUTPUT_BASENAME (FILE, NAME);				\
   fprintf (FILE, ":\n");					\
   if (write_symbols == XCOFF_DEBUG)				\
-    {								\
-      dbxout_symbol (DECL, 0);					\
-      fprintf (FILE, "\t.function .");				\
-      RS6000_OUTPUT_BASENAME (FILE, NAME);			\
-      fprintf (FILE, ",.");					\
-      RS6000_OUTPUT_BASENAME (FILE, NAME);			\
-      fprintf (FILE, ",16,044,L..end_");			\
-      RS6000_OUTPUT_BASENAME (FILE, NAME);			\
-      fprintf (FILE, "-.");					\
-      RS6000_OUTPUT_BASENAME (FILE, NAME);			\
-      fprintf (FILE, "\n");					\
-    }								\
+    xcoffout_declare_function (FILE, DECL, NAME);		\
 }
 
 /* Return non-zero if this entry is to be written into the constant pool
@@ -1626,7 +1615,8 @@ bss_section ()						\
   "fr28", 60, "fr29", 61, "fr30", 62, "fr31", 63,	\
   /* no additional names for: mq, lr, ctr, ap */	\
   "cr0",  68, "cr1",  69, "cr2",  70, "cr3",  71,	\
-  "cr4",  72, "cr5",  73, "cr6",  74, "cr7",  75 }
+  "cr4",  72, "cr5",  73, "cr6",  74, "cr7",  75,	\
+  "cc",   68 }
 
 /* How to renumber registers for dbx and gdb.  */
 
@@ -1750,8 +1740,7 @@ bss_section ()						\
    to define a global common symbol.  */
 
 #define ASM_OUTPUT_COMMON(FILE, NAME, SIZE, ROUNDED)	\
-  do { bss_section ();					\
-       fputs (".comm ", (FILE));			\
+  do { fputs (".comm ", (FILE));			\
        RS6000_OUTPUT_BASENAME ((FILE), (NAME));		\
        fprintf ((FILE), ",%d\n", (SIZE)); } while (0)
 
@@ -1759,8 +1748,7 @@ bss_section ()						\
    to define a local common symbol.  */
 
 #define ASM_OUTPUT_LOCAL(FILE, NAME, SIZE,ROUNDED)	\
-  do { bss_section ();					\
-       fputs (".lcomm ", (FILE));			\
+  do { fputs (".lcomm ", (FILE));			\
        RS6000_OUTPUT_BASENAME ((FILE), (NAME));		\
        fprintf ((FILE), ",%d,%s\n", (SIZE), xcoff_bss_section_name); \
      } while (0)
@@ -1807,7 +1795,8 @@ bss_section ()						\
 #define PREDICATE_CODES \
   {"short_cint_operand", {CONST_INT}},				\
   {"u_short_cint_operand", {CONST_INT}},			\
-  {"gen_reg_operand", {SUBREG, REG}},				\
+  {"non_short_cint_operand", {CONST_INT}},			\
+  {"gpc_reg_operand", {SUBREG, REG}},				\
   {"cc_reg_operand", {SUBREG, REG}},				\
   {"reg_or_short_operand", {SUBREG, REG, CONST_INT}},		\
   {"reg_or_neg_short_operand", {SUBREG, REG, CONST_INT}},	\
@@ -1818,8 +1807,11 @@ bss_section ()						\
   {"fp_reg_or_mem_operand", {SUBREG, MEM, REG}},		\
   {"mem_or_easy_const_operand", {SUBREG, MEM, CONST_DOUBLE}},	\
   {"add_operand", {SUBREG, REG, CONST_INT}},			\
+  {"non_add_cint_operand", {CONST_INT}},			\
   {"and_operand", {SUBREG, REG, CONST_INT}},			\
+  {"non_and_cint_operand", {CONST_INT}},			\
   {"logical_operand", {SUBREG, REG, CONST_INT}},		\
+  {"non_logical_cint_operand", {CONST_INT}},			\
   {"mask_operand", {CONST_INT}},				\
   {"call_operand", {SYMBOL_REF, REG}},				\
   {"input_operand", {SUBREG, MEM, REG, CONST_INT}},		\

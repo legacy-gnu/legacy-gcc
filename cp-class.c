@@ -291,7 +291,11 @@ build_vbase_path (code, type, expr, path, alias_this)
       else
 	offset = BINFO_OFFSET (last);
 
+#if 0
+      /* why unconditionally set this? (mrs) see deja-gnu/g++.mike/net15.C
+	 for a test case. */
       code = PLUS_EXPR;
+#endif
     }
 
   if (TREE_INT_CST_LOW (offset))
@@ -468,6 +472,32 @@ build_vfn_ref (ptr_to_instptr, instance, index)
   return build_component_ref (aref, pfn_name, 0, 0);
 }
 
+/* Set TREE_PUBLIC and/or TREE_EXTERN on the vtable DECL,
+   based on TYPE and other static flags.
+
+   Note that anything public is tagged TREE_PUBLIC, whether
+   it's public in this file or in another one.  */
+
+static void
+import_export_vtable (decl, type)
+  tree decl, type;
+{
+  if (write_virtuals >= 2)
+    {
+      if (CLASSTYPE_INTERFACE_UNKNOWN (type) == 0)
+	{
+	  TREE_PUBLIC (decl) = 1;
+	  TREE_EXTERNAL (decl) = ! CLASSTYPE_VTABLE_NEEDS_WRITING (type);
+	}
+    }
+  else if (write_virtuals != 0)
+    {
+      TREE_PUBLIC (decl) = 1;
+      if (write_virtuals < 0)
+	TREE_EXTERNAL (decl) = 1;
+    }
+}
+
 /* Build a virtual function for type TYPE.
    If BINFO is non-NULL, build the vtable starting with the initial
    approximation that it is the same as the one which is the head of
@@ -495,20 +525,8 @@ build_vtable (binfo, type)
   n_vtable_elems += list_length (virtuals);
 #endif
 
-  if (write_virtuals >= 2)
-    {
-      if (CLASSTYPE_INTERFACE_UNKNOWN (type) == 0)
-	{
-	  /* Where ever it is, it's public whether extern or
-	     defined in the file being compiled.  */
-	  TREE_PUBLIC (decl) = 1;
-	  TREE_EXTERNAL (decl) = ! CLASSTYPE_VTABLE_NEEDS_WRITING (type);
-	}
-    }
-  else if (write_virtuals != 0)
-    TREE_PUBLIC (decl) = 1;
-  if (write_virtuals < 0)
-    TREE_EXTERNAL (decl) = 1;
+  /* Set TREE_PUBLIC and TREE_EXTERN as appropriate.  */
+  import_export_vtable (decl, type);
 
   IDENTIFIER_GLOBAL_VALUE (name) = decl = pushdecl_top_level (decl);
   /* Initialize the association list for this type, based
@@ -577,19 +595,8 @@ prepare_fresh_vtable (binfo, base_binfo, for_type)
   n_vtable_elems += list_length (BINFO_VIRTUALS (binfo));
 #endif
 
-  /* Set `new_decl's PUBLIC and EXTERNAL bits.  */
-  if (write_virtuals >= 2)
-    {
-      if (CLASSTYPE_INTERFACE_UNKNOWN (for_type) == 0)
-	{
-	  TREE_PUBLIC (new_decl) = CLASSTYPE_VTABLE_NEEDS_WRITING (for_type);
-	  TREE_EXTERNAL (new_decl) = ! CLASSTYPE_VTABLE_NEEDS_WRITING (for_type);
-	}
-    }
-  else if (write_virtuals > 0)
-    TREE_PUBLIC (new_decl) = 1;
-  else if (write_virtuals < 0)
-    TREE_EXTERNAL (new_decl) = 1;
+  /* Set TREE_PUBLIC and TREE_EXTERN as appropriate.  */
+  import_export_vtable (new_decl, for_type);
 
   if (TREE_VIA_VIRTUAL (binfo))
     assert (binfo == binfo_member (BINFO_TYPE (binfo),
@@ -710,7 +717,7 @@ modify_vtable_entry (old_entry_in_list, new_entry, fndecl, context)
 	    }
 
 #if 0
-	  abort ();
+	  my_friendly_abort (3);
 
 	  /* Compute the relative offset of vtable we are really looking for.  */
 	  TREE_VALUE (elts) = size_binop (PLUS_EXPR,
@@ -780,7 +787,7 @@ modify_vtable_entries (t, fndecl, base_fndecl, pfn)
 	     
 	     Virtual functions from virtual baseclasses are not in derived
 	     virtual function tables.  This is an implementation decision;
-	     it keeps there from being a combinatorial exposion in the
+	     it keeps there from being a combinatorial explosion in the
 	     number of different vtables which must be maintained.  */
 
 	  if (! DERIVED_FROM_P (base, base_context))
@@ -1852,7 +1859,7 @@ finish_struct_bits (t, max_has_virtual)
    TREE_LIST, whose TREE_PURPOSE field is the field name and the
    TREE_VALUE is the TREE_CHAIN of the FUNCTION_DECLs.  Friends are
    chained in the same way as member functions, but they live in the
-   TREE_TYPE field of the outer list.  That allows them to be quicky
+   TREE_TYPE field of the outer list.  That allows them to be quickly
    deleted, and requires no extra storage.
 
    If there are any constructors/destructors, they are moved to the
@@ -2254,7 +2261,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 
   /* Install struct as DECL_FIELD_CONTEXT of each field decl.
      Also process specified field sizes.
-     Set DECL_FRAME_SIZE to the specified size, or 0 if none specified.
+     Set DECL_FIELD_SIZE to the specified size, or 0 if none specified.
      The specified size is found in the DECL_INITIAL.
      Store 0 there, except for ": 0" fields (so we can find them
      and delete them, below).  */
@@ -2366,7 +2373,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 		 supposed to work for non-PT cases.  Let's find out.  */
               static tree t, d;
               d = DECL_NAME (x);
-              t = DECL_NAME (TYPE_NAME (TREE_TYPE (x)));
+              t = TYPE_IDENTIFIER (TREE_TYPE (x));
 	      if (d == t) continue;
 	      assert (IDENTIFIER_TEMPLATE (t) != NULL_TREE);
               t = DECL_NAME (TREE_PURPOSE (IDENTIFIER_TEMPLATE (t)));
@@ -2401,7 +2408,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 #endif
 	      DECL_CLASS_CONTEXT (x) = t;
 
-	      DECL_FRAME_SIZE (x) = 0;
+	      DECL_FIELD_SIZE (x) = 0;
 
 	      /* The name of the field is the original field name
 		 Save this in auxiliary field for later overloading.  */
@@ -2514,7 +2521,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 	  if (! fields) fields = x;
 	  DECL_FIELD_CONTEXT (x) = t;
 	  DECL_CLASS_CONTEXT (x) = t;
-	  DECL_FRAME_SIZE (x) = 0;
+	  DECL_FIELD_SIZE (x) = 0;
 
 	  /* We set DECL_BIT_FIELD tentatively in grokbitfield.
 	     If the type and width are valid, we'll keep it set.
@@ -2582,7 +2589,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 		  else
 		    {
 		      DECL_INITIAL (x) = NULL_TREE;
-		      DECL_FRAME_SIZE (x) = width;
+		      DECL_FIELD_SIZE (x) = width;
 		      DECL_BIT_FIELD (x) = 1;
 		      /* Traditionally a bit field is unsigned
 			 even if declared signed.  */
@@ -2754,13 +2761,13 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
       /* We build this decl with ptr_type_node, and
 	 change the type when we know what it should be.  */
       vfield = build_lang_field_decl (FIELD_DECL, get_vfield_name (t), ptr_type_node);
-      DECL_ASSEMBLER_NAME (vfield) = get_identifier ("$vf");
+      DECL_ASSEMBLER_NAME (vfield) = get_identifier (VFIELD_BASE);
       CLASSTYPE_VFIELD (t) = vfield;
       DECL_VIRTUAL_P (vfield) = 1;
       DECL_FIELD_CONTEXT (vfield) = t;
       DECL_CLASS_CONTEXT (vfield) = t;
       DECL_FCONTEXT (vfield) = t;
-      DECL_FRAME_SIZE (vfield) = 0;
+      DECL_FIELD_SIZE (vfield) = 0;
       DECL_ALIGN (vfield) = TYPE_ALIGN (ptr_type_node);
       if (CLASSTYPE_DOSSIER (t))
 	{
@@ -3119,13 +3126,13 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 	  /* We build this decl with ptr_type_node, and
 	     change the type when we know what it should be.  */
 	  vfield = build_lang_field_decl (FIELD_DECL, get_vfield_name (t), ptr_type_node);
-	  DECL_ASSEMBLER_NAME (vfield) = get_identifier ("$vf");
+	  DECL_ASSEMBLER_NAME (vfield) = get_identifier (VFIELD_BASE);
 	  CLASSTYPE_VFIELD (t) = vfield;
 	  DECL_VIRTUAL_P (vfield) = 1;
 	  DECL_FIELD_CONTEXT (vfield) = t;
 	  DECL_CLASS_CONTEXT (vfield) = t;
 	  DECL_FCONTEXT (vfield) = t;
-	  DECL_FRAME_SIZE (vfield) = 0;
+	  DECL_FIELD_SIZE (vfield) = 0;
 	  y = tree_last (fields);
 	  if (y)
 	    TREE_CHAIN (y) = vfield;
@@ -3284,7 +3291,7 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
 	    = size_binop (PLUS_EXPR, offset, DECL_FIELD_BITPOS (vfield));
 	  CLASSTYPE_VFIELD (t) = vfield;
 	}
-      if (TYPE_HAS_DESTRUCTOR (t)
+      if (extra_warnings && TYPE_HAS_DESTRUCTOR (t)
 	  && DECL_VINDEX (TREE_VEC_ELT (method_vec, 0)) == NULL_TREE)
 	warning ("class `%s' has virtual functions but non-virtual destructor",
 		 err_name);
@@ -3323,9 +3330,12 @@ finish_struct (t, list_of_fieldlists, empty, warn_anon)
   else if (flag_dossier && ! CLASSTYPE_DOSSIER (t))
     build_t_desc (t, 1);
 
-  if (TYPE_NAME (t) && DECL_NAME (TYPE_NAME (t)))
-    undo_template_name_overload (DECL_NAME (TYPE_NAME (t)), 1);
-  popclass (0);
+  if (TYPE_NAME (t) && TYPE_IDENTIFIER (t))
+    undo_template_name_overload (TYPE_IDENTIFIER (t), 1);
+  if (current_class_type)
+    popclass (0);
+  else
+    error ("trying to finish struct, but kicked out due to previous parse errors.");
 
   hack_incomplete_structures (t);
 
@@ -3600,7 +3610,7 @@ pushclass (type, modify)
       && (type != prev_class_type
 	  || TYPE_SIZE (prev_class_type) == NULL_TREE
 	  /* ??? Is this necessary any more?  */
-	  || IDENTIFIER_TEMPLATE (DECL_NAME (TYPE_NAME (prev_class_type))))
+	  || IDENTIFIER_TEMPLATE (TYPE_IDENTIFIER (prev_class_type)))
       && (current_class_depth == 1 || modify == 3))
     {
       /* Forcibly remove any old class remnants.  */
@@ -4055,7 +4065,7 @@ instantiate_type (lhstype, rhs, complain)
 		if (rhs && TREE_CODE (rhs) == TREE_LIST)
 		  {
 		    /* This code seems to be missing a `return'.  */
-		    abort ();
+		    my_friendly_abort (4);
 		    instantiate_type (lhstype, rhs, complain);
 		  }
 	      }

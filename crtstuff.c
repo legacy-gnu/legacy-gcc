@@ -41,8 +41,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    this file *will* make use of the .init section.  If that symbol is
    not defined however, then the .init section will not be used.
 
-   Currently, only ELF is actually supported.
-   The other formats probably need just alternative macro definitions.
+   Currently, only ELF and COFF are supported.  It is likely however that
+   ROSE could also be supported, if someone was willing to do the work to
+   make whatever (small?) adaptations are needed.  (Some work may be
+   needed on the ROSE assembler and linker also.)
 
    This file must be compiled with gcc.  */
 
@@ -70,13 +72,23 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #ifdef INIT_SECTION_ASM_OP
 
 /* The function __do_global_ctors_aux is compiled twice (once in crtbegin.o
-   and once in crtend.o).  It must be declared static to aviod a link
+   and once in crtend.o).  It must be declared static to avoid a link
    error.  Here, we define __do_global_ctors as an externally callable
    function.  It is externally callable so that __main can invoke it when
    INVOKE__main is defined.  This has the additional effect of forcing cc1
    to switch to the .text section.  */
 static void __do_global_ctors_aux ();
-void __do_global_ctors () { __do_global_ctors_aux (); }
+void __do_global_ctors ()
+{
+#ifdef INVOKE__main  /* If __main won't actually call __do_global_ctors
+			then it doesn't matter what's inside the function.
+			The inside of __do_global_ctors_aux is called
+			automatically in that case.
+			And the Alliant fx2800 linker crashes
+			on this reference.  So prevent the crash.  */
+  __do_global_ctors_aux ();
+#endif
+}
 
 asm (INIT_SECTION_ASM_OP);	/* cc1 doesn't know that we are switching! */
 

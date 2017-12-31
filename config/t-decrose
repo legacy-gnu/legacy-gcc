@@ -1,8 +1,14 @@
-ALL		= Makefile start.encap libgcc.a
-EXTRA_PASSES	= ld
 EXTRA_OBJS	= halfpic.o
 LIMITS_H	=
 CONFIG2_H	= $(srcdir)/config/mips.h $(srcdir)/config/decrose.h $(srcdir)/halfpic.h
+
+# We have a premade insn-attrtab.c to save the hour it takes to run genattrtab.
+# PREMADE_ATTRTAB = $(srcdir)/config/mips-at.c
+# PREMADE_ATTRTAB_MD = $(srcdir)/config/mips-at.md
+
+# Supress building libgcc1.a, since the MIPS compiler port is complete
+# and does not need anything from libgcc1.a.
+LIBGCC1 = libgcc1.null
 
 # Add additional dependencies to recompile selected modules whenever the
 # tm.h file changes.  The files compiled are:
@@ -38,9 +44,3 @@ recog.o: $(CONFIG2_H)
 reload.o: $(CONFIG2_H)
 
 halfpic.o: halfpic.c $(CONFIG_H) $(CONFIG2_H) $(RTL_H) $(TREE_H)
-
-# Build collect
-
-ld: collect2
-	rm -f ld
-	ln collect2 ld

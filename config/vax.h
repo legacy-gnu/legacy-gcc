@@ -835,32 +835,45 @@ gen_rtx (PLUS, Pmode, frame, gen_rtx (CONST_INT, VOIDmode, 12))
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+/* On a VAX, constants from 0..63 are cheap because they can use the
+   1 byte literal constant format.  compare to -1 should be made cheap
+   so that decrement-and-branch insns can be formed more easily (if
+   the value -1 is copied to a register some decrement-and-branch patterns
+   will not match).  */
+
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
-    /* Constant zero is super cheap due to clr instruction.  */	\
-    if ((RTX) == const0_rtx) return 0;				\
-    /* Constants of +/- 1 should also be super cheap since	\
-       may be used in decl/incl/aob/sob insns.  */		\
-    if ((RTX) == const1_rtx || (RTX) == constm1_rtx) return 0;	\
-    if ((unsigned) INTVAL (RTX) < 077) return 1;		\
+    if (INTVAL (RTX) == 0) return 0;				\
+    if ((OUTER_CODE) == AND)					\
+      return ((unsigned) ~INTVAL (RTX) <= 077) ? 1 : 2;		\
+    if ((unsigned) INTVAL (RTX) <= 077) return 1;		\
+    if ((OUTER_CODE) == COMPARE && INTVAL (RTX) == -1)		\
+      return 1;							\
+    if ((OUTER_CODE) == PLUS && (unsigned) -INTVAL (RTX) <= 077)\
+      return 1;							\
   case CONST:							\
   case LABEL_REF:						\
   case SYMBOL_REF:						\
     return 3;							\
   case CONST_DOUBLE:						\
-    return 5;
+    if (GET_MODE_CLASS (GET_MODE (RTX)) == MODE_FLOAT)		\
+      return vax_float_literal (RTX) ? 5 : 8;			\
+    else							\
+      return (((CONST_DOUBLE_HIGH (RTX) == 0			\
+		&& (unsigned) CONST_DOUBLE_LOW (RTX) < 64)	\
+	       || ((OUTER_CODE) == PLUS				\
+		   && CONST_DOUBLE_HIGH (RTX) == -1		\
+		   && (unsigned)-CONST_DOUBLE_LOW (RTX) < 64))	\
+	      ? 2 : 5);
 
-/* On most VAX models, shift are almost as expensive as multiplies, so
-   we'd rather use multiply unless it can be done in an extremely small
-   sequence.  */
-#define RTX_COSTS(RTX,CODE) \
- case LSHIFT:	\
- case ASHIFT:	\
- case ASHIFTRT:	\
- case LSHIFTRT:	\
- case ROTATE:	\
- case ROTATERT:	\
-  return COSTS_N_INSNS (4);
+#define RTX_COSTS(RTX,CODE,OUTER_CODE) case FIX: case FLOAT:	\
+ case MULT: case DIV: case UDIV: case MOD: case UMOD:		\
+ case LSHIFT: case ASHIFT: case LSHIFTRT: case ASHIFTRT:	\
+ case ROTATE: case ROTATERT: case PLUS: case MINUS: case IOR:	\
+ case XOR: case AND: case NEG: case NOT: case ZERO_EXTRACT:	\
+ case SIGN_EXTRACT: case MEM: return vax_rtx_cost(RTX)
+
+#define	ADDRESS_COST(RTX) (1 + (GET_CODE (RTX) == REG ? 0 : vax_address_cost(RTX)))
 
 /* Specify the cost of a branch insn; roughly the number of extra insns that
    should be added to avoid a branch.
@@ -1170,15 +1183,20 @@ gen_rtx (PLUS, Pmode, frame, gen_rtx (CONST_INT, VOIDmode, 12))
 /* Print an instruction operand X on file FILE.
    CODE is the code from the %-spec that requested printing this operand;
    if `%z3' was used to print operand 3, then CODE is 'z'.
-   On the Vax, the codes used are:
-   `#', indicating that either `d' or `g' should be printed,
-   depending on whether we're using dfloat or gfloat.
-   `C', indicating the reverse of the condition name specified by the
-   operand.
-   `P', indicating one plus a constant operand
-   `N', indicating the one's complement of a constant operand
-   `H', indicating the low-order 16 bits of the one's complement of a constant
-   `B', similarly for the low-order 8 bits.  */
+
+VAX operand formatting codes:
+
+ letter	   print
+   C	reverse branch condition
+   B	the low 8 bits of the complement of a constant operand
+   H	the low 16 bits of the complement of a constant operand
+   M	a mask for the N highest bits of a word
+   N	the complement of a constant integer operand
+   P	constant operand plus 1
+   R	32 - constant operand
+   b	the low 8 bits of a negated constant operand
+   h	the low 16 bits of a negated constant operand
+   #	'd' or 'g' depending on whether dfloat or gfloat is used  */
 
 #define PRINT_OPERAND_PUNCT_VALID_P(CODE)				\
   ((CODE) == '#')
@@ -1197,8 +1215,14 @@ gen_rtx (PLUS, Pmode, frame, gen_rtx (CONST_INT, VOIDmode, 12))
     fprintf (FILE, "$%d", 32 - INTVAL (X));				\
   else if (CODE == 'H' && GET_CODE (X) == CONST_INT)			\
     fprintf (FILE, "$%d", 0xffff & ~ INTVAL (X));			\
+  else if (CODE == 'h' && GET_CODE (X) == CONST_INT)			\
+    fprintf (FILE, "$%d", (short) - INTVAL (x));			\
   else if (CODE == 'B' && GET_CODE (X) == CONST_INT)			\
     fprintf (FILE, "$%d", 0xff & ~ INTVAL (X));				\
+  else if (CODE == 'b' && GET_CODE (X) == CONST_INT)			\
+    fprintf (FILE, "$%d", 0xff & - INTVAL (X));				\
+  else if (CODE == 'M' && GET_CODE (X) == CONST_INT)			\
+    fprintf (FILE, "$%d", ~((1 << INTVAL (x)) - 1));			\
   else if (GET_CODE (X) == REG)						\
     fprintf (FILE, "%s", reg_names[REGNO (X)]);				\
   else if (GET_CODE (X) == MEM)						\

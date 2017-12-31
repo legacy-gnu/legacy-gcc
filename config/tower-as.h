@@ -30,7 +30,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include "tower.h"
+#undef SELECT_RTX_SECTION
 
+/* Use default settings for system V.3.  */
+
+#include "svr3.h"
+
+/* Names to predefine in the preprocessor for this target machine.  */
+
+#define CPP_PREDEFINES "-Dunix -Dtower32 -Dtower32_600"
 
 /* Define __HAVE_68881 in preprocessor only if -m68881 is specified.
    This will control the use of inline 68881 insns in certain macros.
@@ -43,7 +51,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define STARTFILE_SPEC                                         \
 "%{p:%{m68881:/usr/lib/fp/mcrt1.o}%{!m68881:/lib/mcrt1.o}}     \
- %{!p:%{m68881:/usr/lib/fp/crt1.o}%{!m68881:/lib/crt1.o}}"
+ %{!p:%{m68881:/usr/lib/fp/crt1.o}%{!m68881:/lib/crt1.o}}      \
+ crtbegin.o%s"
+
+/* We don't want local labels to start with period.
+   See ASM_OUTPUT_INTERNAL_LABEL.  */
+#undef LOCAL_LABEL_PREFIX
+#define LOCAL_LABEL_PREFIX ""
 
 /* These four macros control how m68k.md is expanded.  */
 
@@ -64,13 +78,20 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* All the ASM_OUTPUT macros need to conform to the Tower as syntax.  */
 
 #define ASM_OUTPUT_SOURCE_FILENAME(FILE, FILENAME) \
-  fprintf (FILE, "\tfile\t\"%s\"\n", FILENAME)
+  do {						   \
+    fprintf (FILE, "\tfile\t\"%s\"\n", FILENAME);  \
+    fprintf (FILE, "section ~init,\"x\"\n");	   \
+    fprintf (FILE, "section ~fini,\"x\"\n");	   \
+    fprintf (FILE, "section ~rodata,\"x\"\n");   \
+    fprintf (FILE, "text\n");			   \
+  } while (0)
 
 #define ASM_OUTPUT_SOURCE_LINE(FILE, LINENO)	\
   fprintf (FILE, "\tln\t%d\n",			\
 	   (sdb_begin_function_line		\
 	    ? last_linenum - sdb_begin_function_line : 1))
 
+#undef ASM_OUTPUT_IDENT
 #define ASM_OUTPUT_IDENT(FILE, NAME) \
   fprintf (FILE, "\tident\t\"%s\" \n", NAME)
 
@@ -139,8 +160,26 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #undef TARGET_VERSION
 #define TARGET_VERSION fprintf (stderr, " (68k, Motorola/SGS/Tower32 syntax)");
 
-#undef BLOCK_PROFILER
 #undef FUNCTION_BLOCK_PROFILER
+#define FUNCTION_BLOCK_PROFILER(FILE, LABELNO)				\
+  do {									\
+    char label1[20], label2[20];					\
+    ASM_GENERATE_INTERNAL_LABEL (label1, "LPBX", 0);			\
+    ASM_GENERATE_INTERNAL_LABEL (label2, "LPI", LABELNO);		\
+    fprintf (FILE, "\ttst.l %s\n\tbne %s\n\tpea %s\n\tjsr __bb_init_func\n\taddq.l &4,%%sp\n",	\
+	     label1, label2, label1);					\
+    ASM_OUTPUT_INTERNAL_LABEL (FILE, "LPI", LABELNO);			\
+    putc ('\n', FILE);						\
+    } while (0)
+
+#undef BLOCK_PROFILER
+#define BLOCK_PROFILER(FILE, BLOCKNO)				\
+  do {								\
+    char label[20];						\
+    ASM_GENERATE_INTERNAL_LABEL (label, "LPBX", 2);		\
+    fprintf (FILE, "\taddq.l &1,%s+%d\n", label, 4 * BLOCKNO);	\
+    } while (0)
+
 #undef FUNCTION_PROFILER
 #define FUNCTION_PROFILER(FILE, LABEL_NO)	\
     fprintf (FILE, "\tmov.l &LP%%%d,%%a0\n\tjsr mcount%%\n", (LABEL_NO))
@@ -159,10 +198,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
         fprintf (FILE, "\tlink %%a6,&%d\n", -fsize);		\
       else							\
 	fprintf (FILE, "\tlink %%a6,&0\n\tsub.l &%d,%%sp\n", fsize); }  \
-  for (regno = 24; regno < 56; regno++)                         \
-    if (regs_ever_live[regno] && ! call_used_regs[regno])       \
-      fprintf(FILE, "\tfpmoved %s,-(%%sp)\n",                   \
-	      reg_names[regno]);                                \
   for (regno = 16; regno < 24; regno++)				\
     if (regs_ever_live[regno] && ! call_used_regs[regno])	\
        mask |= 1 << (regno - 16);				\
@@ -188,20 +223,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 { register int regno;						\
   register int mask, fmask;					\
   register int nregs;						\
-  int offset, foffset, fpoffset;   	                        \
+  int offset, foffset;		   	                        \
   extern char call_used_regs[];					\
   int fsize = ((SIZE) + 3) & -4;				\
   int big = 0;							\
-  nregs = 0;  fmask = 0; fpoffset = 0;  			\
-  for (regno = 24 ; regno < 56 ; regno++)			\
-    if (regs_ever_live[regno] && ! call_used_regs[regno])	\
-      nregs++;							\
-  fpoffset = nregs*8;						\
-  nregs = 0;							\
+  nregs = 0;  fmask = 0;		  			\
   for (regno = 16; regno < 24; regno++)				\
     if (regs_ever_live[regno] && ! call_used_regs[regno])	\
       { nregs++; fmask |= 1 << (23 - regno); }			\
-  foffset = fpoffset + nregs * 12;				\
+  foffset = nregs * 12;						\
   nregs = 0;  mask = 0;						\
   if (frame_pointer_needed) regs_ever_live[FRAME_POINTER_REGNUM] = 0; \
   for (regno = 0; regno < 16; regno++)				\
@@ -210,7 +240,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   offset = foffset + nregs * 4;					\
   if (offset + fsize >= 0x8000 					\
       && frame_pointer_needed 					\
-      && (mask || fmask || fpoffset)) 				\
+      && (mask || fmask))	 				\
     { fprintf (FILE, "\tmov.l &%d,%%a0\n", -fsize);		\
       fsize = 0, big = 1; }					\
   if (exact_log2 (mask) >= 0) {					\
@@ -241,20 +271,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
     else							\
       fprintf (FILE, "\tfmovm -%d(%%a6),&0x%x\n",		\
 	       foffset + fsize, fmask); }			\
-  if (fpoffset != 0)						\
-    for (regno = 55; regno >= 24; regno--)			\
-      if (regs_ever_live[regno] && ! call_used_regs[regno]) {	\
-	if (big)						\
-	  fprintf(FILE, "\tfpmoved -%d(%%a6,%%a0.l),%s\n",	\
-		  fpoffset + fsize, reg_names[regno]);		\
-	else if (! frame_pointer_needed)			\
-	  fprintf(FILE, "\tfpmoved (%%sp)+,%s\n",		\
-		  reg_names[regno]);				\
-	else							\
-	  fprintf(FILE, "\tfpmoved -%d(%%a6),%s\n",		\
-		  fpoffset + fsize, reg_names[regno]);		\
-	fpoffset -= 8;						\
-      }								\
   if (current_function_returns_pointer)                         \
     fprintf (FILE, "\tmov.l %%d0,%%a0\n");                      \
   if (frame_pointer_needed)					\
@@ -314,16 +330,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define ASM_FORMAT_PRIVATE_NAME(OUTPUT, NAME, LABELNO)	\
 ( (OUTPUT) = (char *) alloca (strlen ((NAME)) + 11),	\
   sprintf ((OUTPUT), "%s%%%%%d", (NAME), (LABELNO)))
-
-/* This is how to output a command to make the user-level label named NAME
+ 
+/* This is the command to make the user-level label named NAME
    defined for reference from other files.  */
 
-#undef ASM_GLOBALIZE_LABEL
-#define ASM_GLOBALIZE_LABEL(FILE,NAME)	\
-do { fputs ("\tglobal ", FILE);         \
-     assemble_name (FILE, NAME);        \
-     fputs ("\n", FILE);                \
-   } while (0)
+#undef GLOBAL_ASM_OP
+#define GLOBAL_ASM_OP "global"
 
 #undef ASM_GENERATE_INTERNAL_LABEL
 #define ASM_GENERATE_INTERNAL_LABEL(LABEL, PREFIX, NUM)	\
@@ -577,7 +589,9 @@ do { fprintf (asm_out_file, "\tdef\t");	\
 #define PUT_SDB_ENDEF fputs("\tendef\n", asm_out_file)
 #define PUT_SDB_TYPE(a) fprintf(asm_out_file, "\ttype\t0%o;", a)
 #define PUT_SDB_SIZE(a) fprintf(asm_out_file, "\tsize\t%d;", a)
-#define PUT_SDB_DIM(a) fprintf(asm_out_file, "\tdim\t%d;", a)
+#define PUT_SDB_START_DIM fprintf(asm_out_file, "\tdim\t")
+#define PUT_SDB_NEXT_DIM(a) fprintf(asm_out_file, "%d,", a)
+#define PUT_SDB_LAST_DIM(a) fprintf(asm_out_file, "%d;", a)
 
 #define PUT_SDB_TAG(a)				\
 do { fprintf (asm_out_file, "\ttag\t");	\
@@ -611,3 +625,55 @@ do { fprintf (asm_out_file, "\ttag\t");	\
 
 #define SDB_GENERATE_FAKE(BUFFER, NUMBER) \
   sprintf ((BUFFER), "~%dfake", (NUMBER));
+
+#define NO_DOLLAR_IN_LABEL
+#define NO_DOT_IN_LABEL
+
+/* Define a few machine-specific details
+   of the implementation of constructors.
+
+   The __CTORS_LIST__ goes in the .init section.  Define CTOR_LIST_BEGIN
+   and CTOR_LIST_END to contribute to the .init section an instruction to
+   push a word containing 0 (or some equivalent of that).
+
+   ASM_OUTPUT_CONSTRUCTOR should be defined
+   to push the address of the constructor.  */
+
+#define ASM_LONG	"\tlong"
+#undef INIT_SECTION_ASM_OP
+#define INIT_SECTION_ASM_OP	"section\t~init"
+#undef FINI_SECTION_ASM_OP
+#define FINI_SECTION_ASM_OP	"section\t~fini"
+#undef CONST_SECTION_ASM_OP
+#define CONST_SECTION_ASM_OP	"section\t~rodata"
+
+#define CTOR_LIST_BEGIN				\
+  asm (INIT_SECTION_ASM_OP);			\
+  asm ("clr.l -(%sp)")
+#define CTOR_LIST_END CTOR_LIST_BEGIN
+
+#define BSS_SECTION_ASM_OP	"section\t~bss"
+#define BSS_SECTION_FUNCTION \
+void								\
+bss_section ()							\
+{								\
+  if (in_section != in_bss)					\
+    {								\
+      fprintf (asm_out_file, "%s\n", BSS_SECTION_ASM_OP);	\
+      in_section = in_bss;					\
+    }								\
+}
+
+#define ASM_OUTPUT_CONSTRUCTOR(FILE,NAME)	\
+  do {						\
+    init_section ();				\
+    fprintf (FILE, "\tmov.l &");		\
+    assemble_name (FILE, NAME);			\
+    fprintf (FILE, ",-(%%sp)\n");		\
+  } while (0)
+
+/* We do not want leading underscores.  */
+
+#undef ASM_OUTPUT_LABELREF
+#define ASM_OUTPUT_LABELREF(FILE,NAME)  \
+  fprintf (FILE, "%s", NAME)

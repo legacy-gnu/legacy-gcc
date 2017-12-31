@@ -193,7 +193,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 	    stLocal	  -- local variable
 	    stLabel	  -- label
 	    stProc	  -- External Procedure
-	    stBlock	  -- beginnning of block
+	    stBlock	  -- beginning of block
 	    stEnd	  -- end (of anything)
 	    stMember	  -- member (of anything)
 	    stTypedef	  -- type definition
@@ -262,7 +262,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
        Procedures Tables            384           1          52
        Local Symbols                436          16         192
        Optimization Symbols           0           0           0
-       Auxilary Symbols             628          39         156
+       Auxiliary Symbols            628          39         156
        Local Strings                784          80          80
        External Strings             864         144         144
        File Tables                 1008           2         144
@@ -723,7 +723,7 @@ extern int errno;			/* MIPS errno.h doesn't declare this */
   (isalnum (ch) || (ch) == '_' || (ch) == '.' || (ch) == '$')
 
 
-/* Redefination of of storage classes as an enumeration for better
+/* Redefinition of of storage classes as an enumeration for better
    debugging.  */
 
 typedef enum sc {
@@ -763,7 +763,7 @@ typedef enum st {
   st_Local	= stLocal,	/* local variable */
   st_Label	= stLabel,	/* label */
   st_Proc	= stProc,	/*     "      "	 Procedure */
-  st_Block	= stBlock,	/* beginnning of block */
+  st_Block	= stBlock,	/* beginning of block */
   st_End	= stEnd,	/* end (of anything) */
   st_Member	= stMember,	/* member (of anything	- struct/union/enum */
   st_Typedef	= stTypedef,	/* type definition */
@@ -775,7 +775,7 @@ typedef enum st {
   st_Str	= stStr,	/* string */
   st_Number	= stNumber,	/* pure number (ie. 4 NOR 2+2) */
   st_Expr	= stExpr,	/* 2+2 vs. 4 */
-  st_Type	= stType,	/* post-coersion SER */
+  st_Type	= stType,	/* post-coercion SER */
   st_Max	= stMax		/* max type+1 */
 } st_t;
 
@@ -1717,59 +1717,13 @@ STATIC void	  free_scope		__proto((scope_t *));
 STATIC void	  free_tag		__proto((tag_t *));
 STATIC void	  free_thead		__proto((thead_t *));
 
-/* rms: The following is a very bad idea.
-   It's easy for these to conflict with definitions on certain systems.
-   All system calls and library functions
-   for which an implicit definition will work
-   should be left implicit.
-   I deleted the declarations for open and fstat.  */
-/* Prototypes for library functions used.  */
-#if !defined(NO_LIB_PROTOTYPE) && !defined(_OSF_SOURCE) && !defined(_STDIO_H_)
-extern char  *strchr		__proto((const char *, int));
-extern char  *strrchr		__proto((const char *, int));
-extern int    strcmp		__proto((const char *, const char *));
-extern long   strtol		__proto((const char *, char **, int));
-extern int    memcmp		__proto((CPTR_T, CPTR_T, Size_t));
-extern time_t time		__proto((time_t *));
-extern int    fputc		__proto((int, FILE *));
-extern int    vprintf		__proto((const char *, va_list));
-extern int    vfprintf		__proto((FILE *, const char *, va_list));
-extern int    vsprintf		__proto((char *, const char *, va_list));
-extern int    fclose		__proto((FILE *));
-extern int    fseek		__proto((FILE *, long, int));
-extern long   ftell		__proto((FILE *));
-extern FILE  *fopen		__proto((const char *, const char *));
-extern FILE  *freopen		__proto((const char *, const char *, FILE *));
-extern int    fflush		__proto((FILE *));
-extern void   perror		__proto((const char *));
-extern void   exit		__proto((int));
-extern int    rename		__proto((const char *, const char *));
-
-#ifndef sgi
-extern int    setvbuf		__proto((FILE *, char *, int, int));
-extern int    fputs		__proto((char *, FILE *));
-#endif
-#endif
-
-extern char  *sbrk		__proto((int));
-
-#ifndef HAS_STDLIB_H
-extern PTR_T  malloc		__proto((Size_t));
-extern PTR_T  calloc		__proto((Size_t, Size_t));
-extern PTR_T  realloc		__proto((PTR_T, Size_t));
-extern void   free		__proto((PTR_T));
-extern int    getopt		__proto((int, char **, const char *));
-#endif
-
-#ifndef HAS_UNISTD_H
-extern int    close		__proto((int));
-extern int    write		__proto((int, CPTR_T, Size_t));
-extern int    read		__proto((int, PTR_T, Size_t));
-extern long   lseek		__proto((int, long, int));
-extern int    ftruncate		__proto((int, long));
-#endif
-
-extern char  *mktemp		__proto((char *));
+extern char  *sbrk			__proto((int));
+extern PTR_T  malloc			__proto((Size_t));
+extern PTR_T  calloc			__proto((Size_t, Size_t));
+extern PTR_T  realloc			__proto((PTR_T, Size_t));
+extern void   free			__proto((PTR_T));
+extern char  *mktemp			__proto((char *));
+extern long   strtol			__proto((const char *, char **, int));
 
 extern char *optarg;
 extern int   optind;
@@ -1790,7 +1744,7 @@ extern char *sys_siglist[NSIG + 1];
    do...... */
 
 typedef struct _pseudo_ops {
-  const char *name;			/* pseduo-op in ascii */
+  const char *name;			/* pseudo-op in ascii */
   int len;				/* length of name to compare */
   void (*func) __proto((const char *));	/* function to handle line */
 } pseudo_ops_t;
@@ -2166,7 +2120,7 @@ add_ext_symbol (str_start, str_end_p1, type, storage, value, indx, ifd)
 
 STATIC symint_t
 add_aux_sym_symint (aux_word)
-     symint_t aux_word;		/* auxilary information word */
+     symint_t aux_word;		/* auxiliary information word */
 {
   register AUXU *aux_ptr;
   register efdr_t *file_ptr = cur_file_ptr;
@@ -2512,7 +2466,6 @@ add_procedure (func_start, func_end_p1)
     {
       register PDR *old_proc_ptr = shash_ptr->proc_ptr;
       register SYMR *sym_ptr = shash_ptr->sym_ptr;
-      register FDR *orig_fdr = file_ptr->orig_fdr;
 
       if (old_proc_ptr != (PDR *)0
 	  && sym_ptr != (SYMR *)0
@@ -2736,12 +2689,16 @@ st_to_string(symbol_type)
 }
 
 
-/* Read a line from standard input, and return the start of the
-   buffer (which is grows if the line is too big).  */
+/* Read a line from standard input, and return the start of the buffer
+   (which is grows if the line is too big).  We split lines at the
+   semi-colon, and return each logical line indpendently.  */
 
 STATIC char *
 read_line __proto((void))
 {
+  static   int line_split_p	= 0;
+  register int string_p		= 0;
+  register int comment_p	= 0;
   register int ch;
   register char *ptr;
 
@@ -2751,8 +2708,11 @@ read_line __proto((void))
       cur_line_alloc = PAGE_SIZE;
     }
 
+  if (!line_split_p)
+    line_number++;
+
+  line_split_p = 0;
   cur_line_nbytes = 0;
-  line_number++;
 
   for (ptr = cur_line_start; (ch = getchar ()) != EOF; *ptr++ = ch)
     {
@@ -2774,6 +2734,27 @@ read_line __proto((void))
 	  *ptr = '\0';
 	  cur_line_ptr = cur_line_start;
 	  return cur_line_ptr;
+	}
+
+      else if (ch == '\0')
+	error ("Null character found in input");
+
+      else if (!comment_p)
+	{
+	  if (ch == '"')
+	    string_p = !string_p;
+
+	  else if (ch == '#')
+	    comment_p++;
+
+	  else if (ch == ';')
+	    {
+	      line_split_p = 1;
+	      *ptr++ = '\n';
+	      *ptr = '\0';
+	      cur_line_ptr = cur_line_start;
+	      return cur_line_ptr;
+	    }
 	}
     }
 
@@ -3166,7 +3147,7 @@ parse_def (name_start)
 
 	      /* If this is a function, ignore it, so that we don't get
 		 two entries (one from the .ent, and one for the .def
-		 that preceedes it).  Save the type information so that
+		 that precedes it).  Save the type information so that
 		 the end block can properly add it after the begin block
 		 index.  For MIPS knows what reason, we must strip off
 		 the function type at this point.  */
@@ -3204,7 +3185,7 @@ parse_def (name_start)
 
 	      /* If the value is not an integer value, it must be the
 		 name of a static or global item.  Look up the name in
-		 the orignal symbol table to pick up the storage
+		 the original symbol table to pick up the storage
 		 class, symbol type, etc.  */
 	      else
 		{
@@ -3388,7 +3369,7 @@ parse_def (name_start)
       /* Members of structures and unions that aren't bitfields, need
 	 to adjust the value from a byte offset to a bit offset.
 	 Members of enumerations do not have the value adjusted, and
-	 can be distinquished by index == indexNil.  For enumerations,
+	 can be distinguished by index == indexNil.  For enumerations,
 	 update the maximum enumeration value.  */
 
     case st_Member:
@@ -4301,8 +4282,8 @@ read_seek (size, offset, str)
 	  if (sys_read != difference)
 	    fatal ("Wanted to read %d bytes from %s, system returned %d",
 		   size,
-		   sys_read,
-		   obj_in_name);
+		   obj_in_name,
+		   sys_read);
 	}
       else if (fseek (obj_in_stream, offset, SEEK_SET) < 0)
 	pfatal_with_name (obj_in_name);
@@ -4315,8 +4296,8 @@ read_seek (size, offset, str)
   if (sys_read != size)
     fatal ("Wanted to read %d bytes from %s, system returned %d",
 	   size,
-	   sys_read,
-	   obj_in_name);
+	   obj_in_name,
+	   sys_read);
 
   file_offset = offset + size;
 
@@ -4368,9 +4349,6 @@ copy_object __proto((void))
 	   obj_in_name,
 	   sys_read);
 
-
-  if (orig_file_header.f_flags != 0)
-    fatal ("Non-zero flags encountered in %s filehdr", input_name);
 
   if (orig_file_header.f_nsyms != sizeof (HDRR))
     fatal ("%s symbolic header wrong size (%d bytes, should be %d)",

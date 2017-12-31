@@ -1,7 +1,18 @@
-How to compile X11R5 (patch level 9) with GCC version 2:
+How to compile X11R5 (patch level 11) with GCC version 2:
 
 The patches include support for building the shared libraries with GCC 2 on 
-the Sparc and 68k machines.
+the Sparc and 68k machines.  NOTE: Such shared libraries DO NOT WORK
+with executables previously linked using Sun CC!  This is because
+neither those executables nor the gcc-compiled shared libraries contain
+libgcc.a.  The shared libraries do work with executables linked using
+GCC (running the Sun linker, of course) because GCC tells the linker to
+link in libgcc.a.  Because of these limitations the default behavior is
+to NOT build the shared libraries with gcc.  If you want the gcc-compiled
+shared libraries turn on "Gcc2BuildLibs" in site.def
+
+If you want to build a shared library that works with executables
+linked with Sun CC, you will have to arrange to include libgcc.a in
+the shared libraries.  The instructions below do not handle this.
 
 Sun forgot to include a static version of libdl.a with some versions
 of SunOS (4.1 mainly).  If you see undefined symbols _dlopen, _dlsym,
@@ -12,10 +23,10 @@ mit/config/Imake.tmpl -- Do not set -fstrength-reduce if we have GCC 2.  If
 -fstrength-reduce (or any other -f option) is a major win, then it will
 most likely be turned on by -O2 optimization.
 
-mit/config/sunLib.rules -- If HasGcc2 is defined, then use -fpic to 
-generate PIC code.  Make sure that gcc does not use gas (the GNU assembler)
-when compiling PIC code; gas does not assemble it correctly.  If you
-have gas installed where gcc uses it by default, you might have to add
+mit/config/sunLib.rules -- If HasGcc2 and Gcc2BuildLibs are defined, then 
+use gcc -fpic to generate PIC code.  Make sure that gcc does not use gas (the 
+GNU assembler) when compiling PIC code; gas does not assemble it correctly.  
+If you have gas installed where gcc uses it by default, you might have to add
 -B/bin/ to the PositionIndependentCFlags.
 
 mit/config/site.def -- Define HasGcc2 to be YES.
@@ -47,21 +58,22 @@ mit/server/os/Imakefile -- Likewise.
   #endif
   #if HasFortran
 *** mit/config/sunLib.rules.ORIG	Tue Dec 31 11:11:24 1991
---- mit/config/sunLib.rules	Thu Jan  2 15:39:29 1992
+--- mit/config/sunLib.rules	Tue May  5 12:26:12 1992
 ***************
-*** 23,29 ****
---- 23,33 ----
+*** 23,30 ****
+--- 23,34 ----
   #define SharedLibraryLoadFlags -assert pure-text
   #endif
   #ifndef PositionIndependentCFlags
-+ #if defined(HasGcc2)
++ #if defined(HasGcc2) && defined (Gcc2BuildLibs)
 + #define PositionIndependentCFlags -fpic
 + #else
   #define PositionIndependentCFlags -pic
-+ #endif
   #endif
++ #endif
   
   /*
+   * InstallSharedLibrary - generate rules to install the shared library.
 *** mit/config/site.def.ORIG	Tue Dec 31 11:13:49 1991
 --- mit/config/site.def	Tue Dec 31 12:02:59 1991
 ***************
@@ -73,35 +85,42 @@ mit/server/os/Imakefile -- Likewise.
   
   #endif /* BeforeVendorCF */
   
---- 25,32 ----
+--- 25,33 ----
   
   #ifdef BeforeVendorCF
   
 ! #define HasGcc YES 
 ! #define HasGcc2 YES
+! /* #define Gcc2BuildLibs YES */
   
   #endif /* BeforeVendorCF */
   
 *** mit/config/sun.cf.ORIG	Tue Dec 31 11:13:57 1991
---- mit/config/sun.cf	Wed Jan 15 12:13:53 1992
+--- mit/config/sun.cf	Tue May  5 12:29:50 1992
 ***************
 *** 34,42 ****
---- 34,47 ----
+--- 41,61 ----
   
   #if HasGcc
   
-+ #define OptimizedCDebugFlags -O
 + #if defined(HasGcc2) 
-+ #define OptimizedCDebugFlags -O2
-+ #else
++ #define OptimizedCDebugFlags -O2 
++ /* Leave Alone XXX */
++ #else 
++ #define OptimizedCDebugFlags -O
   #define SharedLibraryCcCmd cc
   #define ExtraLoadFlags -B/usr/bin/
   #define AllocateLocalDefines /**/
 + #endif
++ 
++ #if !defined(Gcc2BuildLibs)
++ #define SharedLibraryCcCmd cc
++ #define ExtraLoadFlags -B/usr/bin/
++ #define AllocateLocalDefines /**/
++ #endif
   
   .c.o:
   	$(CC) -c $(CFLAGS) $*.c
-
 *** mit/rgb/Imakefile.ORIG	Wed Jan 15 16:43:18 1992
 --- mit/rgb/Imakefile	Thu Jan  2 13:34:09 1992
 ***************
@@ -140,5 +159,3 @@ mit/server/os/Imakefile -- Likewise.
   oscolor.o: $(ICONFIGFILES)
   	$(RM) $@
   	cc -c $(DBM_DEFINES) $(CDEBUGFLAGS) $(ALLDEFINES) $*.c
-
-

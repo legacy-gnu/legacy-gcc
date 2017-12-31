@@ -230,6 +230,10 @@ build_up_reference (type, arg, flags)
       basetype = BINFO_TYPE (binfo);
     }
 
+  /* Pass along const and volatile down into the type. */
+  if (TYPE_READONLY (type) || TYPE_VOLATILE (type))
+    target_type = build_type_variant (target_type, TYPE_READONLY (type),
+				      TYPE_VOLATILE (type));
   targ = arg;
   if (TREE_CODE (targ) == SAVE_EXPR)
     targ = TREE_OPERAND (targ, 0);
@@ -252,10 +256,49 @@ build_up_reference (type, arg, flags)
 	  || (TREE_CODE (arg) == CONVERT_EXPR && TREE_REFERENCE_EXPR (arg)))
 	arg = TREE_OPERAND (arg, 0);
 
+      /* in doing a &*, we have to get rid of the const'ness on the pointer
+	 value.  Haven't thought about volatile here.  Pointers come to mind
+	 here.  */
+      if (TREE_READONLY (arg))
+	{
+	  arg = copy_node (arg);
+	  TREE_READONLY (arg) = 0;
+	}
+
       rval = build1 (CONVERT_EXPR, type, arg);
       TREE_REFERENCE_EXPR (rval) = 1;
+
+      /* propagate the const flag on something like:
+
+	 class Base {
+	 public:
+	   int foo;
+	 };
+
+      class Derived : public Base {
+      public:
+	int bar;
+      };
+
+      void func(Base&);
+
+      void func2(const Derived& d) {
+	func(d);
+      }
+
+        on the d parameter.  The below could have been avoided, if the flags
+        were down in the tree, not sure why they are not.  */
+      /* The below code may have to be propagated to other parts of this
+	 switch.  */
+      if (TREE_READONLY (targ) && !TREE_READONLY (arg)
+	  && (TREE_CODE (arg) == PARM_DECL || TREE_CODE (arg) == VAR_DECL)
+	  && TREE_CODE (TREE_TYPE (arg)) == REFERENCE_TYPE)
+	{
+	  TREE_READONLY (arg) = TREE_READONLY (targ);
+	}
       literal_flag = TREE_CONSTANT (arg);
-      goto done;
+
+      goto done_but_maybe_warn;
 
       /* Get this out of a register if we happened to be in one by accident.
 	 Also, build up references to non-lvalues it we must.  */
@@ -290,11 +333,8 @@ build_up_reference (type, arg, flags)
 				   "attempt to make a reference to bit-field structure member `%s'");
       TREE_TYPE (rval) = type;
       literal_flag = staticp (TREE_OPERAND (targ, 0));
-#if 0
+
       goto done_but_maybe_warn;
-#else
-      goto done;
-#endif
 
       /* Anything not already handled and not a true memory reference
 	 needs to have a reference built up.  Do so silently for
@@ -428,7 +468,7 @@ build_up_reference (type, arg, flags)
   else
     {
       if (TREE_CODE (arg) == SAVE_EXPR)
-	abort ();
+	my_friendly_abort (5);
       rval = build1 (ADDR_EXPR, type, arg);
     }
 
@@ -480,8 +520,11 @@ convert_to_reference (decl, reftype, expr, strict, flags)
 	    error ("ambiguous pointer conversion");
 	  return rval;
 	}
-      else if (rval = build_type_conversion (CONVERT_EXPR, type, expr, 1))
+      else if (type != intype
+	       && (rval = build_type_conversion (CONVERT_EXPR, type, expr, 1)))
 	{
+	  if (rval == error_mark_node)
+	    return rval;
 	  if (TYPE_NEEDS_DESTRUCTOR (type))
 	    {
 	      rval = convert_to_reference (NULL_TREE, reftype, rval, strict, flags);
@@ -1185,9 +1228,17 @@ convert_pointer_to (binfo, expr)
       tree path;
       int distance = get_base_distance (type, TYPE_MAIN_VARIANT (TREE_TYPE (intype)), 0, &path);
 
-      /* This function shouldn't be called with
-	 unqualified arguments.  */
-      assert (distance >= 0);
+      /* This function shouldn't be called with unqualified arguments
+	 but if it is, give them an error message that they can read.
+	 */
+      if (distance < 0)
+	{
+	  error ("cannot convert a pointer of type `%s'",
+		 TYPE_NAME_STRING (TREE_TYPE (intype)));
+	  error_with_aggr_type (type, "to a pointer of type `%s'");
+
+	  return error_mark_node;
+	}
 
       return build_vbase_path (PLUS_EXPR, ptr_type, expr, path, 1);
     }
@@ -1218,7 +1269,7 @@ convert_pointer_to_vbase (binfo, expr)
       if (binfo_member (BINFO_TYPE (binfo), CLASSTYPE_VBASECLASSES (basetype)))
 	return convert_pointer_to_vbase (binfo, convert_pointer_to (basetype, expr));
     }
-  abort ();
+  my_friendly_abort (6);
   /* NOTREACHED */
   return NULL_TREE;
 }
@@ -1702,7 +1753,8 @@ build_type_conversion (code, xtype, expr, for_sure)
      double -> float or int -> unsigned or unsigned -> long
 
      */
-  if (type_default == type)
+  if (type_default == type
+      && (TREE_CODE (type) == INTEGER_TYPE || TREE_CODE (type) == REAL_TYPE))
     {
       int not_again = 0;
 

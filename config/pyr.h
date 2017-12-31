@@ -303,7 +303,7 @@ frame n    |            |            |            |
 
 /* Base register for access to local variables of the function.
    Pyramid uses CFP (GR13) as both frame pointer and argument pointer. */
-#define FRAME_POINTER_REGNUM PYR_GREG(13)
+#define FRAME_POINTER_REGNUM 13 /* pyr cpp fails on PYR_GREG(13) */
 
 /* Value should be nonzero if functions must have frame pointers.
    Zero means the frame pointer need not be set up (and parms
@@ -788,11 +788,11 @@ extern int current_function_calls_alloca;
 /* All registers except gr0 OK as index or base registers.  */
 
 #define REGNO_OK_FOR_BASE_P(regno) \
-((regno) < FIRST_PSEUDO_REGISTER || reg_renumber[regno] < FIRST_PSEUDO_REGISTER)
+((regno) < FIRST_PSEUDO_REGISTER || reg_renumber[regno] >= 0)
 
 #define REGNO_OK_FOR_INDEX_P(regno)  \
 ((unsigned) (regno) - 1 < FIRST_PSEUDO_REGISTER - 1 \
- || (unsigned) reg_renumber[regno] - 1 < FIRST_PSEUDO_REGISTER - 1)
+ || reg_renumber[regno] > 0)
 
 /* Maximum number of registers that can appear in a valid memory address.  */
 
@@ -1030,7 +1030,7 @@ extern int current_function_calls_alloca;
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     if (CONST_OK_FOR_LETTER_P (INTVAL (RTX),'I')) return 0;	\
   case CONST:							\

@@ -45,8 +45,6 @@ lvalue_p (ref)
 	   what they refer to are valid lvals. */
       case PREINCREMENT_EXPR:
       case PREDECREMENT_EXPR:
-      case POSTINCREMENT_EXPR:
-      case POSTDECREMENT_EXPR:
       case COMPONENT_REF:
 	return lvalue_p (TREE_OPERAND (ref, 0));
 
@@ -81,7 +79,7 @@ lvalue_p (ref)
 
 	/* A currently unresolved scope ref.  */
       case SCOPE_REF:
-	abort ();
+	my_friendly_abort (103);
       case OFFSET_REF:
 	if (TREE_CODE (TREE_OPERAND (ref, 1)) == FUNCTION_DECL)
 	  return 1;
@@ -149,6 +147,9 @@ build_cplus_new (type, init, with_cleanup_p)
   return rval;
 }
 
+/* Recursively search EXP for CALL_EXPRs that need cleanups and replace
+   these CALL_EXPRs with tree nodes that will perform the cleanups.  */
+
 tree
 break_out_cleanups (exp)
      tree exp;
@@ -175,6 +176,74 @@ break_out_cleanups (exp)
 	tmp = TREE_OPERAND (tmp, 0);
     }
   return exp;
+}
+
+/* Recursively perform a preorder search EXP for CALL_EXPRs, making
+   copies where they are found.  Retuns a deep copy all nodes transitively
+   containing CALL_EXPRs.  */
+
+tree
+break_out_calls (exp)
+     tree exp;
+{
+  register tree t1, t2;
+  register enum tree_code code;
+  register int changed = 0;
+  register int i;
+
+  if (exp == NULL_TREE)
+    return exp;
+
+  code = TREE_CODE (exp);
+
+  if (code == CALL_EXPR)
+    return copy_node (exp);
+
+  switch (TREE_CODE_CLASS (code))
+    {
+    case 'x':  /* something random, like an identifier.  */
+    case 't':  /* a type node */
+    default:
+      abort ();
+
+    case 'c':  /* a constant */
+    case 'd':  /* A decl node */
+      return exp;
+
+    case 'e':  /* a expression */
+    case 's':  /* an expression with side effects */
+      for (i = tree_code_length[(int) code]; i >= 0; i--)
+	{
+	  t1 = break_out_calls (TREE_OPERAND (exp, i));
+	  if (t1 != TREE_OPERAND (exp, i))
+	    {
+	      if (changed == 0)
+		exp = copy_node (exp);
+	      TREE_OPERAND (exp, i) = t1;
+	    }
+	}
+      return exp;
+
+    case '<':  /* a comparison expression */
+    case '2':  /* a binary arithmetic expression */
+      t2 = break_out_calls (TREE_OPERAND (exp, 1));
+      if (t2 != TREE_OPERAND (exp, 1))
+	changed = 1;
+    case 'r':  /* a reference */
+    case '1':  /* a unary arithmetic expression */
+      t1 = break_out_calls (TREE_OPERAND (exp, 0));
+      if (t1 != TREE_OPERAND (exp, 0))
+	changed = 1;
+      if (changed)
+	{
+	  if (tree_code_length[(int) code] == 1)
+	    return build1 (code, TREE_TYPE (exp), t1);
+	  else
+	    return build (code, TREE_TYPE (exp), t1, t2);
+	}
+      return exp;
+    }
+
 }
 
 extern struct obstack *current_obstack;
@@ -203,8 +272,13 @@ build_cplus_method_type (basetype, rettype, argtypes)
 
   TYPE_METHOD_BASETYPE (t) = TYPE_MAIN_VARIANT (basetype);
   TREE_TYPE (t) = rettype;
+#if 0
+  /* it is wrong to flag the object the pointer points to as readonly
+     when flag_this_is_variable is 0. */
   ptype = build_type_variant (ptype, flag_this_is_variable <= 0, 0);
-
+#else
+  ptype = build_type_variant (ptype, 0, 0);
+#endif
   /* The actual arglist for this function includes a "hidden" argument
      which is "this".  Put it into the list of argument types.  */
 
@@ -547,7 +621,7 @@ layout_basetypes (rec, binfos)
 	  sprintf (name, VBASE_NAME_FORMAT, TYPE_NAME_STRING (basetype));
 	  decl = build_lang_decl (FIELD_DECL, get_identifier (name),
 				  build_pointer_type (basetype));
-	  DECL_ASSEMBLER_NAME (decl) = get_identifier ("$vb");
+	  DECL_ASSEMBLER_NAME (decl) = get_identifier (VTABLE_BASE);
 	  DECL_VIRTUAL_P (decl) = 1;
 	  DECL_FIELD_CONTEXT (decl) = rec;
 	  DECL_CLASS_CONTEXT (decl) = rec;
@@ -1083,7 +1157,7 @@ virtual_member (elem, list)
 	    if (nval)
 	      {
 		if (rval && BINFO_OFFSET (nval) != BINFO_OFFSET (rval))
-		  abort ();
+		  my_friendly_abort (104);
 		rval = nval;
 	      }
 	  }
@@ -1124,7 +1198,7 @@ virtual_offset (elem, list, initial_offset)
 	  if (nval)
 	    {
 	      if (rval && BINFO_OFFSET (nval) != BINFO_OFFSET (rval))
-		abort ();
+		my_friendly_abort (105);
 	      offset = BINFO_OFFSET (vb);
 	      rval = nval;
 	    }
@@ -1286,7 +1360,7 @@ lang_printable_name (decl)
       if (ring_counter == PRINT_RING_SIZE)
 	ring_counter = 0;
       if (decl_ring[ring_counter] == current_function_decl)
-	abort ();
+	my_friendly_abort (106);
     }
 
   if (print_ring[ring_counter])
@@ -1408,7 +1482,7 @@ build_exception_variant (ctype, type, raises)
   return v;
 }
 
-/* Subroutine of make_permanent_node.
+/* Subroutine of copy_to_permanent
 
    Assuming T is a node build bottom-up, make it all exist on
    permanent obstack, if it is not permanent already.  */
@@ -1540,7 +1614,7 @@ make_deep_copy (t)
       return error_mark_node;
 
     }
-  abort ();
+  my_friendly_abort (107);
   /* NOTREACHED */
   return NULL_TREE;
 }

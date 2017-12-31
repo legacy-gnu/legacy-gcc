@@ -681,6 +681,149 @@ round_push (size)
   return size;
 }
 
+/* Save the stack pointer for the purpose in SAVE_LEVEL.  PSAVE is a pointer
+   to a previously-created save area.  If no save area has been allocated,
+   this function will allocate one.  If a save area is specified, it
+   must be of the proper mode.
+
+   The insns are emitted after insn AFTER, if nonzero, otherwise the insns
+   are emitted at the current position.  */
+
+void
+emit_stack_save (save_level, psave, after)
+     enum save_level save_level;
+     rtx *psave;
+     rtx after;
+{
+  rtx sa = *psave;
+  /* The default is that we use a move insn and save in a Pmode object.  */
+  rtx (*fcn) () = gen_move_insn;
+  enum machine_mode mode = Pmode;
+
+  /* See if this machine has anything special to do for this kind of save.  */
+  switch (save_level)
+    {
+#ifdef HAVE_save_stack_block
+    case SAVE_BLOCK:
+      if (HAVE_save_stack_block)
+	{
+	  fcn = gen_save_stack_block;
+	  mode = insn_operand_mode[CODE_FOR_save_stack_block][0];
+	}
+      break;
+#endif
+#ifdef HAVE_save_stack_function
+    case SAVE_FUNCTION:
+      if (HAVE_save_stack_function)
+	{
+	  fcn = gen_save_stack_function;
+	  mode = insn_operand_mode[CODE_FOR_save_stack_function][0];
+	}
+      break;
+#endif
+#ifdef HAVE_save_stack_nonlocal
+    case SAVE_NONLOCAL:
+      if (HAVE_save_stack_nonlocal)
+	{
+	  fcn = gen_save_stack_nonlocal;
+	  mode = insn_operand_mode[CODE_FOR_save_stack_nonlocal][0];
+	}
+      break;
+#endif
+    }
+
+  /* If there is no save area and we have to allocate one, do so.  Otherwise
+     verify the save area is the proper mode.  */
+
+  if (sa == 0)
+    {
+      if (mode != VOIDmode)
+	{
+	  if (save_level == SAVE_NONLOCAL)
+	    *psave = sa = assign_stack_local (mode, GET_MODE_SIZE (mode), 0);
+	  else
+	    *psave = sa = gen_reg_rtx (mode);
+	}
+    }
+  else
+    {
+      if (mode == VOIDmode || GET_MODE (sa) != mode)
+	abort ();
+    }
+
+  if (sa != 0)
+    sa = validize_mem (sa);
+
+  if (after)
+    {
+      rtx seq;
+
+      start_sequence ();
+      emit_insn (fcn (sa, stack_pointer_rtx));
+      seq = gen_sequence ();
+      end_sequence ();
+      emit_insn_after (seq, after);
+    }
+  else
+    emit_insn (fcn (sa, stack_pointer_rtx));
+}
+
+/* Restore the stack pointer for the purpose in SAVE_LEVEL.  SA is the save
+   area made by emit_stack_save.  If it is zero, we have nothing to do. 
+
+   Put any emitted insns after insn AFTER, if nonzero, otherwise at 
+   current position.  */
+
+void
+emit_stack_restore (save_level, sa, after)
+     enum save_level save_level;
+     rtx after;
+     rtx sa;
+{
+  /* The default is that we use a move insn.  */
+  rtx (*fcn) () = gen_move_insn;
+
+  /* See if this machine has anything special to do for this kind of save.  */
+  switch (save_level)
+    {
+#ifdef HAVE_restore_stack_block
+    case SAVE_BLOCK:
+      if (HAVE_restore_stack_block)
+	fcn = gen_restore_stack_block;
+      break;
+#endif
+#ifdef HAVE_restore_stack_function
+    case SAVE_FUNCTION:
+      if (HAVE_restore_stack_function)
+	fcn = gen_restore_stack_function;
+      break;
+#endif
+#ifdef HAVE_restore_stack_nonlocal
+
+    case SAVE_NONLOCAL:
+      if (HAVE_restore_stack_nonlocal)
+	fcn = gen_restore_stack_nonlocal;
+      break;
+#endif
+    }
+
+  if (sa != 0)
+    sa = validize_mem (sa);
+
+  if (after)
+    {
+      rtx seq;
+
+      start_sequence ();
+      emit_insn (fcn (stack_pointer_rtx, sa));
+      seq = gen_sequence ();
+      end_sequence ();
+      emit_insn_after (seq, after);
+    }
+  else
+    emit_insn (fcn (stack_pointer_rtx, sa));
+}
+
 /* Return an rtx representing the address of an area of memory dynamically
    pushed on the stack.  This region of memory is always aligned to
    a multiple of BIGGEST_ALIGNMENT.
@@ -688,12 +831,15 @@ round_push (size)
    Any required stack pointer alignment is preserved.
 
    SIZE is an rtx representing the size of the area.
-   TARGET is a place in which the address can be placed.  */
+   TARGET is a place in which the address can be placed.
+
+   KNOWN_ALIGN is the alignment (in bits) that we know SIZE has.  */
 
 rtx
-allocate_dynamic_stack_space (size, target)
+allocate_dynamic_stack_space (size, target, known_align)
      rtx size;
      rtx target;
+     int known_align;
 {
   /* Ensure the size is in the proper mode.  */
   if (GET_MODE (size) != VOIDmode && GET_MODE (size) != Pmode)
@@ -722,14 +868,18 @@ allocate_dynamic_stack_space (size, target)
 
 #ifdef MUST_ALIGN
 
-  if (GET_CODE (size) == CONST_INT)
-    size = gen_rtx (CONST_INT, VOIDmode,
-		    INTVAL (size) + (BIGGEST_ALIGNMENT / BITS_PER_UNIT - 1));
-  else
-    size = expand_binop (Pmode, add_optab, size,
-			 gen_rtx (CONST_INT, VOIDmode,
-				  BIGGEST_ALIGNMENT / BITS_PER_UNIT - 1),
-			 0, 1, OPTAB_LIB_WIDEN);
+  if (known_align % BIGGEST_ALIGNMENT != 0)
+    {
+      if (GET_CODE (size) == CONST_INT)
+	size = gen_rtx (CONST_INT, VOIDmode,
+			(INTVAL (size)
+			 + (BIGGEST_ALIGNMENT / BITS_PER_UNIT - 1)));
+      else
+	size = expand_binop (Pmode, add_optab, size,
+			     gen_rtx (CONST_INT, VOIDmode,
+				      BIGGEST_ALIGNMENT / BITS_PER_UNIT - 1),
+			     0, 1, OPTAB_LIB_WIDEN);
+    }
 #endif
 
 #ifdef SETJMP_VIA_SAVE_AREA
@@ -761,12 +911,19 @@ allocate_dynamic_stack_space (size, target)
      way of knowing which systems have this problem.  So we avoid even
      momentarily mis-aligning the stack.  */
 
-  size = round_push (size);
+#ifdef STACK_BOUNDARY
+  if (known_align % STACK_BOUNDARY != 0)
+    size = round_push (size);
+#endif
 
   do_pending_stack_adjust ();
 
-  if (target == 0)
+  /* Don't use a TARGET that isn't a pseudo.  */
+  if (target == 0 || GET_CODE (target) != REG
+      || REGNO (target) < FIRST_PSEUDO_REGISTER)
     target = gen_reg_rtx (Pmode);
+
+  mark_reg_pointer (target);
 
 #ifndef STACK_GROWS_DOWNWARD
   emit_move_insn (target, virtual_stack_dynamic_rtx);
@@ -797,15 +954,18 @@ allocate_dynamic_stack_space (size, target)
 #endif
 
 #ifdef MUST_ALIGN
-  target = expand_divmod (0, CEIL_DIV_EXPR, Pmode, target,
-			  gen_rtx (CONST_INT, VOIDmode,
-				   BIGGEST_ALIGNMENT / BITS_PER_UNIT),
-			  0, 1);
+  if (known_align % BIGGEST_ALIGNMENT != 0)
+    {
+      target = expand_divmod (0, CEIL_DIV_EXPR, Pmode, target,
+			      gen_rtx (CONST_INT, VOIDmode,
+				       BIGGEST_ALIGNMENT / BITS_PER_UNIT),
+			      0, 1);
 
-  target = expand_mult (Pmode, target,
-			gen_rtx (CONST_INT, VOIDmode,
-				 BIGGEST_ALIGNMENT / BITS_PER_UNIT),
-			0, 1);
+      target = expand_mult (Pmode, target,
+			    gen_rtx (CONST_INT, VOIDmode,
+				     BIGGEST_ALIGNMENT / BITS_PER_UNIT),
+			    0, 1);
+    }
 #endif
   
   /* Some systems require a particular insn to refer to the stack

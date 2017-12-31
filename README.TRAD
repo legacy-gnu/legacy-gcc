@@ -1,5 +1,6 @@
-This is a partial list of how `gcc -traditional' disagrees with 
-traditional C compilers.
+This is a partial list of how `gcc -traditional' disagrees with
+traditional C compilers (perhaps only some of them).  Most of these
+differences are not bugs.
 
 ---------------------------------------------------------------------------
 K&R-1 (2.4.3) says:

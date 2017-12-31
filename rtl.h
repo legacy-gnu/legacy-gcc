@@ -32,9 +32,9 @@ enum rtx_code  {
 #include "rtl.def"		/* rtl expressions are documented here */
 #undef DEF_RTL_EXPR
 
-  LAST_AND_UNUSED_RTX_CODE};	/* A convienent way to get a value for
+  LAST_AND_UNUSED_RTX_CODE};	/* A convenient way to get a value for
 				   NUM_RTX_CODE.
-				   Assumes default enum value assignement.  */
+				   Assumes default enum value assignment.  */
 
 #define NUM_RTX_CODE ((int)LAST_AND_UNUSED_RTX_CODE)
 				/* The cast here, saves many elsewhere.  */
@@ -219,7 +219,7 @@ typedef struct rtvec_def{
 #define INSN_ANNULLED_BRANCH_P(INSN) ((INSN)->unchanging)
 
 /* 1 if insn is in a delay slot and is from the target of the branch.  If
-   the branch insn has INSN_ANULLED_BRANCH_P set, this insn should only be
+   the branch insn has INSN_ANNULLED_BRANCH_P set, this insn should only be
    executed if the branch is taken.  For annulled branches with this bit
    clear, the insn should be executed only if the branch is not taken.  */
 #define INSN_FROM_TARGET_P(INSN) ((INSN)->in_struct)
@@ -509,8 +509,8 @@ extern char *note_insn_name[];
 /* Define a macro to look for REG_INC notes,
    but save time on machines where they never exist.  */
 
-#if (defined (HAVE_PRE_INCREMENT) || defined (HAVE_PRE_DECREMENT) \
-     || defined (HAVE_POST_INCREMENT) || defined (HAVE_POST_DECREMENT))
+/* Don't continue this line--convex cc version 4.1 would lose.  */
+#if (defined (HAVE_PRE_INCREMENT) || defined (HAVE_PRE_DECREMENT) || defined (HAVE_POST_INCREMENT) || defined (HAVE_POST_DECREMENT))
 #define FIND_REG_INC_NOTE(insn, reg) (find_reg_note ((insn), REG_INC, (reg)))
 #else
 #define FIND_REG_INC_NOTE(insn, reg) 0
@@ -519,8 +519,8 @@ extern char *note_insn_name[];
 /* Indicate whether the machine has any sort of auto increment addressing.
    If not, we can avoid checking for REG_INC notes.  */
 
-#if (defined (HAVE_PRE_INCREMENT) || defined (HAVE_PRE_DECREMENT) \
-     || defined (HAVE_POST_INCREMENT) || defined (HAVE_POST_DECREMENT))
+/* Don't continue this line--convex cc version 4.1 would lose.  */
+#if (defined (HAVE_PRE_INCREMENT) || defined (HAVE_PRE_DECREMENT) || defined (HAVE_POST_INCREMENT) || defined (HAVE_POST_DECREMENT))
 #define AUTO_INC_DEC
 #endif
 
@@ -617,6 +617,7 @@ extern enum rtx_code unsigned_condition ();
 extern enum rtx_code signed_condition ();
 extern rtx plus_constant (), plus_constant_for_output ();
 extern rtx find_equiv_reg ();
+extern rtx squeeze_notes ();
 extern rtx delete_insn ();
 extern void delete_jump ();
 extern rtx get_label_before ();

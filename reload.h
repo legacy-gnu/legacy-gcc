@@ -76,6 +76,7 @@ enum reload_when_needed
 extern enum reload_when_needed reload_when_needed[MAX_RELOADS];
 
 extern rtx *reg_equiv_constant;
+extern rtx *reg_equiv_memory_loc;
 extern rtx *reg_equiv_address;
 extern rtx *reg_equiv_mem;
 
@@ -110,3 +111,4 @@ extern void find_reloads ();
 extern void subst_reloads ();
 extern rtx eliminate_regs ();
 extern rtx gen_input_reload ();
+extern rtx find_replacement ();

@@ -38,7 +38,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "c-tree.h"
 #include "expr.h"
-#include "hard-reg-set.h"
 #include "flags.h"
 
 extern char *version_string;
@@ -47,7 +46,7 @@ extern char *ctime ();
 extern int flag_traditional;
 extern FILE *asm_out_file;
 
-static char out_sccs_id[] = "@(#)m88k.c	2.0.3.4 19 Mar 1992 11:11:58";
+static char out_sccs_id[] = "@(#)m88k.c	2.1.11.11 29 May 1992 11:12:23";
 static char tm_sccs_id [] = TM_SCCS_ID;
 
 char *m88k_pound_sign = "";	/* Either # for SVR4 or empty for SVR3 */
@@ -212,7 +211,8 @@ emit_move_sequence (operands, mode)
     }
   else if (GET_CODE (operand0) == MEM)
     {
-      if (register_operand (operand1, mode) || operand1 == const0_rtx)
+      if (register_operand (operand1, mode)
+	  || (operand1 == const0_rtx && GET_MODE_SIZE (mode) <= UNITS_PER_WORD))
 	{
 	  /* Run this case quickly.  */
 	  emit_insn (gen_rtx (SET, VOIDmode, operand0, operand1));
@@ -718,11 +718,14 @@ output_call (operands, addr)
   if (final_sequence)
     {
       rtx jump;
+      rtx seq_insn;
 
       /* This can be generalized, but there is currently no need.  */
       if (XVECLEN (final_sequence, 0) != 2)
 	abort ();
 
+      /* The address of interior insns is not computed, so use the sequence.  */
+      seq_insn = NEXT_INSN (PREV_INSN (XVECEXP (final_sequence, 0, 0)));
       jump = XVECEXP (final_sequence, 0, 1);
       if (GET_CODE (jump) == JUMP_INSN)
 	{
@@ -730,7 +733,8 @@ output_call (operands, addr)
 	  char *last;
 	  rtx dest = XEXP (SET_SRC (PATTERN (jump)), 0);
 	  int delta = 4 * (insn_addresses[INSN_UID (dest)]
-			   - insn_addresses[INSN_UID (jump)]);
+			   - insn_addresses[INSN_UID (seq_insn)]
+			   - 2);
 #if (MONITOR_GCC & 0x2) /* How often do long branches happen?  */
 	  if ((unsigned) (delta + 0x8000) >= 0x10000)
 	    warning ("Internal gcc monitor: short-branch(%x)", delta);
@@ -812,55 +816,121 @@ output_short_branch_defs (stream)
 	(low, "L", CODE_LABEL_NUMBER (XEXP (sb_low, 0)));
       /* This will change as the assembler requirements become known.  */
       fprintf (stream, "\t%s\t %s,%s-%s\n",
-	       DEF_ASM_OP, &name[1], &high[1], &low[1]);
+	       SET_ASM_OP, &name[1], &high[1], &low[1]);
     }
   if (sb_name || sb_high || sb_low)
     abort ();
 }
 
-/* Report errors on floating point, if we are given NaN's, or such.  Leave
-   the number as is, though, since we output the number in hex, and the
-   assembler won't choke on it.  */
+/* Return truth value of the statement that this conditional branch is likely
+   to fall through.  CONDITION, is the condition that JUMP_INSN is testing.  */
 
-void
-check_float_value (mode, value)
-     enum machine_mode mode;
-     REAL_VALUE_TYPE value;
+int
+mostly_false_jump (jump_insn, condition)
+     rtx jump_insn, condition;
 {
-  union {
-    REAL_VALUE_TYPE d;
-    struct {
-      unsigned sign	    :  1;
-      unsigned exponent  : 11;
-      unsigned mantissa1 : 20;
-      unsigned mantissa2;
-    } s;
-  } u;
+  rtx target_label = JUMP_LABEL (jump_insn);
+  rtx insnt, insnj;
 
-  if (mode == DFmode)
+  /* Much of this isn't computed unless we're optimizing.  */
+  if (optimize == 0)
+    return 0;
+
+  /* Determine if one path or the other leads to a return.  */
+  for (insnt = NEXT_INSN (target_label);
+       insnt;
+       insnt = NEXT_INSN (insnt))
     {
-      u.d = value;
-      if (u.s.mantissa1 != 0 || u.s.mantissa2 != 0)
+      if (GET_CODE (insnt) == JUMP_INSN)
+	break;
+      else if (GET_CODE (insnt) == SEQUENCE
+	       && GET_CODE (XVECEXP (insnt, 0, 0)) == JUMP_INSN)
 	{
-	  if (u.s.exponent == 0x7ff)	/* Not a Number */
-	    warning ("floating point number is not valid for IEEE double precision");
-	  else if (u.s.exponent == 0)
-	    warning ("denormalized double precision floating point number");
+	  insnt = XVECEXP (insnt, 0, 0);
+	  break;
 	}
     }
-  else if (mode == SFmode)
+  if (insnt
+      && (GET_CODE (PATTERN (insnt)) == RETURN
+	  || (GET_CODE (PATTERN (insnt)) == SET
+	      && GET_CODE (SET_SRC (PATTERN (insnt))) == REG
+	      && REGNO (SET_SRC (PATTERN (insnt))) == 1)))
+    insnt = 0;
+
+  for (insnj = NEXT_INSN (jump_insn);
+       insnj;
+       insnj = NEXT_INSN (insnj))
     {
-      u.d = REAL_VALUE_TRUNCATE (mode, value);
-      if (u.s.mantissa1 != 0 || u.s.mantissa2 != 0)
+      if (GET_CODE (insnj) == JUMP_INSN)
+	break;
+      else if (GET_CODE (insnj) == SEQUENCE
+	       && GET_CODE (XVECEXP (insnj, 0, 0)) == JUMP_INSN)
 	{
-	  if (u.s.exponent == 0x7ff)	/* Not a Number */
-	    warning ("floating point number is not valid for IEEE double precision");
-	  else if (u.s.exponent == 0)
-	    warning ("denormalized single precision floating point number");
+	  insnj = XVECEXP (insnj, 0, 0);
+	  break;
 	}
-      else if (u.s.exponent == 0x7ff)	/* Infinity */
-	warning ("floating point number exceeds range of `float'");
     }
+  if (insnj
+      && (GET_CODE (PATTERN (insnj)) == RETURN
+	  || (GET_CODE (PATTERN (insnj)) == SET
+	      && GET_CODE (SET_SRC (PATTERN (insnj))) == REG
+	      && REGNO (SET_SRC (PATTERN (insnj))) == 1)))
+    insnt = 0;
+
+  /* Predict to not return.  */
+  if ((insnt == 0) != (insnj == 0))
+    return (insnt == 0);
+
+  /* Predict loops to loop.  */
+  for (insnt = PREV_INSN (target_label);
+       insnt && GET_CODE (insnt) == NOTE;
+       insnt = PREV_INSN (insnt))
+    if (NOTE_LINE_NUMBER (insnt) == NOTE_INSN_LOOP_END)
+      return 1;
+    else if (NOTE_LINE_NUMBER (insnt) == NOTE_INSN_LOOP_BEG)
+      return 0;
+    else if (NOTE_LINE_NUMBER (insnt) == NOTE_INSN_LOOP_CONT)
+      return 0;
+
+  /* Predict backward branches usually take.  */
+  if (final_sequence)
+    insnj = NEXT_INSN (PREV_INSN (XVECEXP (final_sequence, 0, 0)));
+  else
+    insnj = jump_insn;
+  if (insn_addresses[INSN_UID (insnj)]
+      > insn_addresses[INSN_UID (target_label)])
+    return 0;
+
+  /* EQ tests are usually false and NE tests are usually true.  Also,
+     most quantities are positive, so we can make the appropriate guesses
+     about signed comparisons against zero.  Consider unsigned comparsions
+     to be a range check and assume quantities to be in range.  */
+  switch (GET_CODE (condition))
+    {
+    case CONST_INT:
+      /* Unconditional branch.  */
+      return 0;
+    case EQ:
+      return 1;
+    case NE:
+      return 0;
+    case LE:
+    case LT:
+    case GEU:
+    case GTU: /* Must get casesi right at least.  */
+      if (XEXP (condition, 1) == const0_rtx)
+        return 1;
+      break;
+    case GE:
+    case GT:
+    case LEU:
+    case LTU:
+      if (XEXP (condition, 1) == const0_rtx)
+	return 0;
+      break;
+    }
+
+  return 0;
 }
 
 /* Return true if the operand is a power of two and is a floating
@@ -1260,6 +1330,8 @@ output_options (file, f_options, f_len, W_options, W_len,
     pos = output_option (file, sep, "-traditional", "", indent, pos, max);
   if (profile_flag)
     pos = output_option (file, sep, "-p", "", indent, pos, max);
+  if (profile_block_flag)
+    pos = output_option (file, sep, "-a", "", indent, pos, max);
 
   for (j = 0; j < f_len; j++)
     if (*f_options[j].variable == f_options[j].on_value)
@@ -1322,8 +1394,10 @@ output_file_start (file, f_options, f_len, W_options, W_len)
 /* Output an ascii string.  */
 
 void
-output_ascii (file, p, size)
+output_ascii (file, opcode, max, p, size)
      FILE *file;
+     char *opcode;
+     int max;
      unsigned char *p;
      int size;
 {
@@ -1331,14 +1405,14 @@ output_ascii (file, p, size)
 
   register int num = 0;
 
-  fprintf (file, "\t%s\t \"", ASCII_DATA_ASM_OP);
+  fprintf (file, "\t%s\t \"", opcode);
   for (i = 0; i < size; i++)
     {
       register int c = p[i];
 
-      if (num > 48)
+      if (num > max)
 	{
-	  fprintf (file, "\"\n\t%s\t \"", ASCII_DATA_ASM_OP);
+	  fprintf (file, "\"\n\t%s\t \"", opcode);
 	  num = 0;
 	}
 
@@ -1363,7 +1437,7 @@ output_ascii (file, p, size)
 	     after three digits, so this is the only way we
 	     can get it to parse the data properly.  */
 	  if (i < size - 1 && p[i + 1] >= '0' && p[i + 1] <= '9')
-	    num = 32767;	/* next pass will start a new string */
+	    num = max + 1;	/* next pass will start a new string */
 	}
     }
   fprintf (file, "\"\n");
@@ -1411,7 +1485,7 @@ m88k_handle_pragma_token (string, token)
 	      fputc ('\n', asm_out_file);
 	      if (state == ps_value)
 		{
-		  fprintf (asm_out_file, "\t%s\t ", DEF_ASM_OP);
+		  fprintf (asm_out_file, "\t%s\t ", SET_ASM_OP);
 		  ASM_OUTPUT_LABELREF (asm_out_file, name);
 		  fputc (',', asm_out_file);
 		  ASM_OUTPUT_LABELREF (asm_out_file, value);
@@ -1527,6 +1601,8 @@ m88k_handle_pragma_token (string, token)
         |        [previous frame pointer (r30)]        |
         |==============================================| <- fp
         |       [preserved registers (r25..r14)]       |
+        |----------------------------------------------|
+        |       [preserved registers (x29..x22)]       |
         |==============================================|
         |    [dynamically allocated space (alloca)]    |
         |==============================================|
@@ -1548,6 +1624,7 @@ static void preserve_registers ();
 static void output_tdesc ();
 
 static int  nregs;
+static int  nxregs;
 static char save_regs[FIRST_PSEUDO_REGISTER];
 static int  frame_laid_out;
 static int  frame_size;
@@ -1560,6 +1637,9 @@ extern int  frame_pointer_needed;
 
 #define FIRST_OCS_PRESERVE_REGISTER	14
 #define LAST_OCS_PRESERVE_REGISTER	30
+
+#define FIRST_OCS_EXTENDED_PRESERVE_REGISTER	(32 + 22)
+#define LAST_OCS_EXTENDED_PRESERVE_REGISTER	(32 + 31)
 
 #define STACK_UNIT_BOUNDARY (STACK_BOUNDARY / BITS_PER_UNIT)
 #define ROUND_CALL_BLOCK_SIZE(BYTES) \
@@ -1576,11 +1656,11 @@ m88k_layout_frame ()
   frame_laid_out++;
 
   bzero ((char *) &save_regs[0], sizeof (save_regs));
-  sp_size = nregs = 0;
+  sp_size = nregs = nxregs = 0;
   frame_size = get_frame_size ();
 
   /* Since profiling requires a call, make sure r1 is saved.  */
-  if (profile_flag)
+  if (profile_flag || profile_block_flag)
     save_regs[1] = 1;
 
   /* If we are producing debug information, store r1 and r30 where the
@@ -1609,9 +1689,21 @@ m88k_layout_frame ()
 
   /* If a frame is requested, save the previous FP, and the return
      address (r1), so that a traceback can be done without using tdesc
-     information.  */
+     information.  Otherwise, simply save the FP if it is used as
+     a preserve register.  */
   if (frame_pointer_needed)
     save_regs[FRAME_POINTER_REGNUM] = save_regs[1] = 1;
+  else if (regs_ever_live[FRAME_POINTER_REGNUM])
+    save_regs[FRAME_POINTER_REGNUM] = 1;
+
+  /* Figure out which extended register(s) needs to be saved.  */
+  for (regno = FIRST_EXTENDED_REGISTER + 1; regno < FIRST_PSEUDO_REGISTER;
+       regno++)
+    if (regs_ever_live[regno] && ! call_used_regs[regno])
+      {
+	save_regs[regno] = 1;
+	nxregs++;
+      }
 
   /* Figure out which normal register(s) needs to be saved.  */
   for (regno = 2; regno < FRAME_POINTER_REGNUM; regno++)
@@ -1622,25 +1714,25 @@ m88k_layout_frame ()
       }
 
   /* Achieve greatest use of double memory ops.  Either we end up saving
-     r30 or we use that slot to align the regsters we do save.  */
+     r30 or we use that slot to align the registers we do save.  */
   if (nregs >= 2 && save_regs[1] && !save_regs[FRAME_POINTER_REGNUM])
     sp_size += 4;
 
   nregs += save_regs[1] + save_regs[FRAME_POINTER_REGNUM];
+  /* if we need to align extended registers, add a word */
+  if (nxregs > 0 && (nregs & 1) != 0)
+    sp_size +=4;
   sp_size += 4 * nregs;
+  sp_size += 8 * nxregs;
   sp_size += current_function_outgoing_args_size;
 
   /* The first two saved registers are placed above the new frame pointer
      if any.  In the only case this matters, they are r1 and r30. */
   if (frame_pointer_needed || sp_size)
-    {
-      m88k_fp_offset = ROUND_CALL_BLOCK_SIZE (sp_size - STARTING_FRAME_OFFSET);
-      m88k_stack_size = m88k_fp_offset + STARTING_FRAME_OFFSET;
-    }
+    m88k_fp_offset = ROUND_CALL_BLOCK_SIZE (sp_size - STARTING_FRAME_OFFSET);
   else
-    {
-      m88k_stack_size = m88k_fp_offset = 0;
-    }
+    m88k_fp_offset = -STARTING_FRAME_OFFSET;
+  m88k_stack_size = m88k_fp_offset + STARTING_FRAME_OFFSET;
 
   /* First, combine m88k_stack_size and size.  If m88k_stack_size is
      non-zero, align the frame size to 8 mod 16; otherwise align the
@@ -1674,6 +1766,7 @@ null_epilogue ()
     m88k_layout_frame ();
   return (! frame_pointer_needed
 	  && nregs == 0
+	  && nxregs == 0
 	  && m88k_stack_size == 0);
 }
 
@@ -1762,7 +1855,6 @@ eligible_for_epilogue_delay (insn)
     case TYPE_LOADA:
     case TYPE_ARITH:
     case TYPE_MARITH:
-    case TYPE_MSTORE:
       return ok_for_epilogue_p (PATTERN (insn));
     default:
       return 0;
@@ -1834,7 +1926,7 @@ m88k_output_prologue (stream, size)
   if (m88k_stack_size)
     output_reg_adjust (stream, 31, 31, -m88k_stack_size, 0);
 
-  if (nregs)
+  if (nregs || nxregs)
     preserve_registers (stream, m88k_fp_offset + 4, 1);
 
   if (frame_pointer_needed)
@@ -1908,7 +2000,7 @@ m88k_output_epilogue (stream, size)
       if (frame_pointer_needed)
 	output_reg_adjust (stream, 31, 30, -m88k_fp_offset, 0);
 
-      if (nregs)
+      if (nregs || nxregs)
 	preserve_registers (stream, m88k_fp_offset + 4, 0);
 
       output_reg_adjust (stream, 31, 31, m88k_stack_size, 1);
@@ -2047,6 +2139,21 @@ preserve_registers (stream, base, store_p)
 	    offset -= 2*4;
 	  }
       }
+
+  /* Walk the extended registers to record all memory operations.  */
+  /*  Be sure the offset is double word aligned.  */
+  offset = (offset - 1) & ~7;
+  for (regno = FIRST_PSEUDO_REGISTER - 1; regno > FIRST_EXTENDED_REGISTER;
+       regno--)
+    if (save_regs[regno])
+      {
+	mo_ptr->nregs = 2;
+	mo_ptr->regno = regno;
+	mo_ptr->offset = offset;
+	mo_ptr++;
+	offset -= 2*4;
+      }
+
   mo_ptr->regno = 0;
 
   /* Output the delay insns interleaved with the memory operations.  */
@@ -2069,10 +2176,12 @@ preserve_registers (stream, base, store_p)
 	    {
 	      if (mo_ptr->nregs)
 		{
+		  int nregs = (mo_ptr->regno < FIRST_EXTENDED_REGISTER
+			       ? mo_ptr->nregs : 1);
 		  rtx ok_insns = delay_insns;
 		  int i;
 
-		  for (i = 0; i < mo_ptr->nregs; i++)
+		  for (i = 0; i < nregs; i++)
 		    epilogue_dead_regs[mo_ptr->regno + i] = 1;
 
 		  while (ok_insns)
@@ -2082,7 +2191,7 @@ preserve_registers (stream, base, store_p)
 
 		      if (! ok_for_epilogue_p (PATTERN (insn)))
 			{
-			  for (i = 0; i < mo_ptr->nregs; i++)
+			  for (i = 0; i < nregs; i++)
 			    epilogue_dead_regs[mo_ptr->regno + i] = 0;
 			  insn = 0;
 			  break; /* foreach delay insn */
@@ -2146,27 +2255,30 @@ m88k_debugger_offset (reg, offset)
 /* Output the 88open OCS proscribed text description information.
    The information is:
         0  8: zero
-	0 22: info-byte-length (16 bytes)
+	0 22: info-byte-length (16 or 20 bytes)
 	0  2: info-alignment (word 2)
-	1 32: info-protocol (version 1)
+	1 32: info-protocol (version 1 or 2(pic))
 	2 32: starting-address (inclusive, not counting prologue)
 	3 32: ending-address (exclusive, not counting epilog)
-	4  8: info-variant (version 1)
+	4  8: info-variant (version 1 or 3(extended registers))
 	4 17: register-save-mask (from register 14 to 30)
 	4  1: zero
 	4  1: return-address-info-discriminant
 	4  5: frame-address-register
 	5 32: frame-address-offset
 	6 32: return-address-info
-	7 32: register-save-offset */
+	7 32: register-save-offset
+	8 16: extended-register-save-mask (x16 - x31)
+	8 16: extended-register-save-offset (WORDS from register-save-offset)  */
 
 static void
 output_tdesc (file, offset)
      FILE *file;
      int offset;
 {
-  int regno, i;
+  int regno, i, j;
   long mask, return_address_info, register_save_offset;
+  long xmask, xregister_save_offset;
   char buf[256];
 
   for (mask = 0, i = 0, regno = FIRST_OCS_PRESERVE_REGISTER;
@@ -2181,9 +2293,21 @@ output_tdesc (file, offset)
 	}
     }
 
+  for (xmask = 0, j = 0, regno = FIRST_OCS_EXTENDED_PRESERVE_REGISTER;
+       regno <= LAST_OCS_EXTENDED_PRESERVE_REGISTER;
+       regno++)
+    {
+      xmask <<= 1;
+      if (save_regs[regno])
+	{
+	  xmask |= 1;
+	  j++;
+	}
+    }
+
   if (save_regs[1])
     {
-      if (nregs > 2 && !save_regs[FRAME_POINTER_REGNUM])
+      if ((nxregs > 0 || nregs > 2) && !save_regs[FRAME_POINTER_REGNUM])
 	offset -= 4;
       return_address_info = - m88k_stack_size + offset;
       register_save_offset = return_address_info - i*4;
@@ -2194,28 +2318,33 @@ output_tdesc (file, offset)
       register_save_offset = - m88k_stack_size + offset + 4 - i*4;
     }
 
+  xregister_save_offset = - (j * 2 + ((register_save_offset >> 2) & 1));
+
   tdesc_section ();
 
-  fprintf (file, "\t%s\t %d", INT_ASM_OP, (16 << 2) | 2 /* 8:0,22:16,2:2 */);
-  fprintf (file, ",%d", flag_pic ? 2 : 1);
+  fprintf (file, "\t%s\t %d,%d", INT_ASM_OP, /* 8:0,22:(20 or 16),2:2 */
+	   (((xmask != 0) ? 20 : 16) << 2) | 2,
+	   flag_pic ? 2 : 1);
 
   ASM_GENERATE_INTERNAL_LABEL (buf, OCS_START_PREFIX, m88k_function_number);
   fprintf (file, ",%s%s", buf+1, flag_pic ? "#rel" : "");
   ASM_GENERATE_INTERNAL_LABEL (buf, OCS_END_PREFIX, m88k_function_number);
   fprintf (file, ",%s%s", buf+1, flag_pic ? "#rel" : "");
 
-  fprintf (file, ",0x%x", /* 8:1,17:0x%.3x,1:0,1:%d,5:%d */
-	   (1 << (17+1+1+5)) |
-	   (mask << (1+1+5)) |
-	   ((!!save_regs[1]) << 5) |
-	   ((frame_pointer_needed
-	      ? FRAME_POINTER_REGNUM
-	      : STACK_POINTER_REGNUM)));
-
-  fprintf (file, ",0x%x", (m88k_stack_size
-			   - (frame_pointer_needed ? m88k_fp_offset : 0)));
-  fprintf (file, ",0x%x", return_address_info);
-  fprintf (file, ",0x%x\n", register_save_offset);
+  fprintf (file, ",0x%x,0x%x,0x%x,0x%x",
+	   /* 8:1,17:0x%.3x,1:0,1:%d,5:%d */
+	   (((xmask ? 3 : 1) << (17+1+1+5))
+	    | (mask << (1+1+5))
+	    | ((!!save_regs[1]) << 5)
+	    | (frame_pointer_needed
+	       ? FRAME_POINTER_REGNUM
+	       : STACK_POINTER_REGNUM)),
+	   (m88k_stack_size - (frame_pointer_needed ? m88k_fp_offset : 0)),
+	   return_address_info,
+	   register_save_offset);
+  if (xmask)
+    fprintf (file, ",0x%x%04x", xmask, (0xffff & xregister_save_offset));
+  fputc ('\n', file);
 
   text_section ();
 }
@@ -2306,11 +2435,21 @@ output_function_block_profiler (file, labelno)
 		 m88k_pound_sign, &block[1]);
   fprintf (file, "\tbcnd\t %sne0,%s,%s\n",
 		 m88k_pound_sign, reg_names[26], &label[1]);
+  fprintf (file, "\tsubu\t %s,%s,64\n", reg_names[31], reg_names[31]);
+  fprintf (file, "\tst.d\t %s,%s,32\n", reg_names[2], reg_names[31]);
+  fprintf (file, "\tst.d\t %s,%s,40\n", reg_names[4], reg_names[31]);
+  fprintf (file, "\tst.d\t %s,%s,48\n", reg_names[6], reg_names[31]);
+  fprintf (file, "\tst.d\t %s,%s,56\n", reg_names[8], reg_names[31]);
   fputs ("\tbsr.n\t ", file);
   ASM_OUTPUT_LABELREF (file, "__bb_init_func");
   putc ('\n', file);
   fprintf (file, "\tor\t %s,%s,%slo16(%s)\n", reg_names[2], reg_names[27],
 		 m88k_pound_sign, &block[1]);
+  fprintf (file, "\tld.d\t %s,%s,32\n", reg_names[2], reg_names[31]);
+  fprintf (file, "\tld.d\t %s,%s,40\n", reg_names[4], reg_names[31]);
+  fprintf (file, "\tld.d\t %s,%s,48\n", reg_names[6], reg_names[31]);
+  fprintf (file, "\tld.d\t %s,%s,56\n", reg_names[8], reg_names[31]);
+  fprintf (file, "\taddu\t %s,%s,64\n", reg_names[31], reg_names[31]);
   ASM_OUTPUT_INTERNAL_LABEL (file, "LPY", labelno);
 }
 
@@ -2324,7 +2463,7 @@ output_block_profiler (file, blockno)
 {
   char block[256];
 
-  ASM_GENERATE_INTERNAL_LABEL (block, "LPBX", 0);
+  ASM_GENERATE_INTERNAL_LABEL (block, "LPBX", 2);
 
   /* @@ Need to deal with PIC.  I'm not sure what the requirements are on
      register usage, so I used r26/r27 to be safe.  */
@@ -2468,8 +2607,7 @@ m88k_builtin_saveregs (arglist)
 						 2 * UNITS_PER_WORD)),
 		  copy_to_reg (XEXP (addr, 0)));
 
-  /* Now store the incoming registers and return the address of the
-     va_list constructor.  */
+  /* Now store the incoming registers.  */
   if (fixed < 8)
       move_block_from_reg
 	(2 + fixed,
@@ -2478,7 +2616,10 @@ m88k_builtin_saveregs (arglist)
 					fixed * UNITS_PER_WORD)),
 	 8 - fixed);
 
-  return copy_to_reg (XEXP (block, 0));
+  /* Return the address of the va_list constructor, but don't put it in a
+     register.  This fails when not optimizing and produces worse code when
+     optimizing.  */
+  return XEXP (block, 0);
 }
 
 /* If cmpsi has not been generated, emit code to do the test.  Return the

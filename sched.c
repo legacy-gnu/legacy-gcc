@@ -137,6 +137,9 @@ static int *insn_luid;
 static int *insn_priority;
 #define INSN_PRIORITY(INSN) (insn_priority[INSN_UID (INSN)])
 
+static short *insn_costs;
+#define INSN_COST(INSN)	insn_costs[INSN_UID (INSN)]
+
 #define DONE_PRIORITY	-1
 #define MAX_PRIORITY	0x7fffffff
 #define TAIL_PRIORITY	0x7ffffffe
@@ -170,7 +173,7 @@ static regset bb_live_regs;
 
 /* Regset telling whether a given register is live after the insn currently
    being scheduled.  Before processing an insn, this is equal to bb_live_regs
-   above.  This is used so that we can find regsiters that are newly born/dead
+   above.  This is used so that we can find registers that are newly born/dead
    after processing an insn.  */
 static regset old_live_regs;
 
@@ -213,7 +216,7 @@ static int q_ptr = 0;
 static int q_size = 0;
 #define NEXT_Q(X) (((X)+1) & (Q_SIZE-1))
 #define NEXT_Q_AFTER(X,C) (((X)+C) & (Q_SIZE-1))
-
+
 /* Forward declarations.  */
 static void sched_analyze_2 ();
 static void schedule_block ();
@@ -439,7 +442,7 @@ find_symbolic_term (x)
 	    with addresses involving static variables.
 	(2) static variables with different addresses cannot conflict.
 
-   Nice to notice that varying addresses cannot confict with fp if no
+   Nice to notice that varying addresses cannot conflict with fp if no
    local variables had their addresses taken, but that's too hard now.  */
 
 static int
@@ -500,15 +503,15 @@ memrefs_conflict_p (xsize, x, ysize, y, c)
 
   if (GET_CODE (x) == PLUS)
     {
-      /* The fact that X is canonnicallized means that this
-	 PLUS rtx is canonnicallized.  */
+      /* The fact that X is canonicalized means that this
+	 PLUS rtx is canonicalized.  */
       rtx x0 = XEXP (x, 0);
       rtx x1 = XEXP (x, 1);
 
       if (GET_CODE (y) == PLUS)
 	{
-	  /* The fact that Y is canonnicallized means that this
-	     PLUS rtx is canonnicallized.  */
+	  /* The fact that Y is canonicalized means that this
+	     PLUS rtx is canonicalized.  */
 	  rtx y0 = XEXP (y, 0);
 	  rtx y1 = XEXP (y, 1);
 
@@ -540,8 +543,8 @@ memrefs_conflict_p (xsize, x, ysize, y, c)
     }
   else if (GET_CODE (y) == PLUS)
     {
-      /* The fact that Y is canonnicallized means that this
-	 PLUS rtx is canonnicallized.  */
+      /* The fact that Y is canonicalized means that this
+	 PLUS rtx is canonicalized.  */
       rtx y0 = XEXP (y, 0);
       rtx y1 = XEXP (y, 1);
 
@@ -692,6 +695,101 @@ output_dependence (mem, x)
 		    && ! MEM_IN_STRUCT_P (mem) && ! rtx_addr_varies_p (mem))));
 }
 
+/* Helper functions for instruction scheduling.  */
+
+/* Add ELEM wrapped in an INSN_LIST with reg note kind DEP_TYPE to the
+   LOG_LINKS of INSN, if not already there.  DEP_TYPE indicates the type
+   of dependence that this link represents.  */
+
+void
+add_dependence (insn, elem, dep_type)
+     rtx insn;
+     rtx elem;
+     enum reg_note dep_type;
+{
+  rtx link, next;
+
+  /* Don't depend an insn on itself.  */
+  if (insn == elem)
+    return;
+
+  /* If elem is part of a sequence that must be scheduled together, then
+     make the dependence point to the last insn of the sequence.
+     When HAVE_cc0, it is possible for NOTEs to exist between users and
+     setters of the condition codes, so we must skip past notes here.
+     Otherwise, NOTEs are impossible here.  */
+
+  next = NEXT_INSN (elem);
+
+#ifdef HAVE_cc0
+  while (next && GET_CODE (next) == NOTE)
+    next = NEXT_INSN (next);
+#endif
+
+  if (next && SCHED_GROUP_P (next))
+    {
+      /* Notes will never intervene here though, so don't bother checking
+	 for them.  */
+      while (NEXT_INSN (next) && SCHED_GROUP_P (NEXT_INSN (next)))
+	next = NEXT_INSN (next);
+
+      /* Again, don't depend an insn on itself.  */
+      if (insn == next)
+	return;
+
+      /* Make the dependence to NEXT, the last insn of the group, instead
+	 of the original ELEM.  */
+      elem = next;
+    }
+
+  /* Check that we don't already have this dependence.  */
+  for (link = LOG_LINKS (insn); link; link = XEXP (link, 1))
+    if (XEXP (link, 0) == elem)
+      {
+	/* If this is a more restrictive type of dependence than the existing
+	   one, then change the existing dependence to this type.  */
+	if ((int) dep_type < (int) REG_NOTE_KIND (link))
+	  PUT_REG_NOTE_KIND (link, dep_type);
+	return;
+      }
+  /* Might want to check one level of transitivity to save conses.  */
+
+  link = rtx_alloc (INSN_LIST);
+  /* Insn dependency, not data dependency.  */
+  PUT_REG_NOTE_KIND (link, dep_type);
+  XEXP (link, 0) = elem;
+  XEXP (link, 1) = LOG_LINKS (insn);
+  LOG_LINKS (insn) = link;
+}
+
+/* Remove ELEM wrapped in an INSN_LIST from the LOG_LINKS
+   of INSN.  Abort if not found.  */
+void
+remove_dependence (insn, elem)
+     rtx insn;
+     rtx elem;
+{
+  rtx prev, link;
+  int found = 0;
+
+  for (prev = 0, link = LOG_LINKS (insn); link;
+       prev = link, link = XEXP (link, 1))
+    {
+      if (XEXP (link, 0) == elem)
+	{
+	  if (prev)
+	    XEXP (prev, 1) = XEXP (link, 1);
+	  else
+	    LOG_LINKS (insn) = XEXP (link, 1);
+	  found = 1;
+	}
+    }
+
+  if (! found)
+    abort ();
+  return;
+}
+
 #ifndef INSN_SCHEDULING
 void schedule_insns () {}
 #else
@@ -804,13 +902,19 @@ insn_cost (insn)
 {
   register int cost;
 
+  if (INSN_COST (insn))
+    return INSN_COST (insn);
+
   recog_memoized (insn);
 
   /* A USE insn, or something else we don't need to understand.
      We can't pass these directly to result_ready_cost because it will trigger
      a fatal error for unrecognizable insns.  */
   if (INSN_CODE (insn) < 0)
-    return 1;
+    {
+      INSN_COST (insn) = 1;
+      return 1;
+    }
   else
     {
       cost = result_ready_cost (insn);
@@ -818,6 +922,7 @@ insn_cost (insn)
       if (cost < 1)
 	cost = 1;
 
+      INSN_COST (insn) = cost;
       return cost;
     }
 }
@@ -1133,7 +1238,7 @@ sched_analyze_1 (x, insn)
 	  /* Flush all pending reads and writes to prevent the pending lists
 	     from getting any larger.  Insn scheduling runs too slowly when
 	     these lists get long.  The number 32 was chosen because it
-	     seems like a resonable number.  When compiling GCC with itself,
+	     seems like a reasonable number.  When compiling GCC with itself,
 	     this flush occurs 8 times for sparc, and 10 times for m88k using
 	     the number 32.  */
 	  flush_pending_lists (insn);
@@ -1214,19 +1319,24 @@ sched_analyze_2 (x, insn)
 #ifdef HAVE_cc0
     case CC0:
       {
-	rtx link;
+	rtx link, prev;
 
-	/* User of CC0 depends on immediately preceding insn.
-	   All notes are removed from the list of insns to schedule before we
-	   reach here, so the previous insn must be the setter of cc0.  */
-	if (GET_CODE (PREV_INSN (insn)) != INSN)
-	  abort ();
+	/* There may be a note before this insn now, but all notes will
+	   be removed before we actually try to schedule the insns, so
+	   it won't cause a problem later.  We must avoid it here though.  */
+
+	/* User of CC0 depends on immediately preceding insn.  */
 	SCHED_GROUP_P (insn) = 1;
 
-	/* Make a copy of all dependencies on PREV_INSN, and add to this insn.
-	   This is so that all the dependencies will apply to the group.  */
+	/* Make a copy of all dependencies on the immediately previous insn,
+	   and add to this insn.  This is so that all the dependencies will
+	   apply to the group.  */
 
-	for (link = LOG_LINKS (PREV_INSN (insn)); link; link = XEXP (link, 1))
+	prev = PREV_INSN (insn);
+	while (GET_CODE (prev) == NOTE)
+	  prev = PREV_INSN (prev);
+
+	for (link = LOG_LINKS (prev); link; link = XEXP (link, 1))
 	  add_dependence (insn, XEXP (link, 0), GET_MODE (link));
 
 	return;
@@ -1322,14 +1432,14 @@ sched_analyze_2 (x, insn)
     case ASM_OPERANDS:
     case ASM_INPUT:
     case UNSPEC_VOLATILE:
+    case TRAP_IF:
       {
 	rtx u;
 
 	/* Traditional and volatile asm instructions must be considered to use
 	   and clobber all hard registers and all of memory.  So must
-	   UNSPEC_VOLATILE operations.  */
-	if ((code == ASM_OPERANDS && MEM_VOLATILE_P (x)) || code == ASM_INPUT
-	    || code == UNSPEC_VOLATILE)
+	   TRAP_IF and UNSPEC_VOLATILE operations.  */
+	if (code != ASM_OPERANDS || MEM_VOLATILE_P (x))
 	  {
 	    for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
 	      {
@@ -2281,11 +2391,9 @@ schedule_block (b, file)
      high priorities to these insns to guarantee that they get scheduled last.
      If these insns are ignored, as is currently done, the register life info
      may be incorrectly computed.  */
-  if (GET_CODE (tail) == INSN
-      && GET_CODE (PATTERN (tail)) == USE
-      && next_nonnote_insn (tail) == 0)
+  if (GET_CODE (tail) == INSN && GET_CODE (PATTERN (tail)) == USE)
     {
-      /* Don't try to reorder any USE insns at the end of a function.
+      /* Don't try to reorder any USE insns at the end of any block.
 	 They must be last to ensure proper register allocation.
 	 Exclude them all from scheduling.  */
       do
@@ -3017,7 +3125,7 @@ schedule_block (b, file)
 	    prev = PREV_INSN (insn);
 	    if (LINE_NOTE (note))
 	      {
-		/* Re-use the orignal line-number note. */
+		/* Re-use the original line-number note. */
 		LINE_NOTE (note) = 0;
 		PREV_INSN (note) = prev;
 		NEXT_INSN (prev) = note;
@@ -3306,7 +3414,7 @@ update_flow_info (notes, first, last, orig_insn)
 
 		  /* Sometimes need to convert REG_UNUSED notes to REG_DEAD
 		     notes.  */
-		  /* ??? This won't handle mutiple word registers correctly,
+		  /* ??? This won't handle multiple word registers correctly,
 		     but should be good enough for now.  */
 		  if (REG_NOTE_KIND (note) == REG_UNUSED
 		      && ! dead_or_set_p (insn, XEXP (note, 0)))
@@ -3694,10 +3802,9 @@ schedule_insns (dump_file)
 
   /* Allocate data for this pass.  See comments, above,
      for what these vectors do.  */
-  /* ??? Instruction splitting below may create new instructions, so these
-     arrays must be bigger than just max_uid.  */
   insn_luid = (int *) alloca (max_uid * sizeof (int));
   insn_priority = (int *) alloca (max_uid * sizeof (int));
+  insn_costs = (short *) alloca (max_uid * sizeof (short));
   insn_ref_count = (int *) alloca (max_uid * sizeof (int));
 
   if (reload_completed == 0)
@@ -3748,6 +3855,7 @@ schedule_insns (dump_file)
 
   bzero (insn_luid, max_uid * sizeof (int));
   bzero (insn_priority, max_uid * sizeof (int));
+  bzero (insn_costs, max_uid * sizeof (short));
   bzero (insn_ref_count, max_uid * sizeof (int));
 
   /* Schedule each basic block, block by block.  */

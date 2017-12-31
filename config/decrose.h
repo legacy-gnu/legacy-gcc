@@ -20,6 +20,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define DECSTATION
 #define OSF_OS
 
+#define HALF_PIC_DEBUG	TARGET_DEBUG_B_MODE
+#define HALF_PIC_PREFIX	"$Lp."
+
 #include "halfpic.h"
 
 #define CPP_PREDEFINES "-DOSF -DOSF1 -Dbsd4_2 -DMIPSEL -Dhost_mips -Dmips -Dunix -DR3000 -DSYSTYPE_BSD"
@@ -46,12 +49,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 			%{.s:%i} %{!.s:%g.s}}}"
 
 #define CPP_SPEC "\
-%{.S:	-D__LANGUAGE_ASSEMBLY %{!ansi:-DLANGUAGE_ASSEMBLY}} \
-%{.cc:	-D__LANGUAGE_C_PLUS_PLUS} \
-%{.cxx:	-D__LANGUAGE_C_PLUS_PLUS} \
-%{.C:	-D__LANGUAGE_C_PLUS_PLUS} \
-%{.m:	-D__LANGUAGE_OBJECTIVE_C} \
-%{!.S:	-D__LANGUAGE_C %{!ansi:-DLANGUAGE_C}}"
+%{.S:	-D__LANGUAGE_ASSEMBLY__ -D__LANGUAGE_ASSEMBLY %{!ansi:-DLANGUAGE_ASSEMBLY} \
+	-ULANGUAGE_C -U__LANGUAGE_C__} \
+%{.cc:	-D__LANGUAGE_C_PLUS_PLUS__ -D__LANGUAGE_C_PLUS_PLUS} \
+%{.cxx:	-D__LANGUAGE_C_PLUS_PLUS__ -D__LANGUAGE_C_PLUS_PLUS} \
+%{.C:	-D__LANGUAGE_C_PLUS_PLUS__ -D__LANGUAGE_C_PLUS_PLUS} \
+%{.m:	-D__LANGUAGE_OBJECTIVE_C__ -D__LANGUAGE_OBJECTIVE_C} \
+%{!.S:	-D__LANGUAGE_C__  -D__LANGUAGE_C %{!ansi:-DLANGUAGE_C}}"
 
 #define LINK_SPEC "\
 %{G*} \
@@ -62,13 +66,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 	%{bestGnum}} \
 %{!mmips-as: \
  	%{v*: -v} \
-	%{pic-none: -noshrlib} %{noshrlib} \
-	%{!pic-none: -warn_nopic} \
-	%{nostdlib} %{glue}}"
+	%{!noshrlib: %{pic-none: -noshrlib} %{!pic-none: -warn_nopic}} \
+	%{nostdlib} %{noshrlib} %{glue}}"
 
-/* For now, force static libraries instead of shared, but do so that
-   does not use -noshrlib, since the old linker does not provide it.  */
-#define LIB_SPEC "%{!pic-none: %{!pic-lib: -L/usr/ccs/lib }} -lc"
+#define LIB_SPEC "-lc"
 
 #define STARTFILE_SPEC "%{pg:gcrt0.o%s}%{!pg:%{p:mcrt0.o%s}%{!p:crt0.o%s}}"
 
@@ -107,5 +108,27 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* Use atexit for static constructors/destructors, instead of defining
    our own exit function.  */
 #define HAVE_ATEXIT
+
+/* Generate calls to memcpy, etc., not bcopy, etc.  */
+#define TARGET_MEM_FUNCTIONS
+
+/* A C statement to output assembler commands which will identify
+   the object file as having been compiled with GNU CC (or another
+   GNU compiler).
+
+   If you don't define this macro, the string `gcc2_compiled.:' is
+   output.  This string is calculated to define a symbol which, on
+   BSD systems, will never be defined for any other reason.  GDB
+   checks for the presence of this symbol when reading the symbol
+   table of an executable.
+
+   On non-BSD systems, you must arrange communication with GDB in
+   some other fashion.  If GDB is not used on your system, you can
+   define this macro with an empty body.
+
+   On OSF/1, gcc2_compiled. confuses the kernel debugger, so don't
+   put it out.  */
+
+#define ASM_IDENTIFY_GCC(STREAM)
 
 #include "mips.h"

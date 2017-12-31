@@ -337,6 +337,7 @@ unary_expr:
 		  $$ = build1 (ADDR_EXPR, ptr_type_node, label);
 		  TREE_CONSTANT ($$) = 1; }
 /* This seems to be impossible on some machines, so let's turn it off.
+   You can use __builtin_next_arg to find the anonymous stack args.
 	| '&' ELLIPSIS
 		{ tree types = TYPE_ARG_TYPES (TREE_TYPE (current_function_decl));
 		  $$ = error_mark_node;
@@ -516,6 +517,9 @@ primary:
 		  rtl_exp = expand_end_stmt_expr ($<ttype>2);
 		  /* The statements have side effects, so the group does.  */
 		  TREE_SIDE_EFFECTS (rtl_exp) = 1;
+		  /* Clear TREE_USED which is always set by poplevel.  This
+		     block will only be used if the BIND_EXPR is used.  */
+		  TREE_USED ($3) = 0;
 
 		  /* Make a BIND_EXPR for the BLOCK already made.  */
 		  $$ = build (BIND_EXPR, TREE_TYPE (rtl_exp),
@@ -778,6 +782,16 @@ attrib
 	    warning ("`%s' attribute directive ignored",
 		     IDENTIFIER_POINTER ($1));
 	  $$ = $1; }
+    | IDENTIFIER '(' IDENTIFIER ')'
+	{ /* If not "mode (m)", then issue warning.  */
+	  if (strcmp (IDENTIFIER_POINTER ($1), "mode") != 0)
+	    {
+	      warning ("`%s' attribute directive ignored",
+		       IDENTIFIER_POINTER ($1));
+	      $$ = $1;
+	    }
+	  else
+	    $$ = tree_cons ($1, $3); }
     | IDENTIFIER '(' CONSTANT ')'
 	{ /* if not "aligned(n)", then issue warning */
 	  if (strcmp (IDENTIFIER_POINTER ($1), "aligned") != 0
@@ -1229,6 +1243,21 @@ if_prefix:
 		  position_after_white_space (); }
 	;
 
+/* This is a subroutine of stmt.
+   It is used twice, once for valid DO statements
+   and once for catching errors in parsing the end test.  */
+do_stmt_start:
+	  DO
+		{ stmt_count++;
+		  emit_line_note ($<filename>-1, $<lineno>0);
+		  /* See comment in `while' alternative, above.  */
+		  emit_nop ();
+		  expand_start_loop_continue_elsewhere (1);
+		  position_after_white_space (); }
+	  lineno_labeled_stmt WHILE
+		{ expand_loop_continue_here (); }
+	;
+
 save_filename:
 		{ $$ = input_filename; }
 	;
@@ -1300,27 +1329,26 @@ stmt:
 		     inside of an if statement and was not really executed.
 		     I think it ought to work to put the nop after the line number.
 		     We will see.  --rms, July 15, 1991.  */
-		  emit_nop ();
-		  expand_start_loop (1); }
+		  emit_nop (); }
 	  '(' expr ')'
-		{ emit_line_note (input_filename, lineno);
+		{ /* Don't start the loop till we have succeeded
+		     in parsing the end test.  This is to make sure
+		     that we end every loop we start.  */
+		  expand_start_loop (1);
+		  emit_line_note (input_filename, lineno);
 		  expand_exit_loop_if_false (0, truthvalue_conversion ($4));
 		  position_after_white_space (); }
 	  lineno_labeled_stmt
 		{ expand_end_loop (); }
-	| DO
-		{ stmt_count++;
-		  emit_line_note ($<filename>-1, $<lineno>0);
-		  /* See comment in `while' alternative, above.  */
-		  emit_nop ();
-		  expand_start_loop_continue_elsewhere (1);
-		  position_after_white_space (); }
-	  lineno_labeled_stmt WHILE
-		{ expand_loop_continue_here (); }
+	| do_stmt_start
 	  '(' expr ')' ';'
 		{ emit_line_note (input_filename, lineno);
-		  expand_exit_loop_if_false (0, truthvalue_conversion ($7));
+		  expand_exit_loop_if_false (0, truthvalue_conversion ($3));
 		  expand_end_loop ();
+		  clear_momentary (); }
+/* This rule is needed to make sure we end every loop we start.  */
+	| do_stmt_start error
+		{ expand_end_loop ();
 		  clear_momentary (); }
 	| FOR
 	  '(' xexpr ';'
@@ -1329,15 +1357,27 @@ stmt:
 		  /* See comment in `while' alternative, above.  */
 		  emit_nop ();
 		  if ($3) c_expand_expr_stmt ($3);
-		  expand_start_loop_continue_elsewhere (1); }
+		  /* Next step is to call expand_start_loop_continue_elsewhere,
+		     but wait till after we parse the entire for (...).
+		     Otherwise, invalid input might cause us to call that
+		     fn without calling expand_end_loop.  */
+		}
 	  xexpr ';'
-		{ emit_line_note (input_filename, lineno);
-		  if ($6)
-		    expand_exit_loop_if_false (0, truthvalue_conversion ($6)); }
+		/* Can't emit now; wait till after expand_start_loop...  */
+		{ $<lineno>7 = lineno;
+		  $<filename>$ = input_filename; }
 	  xexpr ')'
-		/* Don't let the tree nodes for $9 be discarded
-		   by clear_momentary during the parsing of the next stmt.  */
-		{ push_momentary ();
+		{ 
+		  /* Start the loop.  Doing this after parsing
+		     all the expressions ensures we will end the loop.  */
+		  expand_start_loop_continue_elsewhere (1);
+		  /* Emit the end-test, with a line number.  */
+		  emit_line_note ($<filename>8, $<lineno>7);
+		  if ($6)
+		    expand_exit_loop_if_false (0, truthvalue_conversion ($6));
+		  /* Don't let the tree nodes for $9 be discarded by
+		     clear_momentary during the parsing of the next stmt.  */
+		  push_momentary ();
 		  position_after_white_space (); }
 	  lineno_labeled_stmt
 		{ emit_line_note ($<filename>-1, $<lineno>0);
@@ -1561,6 +1601,8 @@ parmlist_1:
 	  parmlist_2 ')'
 	| parms ';'
 		{ tree parm;
+		  if (pedantic)
+		    pedwarn ("ANSI C forbids forward parameter declarations");
 		  /* Mark the forward decls as such.  */
 		  for (parm = getdecls (); parm; parm = TREE_CHAIN (parm))
 		    TREE_ASM_WRITTEN (parm) = 1;
@@ -1622,23 +1664,13 @@ parmlist_or_identifiers:
 	;
 
 parmlist_or_identifiers_1:
-	  parmlist_2 ')'
-	| parms ';'
-		{ tree parm;
-		  /* Mark the forward decls as such.  */
-		  for (parm = getdecls (); parm; parm = TREE_CHAIN (parm))
-		    TREE_ASM_WRITTEN (parm) = 1;
-		  clear_parm_order (); }
-	  parmlist_or_identifiers_1
-		{ $$ = $4; }
+	  parmlist_1
 	| identifiers ')'
 		{ tree t;
 		  for (t = $1; t; t = TREE_CHAIN (t))
 		    if (TREE_VALUE (t) == NULL_TREE)
 		      error ("`...' in old-style identifier list");
 		  $$ = tree_cons (NULL_TREE, NULL_TREE, $1); }
-	| error ')'
-		{ $$ = tree_cons (NULL_TREE, NULL_TREE, NULL_TREE); }
 	;
 
 /* A nonempty list of identifiers.  */

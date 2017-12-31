@@ -26,7 +26,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 enum tree_code {
 #include "tree.def"
 
-  LAST_AND_UNUSED_TREE_CODE	/* A convienent way to get a value for
+  LAST_AND_UNUSED_TREE_CODE	/* A convenient way to get a value for
 				   NUM_TREE_CODE.  */
 };
 
@@ -218,6 +218,10 @@ struct tree_common
    implicitly and should not lead to an "unused value" warning.  */
 #define TREE_NO_UNUSED_WARNING(NODE) ((NODE)->common.static_flag)
 
+/* In a NON_LVALUE_EXPR, this means there was overflow in folding.
+   The folded constant is inside the NON_LVALUE_EXPR.  */
+#define TREE_CONSTANT_OVERFLOW(NODE) ((NODE)->common.static_flag)
+
 /* Nonzero for a TREE_LIST or TREE_VEC node means that the derivation
    chain is via a `virtual' declaration.  */
 #define TREE_VIA_VIRTUAL(NODE) ((NODE)->common.static_flag)
@@ -225,7 +229,7 @@ struct tree_common
 /* In a VAR_DECL or FUNCTION_DECL,
    nonzero means name is to be accessible from outside this module.
    In an identifier node, nonzero means a external declaration
-   accesible from outside this module was previously seen
+   accessible from outside this module was previously seen
    for this name in an inner scope.  */
 #define TREE_PUBLIC(NODE) ((NODE)->common.public_flag)
 
@@ -465,7 +469,6 @@ struct tree_exp
 #define TYPE_UID(NODE) ((NODE)->type.uid)
 #define TYPE_SIZE(NODE) ((NODE)->type.size)
 #define TYPE_MODE(NODE) ((NODE)->type.mode)
-#define TYPE_ALIGN(NODE) ((NODE)->type.align)
 #define TYPE_VALUES(NODE) ((NODE)->type.values)
 #define TYPE_DOMAIN(NODE) ((NODE)->type.values)
 #define TYPE_FIELDS(NODE) ((NODE)->type.values)
@@ -488,6 +491,10 @@ struct tree_exp
 #define TYPE_NONCOPIED_PARTS(NODE) ((NODE)->type.noncopied_parts)
 #define TYPE_CONTEXT(NODE) ((NODE)->type.context)
 #define TYPE_LANG_SPECIFIC(NODE) ((NODE)->type.lang_specific)
+
+/* The alignment necessary for objects of this type.
+   The value is an int, measured in bits.  */
+#define TYPE_ALIGN(NODE) ((NODE)->type.align)
 
 #define TYPE_STUB_DECL(NODE) (TREE_CHAIN (NODE))
 
@@ -640,7 +647,8 @@ struct tree_type
    of the bit closest to the beginning of the structure.  */
 #define DECL_FIELD_BITPOS(NODE) ((NODE)->decl.arguments)
 /* In a FIELD_DECL, this indicates whether the field was a bit-field and
-   if so, its type.  */
+   if so, the type that was originally specified for it.
+   TREE_TYPE may have been modified (in finish_struct).  */
 #define DECL_BIT_FIELD_TYPE(NODE) ((NODE)->decl.result)
 /* In FUNCTION_DECL, a chain of ..._DECL nodes.  */
 /* VAR_DECL and PARM_DECL reserve the arguments slot
@@ -666,16 +674,16 @@ struct tree_type
    Need not be constant.  */
 #define DECL_SIZE(NODE) ((NODE)->decl.size)
 /* Holds the alignment required for the datum.  */
-#define DECL_ALIGN(NODE) ((NODE)->decl.align)
+#define DECL_ALIGN(NODE) ((NODE)->decl.frame_size)
 /* Holds the machine mode of a variable or field.  */
 #define DECL_MODE(NODE) ((NODE)->decl.mode)
 /* Holds the RTL expression for the value of a variable or function.  */
 #define DECL_RTL(NODE) ((NODE)->decl.rtl)
 /* For PARM_DECL, holds an RTL for the stack slot or register
    where the data was actually passed.  */
-#define DECL_INCOMING_RTL(NODE) ((NODE)->decl.saved_insns)
+#define DECL_INCOMING_RTL(NODE) ((NODE)->decl.saved_insns.r)
 /* For FUNCTION_DECL, if it is inline, holds the saved insn chain.  */
-#define DECL_SAVED_INSNS(NODE) ((NODE)->decl.saved_insns)
+#define DECL_SAVED_INSNS(NODE) ((NODE)->decl.saved_insns.r)
 /* For FUNCTION_DECL for built-in function.  */
 #define DECL_FUNCTION_CODE(NODE) \
  ((enum built_in_function) (NODE)->decl.frame_size)
@@ -684,6 +692,8 @@ struct tree_type
 /* For FUNCTION_DECL, if it is inline,
    holds the size of the stack frame, as an integer.  */
 #define DECL_FRAME_SIZE(NODE) ((NODE)->decl.frame_size)
+/* For a FIELD_DECL, holds the size of the member as an integer.  */
+#define DECL_FIELD_SIZE(NODE) ((NODE)->decl.saved_insns.i)
 
 /* The DECL_VINDEX is used for FUNCTION_DECLS in two different ways.
    Before the struct containing the FUNCTION_DECL is laid out,
@@ -745,7 +755,8 @@ struct tree_type
 /* In a FUNCTION_DECL, nonzero means a built in function.  */
 #define DECL_BUILT_IN(NODE) ((NODE)->decl.bit_field_flag)
 
-/* In a METHOD_DECL, indicates a function for which each instance has a pointer.  */
+/* In a FUNCTION_DECL, indicates a method
+   for which each instance has a pointer.  */
 #define DECL_VIRTUAL_P(NODE) ((NODE)->decl.virtual_flag)
 /* In a FIELD_DECL, indicates this field should be bit-packed.  */
 #define DECL_PACKED(NODE) ((NODE)->decl.virtual_flag)
@@ -771,7 +782,6 @@ struct tree_decl
 #else
   enum machine_mode mode : 8;
 #endif
-  unsigned char align;
 
   unsigned external_flag : 1;
   unsigned nonlocal_flag : 1;
@@ -801,10 +811,16 @@ struct tree_decl
   union tree_node *assembler_name;
   struct rtx_def *rtl;	/* acts as link to register transfer language
 				   (rtl) info */
-  int frame_size;		/* For FUNCTION_DECLs: size of stack frame */
-  struct rtx_def *saved_insns;	/* For FUNCTION_DECLs: points to insn that
-				   constitutes its definition on the
-				   permanent obstack.  */
+  /* For a FUNCTION_DECL, if inline, this is the size of frame needed.
+     If built-in, this is the code for which built-in function.  */
+  int frame_size;
+  /* For FUNCTION_DECLs: points to insn that constitutes its definition
+     on the permanent obstack.  For any other kind of decl, this is the
+     alignment.  */
+  union {
+    struct rtx_def *r;
+    int i;
+  } saved_insns;
   union tree_node *vindex;
   /* Points to a structure whose details depend on the language in use.  */
   struct lang_decl *lang_specific;

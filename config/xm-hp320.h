@@ -1,4 +1,5 @@
-#define USG
+/* #define USG */
+
 
 #include "xm-m68k.h"
 

@@ -150,7 +150,7 @@ layout_decl (decl, known_align)
 {
   register tree type = TREE_TYPE (decl);
   register enum tree_code code = TREE_CODE (decl);
-  int spec_size = DECL_FRAME_SIZE (decl);
+  int spec_size = DECL_FIELD_SIZE (decl);
 
   if (code == CONST_DECL)
     return;
@@ -188,8 +188,10 @@ layout_decl (decl, known_align)
       DECL_SIZE (decl) = size_int (spec_size);
     }
   /* Force alignment required for the data type.
-     But if the decl itself wants greater alignment, don't override that.  */
-  else if (TYPE_ALIGN (type) > DECL_ALIGN (decl))
+     But if the decl itself wants greater alignment, don't override that.
+     Likewise, if the decl is packed, don't override it.  */
+  else if (DECL_ALIGN (decl) == 0
+	   || (! DECL_PACKED (decl) &&  TYPE_ALIGN (type) > DECL_ALIGN (decl)))
     DECL_ALIGN (decl) = TYPE_ALIGN (type);
 
   /* See if we can use an ordinary integer mode for a bit-field.  */
@@ -302,6 +304,7 @@ layout_record (rec)
       record_align = MAX (record_align, desired_align);
 #else
       if (PCC_BITFIELD_TYPE_MATTERS && TREE_TYPE (field) != error_mark_node
+	  && DECL_BIT_FIELD_TYPE (field)
 	  && ! integer_zerop (TYPE_SIZE (TREE_TYPE (field))))
 	{
 	  /* For these machines, a zero-length field does not
@@ -339,7 +342,8 @@ layout_record (rec)
 	  else
 	    {
 	      if (const_size > 0)
-		var_size = size_binop (PLUS_EXPR, var_size, const_size);
+		var_size = size_binop (PLUS_EXPR, var_size,
+				       size_int (const_size));
 	      const_size = 0;
 	      var_size = round_up (var_size, desired_align);
 	      var_align = MIN (var_align, desired_align);
@@ -350,6 +354,7 @@ layout_record (rec)
       if (PCC_BITFIELD_TYPE_MATTERS
 	  && TREE_CODE (field) == FIELD_DECL
 	  && TREE_TYPE (field) != error_mark_node
+	  && DECL_BIT_FIELD_TYPE (field)
 	  && !DECL_PACKED (field)
 	  && !integer_zerop (DECL_SIZE (field)))
 	{
@@ -371,6 +376,7 @@ layout_record (rec)
       if (BITFIELD_NBYTES_LIMITED
 	  && TREE_CODE (field) == FIELD_DECL
 	  && TREE_TYPE (field) != error_mark_node
+	  && DECL_BIT_FIELD_TYPE (field)
 	  && !DECL_PACKED (field)
 	  && !integer_zerop (DECL_SIZE (field)))
 	{
@@ -499,7 +505,7 @@ layout_union (rec)
 #ifdef PCC_BITFIELD_TYPE_MATTERS
       /* On the m88000, a bit field of declare type `int'
 	 forces the entire union to have `int' alignment.  */
-      if (PCC_BITFIELD_TYPE_MATTERS) 
+      if (PCC_BITFIELD_TYPE_MATTERS && DECL_BIT_FIELD_TYPE (field))
 	union_align = MAX (union_align, TYPE_ALIGN (TREE_TYPE (field)));
 #endif
 

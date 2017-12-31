@@ -18,10 +18,29 @@
 {									\
   if ((PTR)[0] == 'r'							\
       && (PTR)[1] == 'e'						\
-      && (PTR)[2] == 'p'						\
-      && (PTR)[3] == 'z')						\
+      && (PTR)[2] == 'p')						\
     {									\
-      fprintf (STREAM, "repe");						\
-      (PTR) += 4;							\
+      if ((PTR)[3] == 'z')						\
+	{								\
+	  fprintf (STREAM, "repe");					\
+	  (PTR) += 4;							\
+	}								\
+      else if ((PTR)[3] == 'n' && (PTR)[4] == 'z')			\
+	{								\
+	  fprintf (STREAM, "repne");					\
+	  (PTR) += 5;							\
+	}								\
     }									\
 }
+
+/* Define macro used to output shift-double opcodes when the shift
+   count is in %cl.  Some assemblers require %cl as an argument;
+   some don't.
+
+   GAS requires the %cl argument, so override unx386.h. */
+
+#undef AS3_SHIFT_DOUBLE
+#define AS3_SHIFT_DOUBLE(a,b,c,d) AS3 (a,b,c,d)
+
+/* Print opcodes the way that GAS expects them. */
+#define GAS_MNEMONICS 1

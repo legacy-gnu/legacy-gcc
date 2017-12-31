@@ -66,26 +66,26 @@ init_expmed ()
   rtx lea;
   int i, dummy;
 
-  add_cost = rtx_cost (gen_rtx (PLUS, word_mode, reg, reg));
+  add_cost = rtx_cost (gen_rtx (PLUS, word_mode, reg, reg), SET);
   shift_cost = rtx_cost (gen_rtx (LSHIFT, word_mode, reg,
 				  /* Using a constant gives better
 				     estimate of typical costs.
 				     1 or 2 might have quirks.  */
-				  gen_rtx (CONST_INT, VOIDmode, 3)));
-  mult_cost = rtx_cost (gen_rtx (MULT, word_mode, reg, reg));
-  negate_cost = rtx_cost (gen_rtx (NEG, word_mode, reg));
+				  gen_rtx (CONST_INT, VOIDmode, 3)), SET);
+  mult_cost = rtx_cost (gen_rtx (MULT, word_mode, reg, reg), SET);
+  negate_cost = rtx_cost (gen_rtx (NEG, word_mode, reg), SET);
 
   /* 999999 is chosen to avoid any plausible faster special case.  */
   mult_is_very_cheap
     = (rtx_cost (gen_rtx (MULT, word_mode, reg,
-			  gen_rtx (CONST_INT, VOIDmode, 999999)))
+			  gen_rtx (CONST_INT, VOIDmode, 999999)), SET)
        < rtx_cost (gen_rtx (LSHIFT, word_mode, reg,
-			    gen_rtx (CONST_INT, VOIDmode, 7))));
+			    gen_rtx (CONST_INT, VOIDmode, 7)), SET));
 
   sdiv_pow2_cheap
-    = rtx_cost (gen_rtx (DIV, word_mode, reg, pow2)) <= 2 * add_cost;
+    = rtx_cost (gen_rtx (DIV, word_mode, reg, pow2), SET) <= 2 * add_cost;
   smod_pow2_cheap
-    = rtx_cost (gen_rtx (MOD, word_mode, reg, pow2)) <= 2 * add_cost;
+    = rtx_cost (gen_rtx (MOD, word_mode, reg, pow2), SET) <= 2 * add_cost;
 
   init_recog ();
   for (i = 2;; i <<= 1)
@@ -100,7 +100,7 @@ init_expmed ()
       if (recog (lea, 0, &dummy) < 0)
 	break;
       lea_max_mul = i;
-      lea_cost = rtx_cost (SET_SRC (lea));
+      lea_cost = rtx_cost (SET_SRC (lea), SET);
     }
 
   /* Free the objects we just allocated.  */
@@ -200,13 +200,18 @@ store_bit_field (str_rtx, bitsize, bitnum, fieldmode, value, align, total_size)
 
   /* Note that the adjustment of BITPOS above has no effect on whether
      BITPOS is 0 in a REG bigger than a word.  */
-  if (GET_MODE_SIZE (fieldmode) >= UNITS_PER_WORD && GET_CODE (op0) != MEM
+  if (GET_MODE_SIZE (fieldmode) >= UNITS_PER_WORD
+      && (! STRICT_ALIGNMENT || GET_CODE (op0) != MEM)
       && bitpos == 0 && bitsize == GET_MODE_BITSIZE (fieldmode))
     {
       /* Storing in a full-word or multi-word field in a register
 	 can be done with just SUBREG.  */
       if (GET_MODE (op0) != fieldmode)
-	op0 = gen_rtx (SUBREG, fieldmode, op0, offset);
+	if (GET_CODE (op0) == REG)
+	  op0 = gen_rtx (SUBREG, fieldmode, op0, offset);
+	else
+	  op0 = change_address (op0, fieldmode,
+				plus_constant (XEXP (op0, 0), offset));
       emit_move_insn (op0, value);
       return value;
     }
@@ -341,9 +346,8 @@ store_bit_field (str_rtx, bitsize, bitnum, fieldmode, value, align, total_size)
 	  if (GET_MODE (op0) == BLKmode
 	      || GET_MODE_SIZE (GET_MODE (op0)) > GET_MODE_SIZE (maxmode))
 	    bestmode
-	      = get_best_mode (bitsize, bitnum,
-			       align * BITS_PER_UNIT, maxmode,
-			       GET_CODE (op0) == MEM && MEM_VOLATILE_P (op0));
+	      = get_best_mode (bitsize, bitnum, align * BITS_PER_UNIT, maxmode,
+			       MEM_VOLATILE_P (op0));
 	  else
 	    bestmode = GET_MODE (op0);
 
@@ -914,8 +918,7 @@ extract_bit_field (str_rtx, bitsize, bitnum, unsignedp,
 			  > GET_MODE_SIZE (maxmode)))
 		    bestmode = get_best_mode (bitsize, bitnum,
 					      align * BITS_PER_UNIT, maxmode,
-					      (GET_CODE (xop0) == MEM
-					       && MEM_VOLATILE_P (xop0)));
+					      MEM_VOLATILE_P (xop0));
 		  else
 		    bestmode = GET_MODE (xop0);
 
@@ -969,7 +972,13 @@ extract_bit_field (str_rtx, bitsize, bitnum, unsignedp,
 	  if (GET_MODE (xtarget) != maxmode)
 	    {
 	      if (GET_CODE (xtarget) == REG)
-		xspec_target_subreg = xtarget = gen_lowpart (maxmode, xtarget);
+		{
+		  int wider = (GET_MODE_SIZE (maxmode)
+			       > GET_MODE_SIZE (GET_MODE (xtarget)));
+		  xtarget = gen_lowpart (maxmode, xtarget);
+		  if (wider)
+		    xspec_target_subreg = xtarget;
+		}
 	      else
 		xtarget = gen_reg_rtx (maxmode);
 	    }
@@ -1042,8 +1051,7 @@ extract_bit_field (str_rtx, bitsize, bitnum, unsignedp,
 			  > GET_MODE_SIZE (maxmode)))
 		    bestmode = get_best_mode (bitsize, bitnum,
 					      align * BITS_PER_UNIT, maxmode,
-					      (GET_CODE (xop0) == MEM
-					       && MEM_VOLATILE_P (xop0)));
+					      MEM_VOLATILE_P (xop0));
 		  else
 		    bestmode = GET_MODE (xop0);
 
@@ -1096,7 +1104,13 @@ extract_bit_field (str_rtx, bitsize, bitnum, unsignedp,
 	  if (GET_MODE (xtarget) != maxmode)
 	    {
 	      if (GET_CODE (xtarget) == REG)
-		xspec_target_subreg = xtarget = gen_lowpart (maxmode, xtarget);
+		{
+		  int wider = (GET_MODE_SIZE (maxmode)
+			       > GET_MODE_SIZE (GET_MODE (xtarget)));
+		  xtarget = gen_lowpart (maxmode, xtarget);
+		  if (wider)
+		    xspec_target_subreg = xtarget;
+		}
 	      else
 		xtarget = gen_reg_rtx (maxmode);
 	    }
@@ -1947,7 +1961,11 @@ expand_mult (mode, op0, op1, target, unsignedp)
 	const_op1 = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (op1));
     }
 
-  if (GET_CODE (const_op1) == CONST_INT && ! mult_is_very_cheap && optimize)
+  /* We used to test optimize here, on the grounds that it's better to
+     produce a smaller program when -O is not used.
+     But this causes such a terrible slowdown sometimes
+     that it seems better to use synth_mult always.  */
+  if (GET_CODE (const_op1) == CONST_INT && ! mult_is_very_cheap)
     {
       struct algorithm alg;
       struct algorithm neg_alg;
@@ -2235,6 +2253,19 @@ expand_divmod (rem_flag, code, mode, op0, op1, target, unsignedp)
       can_clobber_op0 = 1;
       op1 = convert_to_mode (compute_mode, op1, unsignedp);
     }
+
+  /* If we are computing the remainder and one of the operands is a volatile
+     MEM, copy it into a register.  */
+
+  if (rem_flag && GET_CODE (op0) == MEM && MEM_VOLATILE_P (op0))
+    adjusted_op0 = op0 = force_reg (compute_mode, op0), can_clobber_op0 = 1;
+  if (rem_flag && GET_CODE (op1) == MEM && MEM_VOLATILE_P (op1))
+    op1 = force_reg (compute_mode, op1);
+
+  /* If we are computing the remainder, op0 will be needed later to calculate
+     X - Y * (X / Y), therefore cannot be clobbered. */
+  if (rem_flag)
+    can_clobber_op0 = 0;
 
   if (target == 0 || GET_MODE (target) != compute_mode)
     target = gen_reg_rtx (compute_mode);

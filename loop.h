@@ -75,6 +75,9 @@ struct induction
 				   Both this and the above can be zero.  */
   unsigned ignore : 1;		/* 1 prohibits further processing of giv */
   unsigned always_computable : 1;/* 1 if this set occurs each iteration */
+  unsigned maybe_multiple : 1;	/* Only used for a biv and  1 if this biv
+				   update may be done multiple times per
+				   iteration. */
   unsigned cant_derive : 1;	/* For giv's, 1 if this giv cannot derive
 				   another giv.  This occurs in many cases
 				   where a giv's lifetime spans an update to
@@ -118,7 +121,7 @@ struct iv_class {
   rtx initial_value;		/* Value of reg at loop start */
   rtx initial_test;		/* Test performed on BIV before loop */
   struct iv_class *next;	/* Links all class structures together */
-  rtx init_insn;		/* insn which intializes biv, 0 if none. */
+  rtx init_insn;		/* insn which initializes biv, 0 if none. */
   rtx init_set;			/* SET of INIT_INSN, if any. */
   unsigned incremented : 1;	/* 1 if somewhere incremented/decremented */
   unsigned eliminable : 1;	/* 1 if plausible candidate for elimination. */

@@ -195,9 +195,15 @@ emit_base_init (t, immediately)
     {
       do_pending_stack_adjust ();
       start_sequence ();
-      /* As a matter of principle, `start_sequence' should do this.  */
-      emit_note (0, -1);
     }
+
+  if (write_symbols == NO_DEBUG)
+    /* As a matter of principle, `start_sequence' should do this.  */
+    emit_note (0, -1);
+  else
+    /* Always emit a line number note so we can step into constructors.  */
+    emit_line_note_force (DECL_SOURCE_FILE (current_function_decl),
+			  DECL_SOURCE_LINE (current_function_decl));
 
   /* In this case, we always need IN_CHARGE_NODE, because we have
      to know whether to deallocate or not before exiting.  */
@@ -595,7 +601,7 @@ check_base_init (t)
 /* This code sets up the virtual function tables appropriate for
    the pointer DECL.  It is a one-ply initialization.
 
-   TYPE is the exact type that DECL is supposed to be.  In
+   BINFO is the exact type that DECL is supposed to be.  In
    multiple inheritance, this might mean "C's A" if C : A, B.  */
 tree
 build_virtual_init (main_binfo, binfo, decl)
@@ -613,7 +619,39 @@ build_virtual_init (main_binfo, binfo, decl)
       type = binfo;
       binfo = TYPE_BINFO (type);
     }
-  else abort ();
+  else my_friendly_abort (46);
+
+  vtype = DECL_CONTEXT (CLASSTYPE_VFIELD (type));
+#if 0
+  /* This code suggests that it's time to rewrite how we handle
+     replicated baseclasses in G++.  */
+  if (get_base_distance (vtype, TREE_TYPE (TREE_TYPE (decl)), 0, 0) == -2)
+    {
+      tree binfos = TYPE_BINFO_BASETYPES (TREE_TYPE (TREE_TYPE (decl)));
+      int i, n_baselinks = binfos ? TREE_VEC_LENGTH (binfos) : 0;
+      tree result = NULL_TREE;
+
+      for (i = n_baselinks-1; i >= 0; i--)
+	{
+	  tree child = TREE_VEC_ELT (binfos, i);
+	  tree this_decl;
+
+	  if (get_base_distance (vtype, BINFO_TYPE (child), 0, 0) == -1)
+	    continue;
+
+	  if (TREE_VIA_VIRTUAL (child))
+	    this_decl = build_vbase_pointer (build_indirect_ref (decl), BINFO_TYPE (child));
+	  else if (BINFO_OFFSET_ZEROP (child))
+	    this_decl = build1 (NOP_EXPR, TYPE_POINTER_TO (BINFO_TYPE (child)),
+				decl);
+	  else
+	    this_decl = build (PLUS_EXPR, TYPE_POINTER_TO (BINFO_TYPE (child)),
+			       decl, BINFO_OFFSET (child));
+	  result = tree_cons (NULL_TREE, build_virtual_init (main_binfo, child, this_decl), result);
+	}
+      return build_compound_expr (result);
+    }
+#endif
 
 #ifdef SOS
   if (TYPE_DYNAMIC (type))
@@ -632,7 +670,6 @@ build_virtual_init (main_binfo, binfo, decl)
       TREE_USED (vtbl) = 1;
       vtbl = build1 (ADDR_EXPR, TYPE_POINTER_TO (TREE_TYPE (vtbl)), vtbl);
     }
-  vtype = DECL_CONTEXT (CLASSTYPE_VFIELD (type));
   decl = convert_pointer_to (vtype, decl);
   vtbl_ptr = build_vfield_ref (build_indirect_ref (decl, 0), vtype);
   if (vtbl_ptr == error_mark_node)
@@ -708,7 +745,7 @@ expand_aggr_vbase_init (binfo, exp, addr, init_list)
 	/* Don't initialize twice.  */
 	if (BINFO_VBASE_INIT_MARKED (TREE_PURPOSE (result)))
 	  {
-	    abort ();
+	    my_friendly_abort (47);
 	    expand_aggr_vbase_init_1 (TREE_PURPOSE (result), exp,
 				      TREE_OPERAND (TREE_VALUE (result), 0),
 				      init_list);
@@ -943,7 +980,7 @@ expand_member_init (exp, name, init)
 	     FIELD and FNDECL.  The following code
 	     should be correct, but abort is here
 	     to make sure.  */
-	  abort ();
+	  my_friendly_abort (48);
 	  parmtypes = FUNCTION_ARG_CHAIN (fndecl);
 	}
       else
@@ -1297,11 +1334,21 @@ expand_aggr_init_1 (binfo, true_exp, exp, init, alias_this, flags)
 	 the expression is a unit element of type X, first try X(X&),
 	 followed by initialization by X.  If neither of these work
 	 out, then look hard.  */
-      tree parms = (init == NULL_TREE || TREE_CODE (init) == TREE_LIST)
-	? init : build_tree_list (NULL_TREE, init);
+      tree parms;
       int xxref_init_possible;
 
-      if (parms) init = TREE_VALUE (parms);
+      if (init == NULL_TREE || TREE_CODE (init) == TREE_LIST)
+	{
+	  parms = init;
+	  if (parms) init = TREE_VALUE (parms);
+	}
+      else if (TREE_CODE (init) == INDIRECT_REF && TREE_HAS_CONSTRUCTOR (init))
+	{
+	  convert_for_initialization (exp, type, init, 0, 0, 0, 0);
+	  expand_expr_stmt (TREE_OPERAND (init, 0));
+	  return;
+	}
+      else parms = build_tree_list (NULL_TREE, init);
 
       if (TYPE_HAS_INIT_REF (type)
 	  || init == NULL_TREE
@@ -1370,7 +1417,11 @@ expand_aggr_init_1 (binfo, true_exp, exp, init, alias_this, flags)
 	     from another, and though there are constructors,
 	     and none accept the initializer, just do a bitwise
 	     copy.
-	     
+
+	     @@ The above sounds wrong, ``If a class has any copy
+	     @@ constructor defined, the default copy constructor will
+	     @@ not be generated.'' 12.8 Copying Class Objects  -- mrs
+
 	     @@ This should reject initializer which a constructor
 	     @@ rejected on visibility gounds, but there is
 	     @@ no way right now to recognize that case with
@@ -1487,7 +1538,7 @@ expand_recursive_init_1 (binfo, true_exp, addr, init_list, alias_this)
 		    expand_expr_stmt (build_vbase_vtables_init (binfo, binfo, true_exp, addr, 1));
 		}
 	    }
-	  else abort ();
+	  else my_friendly_abort (49);
 	}
       else if (TREE_VALUE (init_list)
 	       && TREE_CODE (TREE_VALUE (init_list)) == TREE_VEC)
@@ -1501,7 +1552,7 @@ expand_recursive_init_1 (binfo, true_exp, addr, init_list, alias_this)
 	  init_ptr = &init_null;
 	}
       else
-	abort ();
+	my_friendly_abort (50);
       init_list = TREE_CHAIN (init_list);
     }
 }
@@ -1557,6 +1608,9 @@ is_aggr_typedef (name, or_else)
      tree name;
 {
   tree type;
+
+  if (name == error_mark_node)
+    return 0;
 
   if (! IDENTIFIER_HAS_TYPE_VALUE (name))
     {
@@ -1687,7 +1741,7 @@ build_member_call (cname, name, parmlist)
 	    err_name = IDENTIFIER_POINTER (name);
 	}
       else
-	abort ();
+	my_friendly_abort (51);
 
       error ("no method `%s::%s'", IDENTIFIER_POINTER (cname), err_name);
       return error_mark_node;
@@ -1748,7 +1802,7 @@ build_offset_ref (cname, name)
       else if (TREE_CODE (t) == FUNCTION_DECL)
 	sorry ("use of member function in incomplete aggregate type");
       else
-	abort ();
+	my_friendly_abort (52);
       return error_mark_node;
     }
 
@@ -1905,7 +1959,7 @@ build_offset_ref (cname, name)
 
   /* static class functions too.  */
   if (TREE_CODE (t) == FUNCTION_DECL && TREE_CODE (TREE_TYPE (t)) == FUNCTION_TYPE)
-    abort ();
+    my_friendly_abort (53);
 
   /* In member functions, the form `cname::name' is no longer
      equivalent to `this->cname::name'.  */
@@ -1952,7 +2006,7 @@ get_member_function (exp_addr_ptr, exp, member)
 	 and the array indexing will knock this bit
 	 out the top, leaving a valid index.  */
       if (UNITS_PER_WORD <= 1)
-	abort ();
+	my_friendly_abort (54);
 
       e1 = build (GT_EXPR, integer_type_node, e0, integer_zero_node);
       e1 = build_compound_expr (tree_cons (NULL_TREE, exp_addr,
@@ -2076,7 +2130,7 @@ resolve_offset_ref (exp)
 	  error ("in this context");
 	  return error_mark_node;
 	}
-      abort ();
+      my_friendly_abort (55);
     }
 
   /* If this is a reference to a member function, then return
@@ -2099,7 +2153,7 @@ resolve_offset_ref (exp)
       return build1 (INDIRECT_REF, type,
 		     build (PLUS_EXPR, ptr_type_node, addr, member));
     }
-  abort ();
+  my_friendly_abort (56);
   /* NOTREACHED */
   return NULL_TREE;
 }
@@ -2402,6 +2456,38 @@ do_friend (ctype, declarator, decl, parmdecls, flags, quals)
      enum overload_flags flags;
      tree quals;
 {
+  /* first, lets find out if what we are making a friend needs overloading */
+  tree previous_decl;
+  int was_c_linkage = 0;
+  /* if we find something in scope, let see if it has extern "C" linkage */
+  /* This code is pretty general and should be ripped out and reused
+     as a separate function. */
+  if (DECL_NAME (decl))
+    {
+      previous_decl=lookup_name (DECL_NAME (decl), 0);
+      if (previous_decl && TREE_CODE (previous_decl) == TREE_LIST)
+	{
+	  do
+	    {
+	      if (TREE_TYPE (TREE_VALUE (previous_decl))
+		  == TREE_TYPE (decl))
+		{
+		  previous_decl = TREE_VALUE (previous_decl);
+		  break;
+		}
+	      previous_decl = TREE_CHAIN (previous_decl);
+	    }
+	  while (previous_decl);
+	}
+      if (previous_decl && TREE_CODE (previous_decl) == FUNCTION_DECL)
+	if (TREE_TYPE (decl) == TREE_TYPE (previous_decl))
+	    if (DECL_LANGUAGE (previous_decl) == lang_c)
+	    {
+	      /* it did, so lets not overload this */
+	      was_c_linkage = 1;
+	    }
+    }
+	  
   if (ctype)
     {
       tree cname = TYPE_NAME (ctype);
@@ -2457,6 +2543,7 @@ do_friend (ctype, declarator, decl, parmdecls, flags, quals)
 	  decl = void_type_node;
 	}
     }
+  /* never overload C functions */
   else if (TREE_CODE (decl) == FUNCTION_DECL
 	   && ((IDENTIFIER_LENGTH (declarator) == 4
 		&& IDENTIFIER_POINTER (declarator)[0] == 'm'
@@ -2465,7 +2552,8 @@ do_friend (ctype, declarator, decl, parmdecls, flags, quals)
 		   && IDENTIFIER_POINTER (declarator)[0] == '_'
 		   && IDENTIFIER_POINTER (declarator)[1] == '_'
 		   && strncmp (IDENTIFIER_POINTER (declarator)+2,
-			       "builtin_", 8) == 0)))
+			       "builtin_", 8) == 0)
+	       || was_c_linkage))
     {
       /* raw "main", and builtin functions never gets overloaded,
 	 but they can become friends.  */
@@ -2872,6 +2960,7 @@ build_new (placement, decl, init, use_global_new)
 	  size = size_binop (PLUS_EXPR, size, extra);
 	  rval = build_builtin_call (ptr_type_node, BIN,
 				     build_tree_list (NULL_TREE, size));
+	  rval = convert (string_type_node, rval); /* lets not add void* and ints */
 	  rval = save_expr (build_binary_op (PLUS_EXPR, rval, extra));
 	  /* Store header info.  */
 	  cookie = build_indirect_ref (build (MINUS_EXPR, TYPE_POINTER_TO (BI_header_type),
@@ -3325,7 +3414,7 @@ expand_vec_init (decl, base, maxindex, init, from_array)
 	    expand_aggr_init (to, from, 0);
 	  else if (from)
 	    expand_assignment (to, from, 0, 0);
-	  else abort ();
+	  else my_friendly_abort (57);
 	}
       else if (TREE_CODE (type) == ARRAY_TYPE)
 	{
@@ -3896,7 +3985,7 @@ build_vec_delete (base, maxindex, elt_size, dtor_dummy, auto_delete_vec, auto_de
       else
 	base_tbd = convert (ptype,
 			    build_binary_op (MINUS_EXPR,
-					     convert (ptr_type_node, base),
+					     convert (string_type_node, base),
 					     BI_header_size));
       deallocate_expr = build_x_delete (ptr_type_node, base_tbd, 1);
       if (auto_delete_vec != integer_one_node)

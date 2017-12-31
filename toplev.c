@@ -293,6 +293,10 @@ int flag_float_store = 0;
 
 int flag_cse_follow_jumps;
 
+/* Nonzero for -fcse-skip-blocks:
+   have cse follow a branch around a block.  */
+int flag_cse_skip_blocks;
+
 /* Nonzero for -fexpensive-optimizations:
    perform miscellaneous relatively-expensive optimizations.  */
 int flag_expensive_optimizations;
@@ -337,6 +341,13 @@ int flag_omit_frame_pointer = 0;
 /* Nonzero to inhibit use of define_optimization peephole opts.  */
 
 int flag_no_peephole = 0;
+
+/* Nonzero allows GCC to violate some IEEE or ANSI rules regarding math
+   operations in the interest of optimization.  For example it allows
+   GCC to assume arguments to sqrt are nonnegative numbers, allowing
+   faster code for sqrt to be generated. */
+
+int flag_fast_math = 0;
 
 /* Nonzero means all references through pointers are volatile.  */
 
@@ -422,9 +433,21 @@ int flag_schedule_insns_after_reload = 0;
    needed for crtstuff.c on other systems.  */
 int flag_inhibit_size_directive = 0;
 
+/* -fverbose-asm causes extra commentary information to be produced in
+   the generated assembly code (to make it more readable).  This option
+   is generally only of use to those who actually need to read the
+   generated assembly code (perhaps while debugging the compiler itself).  */
+
+int flag_verbose_asm = 0;
+
 /* -fgnu-linker specifies use of the GNU linker for initializations.
-   -fno-gnu-linker says that collect will be used.  */
+   (Or, more generally, a linker that handles initializations.)
+   -fno-gnu-linker says that collect2 will be used.  */
+#ifdef USE_COLLECT2
+int flag_gnu_linker = 0;
+#else
 int flag_gnu_linker = 1;
+#endif
 
 /* Table of language-independent -f options.
    STRING is the option name.  VARIABLE is the address of the variable.
@@ -439,6 +462,7 @@ struct { char *string; int *variable; int on_value;} f_options[] =
   {"defer-pop", &flag_defer_pop, 1},
   {"omit-frame-pointer", &flag_omit_frame_pointer, 1},
   {"cse-follow-jumps", &flag_cse_follow_jumps, 1},
+  {"cse-skip-blocks", &flag_cse_skip_blocks, 1},
   {"expensive-optimizations", &flag_expensive_optimizations, 1},
   {"thread-jumps", &flag_thread_jumps, 1},
   {"strength-reduce", &flag_strength_reduce, 1},
@@ -463,8 +487,10 @@ struct { char *string; int *variable; int on_value;} f_options[] =
   {"schedule-insns2", &flag_schedule_insns_after_reload, 1},
   {"pic", &flag_pic, 1},
   {"PIC", &flag_pic, 2},
+  {"fast-math", &flag_fast_math, 1},
   {"common", &flag_no_common, 0},
   {"inhibit-size-directive", &flag_inhibit_size_directive, 1},
+  {"verbose-asm", &flag_verbose_asm, 1},
   {"gnu-linker", &flag_gnu_linker, 1}
 };
 
@@ -1334,6 +1360,10 @@ compile_file (name)
   if (finput == 0)
     pfatal_with_name (name);
 
+#ifdef IO_BUFFER_SIZE
+  setvbuf (finput, (char *) xmalloc (IO_BUFFER_SIZE), _IOFBF, IO_BUFFER_SIZE);
+#endif
+
   /* Initialize data in various passes.  */
 
   init_obstacks ();
@@ -1545,7 +1575,8 @@ compile_file (name)
     }
 
 #ifdef IO_BUFFER_SIZE
-  setvbuf (asm_out_file, xmalloc (IO_BUFFER_SIZE), _IOFBF, IO_BUFFER_SIZE);
+  setvbuf (asm_out_file, (char *) xmalloc (IO_BUFFER_SIZE),
+	   _IOFBF, IO_BUFFER_SIZE);
 #endif
 
   input_filename = name;
@@ -1715,7 +1746,7 @@ compile_file (name)
 	  TIMEVAR (symout_time, sdbout_toplevel_data (decl));
 #endif /* SDB_DEBUGGING_INFO */
 #ifdef DWARF_DEBUGGING_INFO
-	/* Output DWARF information for file-scope tenative data object
+	/* Output DWARF information for file-scope tentative data object
 	   declarations, file-scope (extern) function declarations (which
 	   had no corresponding body) and file-scope tagged type declarations
 	   and definitions which have not yet been forced out.  */
@@ -1876,13 +1907,19 @@ rest_of_decl_compilation (decl, asmspec, top_level, at_end)
     TIMEVAR (varconst_time,
 	     {
 	       make_decl_rtl (decl, asmspec, top_level);
-	       /* Don't output anything
-		  when a tentative file-scope definition is seen.
-		  But at end of compilation, do output code for them.  */
-	       if (! (! at_end && top_level
-		      && (DECL_INITIAL (decl) == 0
-			  || DECL_INITIAL (decl) == error_mark_node)))
-		 assemble_variable (decl, top_level, at_end);
+	       /* For a user-invisible decl that should be replaced
+		  by its value when used, don't output anything.  */
+	       if (! (TREE_CODE (decl) == VAR_DECL
+		      && DECL_IGNORED_P (decl) && TREE_READONLY (decl)
+		      && DECL_INITIAL (decl) != 0))
+		 /* Don't output anything
+		    when a tentative file-scope definition is seen.
+		    But at end of compilation, do output code for them.  */
+		 if (! (! at_end && top_level
+			&& (DECL_INITIAL (decl) == 0
+			    || DECL_INITIAL (decl) == error_mark_node
+			    || DECL_IGNORED_P (decl))))
+		   assemble_variable (decl, top_level, at_end);
 	     });
   else if (TREE_REGDECL (decl) && asmspec != 0)
     {
@@ -2014,7 +2051,8 @@ rest_of_compilation (decl)
      functions.  */
   rtx_equal_function_value_matters = 0;
 
-  if (rtl_dump_and_exit || flag_syntax_only)
+  /* Don't return yet if -Wreturn-type; we need to do jump_optimize.  */
+  if ((rtl_dump_and_exit || flag_syntax_only) && !warn_return_type)
     {
       goto exit_rest_of_compilation;
     }
@@ -2061,6 +2099,10 @@ rest_of_compilation (decl)
       TIMEVAR (jump_time, reg_scan (insns, max_reg_num (), 0));
       TIMEVAR (jump_time, jump_optimize (insns, 0, 0, 1));
     }
+
+  /* Now is when we stop if -fsyntax-only and -Wreturn-type.  */
+  if (rtl_dump_and_exit || flag_syntax_only)
+    goto exit_rest_of_compilation;
 
   /* Dump rtl code after jump, if we are doing that.  */
 
@@ -2580,6 +2622,7 @@ main (argc, argv, envp)
   if (optimize >= 2)
     {
       flag_cse_follow_jumps = 1;
+      flag_cse_skip_blocks = 1;
       flag_expensive_optimizations = 1;
       flag_strength_reduce = 1;
       flag_rerun_cse_after_loop = 1;
@@ -2908,7 +2951,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 	      if (write_symbols == XCOFF_DEBUG && !strncmp (str, "ggdb", len)
 		  && len >= 2)
 		use_gdb_dbx_extensions = 1;
-	      else if (write_symbols == DBX_DEBUG
+	      else if (write_symbols == XCOFF_DEBUG
 		       && !strncmp (str, "gxcoff", len) && len >= 2)
 		use_gdb_dbx_extensions = 0;
 	      else
@@ -2919,7 +2962,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 	      else if (level == 0)
 		write_symbols = NO_DEBUG;
 	      else
-		debug_info_level = level;
+		debug_info_level = (enum debug_info_level) level;
 	    }
 	  else if (!strcmp (str, "o"))
 	    {
@@ -3011,6 +3054,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 
   compile_file (filename);
 
+#ifndef OS2
 #ifndef VMS
   if (flag_print_mem)
     {
@@ -3027,6 +3071,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 #endif /* not USG */
     }
 #endif /* not VMS */
+#endif /* not OS2 */
 
   if (errorcount)
     exit (FATAL_EXIT_CODE);

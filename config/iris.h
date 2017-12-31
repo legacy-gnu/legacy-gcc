@@ -84,4 +84,16 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define NO_DOLLAR_IN_LABEL 1
 
+/* Specify size_t, ptrdiff_t, and wchar_t types.  */
+#define SIZE_TYPE	"unsigned int"
+#define PTRDIFF_TYPE	"int"
+#define WCHAR_TYPE	"unsigned char"
+#define WCHAR_TYPE_SIZE BITS_PER_UNIT
+
+/* Generate calls to memcpy, etc., not bcopy, etc.  */
+#define TARGET_MEM_FUNCTIONS
+
+/* Plain char is unsigned in the SGI compiler.  */
+#define DEFAULT_SIGNED_CHAR 0
+
 #include "mips.h"

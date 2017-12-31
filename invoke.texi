@@ -2,7 +2,7 @@
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
 
-@node Invoking GCC, Installation, Boycott, Top
+@node Invoking GCC
 @chapter GNU CC Command Options
 @cindex GNU CC command options
 @cindex command options
@@ -86,13 +86,14 @@ in the following sections.
 @item Optimization Options
 @xref{Optimize Options,,Options that Control Optimization}.
 @example
--fcaller-saves  -fcse-follow-jumps  -fdelayed-branch
--fexpensive-optimizations  -ffloat-store  -fforce-addr  -fforce-mem
--finline  -finline-functions  -fkeep-inline-functions
+-fcaller-saves  -fcse-follow-jumps  -fcse-skip-blocks
+-fdelayed-branch   -fexpensive-optimizations  -ffast-math 
+-ffloat-store  -fforce-addr  -fforce-mem  -finline
+-finline-functions  -fkeep-inline-functions
 -fno-defer-pop  -fno-function-cse  -fomit-frame-pointer
 -frerun-cse-after-loop  -fschedule-insns  -fschedule-insns2
 -fstrength-reduce  -fthread-jumps
--funroll-all-loops  -funroll-loops
+-funroll-all-loops  -funroll-loops 
 -O  -O2
 @end example
 
@@ -363,6 +364,9 @@ from declaring certain functions or defining certain macros that the
 ANSI standard doesn't call for; this is to avoid interfering with any
 programs that might use these names for other things.
 
+The functions @code{alloca}, @code{abort}, @code{exit}, and
+@code{_exit} are not builtin functions when @samp{-ansi} is used.
+
 @item -fno-asm
 Do not recognize @code{asm}, @code{inline} or @code{typeof} as a
 keyword.  These words may then be used as identifiers.  You can
@@ -370,8 +374,14 @@ use @code{__asm__}, @code{__inline__} and @code{__typeof__} instead.
 @samp{-ansi} implies @samp{-fno-asm}.
 
 @item -fno-builtin
-Don't recognize non-ANSI built-in functions.  @samp{-ansi} also has this
-effect. Currently, the only function affected is @code{alloca}.
+Don't recognize built-in functions that do not begin with two leading
+underscores. Currently, the functions affected include @code{alloca},
+@code{abort}, @code{exit}, @code{_exit}, @code{abs}, @code{fabs},
+@code{labs}, @code{memcpy}, @code{memcmp}, @code{strcmp},
+@code{strcpy}, @code{strlen}, and @code{sqrt}.
+
+The @samp{-ansi} option prevents @code{alloca} and @code{_exit} from
+being builtin functions.
 
 @item -trigraphs
 Support ANSI C trigraphs.  You don't want to know about this
@@ -438,6 +448,10 @@ testing both of these predefined macros you can distinguish four
 situations: GNU C, traditional GNU C, other ANSI C compilers, and
 other old C compilers.
 @end itemize
+
+You may wish to use @samp{-fno-builtin} as well as @samp{-traditional}
+if your program uses names that are normally GNU C builtin functions for
+other purposes of its own.
 
 @item -traditional-cpp
 Attempt to support some aspects of traditional C preprocessors.
@@ -1079,13 +1093,10 @@ whether a target machine supports this flag.  @xref{Registers,,Register
 Usage, gcc.info, Using and Porting GCC}.@refill
 @end ifclear
 
-@item -finline
-Pay attention to the @code{inline} keyword.  Normally the negation of this
-option @samp{-fno-inline} is used to keep the compiler from expanding
-any functions inline.  However, the opposite effect may be desirable
-when compiling without optimization, since inline expansion is turned
-off in that case.
-
+@item -fno-inline
+Don't pay attention to the @code{inline} keyword.  Normally this option
+is used to keep the compiler from expanding any functions inline.
+  
 @item -finline-functions
 Integrate all simple functions into their callers.  The compiler
 heuristically decides which functions are simple enough to be worth
@@ -1094,15 +1105,6 @@ integrating in this way.
 If all calls to a given function are integrated, and the function is
 declared @code{static}, then the function is normally not output as
 assembler code in its own right.
-
-@item -fcaller-saves
-Enable values to be allocated in registers that will be clobbered by
-function calls, by emitting extra instructions to save and restore the
-registers around such calls.  Such allocation is done only when it
-seems to result in better code than would otherwise be produced.
-
-This option is enabled by default on certain machines, usually those
-which have no call-preserved registers to use instead.
 
 @item -fkeep-inline-functions
 Even if all calls to a given function are integrated, and the function
@@ -1116,7 +1118,20 @@ calls a constant function contain the function's address explicitly.
 This option results in less efficient code, but some strange hacks
 that alter the assembler output may be confused by the optimizations
 performed when this option is not used.
+
+@item -ffast-math
+This option allows GCC to violate some ANSI or IEEE rules/specifications
+in the interest of optimizing code for speed.  For example, it allows
+the compiler to assume arguments to the @code{sqrt} function are 
+non-negative numbers.  
+
+This option should never be turned on by any @samp{-O} option since 
+it can result in incorrect output for programs which depend on 
+an exact implementation of IEEE or ANSI rules/specifications for
+math functions.
 @end table
+
+
 
 The following options control specific optimizations.  The @samp{-O2}
 option turns on all of these optimizations except @samp{-funroll-loops}
@@ -1140,9 +1155,18 @@ second branch or a point immediately following it, depending on whether
 the condition is known to be true or false.
 
 @item -fcse-follow-jumps
-In common subexpression elimination, scan through jump instructions in
-certain cases.  This is not as powerful as completely global CSE, but
-not as slow either.
+In common subexpression elimination, scan through jump instructions
+when the target of the jump is not reached by any other path.  For
+example, when CSE encounters an @code{if} statement with an
+@code{else} clause, CSE will follow the jump when the condition
+tested is false.
+
+@item -fcse-skip-blocks
+This is similar to @samp{-fcse-follow-jumps}, but causes CSE to
+follow jumps which conditionally skip over blocks.  When CSE
+encounters a simple @code{if} statement with no else clause,
+@samp{-fcse-skip-blocks} causes CSE to follow the jump around the
+body of the @code{if}.
 
 @item -frerun-cse-after-loop
 Re-run common subexpression elimination after loop optimizations has been
@@ -1168,6 +1192,15 @@ Similar to @samp{-fschedule-insns}, but requests an additional pass of
 instruction scheduling after register allocation has been done.  This is
 especially useful on machines with a relatively small number of
 registers and where memory load instructions take more than one cycle.
+
+@item -fcaller-saves
+Enable values to be allocated in registers that will be clobbered by
+function calls, by emitting extra instructions to save and restore the
+registers around such calls.  Such allocation is done only when it
+seems to result in better code than would otherwise be produced.
+
+This option is enabled by default on certain machines, usually those
+which have no call-preserved registers to use instead.
 
 @item -funroll-loops
 Perform the optimization of loop unrolling.  This is only done for loops
@@ -1226,6 +1259,11 @@ Options}, for information on @samp{-I}.
 
 By using both @samp{-nostdinc} and @samp{-I-}, you can limit the include-file
 search path to only those directories you specify explicitly.
+
+@item -nostdinc++
+Do not search for header files in the C++-specific standard directories,
+but do still search the other standard directories.
+(This option is used when building @samp{libg++}.)
 
 @item -undef
 Do not predefine any nonstandard macros.  (Including architecture flags).
@@ -1919,7 +1957,7 @@ flavor is used.  All other configurations ignore this option.
 
 @item -mno-check-zero-division
 @itemx -mcheck-zero-division
-@kindex -mno-check-zero-divixion
+@kindex -mno-check-zero-division
 @kindex -mcheck-zero-division
 @cindex zero division on 88k
 Early models of the 88K architecture had problems with division by zero;
@@ -2046,7 +2084,7 @@ the @samp{-mips2} or @samp{-mips3} switches being used.
 @item -mips2
 Issue instructions from level 2 of the MIPS ISA (branch likely, square
 root instructions).  The @samp{-mcpu=r4000} or @samp{-mcpu=r6000}
-switch must be used in conjuction with @samp{-mips2}.
+switch must be used in conjunction with @samp{-mips2}.
 
 @item -mips3
 Issue instructions from level 3 of the MIPS ISA (64 bit instructions).
@@ -2259,6 +2297,12 @@ would cause trouble if the function is split in the middle, and the
 two halves are placed at locations far apart in memory.  This option is
 used when compiling @file{crtstuff.c}; you should not need to use it
 for anything else.
+
+@item -fverbose-asm
+Put extra commentary information in the generated assembly code to
+make it more readable.  This option is generally only of use to those
+who actually need to read the generated assembly code (perhaps while
+debugging the compiler itself).
 
 @item -fvolatile
 Consider all memory references through pointers to be volatile.

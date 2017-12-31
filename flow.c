@@ -466,7 +466,7 @@ find_basic_blocks (f, nonlocal_label_list)
 
 	BLOCK_NUM (insn) = i;
 
-	/* Don't separare a CALL_INSN from following CLOBBER insns.  This is
+	/* Don't separate a CALL_INSN from following CLOBBER insns.  This is
 	   a kludge that will go away when each CALL_INSN records its
 	   USE and CLOBBERs.  */
 
@@ -519,7 +519,8 @@ find_basic_blocks (f, nonlocal_label_list)
 	if (GET_CODE (insn) == JUMP_INSN
 	    && GET_CODE (PATTERN (insn)) == SET
 	    && SET_DEST (PATTERN (insn)) == pc_rtx
-	    && GET_CODE (SET_SRC (PATTERN (insn))) == REG)
+	    && (GET_CODE (SET_SRC (PATTERN (insn))) == REG
+		|| GET_CODE (SET_SRC (PATTERN (insn))) == MEM))
 	  {
 	    rtx x;
 	    for (x = label_value_list; x; x = XEXP (x, 1))

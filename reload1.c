@@ -89,7 +89,7 @@ rtx *reg_equiv_constant;
    prior to any register elimination (such as frame pointer to stack
    pointer).  Depending on whether or not it is a valid address, this value
    is transferred to either reg_equiv_address or reg_equiv_mem.  */
-static rtx *reg_equiv_memory_loc;
+rtx *reg_equiv_memory_loc;
 
 /* Element N is the address of stack slot to which pseudo reg N is equivalent.
    This is used when the address is not valid as a memory address
@@ -1048,6 +1048,7 @@ reload (first, global, dumpfile)
 	      for (i = 0; i < n_reloads; i++)
 		{
 		  register enum reg_class *p;
+		  enum reg_class class = reload_reg_class[i];
 		  int size;
 		  enum machine_mode mode;
 		  int *this_groups;
@@ -1063,6 +1064,16 @@ reload (first, global, dumpfile)
 		      || (reload_out[i] == 0 && reload_in[i] == 0
 			  && ! reload_secondary_p[i]))
   		    continue;
+
+		  /* Show that a reload register of this class is needed
+		     in this basic block.  We do not use insn_needs and
+		     insn_groups because they are overly conservative for
+		     this purpose.  */
+		  if (global && ! basic_block_needs[(int) class][this_block])
+		    {
+		      basic_block_needs[(int) class][this_block] = 1;
+		      new_basic_block_needs = 1;
+		    }
 
 		  /* Decide which time-of-use to count this reload for.  */
 		  switch (reload_when_needed[i])
@@ -1097,15 +1108,15 @@ reload (first, global, dumpfile)
 		  mode = reload_inmode[i];
 		  if (GET_MODE_SIZE (reload_outmode[i]) > GET_MODE_SIZE (mode))
 		    mode = reload_outmode[i];
-		  size = CLASS_MAX_NREGS (reload_reg_class[i], mode);
+		  size = CLASS_MAX_NREGS (class, mode);
 		  if (size > 1)
 		    {
 		      enum machine_mode other_mode, allocate_mode;
 
 		      /* Count number of groups needed separately from
 			 number of individual regs needed.  */
-		      this_groups[(int) reload_reg_class[i]]++;
-		      p = reg_class_superclasses[(int) reload_reg_class[i]];
+		      this_groups[(int) class]++;
+		      p = reg_class_superclasses[(int) class];
 		      while (*p != LIM_REG_CLASSES)
 			this_groups[(int) *p++]++;
 		      (*this_total_groups)++;
@@ -1113,18 +1124,18 @@ reload (first, global, dumpfile)
 		      /* Record size and mode of a group of this class.  */
 		      /* If more than one size group is needed,
 			 make all groups the largest needed size.  */
-		      if (group_size[(int) reload_reg_class[i]] < size)
+		      if (group_size[(int) class] < size)
 			{
-			  other_mode = group_mode[(int) reload_reg_class[i]];
+			  other_mode = group_mode[(int) class];
 			  allocate_mode = mode;
 
-			  group_size[(int) reload_reg_class[i]] = size;
-			  group_mode[(int) reload_reg_class[i]] = mode;
+			  group_size[(int) class] = size;
+			  group_mode[(int) class] = mode;
 			}
 		      else
 			{
 			  other_mode = mode;
-			  allocate_mode = group_mode[(int) reload_reg_class[i]];
+			  allocate_mode = group_mode[(int) class];
 			}
 
 		      /* Crash if two dissimilar machine modes both need
@@ -1134,13 +1145,13 @@ reload (first, global, dumpfile)
 			  && other_mode != allocate_mode
 			  && ! modes_equiv_for_class_p (allocate_mode,
 							other_mode,
-							reload_reg_class[i]))
+							class))
 			abort ();
 		    }
 		  else if (size == 1)
 		    {
-		      this_needs[(int) reload_reg_class[i]] += 1;
-		      p = reg_class_superclasses[(int) reload_reg_class[i]];
+		      this_needs[(int) class] += 1;
+		      p = reg_class_superclasses[(int) class];
 		      while (*p != LIM_REG_CLASSES)
 			this_needs[(int) *p++] += 1;
 		    }
@@ -1209,17 +1220,20 @@ reload (first, global, dumpfile)
 
 		  if (caller_save_group_size > 1)
 		    insn_total_groups = MAX (insn_total_groups, 1);
+
+
+                /* Show that this basic block will need a register of
+                   this class.  */
+
+                if (global
+                    && ! (basic_block_needs[(int) caller_save_spill_class]
+                          [this_block]))
+                  {
+                    basic_block_needs[(int) caller_save_spill_class]
+                      [this_block] = 1;
+                    new_basic_block_needs = 1;
+                  }
 		}
-
-	      /* Update the basic block needs.  */
-
-	      for (i = 0; i < N_REG_CLASSES; i++)
-		if (global && (insn_needs[i] || insn_groups[i])
-		    && ! basic_block_needs[i][this_block])
-		  {
-		    new_basic_block_needs = 1;
-		    basic_block_needs[i][this_block] = 1;
-		  }
 
 #ifdef SMALL_REGISTER_CLASSES
 	      /* If this insn stores the value of a function call,
@@ -1602,6 +1616,10 @@ reload (first, global, dumpfile)
 			    }
 			}
 		    }
+		  /* We couldn't find any registers for this reload.
+		     Abort to avoid going into an infinite loop.  */
+		  if (i == FIRST_PSEUDO_REGISTER)
+ 		    abort ();
 		}
 	    }
 
@@ -1701,8 +1719,12 @@ reload (first, global, dumpfile)
   for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
     {
       rtx addr = 0;
+      int in_struct = 0;
       if (reg_equiv_mem[i])
-	addr = XEXP (reg_equiv_mem[i], 0);
+	{
+	  addr = XEXP (reg_equiv_mem[i], 0);
+	  in_struct = MEM_IN_STRUCT_P (reg_equiv_mem[i]);
+	}
       if (reg_equiv_address[i])
 	addr = reg_equiv_address[i];
       if (addr)
@@ -1712,6 +1734,7 @@ reload (first, global, dumpfile)
 	      rtx reg = regno_reg_rtx[i];
 	      XEXP (reg, 0) = addr;
 	      REG_USERVAR_P (reg) = 0;
+	      MEM_IN_STRUCT_P (reg) = in_struct;
 	      PUT_CODE (reg, MEM);
 	    }
 	  else if (reg_equiv_mem[i])
@@ -1857,7 +1880,10 @@ count_possible_groups (group_size, group_mode, max_groups)
 		  for (k = 0; k < group_size[i]; k++)
 		    SET_HARD_REG_BIT (counted_for_groups, j + k);
 		}
-	      j += k;
+	      /* Skip to the last reg in this group.  When j is incremented
+		 above, it will then point to the first reg of the next
+		 possible group.  */
+	      j += k - 1;
 	    }
       }
 
@@ -2646,7 +2672,7 @@ eliminate_regs (x, mem_mode, insn)
 	    if (ep->to_rtx == SET_DEST (x)
 		&& SET_DEST (x) != frame_pointer_rtx)
 	      {
-		/* If it is being incrememented, adjust the offset.  Otherwise,
+		/* If it is being incremented, adjust the offset.  Otherwise,
 		   this elimination can't be done.  */
 		rtx src = SET_SRC (x);
 
@@ -3317,6 +3343,8 @@ reload_as_needed (first, live_known)
 
 	  if (n_reloads > 0)
 	    {
+	      rtx prev = PREV_INSN (insn), next = NEXT_INSN (insn);
+	      rtx p;
 	      int class;
 
 	      /* If this block has not had spilling done for a
@@ -3332,8 +3360,13 @@ reload_as_needed (first, live_known)
 		    if (class == (int) reload_reg_class[i])
 		      {
 			if (reload_optional[i])
-			  reload_in[i] = reload_out[i] = reload_reg_rtx[i] = 0;
-			else if (reload_reg_rtx[i] == 0)
+			  {
+			    reload_in[i] = reload_out[i] = 0;
+			    reload_secondary_p[i] = 0;
+			  }
+			else if (reload_reg_rtx[i] == 0
+				 && (reload_in[i] != 0 || reload_out[i] != 0
+				     || reload_secondary_p[i] != 0))
 			  abort ();
 		      }
 
@@ -3352,6 +3385,24 @@ reload_as_needed (first, live_known)
 		 load and store insn that we just made for reloading
 		 and that we moved the structure into).  */
 	      subst_reloads ();
+
+	      /* If this was an ASM, make sure that all the reload insns
+		 we have generated are valid.  If not, give an error
+		 and delete them.  */
+
+	      if (asm_noperands (PATTERN (insn)) >= 0)
+		for (p = NEXT_INSN (prev); p != next; p = NEXT_INSN (p))
+		  if (p != insn && GET_RTX_CLASS (GET_CODE (p)) == 'i'
+		      && (recog_memoized (p) < 0
+			  || (insn_extract (p),
+			      ! constrain_operands (INSN_CODE (p), 1))))
+		    {
+		      error_for_asm (insn,
+				     "`asm' operand requires impossible reload");
+		      PUT_CODE (p, NOTE);
+		      NOTE_SOURCE_FILE (p) = 0;
+		      NOTE_LINE_NUMBER (p) = NOTE_INSN_DELETED;
+		    }
 	    }
 	  /* Any previously reloaded spilled pseudo reg, stored in this insn,
 	     is no longer validly lying around to save a future reload.
@@ -4272,7 +4323,8 @@ choose_reload_regs (insn, avoid_return_reg)
 
 	      if (equiv != 0)
 		for (i = 0; i < n_earlyclobbers; i++)
-		  if (reg_overlap_mentioned_p (equiv, reload_earlyclobbers[i]))
+		  if (reg_overlap_mentioned_for_reload_p (equiv,
+							  reload_earlyclobbers[i]))
 		    {
 		      reload_override_in[r] = equiv;
 		      equiv = 0;
@@ -4600,7 +4652,8 @@ emit_reload_insns (insn)
 		  int k;
 		  for (k = 0; k < n_reloads; k++)
 		    if (reload_reg_rtx[k] != 0 && k != j
-			&& reg_overlap_mentioned_p (reload_reg_rtx[k], oldequiv))
+			&& reg_overlap_mentioned_for_reload_p (reload_reg_rtx[k],
+							       oldequiv))
 		      {
 			oldequiv = 0;
 			break;
@@ -4860,8 +4913,7 @@ emit_reload_insns (insn)
 
 	      if (! special)
 		{
-		  reload_insn = gen_input_reload (reloadreg,
-						  oldequiv, where);
+		  reload_insn = gen_input_reload (reloadreg, oldequiv, where);
 		  if (this_reload_insn == 0)
 		    this_reload_insn = reload_insn;
 		}
@@ -4879,8 +4931,8 @@ emit_reload_insns (insn)
 		       prev != PREV_INSN (this_reload_insn);
 		       prev = PREV_INSN (prev))
 		    if (GET_RTX_CLASS (GET_CODE (prev) == 'i')
-			&& reg_overlap_mentioned_p (second_reload_reg,
-						    PATTERN (prev)))
+			&& reg_overlap_mentioned_for_reload_p (second_reload_reg,
+							       PATTERN (prev)))
 		      {
 			REG_NOTES (prev) = gen_rtx (EXPR_LIST, REG_DEAD,
 						    second_reload_reg,
@@ -5008,8 +5060,8 @@ emit_reload_insns (insn)
 		    for (prev1 = this_reload_insn;
 			 prev1; prev1 = PREV_INSN (prev1))
 		      if (GET_RTX_CLASS (GET_CODE (prev1) == 'i')
-			&& reg_overlap_mentioned_p (oldequiv_reg,
-						    PATTERN (prev1)))
+			&& reg_overlap_mentioned_for_reload_p (oldequiv_reg,
+							       PATTERN (prev1)))
 		      {
 			REG_NOTES (prev1) = gen_rtx (EXPR_LIST, REG_DEAD,
 						     oldequiv_reg,
@@ -5190,7 +5242,8 @@ emit_reload_insns (insn)
 	    for (p = PREV_INSN (first_output_reload_insn);
 		 p != prev_insn; p = PREV_INSN (p))
 	      if (GET_RTX_CLASS (GET_CODE (p)) == 'i'
-		  && reg_overlap_mentioned_p (reloadreg, PATTERN (p)))
+		  && reg_overlap_mentioned_for_reload_p (reloadreg,
+							 PATTERN (p)))
 		REG_NOTES (p) = gen_rtx (EXPR_LIST, REG_DEAD,
 					 reloadreg, REG_NOTES (p));
 
@@ -5200,7 +5253,8 @@ emit_reload_insns (insn)
 	    for (p = PREV_INSN (first_output_reload_insn);
 		 p != prev_insn; p = PREV_INSN (p))
 	      if (GET_RTX_CLASS (GET_CODE (p)) == 'i'
-		  && reg_overlap_mentioned_p (second_reloadreg, PATTERN (p)))
+		  && reg_overlap_mentioned_for_reload_p (second_reloadreg,
+							 PATTERN (p)))
 		REG_NOTES (p) = gen_rtx (EXPR_LIST, REG_DEAD,
 					 second_reloadreg, REG_NOTES (p));
 #endif
@@ -5253,8 +5307,10 @@ emit_reload_insns (insn)
 	      if (REG_NOTE_KIND (reg_notes) == REG_DEAD
 		  && GET_CODE (XEXP (reg_notes, 0)) == REG
 		  && ((GET_CODE (dest) != REG
-		       && reg_overlap_mentioned_p (XEXP (reg_notes, 0), dest))
-		      || reg_overlap_mentioned_p (XEXP (reg_notes, 0), source)))
+		       && reg_overlap_mentioned_for_reload_p (XEXP (reg_notes, 0),
+							      dest))
+		      || reg_overlap_mentioned_for_reload_p (XEXP (reg_notes, 0),
+							     source)))
 		{
 		  *prev_reg_note = next_reg_notes;
 		  XEXP (reg_notes, 1) = REG_NOTES (insn1);
@@ -5428,8 +5484,11 @@ gen_input_reload (reloadreg, in, before_insn)
 	 `insn_extract'and it is simpler to emit and then delete the insn if
 	 not valid than to dummy things up.  */
 
-      rtx move_operand, other_operand, insn;
+      rtx op0, op1, tem, insn;
       int code;
+
+      op0 = find_replacement (&XEXP (in, 0));
+      op1 = find_replacement (&XEXP (in, 1));
 
       /* Since constraint checking is strict, commutativity won't be
 	 checked, so we need to do that here to avoid spurious failure
@@ -5440,7 +5499,10 @@ gen_input_reload (reloadreg, in, before_insn)
 
       if (GET_CODE (XEXP (in, 1)) == REG
 	  && REGNO (reloadreg) == REGNO (XEXP (in, 1)))
-	in = gen_rtx (PLUS, GET_MODE (in), XEXP (in, 1), XEXP (in, 0));
+	tem = op0, op0 = op1, op1 = tem;
+
+      if (op0 != XEXP (in, 0) || op1 != XEXP (in, 1))
+	in = gen_rtx (PLUS, GET_MODE (in), op0, op1);
 
       insn = emit_insn_before (gen_rtx (SET, VOIDmode, reloadreg, in),
 				   before_insn);
@@ -5463,23 +5525,20 @@ gen_input_reload (reloadreg, in, before_insn)
 
       /* If that failed, we must use a conservative two-insn sequence.
 	 use move to copy constant, MEM, or pseudo register to the reload
-	 register since "move" will be able to handle arbitrary operand, unlike
-	 add which can't, in general.  Then add the registers.
+	 register since "move" will be able to handle an arbitrary operand,
+	 unlike add which can't, in general.  Then add the registers.
 
 	 If there is another way to do this for a specific machine, a
 	 DEFINE_PEEPHOLE should be specified that recognizes the sequence
 	 we emit below.  */
 
-      if (CONSTANT_P (XEXP (in, 1))
-	  || GET_CODE (XEXP (in, 1)) == MEM
-	  || (GET_CODE (XEXP (in, 1)) == REG
-	      && REGNO (XEXP (in, 1)) >= FIRST_PSEUDO_REGISTER))
-	move_operand = XEXP (in, 1), other_operand = XEXP (in, 0);
-      else
-	move_operand = XEXP (in, 0), other_operand = XEXP (in, 1);
+      if (CONSTANT_P (op1) || GET_CODE (op1) == MEM
+	  || (GET_CODE (op1) == REG
+	      && REGNO (op1) >= FIRST_PSEUDO_REGISTER))
+	tem = op0, op0 = op1, op1 = tem;
 
-      emit_insn_before (gen_move_insn (reloadreg, move_operand), before_insn);
-      emit_insn_before (gen_add2_insn (reloadreg, other_operand), before_insn);
+      emit_insn_before (gen_move_insn (reloadreg, op0), before_insn);
+      emit_insn_before (gen_add2_insn (reloadreg, op1), before_insn);
     }
 
   /* If IN is a simple operand, use gen_move_insn.  */
@@ -5624,7 +5683,7 @@ inc_for_reload (reloadreg, value, inc_amount, insn)
   rtx prev = PREV_INSN (insn);
   rtx inc;
   rtx add_insn;
-  enum insn_code code;
+  int code;
 
   /* No hard register is equivalent to this register after
      inc/dec operation.  If REG_LAST_RELOAD_REG were non-zero,
@@ -5740,9 +5799,9 @@ constraint_accepts_reg_p (string, reg)
       default:
 	/* Any reg in specified class wins for this alternative.  */
 	{
-	  int class = REG_CLASS_FROM_LETTER (c);
+	  enum reg_class class = REG_CLASS_FROM_LETTER (c);
 
-	  if (TEST_HARD_REG_BIT (reg_class_contents[class], regno))
+	  if (TEST_HARD_REG_BIT (reg_class_contents[(int) class], regno))
 	    value = 1;
 	}
       }

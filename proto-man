@@ -180,7 +180,7 @@ file is created for
 each
 .I base
 source file compiled.  These files contain
-information above function definitions and declarations and
+information about function definitions and declarations and
 additional coded information which can be used by
 .I thisprog
 to convert your source code
@@ -739,7 +739,7 @@ generating code which is incorrect due to missed type conversions.
 .PP
 When converting to full prototype format, it may often be the case that
 complete information regarding the types of function parameters is not
-actually avaiable in the original (K&R) code.
+actually available in the original (K&R) code.
 This will almost always be the case for parameters whose types are
 pointer-to-function types.
 For pointer-to-function parameters, it it customary (in K&R C) to

@@ -31,6 +31,12 @@ enum cmp_type				/* comparison type */
 #define DBX_DEBUGGING_INFO
 #define DEFAULT_GDB_EXTENSIONS 0
 
+#if (TARGET_DEFAULT & 1) == 0
+#define CPP_SPEC "%{msnake:-D__hp9000s700 -D_PA_RISC1_1}"
+#else
+#define CPP_SPEC "-D__hp9000s700 -D_PA_RISC1_1"
+#endif
+
 /* Defines for a K&R CC */
 
 #ifdef OLD_CC
@@ -66,11 +72,7 @@ enum cmp_type				/* comparison type */
 
 /* Names to predefine in the preprocessor for this target machine.  */
 
-#ifdef hpux
-#define CPP_PREDEFINES "-Dhp9000s800 -D__hp9000s800 -Dhp9k8 -DPWB -Dhpux -Dunix -D_HPUX_SOURCE"
-#else
-#define CPP_PREDEFINES "-Dhp9000s800 -D__hp9000s800 -Dhp9k8 -Dunix -D_HPUX_SOURCE -Dhp9000 -Dhp800 -Dspectrum -DREVARGV"
-#endif
+#define CPP_PREDEFINES "-Dhppa -Dhp9000s800 -D__hp9000s800 -Dhp9k8 -Dunix -D_HPUX_SOURCE -Dhp9000 -Dhp800 -Dspectrum -DREVARGV"
 
 /* Print subsidiary information on the compiler version in use.  */
 
@@ -393,7 +395,8 @@ extern int leaf_function;
    it's not, there's no point in trying to eliminate the
    frame pointer.  If it is a leaf function, we guessed right!  */
 #define INITIAL_FRAME_POINTER_OFFSET(VAR) \
-  do { (VAR) = -compute_frame_size (get_frame_size (), 1) - 32; } while (0)
+  do { int __fsize = compute_frame_size (get_frame_size (), 1) + 32;	\
+       (VAR) = -(TARGET_SNAKE ? (__fsize + 63) & ~63 : __fsize); } while (0)
 
 /* Base register for access to arguments of the function.  */
 #define ARG_POINTER_REGNUM 4
@@ -438,16 +441,18 @@ extern int leaf_function;
      1.1 fp regs, and the high 1.1 fp regs, to which the operands of
      fmpyadd and fmpysub are restricted. */
 
-enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, HI_SNAKE_FP_REGS,
- SNAKE_FP_REGS, FP_OR_SNAKE_FP_REGS, SHIFT_REGS, ALL_REGS, LIM_REG_CLASSES};
+enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
+  HI_SNAKE_FP_REGS, SNAKE_FP_REGS, GENERAL_OR_SNAKE_FP_REGS,
+  SHIFT_REGS, ALL_REGS, LIM_REG_CLASSES}; 
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
 
 /* Give names of register classes as strings for dump file.   */
 
 #define REG_CLASS_NAMES \
-  { "NO_REGS", "R1_REGS", "GENERAL_REGS", "FP_REGS", "HI_SNAKE_FP_REGS",\
-    "SNAKE_FP_REGS", "FP_OR_SNAKE_FP_REGS", "SHIFT_REGS", "ALL_REGS"}
+  { "NO_REGS", "R1_REGS", "GENERAL_REGS", "FP_REGS", "GENERAL_OR_FP_REGS",\
+    "HI_SNAKE_FP_REGS", "SNAKE_FP_REGS", "GENERAL_OR_SNAKE_FP_REGS",\
+    "SHIFT_REGS", "ALL_REGS"}
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
@@ -459,9 +464,10 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, HI_SNAKE_FP_REGS,
   {0x2, 0, 0, 0},		/* R1_REGS */		\
   {-2, 0, 0, 0},		/* GENERAL_REGS */	\
   {0, 0xffff, 0, 0},		/* FP_REGS */		\
+  {-2, 0xffff, 0, 0},		/* GENERAL_OR_FP_REGS */\
   {0, 0, 0xffff0000, 0xffff},	/* HI_SNAKE_FP_REGS */	\
   {0, 0xffff0000, ~0, 0xffff},	/* SNAKE_FP_REGS */	\
-  {0, ~0, ~0, 0xffff},		/* FP_OR_SNAKE_FP_REGS */\
+  {-2, 0xffff0000, ~0, 0xffff},	/* GENERAL_OR_SNAKE_FP_REGS */\
   {0, 0, 0, 0x10000},		/* SHIFT_REGS */	\
   {-2, ~0, ~0, 0x1ffff}}	/* ALL_REGS */
 
@@ -746,13 +752,13 @@ HP9000/800 immediate field sizes:
 /* Arguments larger than eight bytes are passed by invisible reference */
 
 #define FUNCTION_ARG_PASS_BY_REFERENCE(CUM, MODE, TYPE, NAMED)		\
-  ((TYPE) ? int_size_in_bytes (TYPE) > 8 : GET_MODE_SIZE (MODE) > 8)
+  ((TYPE) && int_size_in_bytes (TYPE) > 8)
 
 extern struct rtx_def *hppa_compare_op0, *hppa_compare_op1;
 extern enum cmp_type hppa_branch_type;
 
 /* Output the label for a function definition.  */
-#ifdef hpux8
+#ifdef HP_FP_ARG_DESCRIPTOR_REVERSED
 #define ASM_DOUBLE_ARG_DESCRIPTORS(FILE, ARG0, ARG1)	\
   do { fprintf (FILE, ",ARGW%d=FR", (ARG0));		\
        fprintf (FILE, ",ARGW%d=FU", (ARG1));} while (0)
@@ -771,23 +777,31 @@ extern enum cmp_type hppa_branch_type;
 	     fputs ("\t.EXPORT ", FILE); assemble_name (FILE, NAME);	\
 	     fputs (",PRIV_LEV=3", FILE);				\
 	     for (parm = DECL_ARGUMENTS (DECL), i = 0; parm && i < 4;	\
-		  parm = TREE_CHAIN (parm), i++)			\
+		  parm = TREE_CHAIN (parm))				\
 	       {							\
 		 if (TYPE_MODE (DECL_ARG_TYPE (parm)) == SFmode)	\
-		   fprintf (FILE, ",ARGW%d=FR", i);			\
+		   fprintf (FILE, ",ARGW%d=FR", i++);			\
 		 else if (TYPE_MODE (DECL_ARG_TYPE (parm)) == DFmode)	\
 		   {							\
-		     if (i == 0 || i == 2)				\
-		       {						\
-			 ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i);	\
-		       }						\
-		     else if (i == 1)					\
-		       {						\
-			 ASM_DOUBLE_ARG_DESCRIPTORS (FILE, ++i, ++i);	\
-		       }						\
+		      if (i == 1) i++;				        \
+		      ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i++);	\
 		   }							\
 		 else							\
-		   fprintf (FILE, ",ARGW%d=GR", i);			\
+		   {							\
+		     int arg_size =					\
+		       FUNCTION_ARG_SIZE (TYPE_MODE (DECL_ARG_TYPE (parm)),\
+					  DECL_ARG_TYPE (parm));	\
+		     if (arg_size == 2 && i <= 2)			\
+		       {						\
+			 if (i == 1) i++;				\
+			 fprintf (FILE, ",ARGW%d=GR", i++);		\
+			 fprintf (FILE, ",ARGW%d=GR", i++);		\
+		       }						\
+		     else if (arg_size == 1)				\
+		       fprintf (FILE, ",ARGW%d=GR", i++);		\
+		     else						\
+		       i += arg_size;					\
+		   }							\
 	       }							\
 	     /* anonymous args */					\
 	     if (TYPE_ARG_TYPES (tree_type) != 0			\
@@ -837,13 +851,9 @@ extern int apparent_fsize;
    profiling code in function_prologue. This just stores LABELNO for
    that. */
 
-#ifdef hp800			/* Don't have the proper libraries yet */
-#define FUNCTION_PROFILER(FILE, LABELNO) {}
-#else
 #define PROFILE_BEFORE_PROLOGUE
 #define FUNCTION_PROFILER(FILE, LABELNO) \
 { extern int hp_profile_labelno; hp_profile_labelno = (LABELNO);}
-#endif
 
 /* EXIT_IGNORE_STACK should be nonzero if, when returning from a function,
    the stack pointer does not matter.  The value is tested only in
@@ -937,9 +947,9 @@ extern union tree_node *current_function_decl;
    has been allocated, which happens in local-alloc.c.  */
 
 #define REGNO_OK_FOR_INDEX_P(REGNO) \
-  ((REGNO) < 32 || (unsigned) reg_renumber[REGNO] < 32)
+  ((REGNO) && ((REGNO) < 32 || (unsigned) reg_renumber[REGNO] < 32))
 #define REGNO_OK_FOR_BASE_P(REGNO)  \
-  ((REGNO) < 32 || (unsigned) reg_renumber[REGNO] < 32)
+  ((REGNO) && ((REGNO) < 32 || (unsigned) reg_renumber[REGNO] < 32))
 #define REGNO_OK_FOR_FP_P(REGNO) \
   (((REGNO) >= 32 || reg_renumber[REGNO] >= 32)\
    && ((REGNO) <= 111 || reg_renumber[REGNO] <= 111))
@@ -1001,10 +1011,12 @@ extern union tree_node *current_function_decl;
 
 /* Nonzero if X is a hard reg that can be used as an index
    or if it is a pseudo reg.  */
-#define REG_OK_FOR_INDEX_P(X) ((unsigned) REGNO (X) - 32 >= 32)
+#define REG_OK_FOR_INDEX_P(X) \
+(REGNO (X) && (REGNO (X) < 32 || REGNO (X) > FIRST_PSEUDO_REGISTER))
 /* Nonzero if X is a hard reg that can be used as a base reg
    or if it is a pseudo reg.  */
-#define REG_OK_FOR_BASE_P(X) ((unsigned) REGNO (X) - 32 >= 32)
+#define REG_OK_FOR_BASE_P(X) \
+(REGNO (X) && (REGNO (X) < 32 || REGNO (X) > FIRST_PSEUDO_REGISTER))
 
 #define EXTRA_CONSTRAINT(OP, C)				\
   ((C) == 'Q' ?						\
@@ -1295,7 +1307,7 @@ while (0)
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     if (INTVAL (RTX) == 0) return 0;				\
     if (INT_14_BITS (RTX)) return 1;				\
@@ -1312,14 +1324,18 @@ while (0)
 /* Compute extra cost of moving data between one register class
    and another.  */
 #define REGISTER_MOVE_COST(CLASS1, CLASS2) \
-  (((CLASS1 == FP_REGS && CLASS2 == GENERAL_REGS) \
-    || (CLASS1 == GENERAL_REGS && CLASS2 == FP_REGS)) ? 6 : 2)
+ ((((CLASS1 == FP_REGS || CLASS1 == SNAKE_FP_REGS	\
+     || CLASS1 == HI_SNAKE_FP_REGS)			\
+    && (CLASS2 == R1_REGS | CLASS2 == GENERAL_REGS))	\
+   || ((CLASS2 == R1_REGS | CLASS1 == GENERAL_REGS)	\
+       && (CLASS2 == FP_REGS || CLASS2 == SNAKE_FP_REGS	\
+	   || CLASS2 == HI_SNAKE_FP_REGS))) ? 6 : 2)	
 
 /* Provide the costs of a rtl expression.  This is in the body of a
    switch on CODE.  The purpose for the cost of MULT is to encourage
    `synth_mult' to find a synthetic multiply when reasonable.  */
 
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)			\
   case MULT:						\
     return COSTS_N_INSNS (20);				\
   case DIV:						\
@@ -1379,20 +1395,21 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
    This sequence is indexed by compiler's hard-register-number (see above).  */
 
 #define REGISTER_NAMES \
-{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",		\
- "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",	\
- "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",	\
- "30", "31",							\
- "0", "1", "2", "3", "4", "5", "6", "7",			\
- "8", "9", "10", "11", "12", "13", "14", "15",			\
- "0", "0R", "1", "1R", "2", "2R", "3", "3R",			\
- "4", "4R", "5", "5R", "6", "6R", "7", "7R",			\
- "8", "8R", "9", "9R", "10", "10R", "11", "11R",		\
- "12", "12R", "13", "13R", "14", "14R", "15", "15R",		\
- "16", "16R", "17", "17R", "18", "18R", "19", "19R",		\
- "20", "20R", "21", "21R", "22", "22R", "23", "23R",		\
- "24", "24R", "25", "25R", "26", "26R", "27", "27R",		\
- "28", "28R", "29", "29R", "30", "30R", "31", "31R", "SAR"}
+{"0", "%r1", "%r2", "%r3", "%r4", "%r5", "%r6", "%r7",			\
+ "%r8", "%r9", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15",		\
+ "%r16", "%r17", "%r18", "%r19", "%r20", "%r21", "%r22", "%r23",	\
+ "%r24", "%r25", "%r26", "%r27", "%r28", "%r29", "%r30", "%r31",	\
+ "%fr0", "%fr1", "%fr2", "%fr3", "%fr4", "%fr5", "%fr6", "%fr7",	\
+ "%fr8", "%fr9", "%fr10", "%fr11", "%fr12", "%fr13", "%fr14", "%fr15",	\
+ "%fr0", "%fr0R", "%fr1", "%fr1R", "%fr2", "%fr2R", "%fr3", "%fr3R",	\
+ "%fr4", "%fr4R", "%fr5", "%fr5R", "%fr6", "%fr6R", "%fr7", "%fr7R",	\
+ "%fr8", "%fr8R", "%fr9", "%fr9R", "%fr10", "%fr10R", "%fr11", "%fr11R",\
+ "%fr12", "%fr12R", "%fr13", "%fr13R", "%fr14", "%fr14R", "%fr15", "%fr15R",\
+ "%fr16", "%fr16R", "%fr17", "%fr17R", "%fr18", "%fr18R", "%fr19", "%fr19R",\
+ "%fr20", "%fr20R", "%fr21", "%fr21R", "%fr22", "%fr22R", "%fr23", "%fr23R",\
+ "%fr24", "%fr24R", "%fr25", "%fr25R", "%fr26", "%fr26R", "%fr27", "%fr27R",\
+ "%fr28", "%fr28R", "%fr29", "%fr29R", "%fr30", "%fr30R", "%fr31", "%fr31R",\
+ "SAR"}
 
 /* How to renumber registers for dbx and gdb.  */
 
@@ -1628,13 +1645,16 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
       output_operand (XEXP (addr, 0), 0);				\
       fputs (")", FILE);						\
       break;								\
+    case CONST_INT:							\
+      fprintf (FILE, "%d(0,0)", INTVAL (addr));				\
+      break;								\
     default:								\
       output_addr_const (FILE, addr);					\
     }}
 
 
 #define SMALL_INT(OP) INT_14_BITS (OP)
-/* Define functions in hp800.c and used in insn-output.c.  */
+/* Define functions in pa.c and used in insn-output.c.  */
 
 extern char *output_move_double ();
 extern char *output_fp_move_double ();

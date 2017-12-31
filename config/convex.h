@@ -607,10 +607,14 @@ enum reg_class {
 
 /* Nonzero if X is a hard reg that can be used as an index
    or if it is a pseudo reg.  */
-#define REG_OK_FOR_INDEX_P(X) (REGNO (X) > 8)
+#define REG_OK_FOR_INDEX_P(X) \
+  (REGNO (X) > 8 \
+   && REGNO (X) != VIRTUAL_STACK_VARS_REGNUM \
+   && REGNO (X) != VIRTUAL_STACK_DYNAMIC_REGNUM \
+   && REGNO (X) != VIRTUAL_OUTGOING_ARGS_REGNUM)
 /* Nonzero if X is a hard reg that can be used as a base reg
    or if it is a pseudo reg.  */
-#define REG_OK_FOR_BASE_P(X) (REGNO (X) > 8)
+#define REG_OK_FOR_BASE_P(X) REG_OK_FOR_INDEX_P (X)
 
 #else
 
@@ -751,7 +755,7 @@ enum reg_class {
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST: \
   case LABEL_REF: \
   case SYMBOL_REF: \
@@ -764,7 +768,7 @@ enum reg_class {
    switch on CODE. 
    On C1 and C2, multiply is faster than shift. */
 
-#define RTX_COSTS(RTX,CODE) \
+#define RTX_COSTS(RTX,CODE,OUTER_CODE) \
   case MULT:								\
     total = COSTS_N_INSNS (4);						\
     break;								\
@@ -1164,20 +1168,17 @@ bss_section ()								\
 #define SET_DECL_VINDEX(DECL, INDEX) \
   (DECL_VINDEX (DECL) = (INDEX))
 
+#if 0 /* collect2.c should no longer need these.  */
 /* Defs for compiling collect2.c in -pcc mode during bootstrap. */
 
 #ifdef COLLECT
 
-#ifdef __STDC__
+#ifndef __STDC__
 
-#define HAVE_STRERROR
-
-#else
-
-#define vfprintf(file,fmt,args) _doprnt (fmt, args, file)
 #define WTERMSIG(x) (((union wait *) &(x))->w_termsig)
 #define WEXITSTATUS(x) (((union wait *) &(x))->w_retcode)
 
 #endif
 
 #endif /* COLLECT */
+#endif /* 0 */

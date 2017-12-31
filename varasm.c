@@ -35,6 +35,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "expr.h"
 #include "hard-reg-set.h"
 #include "regs.h"
+#include "defaults.h"
 
 #include "obstack.h"
 
@@ -108,19 +109,6 @@ text_section ()
     }
 }
 
-/* Tell assembler to switch to read-only data section.  This is normally
-   the text section.  */
-
-void
-readonly_data_section ()
-{
-#ifdef READONLY_DATA_SECTION
-  READONLY_DATA_SECTION ();
-#else
-  text_section ();
-#endif
-}
-
 /* Tell assembler to switch to data section.  */
 
 void
@@ -141,6 +129,19 @@ data_section ()
 
       in_section = in_data;
     }
+}
+
+/* Tell assembler to switch to read-only data section.  This is normally
+   the text section.  */
+
+void
+readonly_data_section ()
+{
+#ifdef READONLY_DATA_SECTION
+  READONLY_DATA_SECTION ();  /* Note this can call data_section.  */
+#else
+  text_section ();
+#endif
 }
 
 /* Determine if we're in the text section. */
@@ -208,11 +209,13 @@ strip_reg_name (name)
     name++;
   return name;
 }
-
+
 /* Decode an `asm' spec for a declaration as a register name.
    Return the register number, or -1 if nothing specified,
-   or -2 if the name is not a register.  Accept an exact spelling or
-   a decimal number.  Prefixes such as % are optional.  */
+   or -2 if the ASMSPEC is not `cc' and is not recognized,
+   or -3 if ASMSPEC is `cc' and is not recognized.
+   Accept an exact spelling or a decimal number.
+   Prefixes such as % are optional.  */
 
 int
 decode_reg_name (asmspec)
@@ -253,6 +256,9 @@ decode_reg_name (asmspec)
 	    return table[i].number;
       }
 #endif /* ADDITIONAL_REGISTER_NAMES */
+
+      if (!strcmp (asmspec, "cc"))
+	return -3;
 
       return -2;
     }
@@ -302,10 +308,10 @@ make_decl_rtl (decl, asmspec, top_level)
       if (TREE_REGDECL (decl) && reg_number == -1)
 	error_with_decl (decl,
 			 "register name not specified for `%s'");
-      else if (TREE_REGDECL (decl) && reg_number == -2)
+      else if (TREE_REGDECL (decl) && reg_number < 0)
 	error_with_decl (decl,
 			 "invalid register name for `%s'");
-      else if (reg_number >= 0 && ! TREE_REGDECL (decl))
+      else if ((reg_number >= 0 || reg_number == -3) && ! TREE_REGDECL (decl))
 	error_with_decl (decl,
 			 "register name given for non-register variable `%s'");
       else if (TREE_REGDECL (decl) && TREE_CODE (decl) == FUNCTION_DECL)
@@ -610,33 +616,7 @@ assemble_string (p, size)
       if (thissize > maximum)
 	thissize = maximum;
 
-#ifdef ASM_OUTPUT_ASCII
       ASM_OUTPUT_ASCII (asm_out_file, p, thissize);
-#else
-      fprintf (asm_out_file, "\t.ascii \"");
-
-      for (i = 0; i < thissize; i++)
-	{
-	  register int c = p[i];
-	  if (c == '\"' || c == '\\')
-	    putc ('\\', asm_out_file);
-	  if (c >= ' ' && c < 0177)
-	    putc (c, asm_out_file);
-	  else
-	    {
-	      fprintf (asm_out_file, "\\%o", c);
-	      /* After an octal-escape, if a digit follows,
-		 terminate one string constant and start another.
-		 The Vax assembler fails to stop reading the escape
-		 after three digits, so this is the only way we
-		 can get it to parse the data properly.  */
-	      if (i < thissize - 1
-		  && p[i + 1] >= '0' && p[i + 1] <= '9')
-		fprintf (asm_out_file, "\"\n\t.ascii \"");
-	    }
-	}
-      fprintf (asm_out_file, "\"\n");
-#endif /* no ASM_OUTPUT_ASCII */
 
       pos += thissize;
       p += thissize;
@@ -929,7 +909,7 @@ assemble_variable (decl, top_level, at_end)
      declaration.  When something like ".stabx  "aa:S-2",aa,133,0" is emitted 
      and `aa' hasn't been output yet, the assembler generates a stab entry with
      a value of zero, in addition to creating an unnecessary external entry
-     for `aa'.  Hence, we must pospone dbxout_symbol to here at the end.  */
+     for `aa'.  Hence, we must postpone dbxout_symbol to here at the end.  */
 
   /* File-scope global variables are output here.  */
   if (write_symbols == XCOFF_DEBUG && top_level)
@@ -1545,11 +1525,14 @@ const_hash (exp)
       /* For record type, include the type in the hashing.
 	 We do not do so for array types
 	 because (1) the sizes of the elements are sufficient
-	 and (2) distinct array types can have the same constructor.  */
+	 and (2) distinct array types can have the same constructor.
+	 Instead, we include the array size because the constructor could
+	 be shorter.  */
       if (TREE_CODE (TREE_TYPE (exp)) == RECORD_TYPE)
 	hi = ((int) TREE_TYPE (exp) & ((1 << HASHBITS) - 1)) % MAX_HASH_TABLE;
       else
-	hi = 5;
+	hi = ((5 + int_size_in_bytes (TREE_TYPE (exp)))
+	       & ((1 << HASHBITS) - 1)) % MAX_HASH_TABLE;
 
       for (link = CONSTRUCTOR_ELTS (exp); link; link = TREE_CHAIN (link))
 	hi = (hi * 603 + const_hash (TREE_VALUE (link))) % MAX_HASH_TABLE;
@@ -1678,6 +1661,15 @@ compare_constant_1 (exp, p)
 	return 0;
       p += sizeof type;
 
+      /* For arrays, insist that the size in bytes match.  */
+      if (TREE_CODE (TREE_TYPE (exp)) == ARRAY_TYPE)
+	{
+	  int size = int_size_in_bytes (TREE_TYPE (exp));
+	  if (bcmp (&size, p, sizeof size))
+	    return 0;
+	  p += sizeof size;
+	}
+
       for (link = CONSTRUCTOR_ELTS (exp); link; link = TREE_CHAIN (link))
 	if ((p = compare_constant_1 (TREE_VALUE (link), p)) == 0)
 	  return 0;
@@ -1792,6 +1784,13 @@ record_constant_1 (exp)
 	type = 0;
       obstack_grow (&permanent_obstack, (char *) &type, sizeof type);
 
+      /* For arrays, insist that the size in bytes match.  */
+      if (TREE_CODE (TREE_TYPE (exp)) == ARRAY_TYPE)
+	{
+	  int size = int_size_in_bytes (TREE_TYPE (exp));
+	  obstack_grow (&permanent_obstack, (char *) &size, sizeof size);
+	}
+
       for (link = CONSTRUCTOR_ELTS (exp); link; link = TREE_CHAIN (link))
 	record_constant_1 (TREE_VALUE (link));
       return;
@@ -1895,6 +1894,9 @@ output_constant_def (exp)
   TREE_CST_RTL (exp)
     = gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)), def);
   RTX_UNCHANGING_P (TREE_CST_RTL (exp)) = 1;
+  if (TREE_CODE (TREE_TYPE (exp)) == RECORD_TYPE
+      || TREE_CODE (TREE_TYPE (exp)) == ARRAY_TYPE)
+    MEM_IN_STRUCT_P (TREE_CST_RTL (exp)) = 1;
 
   pop_obstacks ();
 

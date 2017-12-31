@@ -25,6 +25,7 @@
 ;; cpp macro #define NOTICE_UPDATE_CC in file tm.h handles condition code
 ;; updates for most instructions.
 
+;; These comments are mostly obsolete.  Written for gcc version 1.XX.
 ;; * Try using define_insn instead of some peepholes in more places.
 ;; * Set REG_NOTES:REG_EQUIV for cvt[bh]w loads.  This would make the
 ;;   backward scan in sign_extend needless.
@@ -197,7 +198,8 @@
   [(set (cc0)
 	(compare (match_operand:HI 0 "memory_operand" "m")
 		 (match_operand:HI 1 "memory_operand" "m")))]
-  "weird_memory_memory (operands[0], operands[1])"
+  "(!TRULY_UNSIGNED_COMPARE_P (GET_CODE (XEXP (SET_SRC (PATTERN (NEXT_INSN (insn))), 0))))
+   && weird_memory_memory (operands[0], operands[1])"
   "*
 {
   rtx br_insn = NEXT_INSN (insn);
@@ -220,7 +222,8 @@
   [(set (cc0)
 	(compare (match_operand:HI 0 "nonimmediate_operand" "r,m")
 		 (match_operand:HI 1 "nonimmediate_operand" "m,r")))]
-  "(GET_CODE (operands[0]) != GET_CODE (operands[1]))"
+  "(!TRULY_UNSIGNED_COMPARE_P (GET_CODE (XEXP (SET_SRC (PATTERN (NEXT_INSN (insn))), 0))))
+   && (GET_CODE (operands[0]) != GET_CODE (operands[1]))"
   "*
 {
   rtx br_insn = NEXT_INSN (insn);
@@ -634,42 +637,66 @@
 	(ashift:SI (match_operand:SI 1 "register_operand" "0")
 		   (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"lshlw %2,%0\", operands[2], 32); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"lshlw %2,%0\", operands[2], 32);
+}")
 
 (define_insn "ashrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(ashiftrt:SI (match_operand:SI 1 "register_operand" "0")
 		     (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"ashrw %2,%0\", operands[2], 32); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"ashrw %2,%0\", operands[2], 32);
+}")
 
 (define_insn "ashrdi3"
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(ashiftrt:DI (match_operand:DI 1 "register_operand" "0")
 		     (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"ashrl %2,%0\", operands[2], 64); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"ashrl %2,%0\", operands[2], 64);
+}")
 
 (define_insn "lshrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "0")
 		     (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"lshrw %2,%0\", operands[2], 32); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"lshrw %2,%0\", operands[2], 32);
+}")
 
 (define_insn "rotlsi3"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(rotate:SI (match_operand:SI 1 "register_operand" "0")
 		   (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"rotlw %2,%0\", operands[2], 32); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"rotlw %2,%0\", operands[2], 32);
+}")
 
 (define_insn "rotrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(rotatert:SI (match_operand:SI 1 "register_operand" "0")
 		     (match_operand:SI 2 "general_operand" "rnm")))]
   ""
-  "* return output_shift (\"rotrw %2,%0\", operands[2], 32); ")
+  "*
+{
+  extern char *output_shift ();
+  return output_shift (\"rotrw %2,%0\", operands[2], 32);
+}")
 
 ;______________________________________________________________________
 ;
@@ -703,7 +730,11 @@
   [(set (match_operand:DI 0 "general_operand" "=r")
 	(match_operand:DI 1 "general_operand" "gF"))]
   ""
-  "* return output_move_double (operands); ")
+  "*
+{
+  extern char *output_move_double ();
+  return output_move_double (operands);
+}")
 
 ;; If the destination is a memory address, indexed source operands are
 ;; disallowed.
@@ -793,7 +824,11 @@
   [(set (match_operand:DF 0 "general_operand" "=r")
 	(match_operand:DF 1 "general_operand" "gF"))]
   ""
-  "* return output_move_double (operands); ")
+  "*
+{
+  extern char *output_move_double ();
+  return output_move_double (operands);
+}")
 
 ;; If the destination is a memory address, indexed source operands are
 ;; disallowed.

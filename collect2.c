@@ -34,7 +34,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include <signal.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#ifdef NO_WAIT_H
 #include <sys/wait.h>
+#endif
 
 #ifndef errno
 extern int errno;
@@ -45,12 +47,10 @@ extern int errno;
 #include "config.h"
 
 #ifndef __STDC__
-#include "gvarargs.h"
 #define generic char
 #define const
 
 #else
-#include "gstdarg.h"
 #define generic void
 #endif
 
@@ -170,6 +170,7 @@ extern char *version_string;
 
 static int vflag;			/* true if -v */
 static int rflag;			/* true if -r */
+static int strip_flag;			/* true if -s */
 
 static int debug;			/* true if -debug */
 
@@ -178,13 +179,13 @@ static char *temp_filename;		/* Base of temp filenames */
 static char *c_file;			/* <xxx>.c for constructor/destructor list. */
 static char *o_file;			/* <xxx>.o for constructor/destructor list. */
 static char *nm_file_name;		/* pathname of nm */
+static char *strip_file_name;		/* pathname of strip */
 
 static struct head constructors;	/* list of constructors found */
 static struct head destructors;		/* list of destructors found */
 
 extern char *getenv ();
 extern char *mktemp ();
-extern int   vfork ();
 static void  add_to_list ();
 static void  scan_prog_file ();
 static void  fork_execute ();
@@ -198,11 +199,8 @@ static void  choose_temp_base ();
 generic *xcalloc ();
 generic *xmalloc ();
 
-
-#if !defined(HAVE_STRERROR) && !defined(_OSF_SOURCE)
-
 char *
-strerror (e)
+my_strerror (e)
      int e;
 {
   extern char *sys_errlist[];
@@ -218,9 +216,6 @@ strerror (e)
   sprintf (buffer, "Unknown error %d", e);
   return buffer;
 }
-
-#endif
-
 
 /* Delete tempfiles and exit function.  */
 
@@ -238,109 +233,43 @@ my_exit (status)
 }
 
 
-#ifndef __STDC__
-
 /* Die when sys call fails. */
 
-/*VARARGS*/
 static void
-fatal_perror (va_alist)
+fatal_perror (string, arg1, arg2, arg3)
+     char *string;
 {
-  char *string;
-  va_list vptr;
   int e = errno;
 
-  va_start (vptr);
-  string = va_arg (vptr, char *);
   fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
-  fprintf (stderr, ": %s\n", strerror (e));
-  va_end (vptr);
-  my_exit (1);
-}
-
-/* Just die. */
-
-/*VARARGS*/
-static void
-fatal (va_alist)
-{
-  char *string;
-  va_list vptr;
-
-  va_start (vptr);
-  string = va_arg (vptr, char *);
-  fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
-  fprintf (stderr, "\n");
-  va_end (vptr);
-  my_exit (1);
-}
-
-/* Write error message.  */
-
-/*VARARGS*/
-static void
-error (va_alist)
-{
-  char *string;
-  va_list vptr;
-
-  va_start (vptr);
-  string = va_arg (vptr, char *);
-  fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
-  fprintf (stderr, "\n");
-  va_end (vptr);
-}
-
-#else
-
-static void
-fatal_perror (char *string, ...)
-{
-  va_list vptr;
-  int e = errno;
-
-  va_start (vptr, string);
-  fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
-  fprintf (stderr, ": %s\n", strerror (e));
-  va_end (vptr);
+  fprintf (stderr, string, arg1, arg2, arg3);
+  fprintf (stderr, ": %s\n", my_strerror (e));
   my_exit (1);
 }
 
 /* Just die. */
 
 static void
-fatal (char *string, ...)
+fatal (string, arg1, arg2, arg3)
+     char *string;
 {
-  va_list vptr;
-
-  va_start (vptr, string);
   fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
+  fprintf (stderr, string, arg1, arg2, arg3);
   fprintf (stderr, "\n");
-  va_end (vptr);
   my_exit (1);
 }
 
 /* Write error message.  */
 
 static void
-error (char *string, ...)
+error (string, arg1, arg2, arg3, arg4)
+     char *string;
 {
-  va_list vptr;
-
-  va_start (vptr, string);
   fprintf (stderr, "collect: ");
-  vfprintf (stderr, string, vptr);
+  fprintf (stderr, string, arg1, arg2, arg3, arg4);
   fprintf (stderr, "\n");
-  va_end (vptr);
 }
-#endif
 
-
 /* In case obstack is linked in, and abort is defined to fancy_abort,
    provide a default entry.  */
 
@@ -374,7 +303,7 @@ xcalloc (size1, size2)
   if (ptr)
     return ptr;
 
-  fatal ("Out of memory.");
+  fatal ("out of memory");
   return (generic *)0;
 }
 
@@ -386,7 +315,7 @@ xmalloc (size)
   if (ptr)
     return ptr;
 
-  fatal ("Out of memory.");
+  fatal ("out of memory");
   return (generic *)0;
 }
 
@@ -398,7 +327,8 @@ savestring (input, size)
      int size;
 {
   char *output = (char *) xmalloc (size + 1);
-  strcpy (output, input);
+  bcopy (input, output, size);
+  output[size] = 0;
   return output;
 }
 
@@ -519,7 +449,7 @@ main (argc, argv)
       {
 	char *q = p;
 	while (*q && *q != ' ') q++;
-	if (*p == '-' && (p[1] == 'm' || p[1] == 'f'))
+	if (*p == '-' && p[1] == 'm')
 	  num_c_args++;
 
 	if (*q) q++;
@@ -538,7 +468,7 @@ main (argc, argv)
   signal (SIGSEGV, handler);
   signal (SIGBUS,  handler);
 
-  /* Try to discover a valid linker/assembler/nm to use.  */
+  /* Try to discover a valid linker/assembler/nm/strip to use.  */
   len = strlen (argv[0]);
   prefix = (char *)0;
   if (len >= sizeof ("ld")-1)
@@ -587,10 +517,18 @@ main (argc, argv)
     clen = sizeof (STANDARD_BIN_PREFIX) - 1;
 #endif
 
+#ifdef STANDARD_EXEC_PREFIX
+  if (clen < sizeof (STANDARD_EXEC_PREFIX) - 1)
+    clen = sizeof (STANDARD_EXEC_PREFIX) - 1;
+#endif
+
+  /* Allocate enough string space for the longest possible pathnames.  */
   ld_file_name = xcalloc (len + sizeof ("real-ld"), 1);
   nm_file_name = xcalloc (len + sizeof ("gnm"), 1);
+  strip_file_name = xcalloc (len + sizeof ("gstrip"), 1);
 
-  memcpy (ld_file_name, prefix, len);
+  /* Determine the full path name of the ld program to use.  */
+  bcopy (prefix, ld_file_name, len);
   strcpy (ld_file_name + len, "real-ld");
   if (access (ld_file_name, X_OK) < 0)
     {
@@ -601,16 +539,18 @@ main (argc, argv)
 #ifdef REAL_LD_FILE_NAME
 	  ld_file_name = REAL_LD_FILE_NAME;
 #else
-	  ld_file_name = (access ("/usr/bin/ld", X_OK) == 0) ? "/usr/bin/ld" : "/bin/ld";
+	  ld_file_name = (access ("/usr/bin/ld", X_OK) == 0
+			  ? "/usr/bin/ld" : "/bin/ld");
 #endif
 	}
     }
 
+  /* Determine the full path name of the C compiler to use.  */
   c_file_name = getenv ("COLLECT_GCC");
   if (c_file_name == 0 || c_file_name[0] != '/')
     {
       c_file_name = xcalloc (clen + sizeof ("gcc"), 1);
-      memcpy (c_file_name, prefix, len);
+      bcopy (prefix, c_file_name, len);
       strcpy (c_file_name + len, "gcc");
       if (access (c_file_name, X_OK) < 0)
 	{
@@ -632,7 +572,8 @@ main (argc, argv)
 	}
     }
 
-  memcpy (nm_file_name, prefix, len);
+  /* Determine the full path name of the nm to use.  */
+  bcopy (prefix, nm_file_name, len);
   strcpy (nm_file_name + len, "nm");
   if (access (nm_file_name, X_OK) < 0)
     {
@@ -643,7 +584,26 @@ main (argc, argv)
 #ifdef REAL_NM_FILE_NAME
 	  nm_file_name = REAL_NM_FILE_NAME;
 #else
-	  nm_file_name = (access ("/usr/bin/nm", X_OK) == 0) ? "/usr/bin/nm" : "/bin/nm";
+	  nm_file_name = (access ("/usr/bin/nm", X_OK) == 0
+			  ? "/usr/bin/nm" : "/bin/nm");
+#endif
+	}
+    }
+
+  /* Determine the full pathname of the strip to use.  */
+  bcopy (prefix, strip_file_name, len);
+  strcpy (strip_file_name + len, "strip");
+  if (access (strip_file_name, X_OK) < 0)
+    {
+      strcpy (strip_file_name + len, "gstrip");
+      if (access (strip_file_name, X_OK) < 0)
+	{
+	  free (strip_file_name);
+#ifdef REAL_STRIP_FILE_NAME
+	  strip_file_name = REAL_STRIP_FILE_NAME;
+#else
+	  strip_file_name = (access ("/usr/bin/strip", X_OK) == 0
+			     ? "/usr/bin/strip" : "/bin/strip");
 #endif
 	}
     }
@@ -696,6 +656,17 @@ main (argc, argv)
 	    case 'r':
 	      if (arg[2] == '\0')
 		rflag = 1;
+	      break;
+
+	    case 's':
+	      if (arg[2] == '\0')
+		{
+		  /* We must strip after the nm run, otherwise C++ linking
+		     won't work.  Thus we strip in the second ld run, or
+		     else with strip if there is no second ld run.  */
+		  strip_flag = 1;
+		  ld1--;
+		}
 	      break;
 
 	    case 'v':
@@ -788,16 +759,27 @@ main (argc, argv)
     }
 
   if (constructors.number == 0 && destructors.number == 0)
-    return 0;
+    {
+      /* Strip now if it was requested on the command line.  */
+      if (strip_flag)
+	{
+	  char **strip_argv = (char **) xcalloc (sizeof (char *), 3);
+	  strip_argv[0] = "strip";
+	  strip_argv[1] = outfile;
+	  strip_argv[2] = (char *) 0;
+	  fork_execute (strip_file_name, strip_argv);
+	}
+      return 0;
+    }
 
   outf = fopen (c_file, "w");
   if (outf == (FILE *)0)
-    fatal_perror ("Can't write %s", c_file);
+    fatal_perror ("%s", c_file);
 
   write_c_file (outf, c_file);
 
   if (fclose (outf))
-    fatal_perror ("Can't close %s", c_file);
+    fatal_perror ("closing %s", c_file);
 
   if (debug)
     {
@@ -897,7 +879,7 @@ fork_execute (prog, argv)
   if (pid == 0)			/* child context */
     {
       execvp (prog, argv);
-      fatal_perror ("Execute %s", prog);
+      fatal_perror ("executing %s", prog);
     }
 
   int_handler  = (void (*) ())signal (SIGINT,  SIG_IGN);
@@ -984,14 +966,14 @@ write_c_file (stream, name)
 
   fprintf (stream, "typedef void entry_pt();\n\n");
     
-  write_list_with_asm (stream, "entry_pt ", constructors.first);
+  write_list_with_asm (stream, "extern entry_pt ", constructors.first);
     
   fprintf (stream, "\nentry_pt * __CTOR_LIST__[] = {\n");
   fprintf (stream, "\t(entry_pt *) %d,\n", constructors.number);
   write_list (stream, "\t", constructors.first);
   fprintf (stream, "\t0\n};\n\n");
 
-  write_list_with_asm (stream, "entry_pt ", destructors.first);
+  write_list_with_asm (stream, "extern entry_pt ", destructors.first);
 
   fprintf (stream, "\nentry_pt * __DTOR_LIST__[] = {\n");
   fprintf (stream, "\t(entry_pt *) %d,\n", destructors.number);
@@ -1070,16 +1052,16 @@ scan_prog_file (prog_name, which_pass)
     {
       /* setup stdout */
       if (dup2 (pipe_fd[1], 1) < 0)
-	fatal_perror ("Dup2 (%d, 1)", pipe_fd[1]);
+	fatal_perror ("dup2 (%d, 1)", pipe_fd[1]);
 
       if (close (pipe_fd[0]) < 0)
-	fatal_perror ("Close (%d)", pipe_fd[0]);
+	fatal_perror ("close (%d)", pipe_fd[0]);
 
       if (close (pipe_fd[1]) < 0)
-	fatal_perror ("Close (%d)", pipe_fd[1]);
+	fatal_perror ("close (%d)", pipe_fd[1]);
 
       execv (nm_file_name, nm_argv);
-      fatal_perror ("Execute %s", nm_file_name);
+      fatal_perror ("executing %s", nm_file_name);
     }
 
   /* Parent context from here on.  */
@@ -1087,7 +1069,7 @@ scan_prog_file (prog_name, which_pass)
   quit_handler = (void (*) ())signal (SIGQUIT, SIG_IGN);
 
   if (close (pipe_fd[1]) < 0)
-    fatal_perror ("Close (%d)", pipe_fd[1]);
+    fatal_perror ("close (%d)", pipe_fd[1]);
 
   if (debug)
     fprintf (stderr, "\nnm output with constructors/destructors.\n");
@@ -1155,20 +1137,22 @@ scan_prog_file (prog_name, which_pass)
 #ifdef OBJECT_FORMAT_COFF
 
 #if defined(EXTENDED_COFF)
-#   define GCC_SYMBOLS(X) (SYMHEADER(X).isymMax+SYMHEADER(X).iextMax)
-#   define GCC_SYMENT SYMR
-#   define GCC_OK_SYMBOL(X) ((X).st == stProc && (X).sc == scText)
-#   define GCC_SYMINC(X) (1)
-#   define GCC_SYMZERO(X) (SYMHEADER(X).isymMax)
+#   define GCC_SYMBOLS(X)	(SYMHEADER(X).isymMax + SYMHEADER(X).iextMax)
+#   define GCC_SYMENT		SYMR
+#   define GCC_OK_SYMBOL(X)	((X).st == stProc && (X).sc == scText)
+#   define GCC_SYMINC(X)	(1)
+#   define GCC_SYMZERO(X)	(SYMHEADER(X).isymMax)
+#   define GCC_CHECK_HDR(X)	(PSYMTAB(X) != 0)
 #else
-#   define GCC_SYMBOLS(X) (HEADER(ldptr).f_nsyms)
-#   define GCC_SYMENT SYMENT
+#   define GCC_SYMBOLS(X)	(HEADER(ldptr).f_nsyms)
+#   define GCC_SYMENT		SYMENT
 #   define GCC_OK_SYMBOL(X) \
      (((X).n_sclass == C_EXT) && \
         (((X).n_type & N_TMASK) == (DT_NON << N_BTSHFT) || \
          ((X).n_type & N_TMASK) == (DT_FCN << N_BTSHFT)))
-#   define GCC_SYMINC(X) ((X).n_numaux+1)
-#   define GCC_SYMZERO(X) 0
+#   define GCC_SYMINC(X)	((X).n_numaux+1)
+#   define GCC_SYMZERO(X)	0
+#   define GCC_CHECK_HDR(X)	(1)
 #endif
 
 extern char *ldgetname ();
@@ -1187,7 +1171,7 @@ scan_prog_file (prog_name, which_pass)
      char *prog_name;
      enum pass which_pass;
 {
-  LDFILE *ldptr;
+  LDFILE *ldptr = NULL;
   int sym_index, sym_count;
 
   if (which_pass != PASS_FIRST)
@@ -1199,54 +1183,57 @@ scan_prog_file (prog_name, which_pass)
   if (!ISCOFF (HEADER(ldptr).f_magic))
     fatal ("%s: not a COFF file", prog_name);
 
-  sym_count = GCC_SYMBOLS (ldptr);
-  sym_index = GCC_SYMZERO (ldptr);
-  while (sym_index < sym_count)
+  if (GCC_CHECK_HDR (ldptr))
     {
-      GCC_SYMENT symbol;
-
-      if (ldtbread (ldptr, sym_index, &symbol) <= 0)
-	break;
-      sym_index += GCC_SYMINC (symbol);
-
-      if (GCC_OK_SYMBOL (symbol))
+      sym_count = GCC_SYMBOLS (ldptr);
+      sym_index = GCC_SYMZERO (ldptr);
+      while (sym_index < sym_count)
 	{
-	  char *name;
+	  GCC_SYMENT symbol;
 
-	  if ((name = ldgetname (ldptr, &symbol)) == NULL)
-	    continue;		/* should never happen */
+	  if (ldtbread (ldptr, sym_index, &symbol) <= 0)
+	    break;
+	  sym_index += GCC_SYMINC (symbol);
+
+	  if (GCC_OK_SYMBOL (symbol))
+	    {
+	      char *name;
+
+	      if ((name = ldgetname (ldptr, &symbol)) == NULL)
+		continue;		/* should never happen */
 
 #ifdef _AIX
-	  /* All AIX function names begin with a dot. */
-	  if (*name++ != '.')
-	    continue;
+	      /* All AIX function names begin with a dot. */
+	      if (*name++ != '.')
+		continue;
 #endif
 
-	  switch (is_ctor_dtor (name))
-	    {
-	    case 1:
-	      add_to_list (&constructors, name);
-	      break;
+	      switch (is_ctor_dtor (name))
+		{
+		case 1:
+		  add_to_list (&constructors, name);
+		  break;
 
-	    case 2:
-	      add_to_list (&destructors, name);
-	      break;
+		case 2:
+		  add_to_list (&destructors, name);
+		  break;
 
-	    default:		/* not a constructor or destructor */
-	      continue;
-	    }
+		default:		/* not a constructor or destructor */
+		  continue;
+		}
 
 #if !defined(EXTENDED_COFF)
-	  if (debug)
-	    fprintf (stderr, "\tsec=%d class=%d type=%s%o %s\n",
-		     symbol.n_scnum, symbol.n_sclass,
-		     (symbol.n_type ? "0" : ""), symbol.n_type,
-		     name);
+	      if (debug)
+		fprintf (stderr, "\tsec=%d class=%d type=%s%o %s\n",
+			 symbol.n_scnum, symbol.n_sclass,
+			 (symbol.n_type ? "0" : ""), symbol.n_type,
+			 name);
 #else
-	  if (debug)
-	    fprintf (stderr, "\tiss = %5d, value = %5d, index = %5d, name = %s\n",
-		     symbol.iss, symbol.value, symbol.index, name);
+	      if (debug)
+		fprintf (stderr, "\tiss = %5d, value = %5d, index = %5d, name = %s\n",
+			 symbol.iss, symbol.value, symbol.index, name);
 #endif
+	    }
 	}
     }
 
@@ -1351,7 +1338,7 @@ scan_prog_file (prog_name, which_pass)
 
   prog_fd = open (prog_name, (rw) ? O_RDWR : O_RDONLY);
   if (prog_fd < 0)
-    fatal_perror ("Can't read %s", prog_name);
+    fatal_perror ("can't read %s", prog_name);
 
   obj_file = read_file (prog_name, prog_fd, rw);
   obj = obj_file->start;
@@ -1374,7 +1361,7 @@ scan_prog_file (prog_name, which_pass)
       || hdr.moh_cpu_subtype != OUR_CPU_SUBTYPE
       || hdr.moh_vendor_type != OUR_VENDOR_TYPE)
     {
-      fatal ("incompatibilities exist between object file & expected values.");
+      fatal ("incompatibilities between object file & expected values");
     }
 #endif
 
@@ -1397,7 +1384,7 @@ scan_prog_file (prog_name, which_pass)
       if (rw)
 	{
 	  load_union_t *ptr = (load_union_t *) xmalloc (load_hdr->hdr.ldci_cmd_size);
-	  memcpy (ptr, load_hdr, load_hdr->hdr.ldci_cmd_size);
+	  bcopy (load_hdr, ptr, load_hdr->hdr.ldci_cmd_size);
 	  load_hdr = ptr;
 
 	  /* null out old command map, because we will rewrite at the end.  */
@@ -1505,7 +1492,7 @@ scan_prog_file (prog_name, which_pass)
     }
 
   if (symbol_load_cmds == 0)
-    fatal ("no symbol table found.");
+    fatal ("no symbol table found");
 
   /* Update the program file now, rewrite header and load commands.  At present,
      we assume that there is enough space after the last load command to insert
@@ -1518,10 +1505,15 @@ scan_prog_file (prog_name, which_pass)
       size_t size;
 
       if (cmd_strings == -1)
-	fatal ("no cmd_strings found.");
+	fatal ("no cmd_strings found");
 
-      /* Add __main to initializer list.  */
-      if (main_sym != (symbol_info_t *)0)
+      /* Add __main to initializer list.
+	 If we are building a program instead of a shared library, don't
+	 do anything, since in the current version, you cannot do mallocs
+	 and such in the constructors.  */
+
+      if (main_sym != (symbol_info_t *)0
+	  && ((hdr.moh_flags & MOH_EXECABLE_F) == 0))
 	add_func_table (&hdr, load_array, main_sym, FNTC_INITIALIZATION);
 
       if (debug)
@@ -1575,7 +1567,7 @@ scan_prog_file (prog_name, which_pass)
 	  if (debug)
 	    print_load_command (load_hdr, offset, i);
 
-	  memcpy (obj + offset, load_hdr, size);
+	  bcopy (load_hdr, obj + offset, size);
 	  offset += size;
 	}
     }
@@ -1583,7 +1575,7 @@ scan_prog_file (prog_name, which_pass)
   end_file (obj_file);
 
   if (close (prog_fd))
-    fatal_perror ("Can't close %s", prog_name);
+    fatal_perror ("closing %s", prog_name);
 
   if (debug)
     fprintf (stderr, "\n");

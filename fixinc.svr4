@@ -156,7 +156,7 @@ while [ $# != 0 ]; do
   	  s/#system(\([^)]*\))/defined(__\1__)/g
   	  s/#cpu(\([^)]*\))/defined(__\1__)/g
 	  /#[a-z]*if.*[	 (]m68k/		s/\([^_]\)m68k/\1__m68k__/g
-	  /#[a-z]*if.*[	 (]__i386/	s/__i386/__i386__/g
+	  /#[a-z]*if.*[	 (]__i386\([^_]\)/	s/__i386/__i386__/g
 	  /#[a-z]*if.*[	 (]i386/		s/\([^_]\)i386/\1__i386__/g
 	  /#[a-z]*if.*[	 (]sparc/	s/\([^_]\)sparc/\1__sparc__/g
 	  /#[a-z]*if.*[	 (]mc68000/	s/\([^_]\)mc68000/\1__mc68000__/g
@@ -306,6 +306,47 @@ if [ \! -z "$file_to_fix" ]; then
 #define __NULL_TYPE (void *)
 #endif /* !defined(__cplusplus) */
 #define NULL (__NULL_TYPE 0)
+.
+  wq
+EOF
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Likewise fix the definition of NULL in <dbm.h> so that it is conditional
+# and so that it is correct for both C and C++.
+
+file=dbm.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  cp $file_to_fix /tmp/$base
+  chmod +w /tmp/$base
+  ex /tmp/$base <<EOF
+  /^#define[ 	]*NULL[ 	]*((char \*) 0)$/c
+#ifndef NULL
+#ifdef __cplusplus
+#define __NULL_TYPE
+#else /* !defined(__cplusplus) */
+#define __NULL_TYPE (void *)
+#endif /* !defined(__cplusplus) */
+#define NULL (__NULL_TYPE 0)
+#endif /* !defined(NULL) */
 .
   wq
 EOF

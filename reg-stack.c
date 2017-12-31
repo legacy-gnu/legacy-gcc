@@ -561,12 +561,16 @@ constrain_asm_operands (n_operands, operands, operand_constraints,
 	      case '=':
 	      case '+':
 	      case '?':
-	      case '#':
 	      case '&':
 	      case '!':
 	      case '*':
 	      case '%':
 		/* Ignore these. */
+		break;
+
+	      case '#':
+		/* Ignore rest of this alternative. */
+		while (*p && *p != ',') p++;
 		break;
 
 	      case '0':
@@ -1266,7 +1270,7 @@ find_blocks (first)
   if (block + 1 != blocks)
     abort ();
 
-  /* generate all label references to the correspondending jump insn */
+  /* generate all label references to the corresponding jump insn */
   for (block = 0; block < blocks; block++)
     {
       insn = block_end[block];
@@ -1825,6 +1829,8 @@ compare_for_stack_reg (insn, regstack, pat)
 	     the case handled above.  In all other cases, emit a separate
 	     pop and remove the death note from here. */
 
+	  link_cc0_insns (insn);
+
 	  remove_regno_note (insn, REG_DEAD, REGNO (XEXP (src2_note, 0)));
 
 	  emit_pop_insn (insn, regstack, XEXP (src2_note, 0),
@@ -2036,12 +2042,12 @@ subst_stack_regs_pat (insn, regstack, pat)
 
 /* Substitute hard regnums for any stack regs in INSN, which has
    N_INPUTS inputs and N_OUTPUTS outputs.  REGSTACK is the stack info
-   before the insn, and is updated with changes made here.  CONSTAINTS is
+   before the insn, and is updated with changes made here.  CONSTRAINTS is
    an array of the constraint strings used in the asm statement.
 
    OPERANDS is an array of the operands, and OPERANDS_LOC is a
    parallel array of where the operands were found.  The output operands
-   all preceed the input operands.
+   all precede the input operands.
 
    There are several requirements and assumptions about the use of
    stack-like regs in asm statements.  These rules are enforced by

@@ -476,9 +476,9 @@ the base file.  This is less straightforward.
 For example, suppose an application program uses the system header file
 @file{sys/signal.h}, but the version of @file{/usr/include/sys/signal.h}
 on a particular system doesn't do what the application program expects.
-It might be convenient to define a ``local'' version, perhaps
-@file{/usr/local/include/sys/signal.h}, to override or add to the one
-supplied by the system.
+It might be convenient to define a ``local'' version, perhaps under the
+name @file{/usr/local/include/sys/signal.h}, to override or add to the
+one supplied by the system.
 
 You can do this by using the option @samp{-I.} for compilation, and
 writing a file @file{sys/signal.h} that does what the application
@@ -737,7 +737,7 @@ arguments.
 In the definition of a macro with arguments, the list of argument names
 must follow the macro name immediately with no space in between.  If there
 is a space after the macro name, the macro is defined as taking no
-arguments, and all the rest of the name is taken to be the expansion.  The
+arguments, and all the rest of the lineis taken to be the expansion.  The
 reason for this is that it is often useful to define a macro that takes no
 arguments and whose definition begins with an identifier in parentheses.
 This rule about spaces makes it possible for you to do either this:
@@ -790,12 +790,6 @@ GNU C extensions.
 This macro expands to the name of the current input file, in the form of
 a C string constant.  The precise name returned is the one that was
 specified in @samp{#include} or as the input file name argument.
-
-@item __BASE_FILE__
-@findex __BASE_FILE__
-This macro expands to the name of the main input file, in the form
-of a C string constant.  This is the source file that was specified
-as an argument when the C compiler was invoked.
 
 @item __LINE__
 @findex __LINE__
@@ -863,6 +857,12 @@ specified when GNU C was invoked.  Its definition is the null string.
 This macro exists primarily to direct certain GNU header files not to
 define certain traditional Unix constructs which are incompatible with
 ANSI C.
+
+@item __BASE_FILE__
+@findex __BASE_FILE__
+This macro expands to the name of the main input file, in the form
+of a C string constant.  This is the source file that was specified
+as an argument when the C compiler was invoked.
 
 @item __VERSION__
 This macro expands to a string which describes the version number of
@@ -987,7 +987,7 @@ it will run on?
 
 GNU C offers a parallel series of symbols for this purpose, whose names
 are made from the customary ones by adding @samp{__} at the beginning
-and end.  Thus, the symbol @code{__vax__} would be available on a vax,
+and end.  Thus, the symbol @code{__vax__} would be available on a Vax,
 and so on.
 
 The set of nonstandard predefined names in the GNU C preprocessor is
@@ -1481,7 +1481,7 @@ variable in @samp{min}:
 @end example
 
 @noindent
-(where I assume that @samp{foo} returns type @samp{int}).
+(where we assume that @samp{foo} returns type @samp{int}).
 
 @node Self-Reference, Argument Prescan, Side Effects, Macro Pitfalls
 @subsubsection Self-Referential Macros
@@ -1874,8 +1874,8 @@ it looks like:
 #endif /* Not @var{expression} */
 @end example
 
-If @var{expression} is nonzero, and the @var{text-if-true} is considered
-included, then @samp{#else} acts like a failing conditional and the
+If @var{expression} is nonzero, and thus the @var{text-if-true} is 
+active, then @samp{#else} acts like a failing conditional and the
 @var{text-if-false} is ignored.  Contrariwise, if the @samp{#if}
 conditional fails, the @var{text-if-false} is considered included.
 
@@ -2087,7 +2087,7 @@ nearly verbatim from the source file, but their line numbers in the
 @code{bison} output are not the same as their original line numbers.
 Naturally you would like compiler error messages and symbolic debuggers to
 know the original source file and line number of each line in the
-@code{bison} output.
+@code{bison} input.
 
 @code{bison} arranges this by writing @samp{#line} commands into the output
 file.  @samp{#line} is a command that specifies the original line number
@@ -2287,6 +2287,11 @@ the current one and which are searched after.
 Do not search the standard system directories for header files.
 Only the directories you have specified with @samp{-I} options
 (and the current directory, if appropriate) are searched.
+
+@item -nostdinc++
+Do not search for header files in the C++-specific standard directories,
+but do still search the other standard directories.
+(This option is used when building @samp{libg++}.)
 
 @item -D @var{name}
 @findex -D

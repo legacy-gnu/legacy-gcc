@@ -27,6 +27,53 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #undef NULL
 #define NULL 0
 
+/* Make bindings for __FUNCTION__ and __PRETTY_FUNCTION__.  */
+
+void
+declare_function_name ()
+{
+  tree decl, init;
+  char *name, *printable_name;
+
+  if (current_function_decl == NULL)
+    {
+      name = "";
+      printable_name = "top level";
+    }
+  else
+    {
+      char *kind = "function";
+      if (TREE_CODE (TREE_TYPE (current_function_decl)) == METHOD_TYPE)
+	kind = "method";
+      name = IDENTIFIER_POINTER (DECL_NAME (current_function_decl));
+      printable_name = (*decl_printable_name) (current_function_decl, &kind);
+    }
+
+  push_obstacks_nochange ();
+  decl = build_decl (VAR_DECL, get_identifier ("__FUNCTION__"),
+		     char_array_type_node);
+  TREE_STATIC (decl) = 1;
+  TREE_READONLY (decl) = 1;
+  TREE_USED (decl) = 1;
+  DECL_IGNORED_P (decl) = 1;
+  init = build_string (strlen (name) + 1, name);
+  TREE_TYPE (init) = char_array_type_node;
+  DECL_INITIAL (decl) = init;
+  finish_decl (pushdecl (decl), init, NULL_TREE);
+
+  push_obstacks_nochange ();
+  decl = build_decl (VAR_DECL, get_identifier ("__PRETTY_FUNCTION__"),
+		     char_array_type_node);
+  TREE_STATIC (decl) = 1;
+  TREE_READONLY (decl) = 1;
+  TREE_USED (decl) = 1;
+  DECL_IGNORED_P (decl) = 1;
+  init = build_string (strlen (printable_name) + 1, printable_name);
+  TREE_TYPE (init) = char_array_type_node;
+  DECL_INITIAL (decl) = init;
+  finish_decl (pushdecl (decl), init, NULL_TREE);
+}
+
 /* Given a chain of STRING_CST nodes,
    concatenate them into one STRING_CST
    and give it a suitable array-of-chars data type.  */
@@ -147,40 +194,58 @@ decl_attributes (decl, attributes)
 {
   tree a;
   for (a = attributes; a; a = TREE_CHAIN (a))
-    if (TREE_VALUE (a) != 0
-	&& TREE_CODE (TREE_VALUE (a)) == TREE_LIST
-	&& TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("aligned"))
-      {
-	int align = TREE_INT_CST_LOW (TREE_VALUE (TREE_VALUE (a)))
-		    * BITS_PER_UNIT;
-	
-	if (exact_log2 (align) == -1)
-	  warning_with_decl (decl,
-			"requested alignment of `%s' is not a power of 2");
-	else if (TREE_CODE (decl) != VAR_DECL
-		 && TREE_CODE (decl) != FIELD_DECL)
-	  warning_with_decl (decl,
-		"alignment specified for `%s' which is not a variable");
-
-	/* ??? The maximum alignment gcc can currently handle is 16 bytes!
-	   We should change the representation to be the log of the
-	   actual alignment since we only handle powers of 2 anyway.  */
-	else if (align > 255)
-	  warning_with_decl (decl,
-		"requested alignment of `%s' exceeds compiler limits");
-	else
-	  DECL_ALIGN (decl) = align;
-      }
-    else if (TREE_VALUE (a) != 0
-	     && TREE_CODE (TREE_VALUE (a)) == TREE_LIST
-	     && TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("packed"))
+    if (TREE_VALUE (a) == get_identifier ("packed"))
       {
 	if (TREE_CODE (decl) == FIELD_DECL)
 	  DECL_PACKED (decl) = 1;
       }
     else if (TREE_VALUE (a) != 0
 	&& TREE_CODE (TREE_VALUE (a)) == TREE_LIST
-	&& TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("format"))
+	&& TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("mode"))
+      {
+	int i;
+	char *specified_name
+	  = IDENTIFIER_POINTER (TREE_VALUE (TREE_VALUE (a)));
+
+	/* Give this decl a type with the specified mode.  */
+	for (i = 0; i < NUM_MACHINE_MODES; i++)
+	  if (!strcmp (specified_name, GET_MODE_NAME (i)))
+	    {
+	      tree type
+		= type_for_mode (i, TREE_UNSIGNED (TREE_TYPE (decl)));
+	      if (type != 0)
+		{
+		  TREE_TYPE (decl) = type;
+		  DECL_SIZE (decl) = 0;
+		  layout_decl (decl);
+		}
+	      else
+		error ("no data type for mode `%s'", specified_name);
+	      break;
+	    }
+	if (i == NUM_MACHINE_MODES)
+	  error ("unknown machine mode `%s'", specified_name);
+      }
+    else if (TREE_VALUE (a) != 0
+	     && TREE_CODE (TREE_VALUE (a)) == TREE_LIST
+	     && TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("aligned"))
+      {
+	int align = TREE_INT_CST_LOW (TREE_VALUE (TREE_VALUE (a)))
+		    * BITS_PER_UNIT;
+	
+	if (exact_log2 (align) == -1)
+	  error_with_decl (decl,
+			   "requested alignment of `%s' is not a power of 2");
+	else if (TREE_CODE (decl) != VAR_DECL
+		 && TREE_CODE (decl) != FIELD_DECL)
+	  error_with_decl (decl,
+			   "alignment specified for `%s'");
+	else
+	  DECL_ALIGN (decl) = align;
+      }
+    else if (TREE_VALUE (a) != 0
+	     && TREE_CODE (TREE_VALUE (a)) == TREE_LIST
+	     && TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("format"))
       {
         tree list = TREE_VALUE (TREE_VALUE (a));
         tree format_type = TREE_PURPOSE (list);
@@ -190,8 +255,8 @@ decl_attributes (decl, attributes)
 	
 	if (TREE_CODE (decl) != FUNCTION_DECL)
 	  {
-	    warning_with_decl (decl,
-		"argument format specified for non-function `%s'");
+	    error_with_decl (decl,
+			     "argument format specified for non-function `%s'");
 	    return;
 	  }
 	
@@ -201,13 +266,13 @@ decl_attributes (decl, attributes)
 	  is_scan = 1;
 	else
 	  {
-	    warning_with_decl (decl,"unrecognized format specifier for `%s'");
+	    error_with_decl (decl, "unrecognized format specifier for `%s'");
 	    return;
 	  }
 	
 	if (first_arg_num != 0 && first_arg_num <= format_num)
 	  {
-	    warning_with_decl (decl,
+	    error_with_decl (decl,
 		"format string arg follows the args to be formatted, for `%s'");
 	    return;
 	  }
@@ -371,8 +436,10 @@ binary_op_error (code)
     case RSHIFT_EXPR:
       opname = ">>"; break;
     case TRUNC_MOD_EXPR:
+    case FLOOR_MOD_EXPR:
       opname = "%"; break;
     case TRUNC_DIV_EXPR:
+    case FLOOR_DIV_EXPR:
       opname = "/"; break;
     case BIT_AND_EXPR:
       opname = "&"; break;
@@ -384,6 +451,9 @@ binary_op_error (code)
       opname = "||"; break;
     case BIT_XOR_EXPR:
       opname = "^"; break;
+    case LROTATE_EXPR:
+    case RROTATE_EXPR:
+      opname = "rotate"; break;
     }
   error ("invalid operands to binary %s", opname);
 }
@@ -600,7 +670,7 @@ shorten_compare (op0_ptr, op1_ptr, restype_ptr, rescode_ptr)
 	  type = unsigned_type (type);
 	}
 
-      if (max_lt && !unsignedp0)
+      if (!max_gt && !unsignedp0)
 	{
 	  /* This is the case of (char)x >?< 0x80, which people used to use
 	     expecting old C compilers to change the 0x80 into -0x80.  */
@@ -610,9 +680,9 @@ shorten_compare (op0_ptr, op1_ptr, restype_ptr, rescode_ptr)
 	    warning ("comparison is always 1 due to limited range of data type");
 	}
 
-      if (min_gt && unsignedp0)
+      if (!min_lt && unsignedp0)
 	{
-	  /* This is the case of (unsigned char)x >?< -1.  */
+	  /* This is the case of (unsigned char)x >?< -1 or < 0.  */
 	  if (val == integer_zero_node)
 	    warning ("comparison is always 0 due to limited range of data type");
 	  if (val == integer_one_node)

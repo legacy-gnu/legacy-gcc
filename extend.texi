@@ -2,7 +2,7 @@
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
 
-@node Extensions, Bugs, Incompatibilities, Top
+@node Extensions
 @chapter GNU Extensions to the C Language
 @cindex extensions, C language
 @cindex GNU extensions to the C language
@@ -26,6 +26,7 @@ features in conditional compilation, check for a predefined macro
 * Long Long::		Double-word integers---@code{long long int}.
 * Zero Length::         Zero-length arrays.
 * Variable Length::     Arrays whose length is computed at run time.
+* Macro Varargs::	Macros with variable number of arguments.
 * Subscripting::        Any array can be subscripted, even if not an lvalue.
 * Pointer Arith::       Arithmetic on @code{void}-pointers and function pointers.
 * Initializers::        Non-constant initializers.
@@ -36,6 +37,7 @@ features in conditional compilation, check for a predefined macro
 * Case Ranges::		`case 1 ... 9' and such.
 * Function Attributes:: Declaring that functions have no side effects,
                          or that they can never return.
+* Function Prototypes:: Prototype declarations and old-style definitions.
 * Dollar Signs::        Dollar sign is allowed in identifiers.
 * Character Escapes::   @samp{\e} stands for the character @key{ESC}.
 * Variable Attributes::	Specifying attributes of variables.
@@ -56,8 +58,12 @@ features in conditional compilation, check for a predefined macro
 @cindex expressions containing statements
 @cindex macros, statements in expressions
 
-A compound statement in parentheses may appear inside an expression in GNU
-C.  This allows you to declare variables within an expression.  For
+A compound statement enclosed in parentheses may appear as an expression
+in GNU C.  This allows you to use loops, switches, and local variables
+within an expression.
+
+Recall that a compound statement is a sequence of statements surrounded
+by braces; in this construct, parentheses go around the braces.  For
 example:
 
 @example
@@ -70,6 +76,12 @@ example:
 @noindent
 is a valid (though slightly more complex than necessary) expression
 for the absolute value of @code{foo ()}.
+
+The last thing in the compound statement should be an expression
+followed by a semicolon; the value of this subexpression serves as the
+value of the entire construct.  (If you use some other kind of statement
+last within the braces, the construct has type @code{void}, and thus
+effectively no value.)
 
 This feature is especially useful in making macro definitions ``safe'' (so
 that they evaluate each operand exactly once).  For example, the
@@ -213,6 +225,11 @@ use that rather than an array unless the problem does not fit a
 Another use of label values is in an interpreter for threaded code.
 The labels within the interpreter function can be stored in the
 threaded code for super-fast dispatching.  
+
+You can use this mechanism to jump to code in a different function.  If
+you do that, totally unpredictable things will happen.  The best way to
+avoid this is to store the label address only in automatic variables and
+never pass it as an argument.
 
 @node Nested Functions
 @section Nested Functions
@@ -695,6 +712,60 @@ last one must end with a semicolon, which is followed by the ``real''
 parameter declarations.  Each forward declaration must match a ``real''
 declaration in parameter name and data type.
 
+@node Macro Varargs
+@section Macros with Variable Numbers of Arguments
+@cindex variable number of arguments
+@cindex macro with variable arguments
+@cindex rest argument (in macro)
+
+In GNU C, a macro can accept a variable number of arguments, much as a
+function can.  The syntax for defining the macro looks much like that
+used for a function.  Here is an example:
+
+@example
+#define eprintf(format, args...)  \
+ fprintf (stderr, format, ## args)
+@end example
+
+Here @code{args} is a @dfn{rest argument}: it takes in zero or more
+arguments, as many as the call contains.  All of them plus the commas
+between them form the value of @code{args}, which is substituted into
+the macro body where @code{args} is used.  Thus, we have these
+expansions:
+
+@example
+eprintf ("%s:%d: ", input_file_name, line_number)
+@expansion{}
+fprintf (stderr, "%s:%d: ", input_file_name, line_number)
+@end example
+
+@noindent
+Note that the comma after the string constant comes from the definition
+of @code{eprintf}, whereas the last comma comes from the value of
+@code{args}.
+
+The reason for using @samp{##} is to handle the case when @code{args}
+matches no arguments at all.  In this case, @code{args} has an empty
+value.  In this case, the second comma in the definition becomes an
+embarrassment: if it got through to the expansion of the macro, we would
+get something like this:
+
+@example
+fprintf (stderr, "success!\n", )
+@end example
+
+@noindent
+which is invalid C syntax.  @samp{##} gets rid of the comma, so we get
+the following instead:
+
+@example
+fprintf (stderr, "success!\n")
+@end example
+
+This is a special feature of the GNU C preprocessor: @samp{##} adjacent
+to a rest argument discards the token on the other side of the
+@samp{##}, if the rest argument value is empty.
+
 @node Subscripting
 @section Non-Lvalue Arrays May Have Subscripts
 @cindex subscripting
@@ -1073,6 +1144,61 @@ These two reasons apply to almost any application that might be proposed
 for @code{#pragma}.  It is basically a mistake to use @code{#pragma} for
 @emph{anything}.
 
+@node Function Prototypes
+@section Prototypes and Old-Style Function Definitions
+@cindex function prototype declarations
+@cindex old-style function definitions
+@cindex promotion of formal parameters
+
+GNU C extends ANSI C to allow a function prototype to override a later
+old-style non-prototype definition.  Consider the following example:
+
+@example
+/* @r{Use prototypes unless the compiler is old-fashioned.}  */
+#if __STDC__
+#define P((x)) (x)
+#else
+#define P((x)) ()
+#endif
+
+/* @r{Prototype function declaration.}  */
+int isroot P((uid_t));
+
+/* @r{Old-style function definition.}  */
+int
+isroot (x)   /* ??? lossage here ??? */
+     uid_t x;
+@{
+  return x == 0;
+@}
+@end example
+
+Suppose the type @code{uid_t} happens to be @code{short}.  ANSI C does
+not allow this example, because subword arguments in old-style
+non-prototype definitions are promoted.  Therefore in this example the
+function definition's argument is really an @code{int}, which does not
+match the prototype argument type of @code{short}.
+
+This restriction of ANSI C makes it hard to write code that is portable
+to traditional C compilers, because the programmer does not know
+whether the @code{uid_t} type is @code{short}, @code{int}, or
+@code{long}.  Therefore, in cases like these GNU C allows a prototype
+to override a later old-style definition.  More precisely, in GNU C, a
+function prototype argument type overrides the argument type specified
+by a later old-style definition if the former type is the same as the
+latter type before promotion.  Thus in GNU C the above example is
+equivalent to the following:
+
+@example
+int isroot (uid_t);
+
+int
+isroot (uid_t x)
+@{
+  return x == 0;
+@}
+@end example
+
 @node Dollar Signs
 @section Dollar Signs in Identifier Names
 @cindex $
@@ -1173,7 +1299,8 @@ that forces the union to be double-word aligned.
 
 It is not possible to specify the alignment of functions; the alignment
 of functions is determined by the machine's requirements and cannot be
-changed.
+changed.  You cannot specify alignment for a typedef name because such a
+name is just an alias, not a distinct type.
 
 The @code{format} attribute specifies that a function takes @code{printf}
 or @code{scanf} style arguments which should be type-checked against a
@@ -1401,6 +1528,13 @@ then you will probably have to list the register after the third colon
 to tell the compiler that the register's value is modified.  In many
 assemblers, the register names begin with @samp{%}; to produce one
 @samp{%} in the assembler code, you must write @samp{%%} in the input.
+
+If your assembler instruction can alter the condition code register,
+add @samp{cc} to the list of clobbered registers.  GNU CC on some
+machines represents the condition codes as a specific hardware
+register; @samp{cc} serves to name this register.  On other machines,
+the condition code is handled differently, and specifying @samp{cc}
+has no effect.  But it is valid no matter what the machine.
 
 You can put multiple assembler instructions together in a single @code{asm}
 template, separated either with newlines (written as @samp{\n}) or with

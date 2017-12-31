@@ -386,6 +386,10 @@ extern int target_flags;
    registers cannot hold floating-point values and the accumulators cannot
    hold integer values.
 
+   DImode and larger values should start at an even register just like
+   DFmode values, even though the instruction set doesn't require it, in order
+   to prevent reload from aborting due to a modes_equiv_for_class_p failure.
+
    (I'd like to use the "?:" syntax to make this more readable, but Sun's
    compiler doesn't seem to accept it.)  */
 #define HARD_REGNO_MODE_OK(REGNO, MODE)  				\
@@ -396,8 +400,7 @@ extern int target_flags;
        && GET_MODE_CLASS (MODE) != MODE_FLOAT				\
        && GET_MODE_CLASS (MODE) != MODE_COMPLEX_FLOAT)			\
    || ((REGNO) < R_BP							\
-       && ((((REGNO) & 1) == 0) || GET_MODE_CLASS (MODE) == MODE_INT	\
-	   || GET_MODE_CLASS (MODE) == MODE_COMPLEX_INT			\
+       && ((((REGNO) & 1) == 0)						\
 	   || GET_MODE_UNIT_SIZE (MODE) <= UNITS_PER_WORD)))
 
 /* Value is 1 if it is a good idea to tie two pseudo registers
@@ -1221,7 +1224,7 @@ extern char *a29k_function_name;
    instruction are those involving floating-point or address.  So 
    only these need be expensive.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     return 0;							\
   case CONST:							\
@@ -1239,7 +1242,7 @@ extern char *a29k_function_name;
 
    The multiply cost depends on whether this is a 29050 or not.  */
 
-#define RTX_COSTS(X,CODE)				\
+#define RTX_COSTS(X,CODE,OUTER_CODE)			\
   case MULT:						\
     return TARGET_29050 ? COSTS_N_INSNS (2) : COSTS_N_INSNS (40);  \
   case DIV:						\
@@ -1274,17 +1277,20 @@ extern char *a29k_function_name;
 
 #define ASM_APP_OFF ""
 
+/* The next few macros don't have tabs on most machines, but
+   at least one 29K assembler wants them.  */
+
 /* Output before instructions.  */
 
-#define TEXT_SECTION_ASM_OP ".text"
+#define TEXT_SECTION_ASM_OP "\t.text"
 
 /* Output before read-only data.  */
 
-#define READONLY_DATA_SECTION_ASM_OP ".use .lit"
+#define READONLY_DATA_SECTION_ASM_OP "\t.use .lit"
 
 /* Output before writable data.  */
 
-#define DATA_SECTION_ASM_OP ".data"
+#define DATA_SECTION_ASM_OP "\t.data"
 
 /* Define an extra section for read-only data, a routine to enter it, and
    indicate that it is for read-only data.  */
@@ -1526,9 +1532,9 @@ extern int a29k_debug_reg_map[];
   {"const_16__operand", {CONST_INT, ASHIFT}},			\
   {"const_24__operand", {CONST_INT, ASHIFT}},			\
   {"float_const_operand", {CONST_DOUBLE}},			\
-  {"gen_reg_operand", {SUBREG, REG}},				\
-  {"gen_reg_or_float_constant_operand", {SUBREG, REG, CONST_DOUBLE}}, \
-  {"gen_reg_or_integer_constant_operand", {SUBREG, REG,		\
+  {"gpc_reg_operand", {SUBREG, REG}},				\
+  {"gpc_reg_or_float_constant_operand", {SUBREG, REG, CONST_DOUBLE}}, \
+  {"gpc_reg_or_integer_constant_operand", {SUBREG, REG,		\
 					   CONST_INT, CONST_DOUBLE}}, \
   {"spec_reg_operand", {REG}},					\
   {"accum_reg_operand", {REG}},					\

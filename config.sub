@@ -1,6 +1,9 @@
 #!/bin/sh
-# Configuration validation subroutine script, version 1.0.
-#   Copyright (C) 1991 Free Software Foundation, Inc.
+# Configuration validation subroutine script, version 1.1.
+#   Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+# This file is (in principle) common to ALL GNU software.
+# The presence of a machine in this file suggests that SOME GNU software
+# can handle that machine.  It does not imply ALL GNU software can. 
 
 #This file is free software; you can redistribute it and/or modify
 #it under the terms of the GNU General Public License as published by
@@ -52,23 +55,23 @@ then os=`echo $1 | sed 's/.*-/-/'`
 else os=; fi
 
 # Lets recognize common machines as not being OS so that things like
-# config.subr decstation-3100 as legal.
+# config.subr decstation-3100 work.
 case $os in
 	-dec* | -mips* | -sequent* | -encore* | -pc532* | -sgi* | -sony* | \
 	-att* | -7300* | -3300* | -delta* | -motorola* | -sun[234]* | \
 	-unicom* | -ibm* | -next* | -hp | -isi* | -apollo | -altos* | \
-	-convergent* | -ncr* | -news | -32* | -3600* | -3100* | -osf* | \
+	-convergent* | -ncr* | -news | -32* | -3600* | -3100* | \
 	-c[123]* | -convex* | -sun | -crds | -omron* | -dg | -ultra | -tti* | \
 	-harris | -dolphin)
 		os=
 		basic_machine=$1
 		;;
 	-sco*)
-		os=-scosysv322
+		os=-sco3.2v2
 		basic_machine=i386-unknown
 		;;
 	-isc*)
-		os=-iscsysv
+		os=-isc
 		basic_machine=i386-unknown
 		;;
 esac
@@ -78,15 +81,15 @@ case $basic_machine in
 	# Recognize the basic CPU types with without company name.
 	# Some are omitted here because they have special meanings below.
 	tahoe | i[34]86 | i860 | m68k | m68000 | m88k | ns32k | arm | pyramid \
-		| tron | a29k | 580 | i960 | h8300 | hppa)
+		| tron | a29k | 580 | i960 | h8300 | hppa1.0 | hppa1.1 | we32k)
 		basic_machine=$basic_machine-unknown
 		;;
 	# Recognize the basic CPU types with with company name.
-	vax-* | tahoe-* | i386-* | i860-* | m68k-* | m68000-* | m88k-* \
+	vax-* | tahoe-* | i[34]86-* | i860-* | m68k-* | m68000-* | m88k-* \
 	      | sparc-* | ns32k-* | fx80-* | arm-* | c[123]* \
 	      | mips-* | pyramid-* | tron-* | a29k-* | romp-* | rs6000-* \
 	      | none-* | 580-* | cray2-* | h8300-* | i960-* | xmp-* | ymp-* \
-	      | hppa-*)
+	      | hppa1.0-* | hppa1.1-* | we32k-*)
 		;;
 	# Recognize the various machine names and aliases which stand
 	# for a CPU type and a company and sometimes even an OS.
@@ -104,14 +107,18 @@ case $basic_machine in
 		;;
 	i386-sco* | i386sco | sco)
 		basic_machine=i386-unknown
-		os=-scosysv322
+		os=-sco3.2v2
 		;;
 	i386-isc* | isc)
 		basic_machine=i386-unknown
-		os=-iscsysv
+		os=-isc
 		;;
 	i386v4*)
 		basic_machine=i386-unknown
+		os=-sysv4
+		;;
+	i486v4*)
+		basic_machine=i486-unknown
 		os=-sysv4
 		;;
 	i386v)
@@ -156,14 +163,20 @@ case $basic_machine in
 		;;
 	encore | umax | mmax)
 		basic_machine=ns32k-encore
-		os=-sysv
+		os=-bsd
 		;;
 	genix)
 		basic_machine=ns32k-ns
 		;;
 	iris | iris4d)
 		basic_machine=mips-sgi
-		os=-irix
+		case $os in
+		    -irix*)
+			;;
+		    *)
+			os=-irix4
+			;;
+		esac
 		;;
 	news | news700 | news800 | news900)
 		basic_machine=m68k-sony
@@ -171,6 +184,9 @@ case $basic_machine in
 		;;
 	3b1 | 7300 | 7300-att | att-7300 | pc7300 | safari | unixpc)
 		basic_machine=m68000-att
+		;;
+	3b*)
+		basic_machine=we32k-att
 		;;
 	delta | 3300 | motorola-3300 | motorola-delta \
 	      | 3300-motorola | delta-motorola)
@@ -232,9 +248,12 @@ case $basic_machine in
 	ps2)
 		basic_machine=i386-ibm
 		;;
+	fx2800)
+		basic_machine=i860-alliant
+		;;
 	next)
 		basic_machine=m68k-next
-		os=-sysv
+		os=-bsd
 		;;
 	amiga)
 		basic_machine=m68k-cbm
@@ -245,8 +264,11 @@ case $basic_machine in
 	hp9k31[0-9] | hp9k2[0-9][0-9])
 		basic_machine=m68000-hp
 		;;
-	hp9k8[0-9][0-9] | hp9k7[0-9][0-9] | hp8[0-9][0-9] | hp7[0-9][0-9])
-		basic_machine=hp800-hp
+	hp9k7[0-9][0-9] | hp7[0-9][0-9] | hp9k8[0-9]7 | hp8[0-9]7)
+		basic_machine=hppa1.1-hp
+		;;
+	hp9k8[0-9][0-9] | hp8[0-9][0-9])
+		basic_machine=hppa1.0-hp
 		;;
 	isi68 | isi)
 		basic_machine=m68k-isi
@@ -269,7 +291,7 @@ case $basic_machine in
 		basic_machine=mips-sony
 		os=-newsos
 		;;
-	decstation-dec | decstation | decstation-3100 | pmax | pmin | dec3100 | decstatn)
+	decstation | decstation-3100 | pmax | pmin | dec3100 | decstatn)
 		basic_machine=mips-dec
 		;;
 	magnum | m3230)
@@ -348,7 +370,7 @@ case $basic_machine in
 		os=-hpux
 		;;
 	ncr3000)
-		basic_machine=i386-ncr
+		basic_machine=i486-ncr
 		os=-sysv4
 		;;
 	news1000)
@@ -398,11 +420,11 @@ case $basic_machine in
 	vax)
 		basic_machine=vax-dec
 		;;
+	we32k)
+		basic_machine=we32k-att
+		;;
 	sparc)
 		basic_machine=sparc-sun
-		;;
-	fx2800)
-		basic_machine=i860-alliant
 		;;
 	*)
 		echo Invalid configuration \`$1\': machine \`$basic_machine\' not recognized 1>&2
@@ -433,17 +455,14 @@ case $os in
 	-bsd* | -sysv* | -mach* | -minix* | -genix* | -ultrix* | -irix* \
 	      | -vms* | -sco* | -esix* | -isc* | -aix* | -sunos* | -hpux* \
 	      | -unos* | -osf* | -luna* | -dgux* | -solari* | -sym* | -amix* \
-	      | -amigados* | -msdos* | -unicos* | -aos* \
+	      | -amigados* | -msdos* | -newsos* | -unicos* | -aos* \
 	      | -nindy* | -vxworks* | -ebmon* | -hds* | -m88kbcs*)
 		;;
-	-newsos*)
-		os=-bsd
-		;;
 	-osfrose*)
-		os=-osf
+		os=-osfrose
 		;;
 	-osf*)
-		os=-bsd
+		os=-osf
 		;;
 	-dynix*)
 		os=-bsd
@@ -466,6 +485,8 @@ case $os in
 	-svr3)
 		os=-sysv3
 		;;
+	-none)
+		;;
 	*)
 		# Get rid of the `-' at the beginning of $os.
 		os=`echo $1 | sed 's/[^-]*-//'`
@@ -480,10 +501,10 @@ else
 # machine or put another way, the most popular os provided with the machine.
 case $basic_machine in
 	*-dec | vax-*)
-		os=-ultrix42
+		os=-ultrix4.2
 		;;
 	i386-sun)
-		os=-sunos402
+		os=-sunos4.0.2
 		;;
 	m68000-sun)
 		os=-sunos3
@@ -495,7 +516,7 @@ case $basic_machine in
 		os=-sysv3
 		;;
 	sparc-* | *-sun)
-		os=-sunos411
+		os=-sunos4.1.1
 		;;
 	*-ibm)
 		os=-aix
@@ -525,7 +546,7 @@ case $basic_machine in
 		os=-genix
 		;;
 	i386-*)
-		os=-scosysv322
+		os=-sco3.2v2
 		;;
 	*)
 		os=-none

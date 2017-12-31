@@ -912,23 +912,26 @@ extern enum reg_class regno_reg_class[];
 
 /* On the 68k, the trampoline looks like this:
      mov  @#.,a0
-     jsr  @#__trampoline
-     jsr  @#__trampoline
+     jsr  @#___trampoline
+     jsr  @#___trampoline
      .long STATIC
      .long FUNCTION
 The reason for having three jsr insns is so that an entire line
 of the instruction cache is filled in a predictable way
-that will always be the same.  */
+that will always be the same.
+
+We always use the assembler label ___trampoline
+regardless of whether the system adds underscores.  */
 
 #define TRAMPOLINE_TEMPLATE(FILE)					\
 {									\
   ASM_OUTPUT_SHORT (FILE, gen_rtx (CONST_INT, VOIDmode, 0x207c));	\
   ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
   ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
-  ASM_OUTPUT_SHORT (FILE, gen_rtx (CONST_INT, VOIDmode, 0x4ef9));	\
-  ASM_OUTPUT_INT (FILE, gen_rtx (SYMBOL_REF, SImode, "__trampoline"));	\
-  ASM_OUTPUT_SHORT (FILE, gen_rtx (CONST_INT, VOIDmode, 0x4ef9));	\
-  ASM_OUTPUT_INT (FILE, gen_rtx (SYMBOL_REF, SImode, "__trampoline"));	\
+  ASM_OUTPUT_SHORT (FILE, gen_rtx (CONST_INT, VOIDmode, 0x4eb9));	\
+  ASM_OUTPUT_INT (FILE, gen_rtx (SYMBOL_REF, SImode, "*___trampoline"));\
+  ASM_OUTPUT_SHORT (FILE, gen_rtx (CONST_INT, VOIDmode, 0x4eb9));	\
+  ASM_OUTPUT_INT (FILE, gen_rtx (SYMBOL_REF, SImode, "*___trampoline"));\
   ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
   ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
   ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
@@ -969,6 +972,7 @@ void								\
 __transfer_from_trampoline ()					\
 {								\
   register char *a0 asm ("%a0");				\
+  asm (GLOBAL_ASM_OP " ___trampoline");				\
   asm ("___trampoline:");					\
   asm volatile ("move%.l %0,%@" : : "m" (a0[22]));		\
   asm volatile ("move%.l %1,%0" : "=a" (a0) : "m" (a0[18]));	\
@@ -1281,7 +1285,7 @@ __transfer_from_trampoline ()					\
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE,OUTER_CODE) \
   case CONST_INT:						\
     /* Constant zero is super cheap due to clr instruction.  */	\
     if (RTX == const0_rtx) return 0;				\
@@ -1289,7 +1293,8 @@ __transfer_from_trampoline ()					\
     if (INTVAL (RTX) >= -128 && INTVAL (RTX) <= 127) return 1;	\
     /* Constants between -136 and 254 are easily generated */	\
     /* by intelligent uses of moveq, add[q], and subq 	   */   \
-    if (INTVAL (RTX) >= -136 && INTVAL (RTX) <= 254) return 2;	\
+    if ((OUTER_CODE) == SET && INTVAL (RTX) >= -136		\
+	&& INTVAL (RTX) <= 254) return 2;			\
   case CONST:							\
   case LABEL_REF:						\
   case SYMBOL_REF:						\
@@ -1303,8 +1308,10 @@ __transfer_from_trampoline ()					\
    work properly in synth_mult on the 68020,
    relative to an average of the time for add and the time for shift,
    taking away a little more because sometimes move insns are needed.  */
+#define MULL_COST (TARGET_68040 ? 5 : 13)
+#define MULW_COST (TARGET_68040 ? 3 : 8)
 
-#define RTX_COSTS(X,CODE)					\
+#define RTX_COSTS(X,CODE,OUTER_CODE)				\
   case PLUS:							\
     /* An lea costs about three times as much as a simple add.  */  \
     if (GET_MODE (X) == SImode					\
@@ -1345,9 +1352,9 @@ __transfer_from_trampoline ()					\
 	break;							\
       }								\
     else if (GET_MODE (X) == QImode || GET_MODE (X) == HImode)	\
-      return COSTS_N_INSNS (8); /* mul.w */			\
+      return COSTS_N_INSNS (MULW_COST);				\
     else							\
-      return COSTS_N_INSNS (13);	 /* mul.l */		\
+      return COSTS_N_INSNS (MULL_COST);				\
     break;							\
   case DIV:							\
   case UDIV:							\
@@ -1473,8 +1480,11 @@ __transfer_from_trampoline ()					\
 /* This is how to output a command to make the user-level label named NAME
    defined for reference from other files.  */
 
+#define GLOBAL_ASM_OP ".globl"
 #define ASM_GLOBALIZE_LABEL(FILE,NAME)	\
-  do { fputs (".globl ", FILE); assemble_name (FILE, NAME); fputs ("\n", FILE);} while (0)
+  do { fprintf (FILE, "%s ", GLOBAL_ASM_OP);		\
+       assemble_name (FILE, NAME);			\
+       fputs ("\n", FILE);} while (0)
 
 /* This is how to output a reference to a user-level label named NAME.
    `assemble_name' uses this.  */
@@ -1519,7 +1529,7 @@ do { union { float f; long l;} tem;			\
      fprintf (FILE, "\t.long 0x%x\n", tem.l);	\
    } while (0)
 
-#endif /* not CROSS_COMPILER */
+#endif /* not CROSS_COMPILE */
 
 /* This is how to output an assembler line defining an `int' constant.  */
 
@@ -1673,7 +1683,7 @@ do { union { float f; long l;} tem;			\
       u.i[0] = CONST_DOUBLE_HIGH (X); u.i[1] = CONST_DOUBLE_LOW (X);
 #endif
 
-#ifdef CROSS_COMPILER
+#ifdef CROSS_COMPILE
 #define PRINT_OPERAND_PRINT_FLOAT(CODE, FILE)   \
   ASM_OUTPUT_FLOAT_OPERAND (FILE, u1.f);
 #else

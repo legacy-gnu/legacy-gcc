@@ -30,7 +30,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    optimization.  It should be the last pass to run before peephole.
    It serves primarily to fill delay slots of insns, typically branch
    and call insns.  Other insns typically involve more complicated
-   interractions of data dependencies and resource constraints, and
+   interactions of data dependencies and resource constraints, and
    are better handled by scheduling before register allocation (by the
    function `schedule_insns').
 
@@ -176,7 +176,7 @@ static struct resources end_of_function_needs;
 /* Points to the label before the end of the function.  */
 static rtx end_of_function_label;
 
-/* This structure is used to record livness information at the targets or
+/* This structure is used to record liveness information at the targets or
    fallthrough insns of branches.  We will most likely need the information
    at targets again, so save them in a hash table rather than recomputing them
    each time.  */
@@ -371,7 +371,7 @@ mark_referenced_resources (x, res, include_called_routine)
 	    }
 	}
 
-      /* ... fall through to other INSN procesing ... */
+      /* ... fall through to other INSN processing ... */
 
     case INSN:
     case JUMP_INSN:
@@ -403,7 +403,7 @@ mark_referenced_resources (x, res, include_called_routine)
 
    We never mark the insn as modifying the condition code unless it explicitly
    SETs CC0 even though this is not totally correct.  The reason for this is
-   that we require a SET of CC0 to immediately preceed the reference to CC0.
+   that we require a SET of CC0 to immediately precede the reference to CC0.
    So if some other insn sets CC0 as a side-effect, we know it cannot affect
    our computation and thus may be placed in a delay slot.   */
 
@@ -779,25 +779,6 @@ add_to_delay_list (insn, delay_list)
 
   return delay_list;
 }   
-
-#ifdef HAVE_cc0
-/* INSN uses CC0 and is being moved into a delay slot.  Set up REG_CC_SETTER
-   and REG_CC_USER notes so we can find it.  */
-
-static void
-link_cc0_insns (insn)
-     rtx insn;
-{
-  rtx user = next_nonnote_insn (insn);
-
-  if (GET_CODE (user) == INSN && GET_CODE (PATTERN (user)) == SEQUENCE)
-    user = XVECEXP (PATTERN (user), 0, 0);
-
-  REG_NOTES (user) = gen_rtx (INSN_LIST, REG_CC_SETTER, insn,
-			      REG_NOTES (user));
-  REG_NOTES (insn) = gen_rtx (INSN_LIST, REG_CC_USER, user, REG_NOTES (insn));
-}
-#endif
 
 /* Delete INSN from the the delay slot of the insn that it is in.  This may
    produce an insn without anything in its delay slots.  */
@@ -930,8 +911,8 @@ note_delay_statistics (slots_filled, index)
 
    1.  When a conditional branch skips over only one instruction,
        use an annulling branch and put that insn in the delay slot.
-       Use either a branch that annulls when the condition if true or
-       invert the test with a branch that annulls when the condition is
+       Use either a branch that annuls when the condition if true or
+       invert the test with a branch that annuls when the condition is
        false.  This saves insns, since otherwise we must copy an insn
        from the L1 target.
 
@@ -3110,6 +3091,9 @@ relax_delay_slots (first)
 	  target_label = follow_jumps (target_label, 1);
 	  target_label = prev_label (next_active_insn (target_label));
 
+	  if (target_label == 0)
+	    target_label = find_end_label ();
+
 	  if (next_active_insn (target_label) == next)
 	    {
 	      delete_jump (insn);
@@ -3117,8 +3101,7 @@ relax_delay_slots (first)
 	    }
 
 	  if (target_label != JUMP_LABEL (insn))
-	    redirect_jump (insn,
-			   target_label ? target_label : find_end_label ());
+	    redirect_jump (insn, target_label);
 
 	  /* See if this jump branches around a unconditional jump.
 	     If so, invert this jump and point it to the target of the
@@ -3268,12 +3251,14 @@ relax_delay_slots (first)
 	  /* If the last insn in the delay slot sets CC0 for some insn,
 	     various code assumes that it is in a delay slot.  We could
 	     put it back where it belonged and delete the register notes,
-	     but it doesn't seem worhwhile in this uncommon case.  */
+	     but it doesn't seem worthwhile in this uncommon case.  */
 	  && ! find_reg_note (XVECEXP (pat, 0, XVECLEN (pat, 0) - 1),
 			      REG_CC_USER, 0)
 #endif
 	  )
 	{
+	  int i;
+
 	  /* All this insn does is execute its delay list and jump to the
 	     following insn.  So delete the jump and just execute the delay
 	     list insns.
@@ -3282,6 +3267,11 @@ relax_delay_slots (first)
 	     re-emitting the insns separately, and then deleting the jump.
 	     This allows the count of the jump target to be properly
 	     decremented.  */
+
+	  /* Clear the from target bit, since these insns are no longer
+	     in delay slots.  */
+	  for (i = 0; i < XVECLEN (pat, 0); i++)
+	    INSN_FROM_TARGET_P (XVECEXP (pat, 0, i)) = 0;
 
 	  trial = PREV_INSN (insn);
 	  delete_insn (insn);
@@ -3520,8 +3510,8 @@ dbr_schedule (first, file)
      function.  The condition code never is and memory always is.  If the
      frame pointer is needed, it is and so is the stack pointer unless
      EXIT_IGNORE_STACK is non-zero.  If the frame pointer is not needed, the
-     stack pointer is.  In addition, registers used to return the function
-     value are needed.  */
+     stack pointer is.  Registers used to return the function value are
+     needed.  Registers holding global variables are needed.  */
 
   end_of_function_needs.cc = 0;
   end_of_function_needs.memory = 1;
@@ -3542,6 +3532,10 @@ dbr_schedule (first, file)
       && GET_CODE (current_function_return_rtx) == REG)
     mark_referenced_resources (current_function_return_rtx,
 			       &end_of_function_needs, 0);
+
+  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+    if (global_regs[i])
+      SET_HARD_REG_BIT (end_of_function_needs.regs, i);
 
   /* Show we haven't computed an end-of-function label yet.  */
   end_of_function_label = 0;

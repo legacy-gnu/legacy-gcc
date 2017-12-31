@@ -21,6 +21,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "m68kv4.h"
 
+/* Alter assembler syntax for fsgldiv.  */
+
+#define FSGLDIV_USE_S
+
 /* Names to predefine in the preprocessor for this target machine.  For the
    Amiga, these definitions match those of the native AT&T compiler.  Note
    that we override the definition in m68kv4.h, where SVR4 is defined and
@@ -39,7 +43,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* At end of a switch table, define LDnnn iff the symbol LInnn was defined.
    Some SGS assemblers have a bug such that "Lnnn-LInnn-2.b(pc,d0.l*2)"
    fails to assemble.  Luckily "Lnnn(pc,d0.l*2)" produces the results
-   we want.  This difference can be accommodated by using an assembler
+   we want.  This difference can be accommodated by making the assembler
    define such "LDnnn" to be either "Lnnn-LInnn-2.b", "Lnnn", or any other
    string, as necessary.  This is accomplished via the ASM_OUTPUT_CASE_END
    macro. (the Amiga assembler has this bug) */
@@ -47,9 +51,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #undef ASM_OUTPUT_CASE_END
 #define ASM_OUTPUT_CASE_END(FILE,NUM,TABLE)				\
 do {									\
-  if (RTX_INTEGRATED_P (TABLE))						\
+  if (switch_table_difference_label_flag)				\
     asm_fprintf ((FILE), "%s %LLD%d,%LL%d\n", SET_ASM_OP, (NUM), (NUM));\
+  switch_table_difference_label_flag = 0;				\
 } while (0)
+
+int switch_table_difference_label_flag;
 
 /* This says how to output assembler code to declare an
    uninitialized external linkage data object.  Under SVR4,
@@ -91,7 +98,7 @@ do {									\
 #define ASM_OUTPUT_ASCII(FILE,PTR,LEN)				\
 {								\
   register int sp = 0, lp = 0, ch;				\
-  fprintf ((FILE), "%s ", BYTE_ASM_OP);				\
+  fprintf ((FILE), "\t%s ", BYTE_ASM_OP);				\
   do {								\
     ch = (PTR)[sp];						\
     if (ch > ' ' && ! (ch & 0x80) && ch != '\\')		\
@@ -106,7 +113,7 @@ do {									\
       {								\
 	if ((sp % 10) == 0)					\
 	  {							\
-	    fprintf ((FILE), "\n%s ", BYTE_ASM_OP);		\
+	    fprintf ((FILE), "\n\t%s ", BYTE_ASM_OP);		\
 	  }							\
 	else							\
 	  {							\

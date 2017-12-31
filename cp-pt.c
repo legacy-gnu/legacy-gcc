@@ -431,9 +431,9 @@ mangle_class_name_for_template (name, parms, arglist)
 	      && (TREE_CODE (arg) == RECORD_TYPE
 		  || TREE_CODE (arg) == UNION_TYPE
 		  || TREE_CODE (arg) == ENUMERAL_TYPE)
-	      && DECL_NAME (TYPE_NAME (arg))
-	      && IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (arg))))
-	    typename = IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (arg)));
+	      && TYPE_IDENTIFIER (arg)
+	      && IDENTIFIER_POINTER (TYPE_IDENTIFIER (arg)))
+	    typename = IDENTIFIER_POINTER (TYPE_IDENTIFIER (arg));
 	  else
 	    typename = type_as_string ((char *) 0, arg);
 	  cat (typename);
@@ -515,7 +515,7 @@ mangle_class_name_for_template (name, parms, arglist)
 	default:
 	  sorry ("encoding %s as template parm",
 		 tree_code_name [(int) TREE_CODE (type)]);
-	  abort ();
+	  my_friendly_abort (81);
 	}
     }
   {
@@ -718,9 +718,9 @@ uses_template_parms (t)
     case UNION_TYPE:
       if (!TYPE_NAME (t))
 	return 0;
-      if (!DECL_NAME (TYPE_NAME (t)))
+      if (!TYPE_IDENTIFIER (t))
 	return 0;
-      return uses_template_parms (DECL_NAME (TYPE_NAME (t)));
+      return uses_template_parms (TYPE_IDENTIFIER (t));
     case FUNCTION_TYPE:
       if (uses_template_parms (TYPE_ARG_TYPES (t)))
 	return 1;
@@ -816,7 +816,7 @@ uses_template_parms (t)
 	}
       sorry ("testing %s for template parms",
 	     tree_code_name [(int) TREE_CODE (t)]);
-      abort ();
+      my_friendly_abort (82);
       /* NOTREACHED */
       return 0;
     }
@@ -875,7 +875,7 @@ instantiate_member_templates (arg)
 	  else
 	    {
 	      TREE_EXTERNAL (t2) = CLASSTYPE_INTERFACE_ONLY (type);
-	      TREE_PUBLIC (t2) = ! CLASSTYPE_INTERFACE_ONLY (type);
+	      TREE_PUBLIC (t2) = 1;
 	    }
 	  break;
 	case 1:
@@ -887,7 +887,7 @@ instantiate_member_templates (arg)
 	  continue /* loop of members */;
 	default:
 	  /* Eek, a bug.  */
-	  abort ();
+	  my_friendly_abort (83);
 	}
     }
 }
@@ -1075,7 +1075,7 @@ tsubst (t, args, nargs)
 #if 0
 	    fprintf (stderr, "\nfor function %s in class %s:\n",
 		     IDENTIFIER_POINTER (name),
-		     IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (ctx))));
+		     IDENTIFIER_POINTER (TYPE_IDENTIFIER (ctx)));
 #endif
 	    for (i = 0; i < n_methods; i++)
 	      {
@@ -1110,7 +1110,7 @@ tsubst (t, args, nargs)
 		       ? "template for method `%s' doesn't match any in class `%s'"
 		       : "method `%s' not found in class `%s'",
 		       IDENTIFIER_POINTER (name),
-		       IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (ctx))));
+		       IDENTIFIER_POINTER (TYPE_IDENTIFIER (ctx)));
 		return error_mark_node;
 	      }
 	  }
@@ -1262,7 +1262,7 @@ tsubst (t, args, nargs)
 	      TYPE_METHOD_BASETYPE (new_value) = tsubst (TYPE_METHOD_BASETYPE (t),
 							 args, nargs);
 	    /* Need to generate hash value.  */
-	    abort ();
+	    my_friendly_abort (84);
 	  }
 	new_value = build_type_variant (new_value,
 					TYPE_READONLY (new_value),
@@ -1471,7 +1471,7 @@ overload_template_name (id, classlevel)
   if (t
       && TREE_CODE (t) == TYPE_DECL
       && TREE_TYPE (t) == t)
-    abort ();
+    my_friendly_abort (85);
 #endif
 
   if (classlevel)
@@ -1689,7 +1689,7 @@ unify (tparms, targs, ntparms, parm, arg, nsubsts)
       if (TEMPLATE_TYPE_TPARMLIST (parm) != tparms)
 	{
 	  error ("mixed template headers?!");
-	  abort ();
+	  my_friendly_abort (86);
 	  return 1;
 	}
       idx = TEMPLATE_TYPE_IDX (parm);
@@ -1710,7 +1710,7 @@ unify (tparms, targs, ntparms, parm, arg, nsubsts)
 	return 0;
       else if (targs[idx])
 	{
-	  abort();
+	  my_friendly_abort (87);
 	  return 1;
 	}
 /*	else if (typeof arg != tparms[idx])
@@ -1789,7 +1789,7 @@ unify (tparms, targs, ntparms, parm, arg, nsubsts)
 
     case UNINSTANTIATED_P_TYPE:
       {
-	tree a = IDENTIFIER_TEMPLATE (DECL_NAME (TYPE_NAME (arg)));
+	tree a = IDENTIFIER_TEMPLATE (TYPE_IDENTIFIER (arg));
 	if (UPT_TEMPLATE (parm) != TREE_PURPOSE (a))
 	  /* different templates */
 	  return 1;

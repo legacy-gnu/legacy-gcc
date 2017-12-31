@@ -250,15 +250,6 @@ int flag_dossier;
    for the GNU class browser.  */
 extern int flag_gnu_xref;
 
-/* Controls how compiler generates code in case there are
-   no GNU binutils.  */
-
-#ifndef DBX_DEBUGGING_INFO
-int flag_gnu_binutils = 0;
-#else
-int flag_gnu_binutils = 1;
-#endif
-
 /* Nonzero if compiler can make `reasonable' assumptions about
    references and objects.  For example, the compiler must be
    conservative about the following and not assume that `a' is nonnull:
@@ -305,7 +296,6 @@ static struct { char *string; int *variable; int on_value;} lang_f_options[] =
   {"enum-int-equiv", &flag_int_enum_equivalence, 1},
   {"gc", &flag_gc, 1},
   {"dossier", &flag_dossier, 1},
-  {"gnu-binutils", &flag_gnu_binutils, 1},
   {"xref", &flag_gnu_xref, 1},
   {"nonnull-objects", &flag_assume_nonnull_objects, 1},
 };
@@ -448,6 +438,8 @@ lang_decode_option (p)
 	;			/* cpp handles this one.  */
       else if (!strcmp (p, "trigraphs"))
 	;			/* cpp handles this one.  */
+      else if (!strcmp (p, "import"))
+	;			/* cpp handles this one.  */
       else if (!strcmp (p, "all"))
 	{
 	  extra_warnings = setting;
@@ -510,7 +502,7 @@ grok_method_quals (ctype, function, quals)
 	  build_pointer_type (ctype);
 	}
       else
-	abort ();
+	my_friendly_abort (20);
       quals = TREE_CHAIN (quals);
     }
   while (quals);
@@ -611,8 +603,14 @@ grokclassfn (ctype, cname, function, flags, quals)
       /* We can make this a register, so long as we don't
 	 accidentally complain if someone tries to take its address.  */
       TREE_REGDECL (parm) = 1;
+#if 0
+      /* it is wrong to flag the object as readonly, when
+	 flag_this_is_variable is 0. */
       if (flags != DTOR_FLAG
 	  && (flag_this_is_variable <= 0 || TYPE_READONLY (type)))
+#else
+      if (flags != DTOR_FLAG && TYPE_READONLY (type))
+#endif
 	TREE_READONLY (parm) = 1;
       TREE_CHAIN (parm) = last_function_parms;
       last_function_parms = parm;
@@ -999,7 +997,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
       DECL_IN_AGGR_P (value) = 1;
       return value;
     }
-  abort ();
+  my_friendly_abort (21);
   /* NOTREACHED */
   return NULL_TREE;
 }
@@ -1905,7 +1903,8 @@ write_vtable_entries (decl)
     {
       tree fnaddr = FNADDR_FROM_VTABLE_ENTRY (TREE_VALUE (entries));
       tree fn = TREE_OPERAND (fnaddr, 0);
-      if (! TREE_ASM_WRITTEN (fn) && DECL_SAVED_INSNS (fn))
+      if (! TREE_EXTERNAL (fn) && ! TREE_ASM_WRITTEN (fn)
+	  && DECL_SAVED_INSNS (fn))
 	{
 	  if (TREE_PUBLIC (DECL_CLASS_CONTEXT (fn)))
 	    TREE_PUBLIC (fn) = 1;
@@ -1935,7 +1934,7 @@ finish_vtable_typedecl (prev, vars)
   /* If this type has inline virtual functions, then
      write those functions out now.  */
   if (decl && write_virtuals >= 0
-      && (TREE_PUBLIC (decl) || (! TREE_EXTERNAL (decl) && TREE_USED (decl))))
+      && ! TREE_EXTERNAL (decl) && (TREE_PUBLIC (decl) || TREE_USED (decl)))
     write_vtable_entries (decl);
 }
 
@@ -1943,12 +1942,8 @@ static void
 finish_vtable_vardecl (prev, vars)
      tree prev, vars;
 {
-  if (write_virtuals < 0)
-    ;
-  else if (write_virtuals == 0
-	   ? TREE_USED (vars)
-	   : (TREE_PUBLIC (vars)
-	      || (! TREE_EXTERNAL (vars) && TREE_USED (vars))))
+  if (write_virtuals >= 0
+      && ! TREE_EXTERNAL (vars) && (TREE_PUBLIC (vars) || TREE_USED (vars)))
     {
       extern tree the_null_vtable_entry;
 
@@ -2249,7 +2244,7 @@ finish_file ()
 	    }
 	  else if (decl == error_mark_node)
 	    ;
-	  else abort ();
+	  else my_friendly_abort (22);
 	  vars = TREE_CHAIN (vars);
 	}
 
@@ -2291,6 +2286,7 @@ finish_file ()
       while (decls)
 	{
 	  if (TREE_PUBLIC (decls)
+	      && ! TREE_EXTERN (decls)
 	      && TREE_ASM_WRITTEN (decls)
 	      && (TREE_CODE (decls) != FUNCTION_DECL
 		  || TREE_CODE (TREE_TYPE (decls)) != METHOD_TYPE

@@ -34,17 +34,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #ifndef __STDC__
 #define const
+#define volatile
 #endif
 
 #include "config.h"
-
-#ifdef POSIX /* We should be able to define _POSIX_SOURCE unconditionally,
-		but some systems respond in buggy ways to it,
-		including Sunos 4.1.1.  Which we don't classify as POSIX.  */
-/* In case this is a POSIX system with an ANSI C compiler,
-   ask for definition of all POSIX facilities.  */
-#define _POSIX_SOURCE
-#endif
 
 #if 0
 /* Users are not supposed to use _POSIX_SOURCE to say the
@@ -55,14 +48,24 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #endif
 #endif /* 0 */
 
+#ifdef POSIX /* We should be able to define _POSIX_SOURCE unconditionally,
+		but some systems respond in buggy ways to it,
+		including Sunos 4.1.1.  Which we don't classify as POSIX.  */
+/* In case this is a POSIX system with an ANSI C compiler,
+   ask for definition of all POSIX facilities.  */
+#undef _POSIX_SOURCE
+#define _POSIX_SOURCE
+#endif
+
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef POSIX
+#include <dirent.h>
+#else
 #include <sys/dir.h>
-#if ! defined (USG) || defined (SVR4)
-#include <sys/wait.h>
 #endif
 #include <setjmp.h>
 #include "gvarargs.h"
@@ -92,10 +95,11 @@ extern char *version_string;
 #define my_open(file, mode, flag)	open((char *)file, mode, flag)
 #define my_chmod(file, mode)	chmod((char *)file, mode)
 
-char *getpwd ();
+extern char *getpwd ();
 
 /* Aliases for pointers to void.
-   These were made to facilitate compilation with other compilers.  */
+   These were made to facilitate compilation with old brain-dead DEC C
+   compilers which didn't properly grok `void*' types.  */
 
 #ifdef __STDC__
 typedef void * pointer_type;
@@ -134,6 +138,7 @@ extern int creat ();
 #if 0 /* These conflict with stdio.h on some systems.  */
 extern int fprintf (FILE *, const char *, ...);
 extern int printf (const char *, ...);
+extern int open (const char *, int, ...);
 #endif /* 0 */
 extern void exit ();
 extern pointer_type malloc ();
@@ -147,8 +152,14 @@ extern int atoi ();
 extern int puts ();
 extern int fputs ();
 extern int fputc ();
-#if 0 /* Causes trouble on some systems that define setjmp as a macro.  */
+extern int link ();
+extern int unlink ();
+extern int access ();
+extern int execvp ();
+#ifndef setjmp
 extern int setjmp ();
+#endif
+#ifndef longjmp
 extern void longjmp ();
 #endif
 
@@ -156,9 +167,8 @@ extern char *   strcat ();
 extern int      strcmp ();
 extern char *   strcpy ();
 #if 0 /* size_t from sys/types.h may fail to match GCC.
-	 If so, we would get a warning from this.
-	 So do without the prototype.  */
-extern size_t   strlen (const char *);
+	 If so, we would get a warning from this.  */
+extern size_t   strlen ()
 #endif
 extern int      strncmp ();
 extern char *   strncpy ();
@@ -267,7 +277,7 @@ static const int hash_mask = (HASH_TABLE_SIZE - 1);
 #define LOCAL_INCLUDE_DIR "/usr/local/include"
 #endif
 
-struct default_include { char *fname; int cplusplus; } include_defaults[]
+struct default_include { const char *fname; int cplusplus; } include_defaults[]
 #ifdef INCLUDE_DEFAULTS
   = INCLUDE_DEFAULTS;
 #else
@@ -420,12 +430,12 @@ struct def_dec_info_struct {
 #ifndef UNPROTOIZE
   const f_list_chain_item * f_list_chain;	/* -> chain of formals lists */
   const def_dec_info *	definition;	/* -> def/dec containing related def */
-  char	        	is_static;	/* = 0 means visiblilty is "extern"  */
+  char	        	is_static;	/* = 0 means visibility is "extern"  */
   char			is_implicit;	/* != 0 for implicit func decl's */
   char			written;	/* != 0 means written for implicit */
 #else /* !defined (UNPROTOIZE) */
   const char *		formal_names;	/* -> to list of names of formals */
-  const char *		formal_decls;	/* -> to string of formal declartions */
+  const char *		formal_decls;	/* -> to string of formal declarations */
 #endif /* !defined (UNPROTOIZE) */
 };
 
@@ -445,7 +455,7 @@ static int errors = 0;
 
 /* File name to use for running gcc.  Allows GCC 2 to be named
    something other than gcc.  */
-static char *compiler_file_name = "gcc";
+static const char *compiler_file_name = "gcc";
 
 static int version_flag = 0;		/* Print our version number.  */
 static int quiet_flag = 0;		/* Don't print messages normally.  */
@@ -643,10 +653,25 @@ xfree (p)
 static char *
 savestring (input, size)
      const char *input;
-     int size;
+     unsigned int size;
 {
   char *output = (char *) xmalloc (size + 1);
   strcpy (output, input);
+  return output;
+}
+
+/* Make a copy of the concatenation of INPUT1 and INPUT2.  */
+
+static char *
+savestring2 (input1, size1, input2, size2)
+     const char *input1;
+     unsigned int size1;
+     const char *input2;
+     unsigned int size2;
+{
+  char *output = (char *) xmalloc (size1 + size2 + 1);
+  strcpy (output, input1);
+  strcpy (&output[size1], input2);
   return output;
 }
 
@@ -683,7 +708,7 @@ dupnstr (s, n)
   return ret_val;
 }
 
-/* Return a pointer to the first occurance of s2 within s1 or NULL if s2
+/* Return a pointer to the first occurrence of s2 within s1 or NULL if s2
    does not occur within s1.  Assume neither s1 nor s2 are null pointers.  */
 
 static const char *
@@ -811,7 +836,7 @@ file_could_be_converted (const char *path)
    convert and for which we don't issue the usual warnings.  */
 
 static int
-file_normally_convertable (const char *path)
+file_normally_convertible (const char *path)
 {
   char *const dir_name = alloca (strlen (path) + 1);
 
@@ -969,7 +994,7 @@ file_excluded_p (name)
 static struct string_list *
 string_list_cons (string, rest)
      char *string;
-     struct string_list *rest;      
+     struct string_list *rest;
 {
   struct string_list *temp
     = (struct string_list *) xmalloc (sizeof (struct string_list));
@@ -1320,11 +1345,22 @@ shortpath (cwd, filename)
           path_p++;
           unmatched_slash_count++;
         }
+
+      /* Find out how many directory levels in cwd were *not* matched.  */
       while (*cwd_p)
         if (*cwd_p++ == '/')
-                unmatched_slash_count++;
+	  unmatched_slash_count++;
+
+      /* Now we know how long the "short name" will be.
+	 Reject it if longer than the input.  */
+      if (unmatched_slash_count * 3 + strlen (path_p) >= filename_len)
+	return filename;
+
+      /* For each of them, put a `../' at the beginning of the short name.  */
       while (unmatched_slash_count--)
         {
+	  /* Give up if the result gets to be longer
+	     than the absolute path name.  */
 	  if (rel_buffer + filename_len <= rel_buf_p + 3)
 	    return filename;
           *rel_buf_p++ = '.';
@@ -1332,6 +1368,7 @@ shortpath (cwd, filename)
           *rel_buf_p++ = '/';
         }
 
+      /* Then tack on the unmatched part of the desired file's name.  */
       do
 	{
 	  if (rel_buffer + filename_len <= rel_buf_p)
@@ -1351,12 +1388,13 @@ shortpath (cwd, filename)
    we create a new file_info record to go with the filename, and we initialize
    that record with some reasonable values.  */
 
+/* FILENAME was const, but that causes a warning on AIX when calling stat.
+   That is probably a bug in AIX, but might as well avoid the warning.  */
+
 static file_info *
 find_file (filename, do_not_stat)
      char *filename;
      int do_not_stat;
-/* FILENAME was const, but that causes a warning on AIX when calling stat.
-   That is probably a bug in AIX, but might as well avoid the warning.  */
 {
   hash_table_entry *hash_entry_p;
 
@@ -1879,8 +1917,8 @@ munge_compile_params (params_list)
 {
   /* Build up the contents in a temporary vector
      that is so big that to has to be big enough.  */
-  char **temp_params
-    = (char **) alloca ((strlen (params_list) + 6) * sizeof (char *));
+  const char **temp_params
+    = (const char **) alloca ((strlen (params_list) + 8) * sizeof (char *));
   int param_count = 0;
   const char *param;
 
@@ -1959,9 +1997,10 @@ gen_aux_info_file (base_filename)
   compile_params[input_file_name_index] = shortpath (NULL, base_filename);
   /* Add .X to source file name to get aux-info file name.  */
   compile_params[aux_info_file_name_index]
-    = dupnstr (compile_params[input_file_name_index],
-	       (2 + strlen (compile_params[input_file_name_index])));
-  strcat (compile_params[aux_info_file_name_index], ".X");
+    = savestring2 (compile_params[input_file_name_index],
+	           strlen (compile_params[input_file_name_index]),
+		   ".X",
+		   2);
 
   if (!quiet_flag)
     fprintf (stderr, "%s: compiling `%s'\n",
@@ -1999,21 +2038,20 @@ gen_aux_info_file (base_filename)
 
         if (wait (&wait_status) == -1)
           {
-            fprintf (stderr, "%s: error: wait for process failed: %s\n",
+            fprintf (stderr, "%s: wait failed: %s\n",
 		     pname, sys_errlist[errno]);
             return 0;
           }
-        if (!WIFEXITED (wait_status))
-          {
-            fprintf (stderr, "%s: error: subprocess %ld did not exit\n",
-		     pname, (long) child_pid);
-            kill (child_pid, 9);
-            return 0;
-          }
-        if (WEXITSTATUS (wait_status) != 0)
+	if ((wait_status & 0x7F) != 0)
 	  {
-	    fprintf (stderr, "%s: error: %s: compilation failed\n",
-		     pname, base_filename);
+	    fprintf (stderr, "%s: subprocess got fatal signal %d",
+		     pname, (wait_status & 0x7F));
+	    return 0;
+	  }
+	if (((wait_status & 0xFF00) >> 8) != 0)
+	  {
+	    fprintf (stderr, "%s: %s exited with status %d\n",
+		     pname, base_filename, ((wait_status & 0xFF00) >> 8));
 	    return 0;
 	  }
 	return 1;
@@ -2531,10 +2569,12 @@ find_extern_def (head, user)
 			 shortpath (NULL, file), user->line,
 			 needed+7);	/* Don't print "extern " */
               }
+#if 0
             else
               fprintf (stderr, "%s: %d: warning: no extern definition for `%s'\n",
 		       shortpath (NULL, file), user->line,
 		       user->hash_entry->symbol);
+#endif
         }
     }
   return extern_def_p;
@@ -2921,7 +2961,7 @@ other_variable_style_function (ansi_header)
 static void
 edit_fn_declaration (def_dec_p, clean_text_p)
      const def_dec_info *def_dec_p;
-     const char *VOLATILE clean_text_p;
+     const char *volatile clean_text_p;
 {
   const char *start_formals;
   const char *end_formals;
@@ -3026,7 +3066,7 @@ edit_fn_declaration (def_dec_p, clean_text_p)
          identifier we just found.  We ignore whitespace while hunting.  If
          the next non-whitespace byte we see is *not* an open left paren,
          then we must assume that we have been fooled and we start over
-         again accordingly.  Note that there is no guarrantee, that even if
+         again accordingly.  Note that there is no guarantee, that even if
          we do see the open paren, that we are in the right place.
          Programmers do the strangest things sometimes!  */
     
@@ -3936,7 +3976,7 @@ scan_for_missed_items (file_p)
 		    /* If we make it here, then we did not know about this
 		       function definition.  */
 
-		    fprintf (stderr, "%s: %d: warning: `%s' was #if 0\n",
+		    fprintf (stderr, "%s: %d: warning: `%s' excluded by preprocessing\n",
 			     shortpath (NULL, file_p->hash_entry->symbol),
 			     identify_lineno (id_start), func_name);
 		    fprintf (stderr, "%s: function definition not converted\n",
@@ -3998,7 +4038,7 @@ edit_file (hp)
           && !in_system_include_dir (convert_filename)
 #endif /* defined (UNPROTOIZE) */
           )
-        fprintf (stderr, "%s: file `%s' not converted\n",
+        fprintf (stderr, "%s: `%s' not converted\n",
 		 pname, shortpath (NULL, convert_filename));
       return;
     }
@@ -4329,7 +4369,7 @@ do_processing ()
 #endif /* !defined (UNPROTOIZE) */
 
   /* When we first read in all of the information from the aux_info files
-     we saved in it decending line number order, because that was likely to
+     we saved in it descending line number order, because that was likely to
      be faster.  Now however, we want the chains of def & dec records to
      appear in ascending line number order as we get further away from the
      file_info record that they hang from.  The following line causes all of
@@ -4396,7 +4436,7 @@ main (argc, argv)
 {
   int longind;
   int c;
-  char *params = "";
+  const char *params = "";
 
   pname = strrchr (argv[0], '/');
   pname = pname ? pname+1 : argv[0];

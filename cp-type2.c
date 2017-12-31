@@ -104,49 +104,58 @@ error_with_aggr_type (type, msg, arg)
 }
 
 /* Warn or give error about storing in something that is `const'.  */
+/* for now, because the compiler is getting pickier about const'ness
+   give users a non-fatal warning instead of an error, this will
+   revert back to a hard error after a release or two.  This is
+   to not screw the user that has valid code for which the compiler
+   does not treat it right.  */
+#if 0
+#define const_error error
+#else
+#define const_error pedwarn
+#endif
 
 void
 readonly_warning_or_error (arg, string)
      tree arg;
      char *string;
 {
-  char buf[80];
-  strcpy (buf, string);
+  char *fmt;
 
   if (TREE_CODE (arg) == COMPONENT_REF)
     {
       if (TYPE_READONLY (TREE_TYPE (TREE_OPERAND (arg, 0))))
-        strcat (buf, " of member `%s' in read-only structure");
+        fmt = "%s of member `%s' in read-only structure";
       else
-        strcat (buf, " of read-only member `%s'");
-      error (buf, lang_printable_name (TREE_OPERAND (arg, 1)));
+        fmt = "%s of read-only member `%s'";
+      const_error (fmt, string, lang_printable_name (TREE_OPERAND (arg, 1)));
     }
   else if (TREE_CODE (arg) == VAR_DECL)
     {
       if (DECL_LANG_SPECIFIC (arg)
 	  && DECL_IN_AGGR_P (arg)
 	  && !TREE_STATIC (arg))
-	strcat (buf, " of constant field `%s'");
+	fmt = "%s of constant field `%s'";
       else
-	strcat (buf, " of read-only variable `%s'");
-      error (buf, lang_printable_name (arg));
+	fmt = "%s of read-only variable `%s'";
+      const_error (fmt, string, lang_printable_name (arg));
     }
   else if (TREE_CODE (arg) == PARM_DECL)
     {
-      strcat (buf, " of read-only parameter `%s'");
-      error (buf, lang_printable_name (arg));
+      const_error ("%s of read-only parameter `%s'",
+		   string, lang_printable_name (arg));
     }
   else if (TREE_CODE (arg) == INDIRECT_REF
            && TREE_CODE (TREE_TYPE (TREE_OPERAND (arg, 0))) == REFERENCE_TYPE
            && (TREE_CODE (TREE_OPERAND (arg, 0)) == VAR_DECL
                || TREE_CODE (TREE_OPERAND (arg, 0)) == PARM_DECL))
     {
-      strcat (buf, " of read-only reference `%s'");
-      error (buf, lang_printable_name (TREE_OPERAND (arg, 0)));
+      const_error ("%s of read-only reference `%s'",
+		   string, lang_printable_name (TREE_OPERAND (arg, 0)));
     }
   else	       
     {
-      warning ("%s of read-only location", buf);
+      const_error ("%s of read-only location", string);
     }
 }
 
@@ -171,6 +180,9 @@ abstract_virtuals_error (decl, type)
 	error_with_decl (decl, "cannot declare parameter `%s' to be of type `%s'", typename);
       else if (TREE_CODE (decl) == FIELD_DECL)
 	error_with_decl (decl, "cannot declare field `%s' to be of type `%s'", typename);
+      else if (TREE_CODE (decl) == FUNCTION_DECL
+	       && TREE_CODE (TREE_TYPE (decl)) == METHOD_TYPE)
+	error_with_decl (decl, "invalid return type for method `%s'");
       else if (TREE_CODE (decl) == FUNCTION_DECL)
 	error_with_decl (decl, "invalid return type for function `%s'");
     }
@@ -245,11 +257,47 @@ incomplete_type_error (value, type)
 	  return;
 
 	default:
-	  abort ();
+	  my_friendly_abort (108);
 	}
 
       error_with_aggr_type (type, errmsg);
     }
+}
+
+/* There are times when the compiler can get very confused, confused
+   to the point of giving up by aborting, simply because of previous
+   input errors.  It is much better to have the user go back and
+   correct those errors first, and see if it makes us happier, than it
+   is to abort on him.  This is because when one has a 10,000 line
+   program, and the compiler comes back with ``core dump'', the user
+   is left not knowing even where to begin to fix things and no place
+   to even try and work around things.
+
+   The parameter is to uniquely identify the problem to the user, so
+   that they can say, I am having problem 59, and know that fix 7 will
+   probably solve their problem.  Or, we can document what problem
+   59 is, so they can understand how to work around it, should they
+   ever run into it.
+
+   Note, there will be no more calls in the C++ front end to abort,
+   because the C++ front end is so unreliable still.  The C front end
+   can get away with calling abort, because for most of the calls to
+   abort on most machines, it, I suspect, can be proven that it is
+   impossible to ever call abort.  The same is not yet true for C++,
+   one day, maybe it will be.  (mrs) */
+
+void
+my_friendly_abort(i)
+     int i;
+{
+  extern int errorcount;
+  extern int sorrycount;
+  if (errorcount + sorrycount == 1)
+    fatal ("please fix above error, and try recompiling.");
+  if (errorcount > 0 || sorrycount > 0)
+    fatal ("please fix above errors, and try recompiling.");
+  else
+    fatal ("internal compiler error %d, please report", i);
 }
 
 /* Return nonzero if VALUE is a valid constant-valued expression
@@ -350,7 +398,7 @@ store_init_value (decl, init)
 
   /* implicitly tests if IS_AGGR_TYPE.  */
   if (TYPE_NEEDS_CONSTRUCTING (type))
-    abort ();
+    my_friendly_abort (109);
   else if (IS_AGGR_TYPE (type))
     {
       /* @@ This may be wrong, but I do not know what is right.  */
@@ -380,7 +428,17 @@ store_init_value (decl, init)
 	     the type of our initializer.  */
 	  init = instantiate_type (type, init, 1);
 	}
-      else abort ();
+      else if (TREE_CODE (init) == TREE_LIST
+	       && TREE_CODE (TREE_TYPE (decl)) == ARRAY_TYPE)
+	{
+	  error ("cannot initialize arrays using this syntax");
+	  return NULL_TREE;
+	}
+      else
+	{
+	  error ("bad syntax in initialization");
+	  return NULL_TREE;
+	}
     }
 
   /* End of special C++ code.  */
@@ -477,7 +535,7 @@ digest_init (type, init, tail)
     {
       if (pedantic && code == ARRAY_TYPE
 	  && TREE_CODE (init) != STRING_CST)
-	warning ("ANSI C forbids initializing array from array expression");
+	pedwarn ("ANSI C forbids initializing array from array expression");
       if (TREE_CODE (init) == CONST_DECL)
 	init = DECL_INITIAL (init);
       else if (TREE_READONLY_DECL_P (init))
@@ -490,9 +548,9 @@ digest_init (type, init, tail)
 		      && comptypes (TREE_TYPE (element), type, 1))))
     {
       if (pedantic && code == ARRAY_TYPE)
-	warning ("ANSI C forbids initializing array from array expression");
+	pedwarn ("ANSI C forbids initializing array from array expression");
       if (pedantic && (code == RECORD_TYPE || code == UNION_TYPE))
-	warning ("single-expression nonscalar initializer has braces");
+	pedwarn ("single-expression nonscalar initializer has braces");
       if (TREE_CODE (element) == CONST_DECL)
 	element = DECL_INITIAL (element);
       else if (TREE_READONLY_DECL_P (element))
@@ -575,7 +633,7 @@ digest_init (type, init, tail)
 	    }
 
 	  if (pedantic && typ1 != char_type_node)
-	    warning ("ANSI C forbids string initializer except for `char' elements");
+	    pedwarn ("ANSI C forbids string initializer except for `char' elements");
 	  TREE_TYPE (string) = type;
 	  if (TYPE_DOMAIN (type) != 0
 	      && TREE_CONSTANT (TYPE_SIZE (type)))

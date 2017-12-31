@@ -1,5 +1,5 @@
-This directory contains the version 2.1 release of the GNU C compiler.
-This is the second test release of GCC version 2.
+This directory contains the version 2.2.2 release of the GNU C compiler.
+This is a beta test release and we expect it to have a number of bugs.
 
 See the file gcc.texi (together with other files that it includes) for
 installation and porting information.  The file INSTALL contains a
@@ -13,7 +13,13 @@ the user-level command to do a compilation.
 The GNU C compiler is free software.  See the file COPYING for copying
 permission.
 
-The files print-self.c and print-self1.c are not part of GCC.
+See the Bugs chapter of the GCC Manual for how to report bugs
+usefully.  An online readable version of the manual is in the files
+gcc.info*.
+
+The files pself.c and pself1.c are not part of GCC.
 They are programs that print themselves on standard output.
 They were written by Dario Dariol and Giovanni Cozzi, and are
-included for your hacking pleasure.
+included for your hacking pleasure.  Likewise pself2.c
+(Who is the author of that?) and pself3.c (by Vlad Taeerov and Rashit
+Fakhreyev).

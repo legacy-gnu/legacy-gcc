@@ -20,7 +20,7 @@
 #	file to its original location if no changes were needed.
 #
 #	-p causes fixcpp to append to a patch file the context
-#	diffs of the changes wraught.
+#	diffs of the changes wrought.
 #
 # SEE ALSO:
 #	sed(1)

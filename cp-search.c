@@ -146,7 +146,7 @@ static int n_contexts_saved;
 static tree prev_type_memoized;
 static struct type_level *prev_type_stack;
 
-/* Allocate a level of type memoziation context.  */
+/* Allocate a level of type memoization context.  */
 static struct type_level *
 push_type_level (stack, obstack)
      struct stack_level *stack;
@@ -164,7 +164,7 @@ push_type_level (stack, obstack)
   return (struct type_level *)push_stack_level (obstack, &tem, sizeof (tem));
 }
 
-/* Discard a level of type memoziation context.  */
+/* Discard a level of type memoization context.  */
 
 static struct type_level *
 pop_type_level (stack)
@@ -255,7 +255,7 @@ make_memoized_table_entry (type, name, function_p)
       CLASSTYPE_MTABLE_ENTRY (type) = (char *)my_new_memoized_entry (0);
       type_stack->len++;
       if (type_stack->len * 2 >= type_stack->base.limit)
-	abort ();
+	my_friendly_abort (88);
     }
   if (function_p)
     prev_entry = &MEMOIZED_FNFIELDS (CLASSTYPE_MTABLE_ENTRY (type), index);
@@ -442,7 +442,7 @@ get_binfo (parent, binfo, protect)
   if (TREE_CODE (parent) == TREE_VEC)
     parent = BINFO_TYPE (parent);
   else if (TREE_CODE (parent) != RECORD_TYPE)
-    abort ();
+    my_friendly_abort (89);
 
   parent = TYPE_MAIN_VARIANT (parent);
   search_stack = push_search_level (search_stack, &search_obstack);
@@ -454,7 +454,7 @@ get_binfo (parent, binfo, protect)
       type = binfo;
       binfo = TYPE_BINFO (type);
     }
-  else abort ();
+  else my_friendly_abort (90);
   xtype = type;
   friends = current_class_type ? CLASSTYPE_FRIEND_CLASSES (type) : NULL_TREE;
 
@@ -496,7 +496,7 @@ get_binfo (parent, binfo, protect)
 	      obstack_int_grow (&search_obstack, via_private);
 	      tail += 2;
 	      if (tail >= search_stack->limit)
-		abort ();
+		my_friendly_abort (91);
 	    }
 	  else if (protect && ! TREE_VIA_VIRTUAL (child))
 	    {
@@ -553,7 +553,7 @@ get_binfo (parent, binfo, protect)
 	    {
 	      tree child = TREE_VEC_ELT (binfos, i);
 	      if (parent == BINFO_TYPE (child))
-		/* It's ok, since it's immedate.  */
+		/* It's ok, since it's immediate.  */
 		return rval;
 	    }
 	}
@@ -603,7 +603,7 @@ get_base_distance (parent, binfo, protect, path_ptr)
       type = binfo;
       binfo = TYPE_BINFO (type);
     }
-  else abort ();
+  else my_friendly_abort (92);
 
   friends = current_class_type ? CLASSTYPE_FRIEND_CLASSES (type) : NULL_TREE;
 
@@ -667,7 +667,7 @@ get_base_distance (parent, binfo, protect, path_ptr)
 		}
 	      tail += 3;
 	      if (tail >= search_stack->limit)
-		abort ();
+		my_friendly_abort (93);
 	    }
 	  else if (! TREE_VIA_VIRTUAL (child))
 	    {
@@ -896,7 +896,7 @@ compute_visibility (basetype_path, field)
 	      else
 		PROTECTED_RETURN;
 	    }
-	  else abort ();
+	  else my_friendly_abort (94);
 	}
     }
   /* Friend function manipulating members it gets (for being a friend).  */
@@ -1033,7 +1033,7 @@ compute_visibility (basetype_path, field)
 	    }
 	  types = BINFO_INHERITANCE_CHAIN (types);
 	}
-      abort ();
+      my_friendly_abort (95);
     }
 
  ret:
@@ -1045,7 +1045,7 @@ compute_visibility (basetype_path, field)
     DECL_PROTECTED (field) = 1;
   else if (visibility == visibility_private)
     DECL_PRIVATE (field) = 1;
-  else abort ();
+  else my_friendly_abort (96);
   return visibility;
 }
 
@@ -1076,7 +1076,7 @@ lookup_field (xbasetype, name, protect)
     basetype_path = xbasetype, type = BINFO_TYPE (xbasetype);
   else if (IS_AGGR_TYPE_CODE (TREE_CODE (xbasetype)))
     basetype_path = TYPE_BINFO (xbasetype), type = xbasetype;
-  else abort ();
+  else my_friendly_abort (97);
 
   if (CLASSTYPE_MTABLE_ENTRY (type))
     {
@@ -1188,7 +1188,7 @@ lookup_field (xbasetype, name, protect)
 	      obstack_ptr_grow (&search_obstack, btypes);
 	      tail += 1;
 	      if (tail >= search_stack->limit)
-		abort ();
+		my_friendly_abort (98);
 	    }
 	}
 
@@ -1520,7 +1520,7 @@ lookup_fnfields (basetype_path, name, find_ambiguous)
 	      obstack_ptr_grow (&search_obstack, btypes);
 	      tail += 1;
 	      if (tail >= search_stack->limit)
-		abort ();
+		my_friendly_abort (99);
 	    }
 	}
 
@@ -1679,7 +1679,7 @@ breadth_first_search (binfo, testfn, qfn)
 	      obstack_int_grow (&search_obstack, i);
 	      tail += 2;
 	      if (tail >= search_stack->limit)
-		abort ();
+		my_friendly_abort (100);
 	    }
 	}
       /* Process head of queue, if one exists.  */
@@ -1778,7 +1778,7 @@ int tree_has_any_destructor_p (binfo, i)
 }
 
 /* Given a class type TYPE, and a function decl FNDECL,
-   look for the first function the TYPE's heirarchy which
+   look for the first function the TYPE's hierarchy which
    FNDECL could match as a virtual function.
 
    DTORP is nonzero if we are looking for a destructor.  Destructors
@@ -2388,11 +2388,13 @@ build_vbase_vtables_init (main_binfo, binfo, true_exp, decl_ptr, ctor_p)
       vbase_types = CLASSTYPE_VBASECLASSES (for_type);
       vbase_decl_ptr = true_exp ? build_unary_op (ADDR_EXPR, true_exp, 0) : decl_ptr;
       vbase_decl = true_exp ? true_exp : build_indirect_ref (decl_ptr, 0);
-      flag_this_is_variable = -2;
 
       if (ctor_p)
-	/* This is an object of type IN_TYPE,  */
-	dfs_walk (main_binfo, dfs_find_vbases, unmarked4p);
+	{
+	  /* This is an object of type IN_TYPE,  */
+	  flag_this_is_variable = -2;
+	  dfs_walk (main_binfo, dfs_find_vbases, unmarked4p);
+	}
 
       /* Initialized with vtables of type TYPE.  */
       while (vbases)
@@ -2655,7 +2657,7 @@ build_mi_virtuals (rows, cols)
 
   bzero (mi_vmax, rows * sizeof (int));
 
-  /* Row indicies start at 1, so adjust this.  */
+  /* Row indices start at 1, so adjust this.  */
   mi_vmatrix -= cols;
   mi_vmax -= 1;
 }
@@ -3128,7 +3130,7 @@ push_class_decls (type)
   current_obstack = &bridge_obstack;
   search_stack = push_search_level (search_stack, &bridge_obstack);
 
-  id = DECL_NAME (TYPE_NAME (type));
+  id = TYPE_IDENTIFIER (type);
   if (IDENTIFIER_TEMPLATE (id) != 0)
     {
 #if 0
@@ -3174,7 +3176,7 @@ dfs_popdecls (binfo)
 
       /* Clear out ctors and dtors.  */
       if (*methods)
-	IDENTIFIER_CLASS_VALUE (DECL_NAME (TYPE_NAME (type))) = NULL_TREE;
+	IDENTIFIER_CLASS_VALUE (TYPE_IDENTIFIER (type)) = NULL_TREE;
 
       for (methods += 1; methods != end; methods++)
 	IDENTIFIER_CLASS_VALUE (DECL_NAME (*methods)) = NULL_TREE;
@@ -3197,7 +3199,7 @@ pop_class_decls (type)
   dfs_walk (binfo, dfs_unmark, markedp);
 
 #if 0
-  tmpl = IDENTIFIER_TEMPLATE (DECL_NAME (TYPE_NAME (type)));
+  tmpl = IDENTIFIER_TEMPLATE (TYPE_IDENTIFIER (type));
   if (tmpl != 0)
     pop_template_decls (DECL_ARGUMENTS (TREE_PURPOSE (tmpl)),
 			TREE_VALUE (tmpl), 1);

@@ -856,8 +856,11 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 	  tta = parms;
 	  if (DECL_STATIC_FUNCTION_P (cp[i].function))
 	    tta = TREE_CHAIN (tta);
+	  /* special note, we don't go through len parameters, because we
+	     may only need len-1 parameters because of a call to a static
+	     member. */
 	  for (ttf = TYPE_ARG_TYPES (TREE_TYPE (cp[i].function)), index = 0;
-	       index < len;
+	       tta;
 	       tta = TREE_CHAIN (tta), ttf = TREE_CHAIN (ttf), index++)
 	    {
 	      if (USER_HARSHNESS (cp[i].harshness[index]))
@@ -1002,7 +1005,9 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 
 	      if (base1 != NULL_TREE)
 		{
-		  if (newbase != base1 && ! DERIVED_FROM_P (newbase, base1))
+		  /* newbase could be a base or a parent of base1 */
+		  if (newbase != base1 && ! DERIVED_FROM_P (newbase, base1)
+		      && ! DERIVED_FROM_P (base1, newbase))
 		    {
 		      char *buf = (char *)alloca (8192);
 		      error_with_aggr_type (basetype, "ambiguous request for function from distinct base classes of type `%s'");
@@ -2021,8 +2026,14 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		friend_parms = parms;
 	      else if (TREE_CODE (TREE_TYPE (parm)) == POINTER_TYPE)
 		{
+		  tree new_type;
 		  parm = build_indirect_ref (parm, "friendifying parms (compiler error)");
-		  parm = convert (build_reference_type (TREE_TYPE (parm)), parm);
+		  new_type = build_reference_type (TREE_TYPE (parm));
+		  /* It is possible that this should go down a layer. */
+		  new_type = build_type_variant (new_type,
+						 TREE_READONLY (parm),
+						 TREE_THIS_VOLATILE (parm));
+		  parm = convert (new_type, parm);
 		  friend_parms = tree_cons (NULL_TREE, parm, TREE_CHAIN (parms));
 		}
 	      else
@@ -2343,7 +2354,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	       lang_printable_name (function));
       return error_mark_node;
     }
-  abort ();
+  my_friendly_abort (1);
 
  found_and_ok:
 
@@ -2712,7 +2723,11 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
       register tree t = TREE_TYPE (TREE_VALUE (parm));
 
       if (t == error_mark_node)
-	return error_mark_node;
+	{
+	  if (final_cp)
+	    final_cp->evil = 1;
+	  return error_mark_node;
+	}
       if (TREE_CODE (t) == ARRAY_TYPE || TREE_CODE (t) == OFFSET_TYPE)
 	{
 	  /* Perform the conversion from ARRAY_TYPE to POINTER_TYPE in place.
@@ -2768,6 +2783,8 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
       if (complain)
 	error ("function `%s' declared overloaded, but no instances of that function declared",
 	       IDENTIFIER_POINTER (TREE_PURPOSE (functions)));
+      if (final_cp)
+	final_cp->evil = 1;
       return error_mark_node;
     }
 
@@ -2823,7 +2840,7 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
 	      error_with_decl (function, "constant field `%s' conflicts with function of same name");
 	  else if (code == TYPE_DECL)
 	    continue;
-	  else abort ();
+	  else my_friendly_abort (2);
 	  error ("at this point in file");
 	  continue;
 	}

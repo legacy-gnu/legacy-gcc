@@ -53,7 +53,10 @@ struct arg_data
   /* Number of registers to use.  0 means put the whole arg in registers.
      Also 0 if not passed in registers.  */
   int partial;
-  /* Non-zero if argument must be passed on stack.  */
+  /* Non-zero if argument must be passed on stack.
+     Note that some arguments may be passed on the stack
+     even though pass_on_stack is zero, just because FUNCTION_ARG says so.
+     pass_on_stack identifies arguments that *cannot* go in registers.  */
   int pass_on_stack;
   /* Offset of this argument from beginning of stack-args.  */
   struct args_size offset;
@@ -87,6 +90,13 @@ static char *stack_usage_map;
 
 /* Size of STACK_USAGE_MAP.  */
 static int highest_outgoing_arg_in_use;
+
+/* stack_arg_under_construction is nonzero when an argument may be
+   initialized with a constructor call (including a C function that
+   returns a BLKmode struct) and expand_call must take special action
+   to make sure the object being constructed does not overlap the
+   argument list for the constructor call.  */
+int stack_arg_under_construction;
 #endif
 
 static void store_one_arg ();
@@ -323,8 +333,6 @@ emit_call_1 (funexp, funtype, stack_size, struct_value_size, next_arg_reg,
   if (is_const)
     CONST_CALL_P (call_insn) = 1;
 
-  inhibit_defer_pop = old_inhibit_defer_pop;
-
 #ifndef ACCUMULATE_OUTGOING_ARGS
   /* If returning from the subroutine does not automatically pop the args,
      we need an instruction to pop them sooner or later.
@@ -349,6 +357,8 @@ emit_call_1 (funexp, funtype, stack_size, struct_value_size, next_arg_reg,
 	adjust_stack (stack_size_rtx);
     }
 #endif
+
+  inhibit_defer_pop = old_inhibit_defer_pop;
 }
 
 /* Generate all the code for a function call
@@ -358,11 +368,10 @@ emit_call_1 (funexp, funtype, stack_size, struct_value_size, next_arg_reg,
    If IGNORE is nonzero, then we ignore the value of the function call.  */
 
 rtx
-expand_call (exp, target, ignore, modifier)
+expand_call (exp, target, ignore)
      tree exp;
      rtx target;
      int ignore;
-     enum expand_modifier modifier;
 {
   /* List of actual parameters.  */
   tree actparms = TREE_OPERAND (exp, 1);
@@ -433,6 +442,9 @@ expand_call (exp, target, ignore, modifier)
 #endif
 #endif
 
+  /* Size of the stack reserved for paramter registers.  */
+  int reg_parm_stack_space = 0;
+
   /* 1 if scanning parms front to back, -1 if scanning back to front.  */
   int inc;
   /* Address of space preallocated for stack parms
@@ -447,8 +459,6 @@ expand_call (exp, target, ignore, modifier)
   int is_longjmp;
   /* Nonzero if this is a call to an inline function.  */
   int is_integrable = 0;
-  /* Nonzero if this is a call to __builtin_new.  */
-  int is_builtin_new;
   /* Nonzero if this is a call to a `const' function.
      Note that only explicitly named functions are handled as `const' here.  */
   int is_const = 0;
@@ -468,6 +478,7 @@ expand_call (exp, target, ignore, modifier)
 
   rtx old_stack_level = 0;
   int old_pending_adj;
+  int old_stack_arg_under_construction;
   int old_inhibit_defer_pop = inhibit_defer_pop;
   tree old_cleanups = cleanups_this_call;
 
@@ -515,6 +526,14 @@ expand_call (exp, target, ignore, modifier)
     }
 
   is_volatile = TYPE_VOLATILE (TREE_TYPE (TREE_TYPE (p)));
+
+#ifdef REG_PARM_STACK_SPACE
+#ifdef MAYBE_REG_PARM_STACK_SPACE
+  reg_parm_stack_space = MAYBE_REG_PARM_STACK_SPACE;
+#else
+  reg_parm_stack_space = REG_PARM_STACK_SPACE (fndecl);
+#endif
+#endif
 
   /* Warn if this value is an aggregate type,
      regardless of which calling convention we are using for it.  */
@@ -568,6 +587,7 @@ expand_call (exp, target, ignore, modifier)
   if (is_integrable)
     {
       rtx temp;
+      rtx before_call = get_last_insn ();
 
       temp = expand_inline_function (fndecl, actparms, target,
 				     ignore, TREE_TYPE (exp),
@@ -576,12 +596,72 @@ expand_call (exp, target, ignore, modifier)
       /* If inlining succeeded, return.  */
       if ((int) temp != -1)
 	{
+	  int i;
+
 	  /* Perform all cleanups needed for the arguments of this call
 	     (i.e. destructors in C++).  It is ok if these destructors
 	     clobber RETURN_VALUE_REG, because the only time we care about
 	     this is when TARGET is that register.  But in C++, we take
 	     care to never return that register directly.  */
 	  expand_cleanups_to (old_cleanups);
+
+#ifdef ACCUMULATE_OUTGOING_ARGS
+	  /* If the outgoing argument list must be preserved, push
+	     the stack before executing the inlined function if it
+	     makes any calls.  */
+
+	  for (i = reg_parm_stack_space - 1; i >= 0; i--)
+	    if (i < highest_outgoing_arg_in_use && stack_usage_map[i] != 0)
+	      break;
+
+	  if (stack_arg_under_construction || i >= 0)
+	    {
+	      rtx insn = NEXT_INSN (before_call), seq;
+
+	      /* Look for a call in the inline function code.
+		 If OUTGOING_ARGS_SIZE (DECL_SAVED_INSNS (fndecl)) is
+		 nonzero then there is a call and it is not necessary
+		 to scan the insns.  */
+
+	      if (OUTGOING_ARGS_SIZE (DECL_SAVED_INSNS (fndecl)) == 0)
+		for (; insn; insn = NEXT_INSN (insn))
+		  if (GET_CODE (insn) == CALL_INSN)
+		    break;
+
+	      if (insn)
+		{
+		  /* Reserve enough stack space so that the largest
+		     argument list of any function call in the inline
+		     function does not overlap the argument list being
+		     evaluated.  This is usually an overestimate because
+		     allocate_dynamic_stack_space reserves space for an
+		     outgoing argument list in addition to the requested
+		     space, but there is no way to ask for stack space such
+		     that an argument list of a certain length can be
+		     safely constructed.  */
+
+		  int adjust = OUTGOING_ARGS_SIZE (DECL_SAVED_INSNS (fndecl));
+#ifdef REG_PARM_STACK_SPACE
+		  /* Add the stack space reserved for register arguments
+		     in the inline function.  What is really needed is the
+		     largest value of reg_parm_stack_space in the inline
+		     function, but that is not available.  Using the current
+		     value of reg_parm_stack_space is wrong, but gives
+		     correct results on all supported machines.  */
+		  adjust += reg_parm_stack_space;
+#endif
+		  start_sequence ();
+		  emit_stack_save (SAVE_BLOCK, &old_stack_level, 0);
+		  allocate_dynamic_stack_space (gen_rtx (CONST_INT, VOIDmode,
+							 adjust),
+						0, BITS_PER_UNIT);
+		  seq = get_insns ();
+		  end_sequence ();
+		  emit_insns_before (seq, NEXT_INSN (before_call));
+		  emit_stack_restore (SAVE_BLOCK, old_stack_level, 0);
+		}
+	    }
+#endif
 
 	  /* If the result is equivalent to TARGET, return TARGET to simplify
 	     checks in store_expr.  They can be equivalent but not equal in the
@@ -665,11 +745,6 @@ expand_call (exp, target, ignore, modifier)
 	is_longjmp = 1;
     }
 
-  is_builtin_new
-    = (name != 0
-       && IDENTIFIER_LENGTH (DECL_NAME (fndecl)) == 13
-       && (!strcmp (name, "__builtin_new")));
-
   if (may_be_alloca)
     current_function_calls_alloca = 1;
 
@@ -698,10 +773,20 @@ expand_call (exp, target, ignore, modifier)
      as if it were an extra parameter.  */
   if (structure_value_addr && struct_value_rtx == 0)
     {
+#ifdef ACCUMULATE_OUTGOING_ARGS
+      /* If the stack will be adjusted, make sure the structure address
+	 does not refer to virtual_outgoing_args_rtx.  */
+      rtx temp = (stack_arg_under_construction
+		  ? copy_addr_to_reg (structure_value_addr)
+		  : force_reg (Pmode, structure_value_addr));
+#else
+      rtx temp = force_reg (Pmode, structure_value_addr);
+#endif
+
       actparms
 	= tree_cons (error_mark_node,
 		     make_tree (build_pointer_type (TREE_TYPE (funtype)),
-				force_reg (Pmode, structure_value_addr)),
+				temp),
 		     actparms);
       structure_value_addr_parm = 1;
     }
@@ -797,13 +882,14 @@ expand_call (exp, target, ignore, modifier)
 
 	      if (old_stack_level == 0)
 		{
-		  old_stack_level = copy_to_mode_reg (Pmode, stack_pointer_rtx);
+		  emit_stack_save (SAVE_BLOCK, &old_stack_level, 0);
 		  old_pending_adj = pending_stack_adjust;
 		  pending_stack_adjust = 0;
 		}
 
 	      copy = gen_rtx (MEM, BLKmode,
-			      allocate_dynamic_stack_space (size_rtx, 0));
+			      allocate_dynamic_stack_space (size_rtx, 0,
+							    TYPE_ALIGN (type)));
 	    }
 	  else
 	    copy = assign_stack_temp (TYPE_MODE (type), size, 1);
@@ -851,7 +937,7 @@ expand_call (exp, target, ignore, modifier)
       /* Compute the stack-size of this argument.  */
       if (args[i].reg == 0 || args[i].partial != 0
 #ifdef REG_PARM_STACK_SPACE
-	  || REG_PARM_STACK_SPACE (fndecl) > 0
+	  || reg_parm_stack_space > 0
 #endif
 	  || args[i].pass_on_stack)
 	locate_and_pad_parm (TYPE_MODE (type), type,
@@ -903,6 +989,11 @@ expand_call (exp, target, ignore, modifier)
 			    argpos < n_named_args);
     }
 
+#ifdef FINAL_REG_PARM_STACK_SPACE
+  reg_parm_stack_space = FINAL_REG_PARM_STACK_SPACE (args_size.constant,
+						     args_size.var);
+#endif
+      
   /* Compute the actual size of the argument block required.  The variable
      and constant sizes must be combined, the size may have to be rounded,
      and there may be a minimum required size.  */
@@ -927,7 +1018,7 @@ expand_call (exp, target, ignore, modifier)
 #endif
 
 #ifdef REG_PARM_STACK_SPACE
-      if (REG_PARM_STACK_SPACE (fndecl) > 0)
+      if (reg_parm_stack_space > 0)
 	{
 	  args_size.var
 	    = size_binop (MAX_EXPR, args_size.var,
@@ -938,7 +1029,7 @@ expand_call (exp, target, ignore, modifier)
 	     the size of the block we need.  So make the adjustment.  */
 	  args_size.var
 	    = size_binop (MINUS_EXPR, args_size.var,
-			  size_int (REG_PARM_STACK_SPACE (fndecl)));
+			  size_int (reg_parm_stack_space));
 #endif
 	}
 #endif
@@ -952,9 +1043,9 @@ expand_call (exp, target, ignore, modifier)
 
 #ifdef REG_PARM_STACK_SPACE
       args_size.constant = MAX (args_size.constant,
-				REG_PARM_STACK_SPACE (fndecl));
+				reg_parm_stack_space);
 #ifndef OUTGOING_REG_PARM_STACK_SPACE
-      args_size.constant -= REG_PARM_STACK_SPACE (fndecl);
+      args_size.constant -= reg_parm_stack_space;
 #endif
 #endif
     }
@@ -999,7 +1090,8 @@ expand_call (exp, target, ignore, modifier)
 	      += int_size_in_bytes (TREE_TYPE (args[i].tree_value));
 	}
 
-      if (copy_to_evaluate_size >= args_size.constant / 2)
+      if (copy_to_evaluate_size * 2 >= args_size.constant
+	  && args_size.constant > 0)
 	must_preallocate = 1;
     }
 
@@ -1051,9 +1143,16 @@ expand_call (exp, target, ignore, modifier)
     {
       if (old_stack_level == 0)
 	{
-	  old_stack_level = copy_to_mode_reg (Pmode, stack_pointer_rtx);
+	  emit_stack_save (SAVE_BLOCK, &old_stack_level, 0);
 	  old_pending_adj = pending_stack_adjust;
 	  pending_stack_adjust = 0;
+#ifdef ACCUMULATE_OUTGOING_ARGS
+	  /* stack_arg_under_construction says whether a stack arg is
+	     being constructed at the old stack level.  Pushing the stack
+	     gets a clean outgoing argument block.  */
+	  old_stack_arg_under_construction = stack_arg_under_construction;
+	  stack_arg_under_construction = 0;
+#endif
 	}
       argblock = push_block (ARGS_SIZE_RTX (args_size), 0, 0);
     }
@@ -1089,7 +1188,7 @@ expand_call (exp, target, ignore, modifier)
       /* Since we will be writing into the entire argument area, the
 	 map must be allocated for its entire size, not just the part that
 	 is the responsibility of the caller.  */
-      needed += REG_PARM_STACK_SPACE (fndecl);
+      needed += reg_parm_stack_space;
 #endif
 
 #ifdef ARGS_GROW_DOWNWARD
@@ -1108,10 +1207,13 @@ expand_call (exp, target, ignore, modifier)
 	bzero (&stack_usage_map[initial_highest_arg_in_use],
 	       highest_outgoing_arg_in_use - initial_highest_arg_in_use);
       needed = 0;
-      /* No need to copy this virtual register; the space we're
-	 using gets preallocated at the start of the function
-	 so the stack pointer won't change here.  */
+
+      /* The address of the outgoing argument list must not be copied to a
+	 register here, because argblock would be left pointing to the
+	 wrong place after the call to allocate_dynamic_stack_space below. */
+
       argblock = virtual_outgoing_args_rtx;
+
 #else /* not ACCUMULATE_OUTGOING_ARGS */
       if (inhibit_defer_pop == 0)
 	{
@@ -1144,6 +1246,47 @@ expand_call (exp, target, ignore, modifier)
       argblock = copy_to_reg (argblock);
 #endif /* not ACCUMULATE_OUTGOING_ARGS */
     }
+
+
+#ifdef ACCUMULATE_OUTGOING_ARGS
+  /* The save/restore code in store_one_arg handles all cases except one:
+     a constructor call (including a C function returning a BLKmode struct)
+     to initialize an argument.  */
+  if (stack_arg_under_construction)
+    {
+#if defined(REG_PARM_STACK_SPACE) && ! defined(OUTGOING_REG_PARM_STACK_SPACE)
+      rtx push_size = gen_rtx (CONST_INT, VOIDmode,
+			       reg_parm_stack_space + args_size.constant);
+#else
+      rtx push_size = gen_rtx (CONST_INT, VOIDmode, args_size.constant);
+#endif
+      if (old_stack_level == 0)
+	{
+	  emit_stack_save (SAVE_BLOCK, &old_stack_level, 0);
+	  old_pending_adj = pending_stack_adjust;
+	  pending_stack_adjust = 0;
+	  /* stack_arg_under_construction says whether a stack arg is
+	     being constructed at the old stack level.  Pushing the stack
+	     gets a clean outgoing argument block.  */
+	  old_stack_arg_under_construction = stack_arg_under_construction;
+	  stack_arg_under_construction = 0;
+	  /* Make a new map for the new argument list.  */
+	  stack_usage_map = (char *)alloca (highest_outgoing_arg_in_use);
+	  bzero (stack_usage_map, highest_outgoing_arg_in_use);
+	  highest_outgoing_arg_in_use = 0;
+	}
+      allocate_dynamic_stack_space (push_size, 0, BITS_PER_UNIT);
+    }
+  /* If argument evaluation might modify the stack pointer, copy the
+     address of the argument list to a register.  */
+  for (i = 0; i < num_actuals; i++)
+    if (args[i].pass_on_stack)
+      {
+	argblock = copy_addr_to_reg (argblock);
+	break;
+      }
+#endif
+
 
   /* If we preallocated stack space, compute the address of each argument.
      We need not ensure it is a valid memory address here; it will be 
@@ -1253,7 +1396,7 @@ expand_call (exp, target, ignore, modifier)
 
      Here we compute the boundary of the that needs to be saved, if any.  */
 
-  for (i = 0; i < REG_PARM_STACK_SPACE (fndecl); i++)
+  for (i = 0; i < reg_parm_stack_space; i++)
     {
       if (i >=  highest_outgoing_arg_in_use
 	  || stack_usage_map[i] == 0)
@@ -1306,7 +1449,7 @@ expand_call (exp, target, ignore, modifier)
   for (i = 0; i < num_actuals; i++)
     if (args[i].reg == 0 || args[i].pass_on_stack)
       store_one_arg (&args[i], argblock, may_be_alloca,
-		     args_size.var != 0, fndecl);
+		     args_size.var != 0, fndecl, reg_parm_stack_space);
 
   /* Now store any partially-in-registers parm.
      This is the last place a block-move can happen.  */
@@ -1314,7 +1457,7 @@ expand_call (exp, target, ignore, modifier)
     for (i = 0; i < num_actuals; i++)
       if (args[i].partial != 0 && ! args[i].pass_on_stack)
 	store_one_arg (&args[i], argblock, may_be_alloca,
-		       args_size.var != 0, fndecl);
+		       args_size.var != 0, fndecl, reg_parm_stack_space);
 
 #ifndef PUSH_ARGS_REVERSED
 #ifdef STACK_BOUNDARY
@@ -1325,6 +1468,14 @@ expand_call (exp, target, ignore, modifier)
 				(args_size.constant
 				 - original_args_size.constant)));
 #endif
+#endif
+
+  /* If register arguments require space on the stack and stack space
+     was not preallocated, allocate stack space here for arguments
+     passed in registers.  */
+#if ! defined(ALLOCATE_OUTGOING_ARGS) && defined(OUTGOING_REG_PARM_STACK_SPACE)
+  if (must_preallocate == 0 && reg_parm_stack_space > 0)
+    anti_adjust_stack (gen_rtx (CONST_INT, VOIDmode, reg_parm_stack_space));
 #endif
 
   /* Pass the function the address in which to return a structure value.  */
@@ -1459,14 +1610,6 @@ expand_call (exp, target, ignore, modifier)
   if (is_volatile || is_longjmp)
     emit_barrier ();
 
-  /* For calls to __builtin_new, note that it can never return 0.
-     This is because a new handler will be called, and 0 it not
-     among the numbers it is supposed to return.  */
-#if 0
-  if (is_builtin_new)
-    emit_note (name, NOTE_INSN_BUILTIN_NEW);
-#endif
-
   /* If value type not void, return an rtx for the value.  */
 
   /* If there are cleanups to be called, don't use a hard reg as target.  */
@@ -1483,15 +1626,27 @@ expand_call (exp, target, ignore, modifier)
   else if (structure_value_addr)
     {
       if (target == 0 || GET_CODE (target) != MEM)
-	target = gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)),
-			  memory_address (TYPE_MODE (TREE_TYPE (exp)),
-					  structure_value_addr));
+	{
+	  target = gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)),
+			    memory_address (TYPE_MODE (TREE_TYPE (exp)),
+					    structure_value_addr));
+	  MEM_IN_STRUCT_P (target)
+	    = (TREE_CODE (TREE_TYPE (exp)) == ARRAY_TYPE
+	       || TREE_CODE (TREE_TYPE (exp)) == RECORD_TYPE
+	       || TREE_CODE (TREE_TYPE (exp)) == UNION_TYPE);
+	}
     }
   else if (pcc_struct_value)
     {
       if (target == 0)
-	target = gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)),
-			  copy_to_reg (valreg));
+	{
+	  target = gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)),
+			    copy_to_reg (valreg));
+	  MEM_IN_STRUCT_P (target)
+	    = (TREE_CODE (TREE_TYPE (exp)) == ARRAY_TYPE
+	       || TREE_CODE (TREE_TYPE (exp)) == RECORD_TYPE
+	       || TREE_CODE (TREE_TYPE (exp)) == UNION_TYPE);
+	}
       else if (TYPE_MODE (TREE_TYPE (exp)) != BLKmode)
 	emit_move_insn (target, gen_rtx (MEM, TYPE_MODE (TREE_TYPE (exp)),
 					 copy_to_reg (valreg)));
@@ -1515,14 +1670,19 @@ expand_call (exp, target, ignore, modifier)
      (i.e. destructors in C++).  */
   expand_cleanups_to (old_cleanups);
 
-  /* If size of args is variable, restore saved stack-pointer value.  */
+  /* If size of args is variable or this was a constructor call for a stack
+     argument, restore saved stack-pointer value.  */
 
   if (old_stack_level)
     {
-      emit_move_insn (stack_pointer_rtx, old_stack_level);
+      emit_stack_restore (SAVE_BLOCK, old_stack_level, 0);
       pending_stack_adjust = old_pending_adj;
+#ifdef ACCUMULATE_OUTGOING_ARGS
+      stack_arg_under_construction = old_stack_arg_under_construction;
+      highest_outgoing_arg_in_use = initial_highest_arg_in_use;
+      stack_usage_map = initial_stack_usage_map;
+#endif
     }
-
 #ifdef ACCUMULATE_OUTGOING_ARGS
   else
     {
@@ -1569,9 +1729,12 @@ expand_call (exp, target, ignore, modifier)
     }
 #endif
 
-  /* If this was alloca, record the new stack level for nonlocal gotos.  */
-  if (may_be_alloca && nonlocal_goto_stack_level != 0)
-    emit_move_insn (nonlocal_goto_stack_level, stack_pointer_rtx);
+  /* If this was alloca, record the new stack level for nonlocal gotos.  
+     Check for the handler slots since we might not have a save area
+     for non-local gotos. */
+
+  if (may_be_alloca && nonlocal_goto_handler_slot != 0)
+    emit_stack_save (SAVE_NONLOCAL, &nonlocal_goto_stack_level, 0);
 
   pop_temp_slots ();
 
@@ -1633,12 +1796,14 @@ target_for_arg (type, size, args_addr, offset)
    FNDECL is the declaration of the function we are calling.  */
 
 static void
-store_one_arg (arg, argblock, may_be_alloca, variable_size, fndecl)
+store_one_arg (arg, argblock, may_be_alloca, variable_size, fndecl,
+	       reg_parm_stack_space)
      struct arg_data *arg;
      rtx argblock;
      int may_be_alloca;
      int variable_size;
      tree fndecl;
+     int reg_parm_stack_space;
 {
   register tree pval = arg->tree_value;
   rtx reg = 0;
@@ -1677,7 +1842,7 @@ store_one_arg (arg, argblock, may_be_alloca, variable_size, fndecl)
 #ifdef REG_PARM_STACK_SPACE
 	    /* Don't store things in the fixed argument area at this point;
 	       it has already been saved.  */
-	    && i > REG_PARM_STACK_SPACE (fndecl)
+	    && i > reg_parm_stack_space
 #endif
 	    )
 	  break;
@@ -1728,7 +1893,35 @@ store_one_arg (arg, argblock, may_be_alloca, variable_size, fndecl)
   /* If this is being passes partially in a register, we can't evaluate
      it directly into its stack slot.  Otherwise, we can.  */
   if (arg->value == 0)
-    arg->value = expand_expr (pval, partial ? 0 : arg->stack, VOIDmode, 0);
+    {
+#ifdef ACCUMULATE_OUTGOING_ARGS
+      /* stack_arg_under_construction is nonzero if a function argument is
+	 being evaluated directly into the outgoing argument list and
+	 expand_call must take special action to preserve the argument list
+	 if it is called recursively.
+
+	 For scalar function arguments stack_usage_map is sufficient to
+	 determine which stack slots must be saved and restored.  Scalar
+	 arguments in general have pass_on_stack == 0.
+
+	 If this argument is initialized by a function which takes the
+	 address of the argument (a C++ constructor or a C function
+	 returning a BLKmode structure), then stack_usage_map is
+	 insufficient and expand_call must push the stack around the
+	 function call.  Such arguments have pass_on_stack == 1.
+
+	 Note that it is always safe to set stack_arg_under_construction,
+	 but this generates suboptimal code if set when not needed.  */
+
+      if (arg->pass_on_stack)
+	stack_arg_under_construction++;
+#endif
+      arg->value = expand_expr (pval, partial ? 0 : arg->stack, VOIDmode, 0);
+#ifdef ACCUMULATE_OUTGOING_ARGS
+      if (arg->pass_on_stack)
+	stack_arg_under_construction--;
+#endif
+    }
 
   /* Don't allow anything left on stack from computation
      of argument to alloca.  */

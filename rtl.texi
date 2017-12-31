@@ -3,7 +3,7 @@
 @c For copying conditions, see the file gcc.texi.
 
 @ifset INTERNALS
-@node RTL, Machine Desc, Passes, Top
+@node RTL
 @chapter RTL Representation
 @cindex RTL representation
 @cindex representation of RTL

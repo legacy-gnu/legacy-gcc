@@ -350,10 +350,16 @@ enum reg_class { NO_REGS, GENERAL_REGS, FP_REGS, ALL_REGS, LIM_REG_CLASSES };
    integer register to an FP register.  If we are trying to put a 
    non-zero floating-point constant into some register, use an integer
    register if the constant is SFmode and GENERAL_REGS is one of our options.
-   Otherwise, put the constant intoo memory.  */
+   Otherwise, put the constant into memory.
+
+   When reloading something smaller than a word, use a general reg
+   rather than an FP reg.  */
 
 #define PREFERRED_RELOAD_CLASS(X,CLASS)  \
   ((CLASS) == ALL_REGS && GET_CODE (X) == CONST_INT ? GENERAL_REGS	\
+   : ((GET_MODE (X) == HImode || GET_MODE (X) == QImode)		\
+      && (CLASS) == ALL_REGS)						\
+   ? GENERAL_REGS							\
    : (GET_CODE (X) == CONST_DOUBLE					\
       && GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT			\
       && ! CONST_DOUBLE_OK_FOR_LETTER_P (X, 'G'))			\
@@ -896,7 +902,7 @@ struct cumulative_args { int ints, floats; };
    of a switch statement.  If the code is computed here,
    return it with a return statement.  Otherwise, break from the switch.  */
 
-#define CONST_COSTS(RTX,CODE) \
+#define CONST_COSTS(RTX,CODE, OUTER_CODE)			\
   case CONST_INT:						\
     if (INTVAL (RTX) == 0)					\
       return 0;							\
@@ -904,9 +910,9 @@ struct cumulative_args { int ints, floats; };
   case CONST:							\
   case LABEL_REF:						\
   case SYMBOL_REF:						\
-    return 2;							\
+    return 4;							\
   case CONST_DOUBLE:						\
-    return 4;
+    return 6;
 
 /* Specify the cost of a branch insn; roughly the number of extra insns that
    should be added to avoid a branch.

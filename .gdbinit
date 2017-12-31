@@ -62,6 +62,19 @@ document pi
 Print the fields of an instruction that is $.
 end
 
+define pbs
+set print_binding_stack ()
+end
+
+document pbs
+In cc1plus, print the current binding stack, frame by frame, up to and
+including the global binding level.
+end
+
 # Don't let abort actually run, as it will make
 # stdio stop working and therefore the `pr' command below as well.
 b abort
+
+# Make gdb complain about symbol reading errors.  This is so that gcc
+# developers can see and fix bugs in gcc debug output.
+set complaints 20

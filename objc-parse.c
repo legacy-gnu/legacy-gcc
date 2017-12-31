@@ -1298,7 +1298,7 @@ static const short yycheck[] = {    44,
     50,    51
 };
 /* -*-C-*-  Note some compilers choke on comments on `#line' lines.  */
-#line 3 "/usr/local/lib/bison.simple"
+#line 3 "bison.simple"
 
 /* Skeleton output parser for bison,
    Copyright (C) 1984, 1989, 1990 Bob Corbett and Richard Stallman
@@ -1464,7 +1464,7 @@ __yy_bcopy (char *from, char *to, int count)
 #endif
 #endif
 
-#line 169 "/usr/local/lib/bison.simple"
+#line 169 "bison.simple"
 int
 yyparse()
 {
@@ -1486,9 +1486,9 @@ yyparse()
   YYLTYPE *yyls = yylsa;
   YYLTYPE *yylsp;
 
-#define YYPOPSTACK   (yyvsp--, yysp--, yylsp--)
+#define YYPOPSTACK   (yyvsp--, yyssp--, yylsp--)
 #else
-#define YYPOPSTACK   (yyvsp--, yysp--)
+#define YYPOPSTACK   (yyvsp--, yyssp--)
 #endif
 
   int yystacksize = YYINITDEPTH;
@@ -3834,7 +3834,7 @@ case 465:
     break;}
 }
    /* the action file gets copied in in place of this dollarsign */
-#line 440 "/usr/local/lib/bison.simple"
+#line 440 "bison.simple"
 
   yyvsp -= yylen;
   yyssp -= yylen;

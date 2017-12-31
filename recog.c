@@ -389,7 +389,7 @@ validate_replace_rtx_1 (loc, from, to, object)
 	 of the operand.  If we are replacing the operand with a VOIDmode
 	 constant, we lose the information.  So try to simplify the operation
 	 in that case.  If it fails, substitute in something that we know
-	 won't be recogized.  */
+	 won't be recognized.  */
       if (GET_MODE (to) == VOIDmode
 	  && (XEXP (x, 0) == from
 	      || (GET_CODE (XEXP (x, 0)) == REG && GET_CODE (from) == REG
@@ -465,7 +465,7 @@ validate_replace_rtx_1 (loc, from, to, object)
 	    wanted_mode = insn_operand_mode[(int) CODE_FOR_extv][1];
 #endif
 
-	  /* If we have a narrower mode, we can do someting.  */
+	  /* If we have a narrower mode, we can do something.  */
 	  if (wanted_mode != VOIDmode
 	      && GET_MODE_SIZE (wanted_mode) < GET_MODE_SIZE (is_mode))
 	    {
@@ -745,7 +745,7 @@ find_single_use (dest, insn, ploc)
    The main use of this function is as a predicate in match_operand
    expressions in the machine description.
 
-   For an explaination of this function's behavior for registers of
+   For an explanation of this function's behavior for registers of
    class NO_REGS, see the comment for `register_operand'.  */
 
 int
@@ -1599,6 +1599,9 @@ constrain_operands (insn_code_num, strict)
      int strict;
 {
   char *constraints[MAX_RECOG_OPERANDS];
+  int matching_operands[MAX_RECOG_OPERANDS];
+  enum op_type {OP_IN, OP_OUT, OP_INOUT} op_types[MAX_RECOG_OPERANDS];
+  int earlyclobber[MAX_RECOG_OPERANDS];
   register int c;
   int noperands = insn_n_operands[insn_code_num];
 
@@ -1610,7 +1613,11 @@ constrain_operands (insn_code_num, strict)
     return 1;
 
   for (c = 0; c < noperands; c++)
-    constraints[c] = insn_operand_constraint[insn_code_num][c];
+    {
+      constraints[c] = insn_operand_constraint[insn_code_num][c];
+      matching_operands[c] = -1;
+      op_types[c] = OP_IN;
+    }
 
   which_alternative = 0;
 
@@ -1629,6 +1636,8 @@ constrain_operands (insn_code_num, strict)
 	  int win = 0;
 	  int val;
 
+	  earlyclobber[opno] = 0;
+
 	  if (GET_CODE (op) == SUBREG)
 	    {
 	      if (GET_CODE (SUBREG_REG (op)) == REG
@@ -1645,14 +1654,23 @@ constrain_operands (insn_code_num, strict)
 	  while (*p && (c = *p++) != ',')
 	    switch (c)
 	      {
-	      case '=':
-	      case '+':
 	      case '?':
 	      case '#':
-	      case '&':
 	      case '!':
 	      case '*':
 	      case '%':
+		break;
+
+	      case '=':
+		op_types[opno] = OP_OUT;
+		break;
+
+	      case '+':
+		op_types[opno] = OP_INOUT;
+		break;
+
+	      case '&':
+		earlyclobber[opno] = 1;
 		break;
 
 	      case '0':
@@ -1673,6 +1691,9 @@ constrain_operands (insn_code_num, strict)
 		else
 		  val = operands_match_p (recog_operand[c - '0'],
 					  recog_operand[opno]);
+
+		matching_operands[opno] = c - '0';
+		matching_operands[c - '0'] = opno;
 
 		if (val != 0)
 		  win = 1;
@@ -1705,6 +1726,8 @@ constrain_operands (insn_code_num, strict)
 		if (strict < 0
 		    || GENERAL_REGS == ALL_REGS
 		    || GET_CODE (op) != REG
+		    || (reload_in_progress
+			&& REGNO (op) >= FIRST_PSEUDO_REGISTER)
 		    || reg_fits_class_p (op, GENERAL_REGS, offset, mode))
 		  win = 1;
 		break;
@@ -1731,7 +1754,10 @@ constrain_operands (insn_code_num, strict)
 	      case 'm':
 		if (GET_CODE (op) == MEM
 		    /* Before reload, accept what reload can turn into mem.  */
-		    || (strict < 0 && CONSTANT_P (op)))
+		    || (strict < 0 && CONSTANT_P (op))
+		    /* During reload, accept a pseudo  */
+		    || (reload_in_progress && GET_CODE (op) == REG
+			&& REGNO (op) >= FIRST_PSEUDO_REGISTER))
 		  win = 1;
 		break;
 
@@ -1824,7 +1850,10 @@ constrain_operands (insn_code_num, strict)
 		    || (strict == 0 && offsettable_nonstrict_memref_p (op))
 		    /* Before reload, accept what reload can handle.  */
 		    || (strict < 0
-			&& (CONSTANT_P (op) || GET_CODE (op) == MEM)))
+			&& (CONSTANT_P (op) || GET_CODE (op) == MEM))
+		    /* During reload, accept a pseudo  */
+		    || (reload_in_progress && GET_CODE (op) == REG
+			&& REGNO (op) >= FIRST_PSEUDO_REGISTER))
 		  win = 1;
 		break;
 
@@ -1850,12 +1879,40 @@ constrain_operands (insn_code_num, strict)
 	 Change whichever operands this alternative says to change.  */
       if (! lose)
 	{
-	  while (--funny_match_index >= 0)
+	  int opno, eopno;
+
+	  /* See if any earlyclobber operand conflicts with some other
+	     operand.  */
+
+	  if (strict > 0)
+	    for (eopno = 0; eopno < noperands; eopno++)
+	      /* Ignore earlyclobber operands now in memory,
+		 because we would often report failure when we have
+		 two memory operands, one of which was formerly a REG.  */
+	      if (earlyclobber[eopno]
+		  && GET_CODE (recog_operand[eopno]) == REG)
+		for (opno = 0; opno < noperands; opno++)
+		  if ((GET_CODE (recog_operand[opno]) == MEM
+		       || op_types[opno] != OP_OUT)
+		      && opno != eopno
+		      && constraints[opno] != 0
+		      && ! (matching_operands[opno] == eopno
+			    && rtx_equal_p (recog_operand[opno],
+					    recog_operand[eopno]))
+		      && ! safe_from_earlyclobber (recog_operand[opno],
+						   recog_operand[eopno]))
+		    lose = 1;
+
+	  if (! lose)
 	    {
-	      recog_operand[funny_match[funny_match_index].other]
-		= recog_operand[funny_match[funny_match_index].this];
+	      while (--funny_match_index >= 0)
+		{
+		  recog_operand[funny_match[funny_match_index].other]
+		    = recog_operand[funny_match[funny_match_index].this];
+		}
+
+	      return 1;
 	    }
-	  return 1;
 	}
 
       which_alternative++;

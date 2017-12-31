@@ -247,8 +247,8 @@
     return \"movf %1,%0\";
 #endif
 /* There was a #if 0 around this, but that was erroneous
-   for anything bug GAS syntax -- rms.  */
-#ifndef GAS_SYNTAX
+   for many machines -- rms.  */
+#ifndef MOVD_FLOAT_OK
   /* GAS understands floating constants in ordinary movd instructions
      but other assemblers might object.  */
   else if (GET_CODE (operands[1]) == CONST_DOUBLE)
@@ -833,10 +833,10 @@
   if (which_alternative == 1)
     {
       int i = INTVAL (operands[2]);
-      if ( i < 0x40000000 && i >= -0x40000000 )
-	  return \"addr %c2(%1),%0\";
+      if (NS32K_DISPLACEMENT_P (i))
+	return \"addr %c2(%1),%0\";
       else
-	  return \"movd %1,%0\;addd %2,%0\";
+	return \"movd %1,%0\;addd %2,%0\";
     }
   if (GET_CODE (operands[2]) == CONST_INT)
     {
@@ -1859,6 +1859,18 @@
     return \"adjspb %$-4\";
 }")
 
+(define_insn ""
+  [(set (match_operand:SI 0 "general_operand" "=g<")
+	(zero_extract:SI (match_operand:SI 1 "register_operand" "g")
+			 (match_operand:SI 2 "const_int_operand" "i")
+			 (match_operand:SI 3 "general_operand" "rK")))]
+  ""
+  "*
+{ if (GET_CODE (operands[3]) == CONST_INT)
+    return \"extsd %1,%0,%3,%2\";
+  else return \"extd %3,%1,%0,%2\";
+}")
+
 (define_insn "extzv"
   [(set (match_operand:SI 0 "general_operand" "=g<")
 	(zero_extract:SI (match_operand:QI 1 "general_operand" "g")
@@ -2183,7 +2195,10 @@
       rtx temp = XEXP (operands[0], 0);
       if (CONSTANT_ADDRESS_P (temp))
 	{
-#ifdef GAS_SYNTAX
+#ifdef ENCORE_ASM
+	  return \"bsr %?%0\";
+#else
+#ifdef CALL_MEMREF_IMPLICIT
 	  operands[0] = temp;
 	  return \"bsr %0\";
 #else
@@ -2193,9 +2208,10 @@
 	  return \"bsr %?%a0\";
 #endif
 #endif
+#endif
 	}
       if (GET_CODE (XEXP (operands[0], 0)) == REG)
-#if defined (GNX_V3) || defined (GAS_SYNTAX)
+#if defined (GNX_V3) || defined (CALL_MEMREF_IMPLICIT)
 	return \"jsr %0\";
 #else
         return \"jsr %a0\";
@@ -2218,7 +2234,10 @@
       rtx temp = XEXP (operands[1], 0);
       if (CONSTANT_ADDRESS_P (temp))
 	{
-#ifdef GAS_SYNTAX
+#ifdef ENCORE_ASM
+	  return \"bsr %?%1\";
+#else
+#ifdef CALL_MEMREF_IMPLICIT
 	  operands[1] = temp;
 	  return \"bsr %1\";
 #else
@@ -2228,9 +2247,10 @@
 	  return \"bsr %?%a1\";
 #endif
 #endif
+#endif
 	}
       if (GET_CODE (XEXP (operands[1], 0)) == REG)
-#if defined (GNX_V3) || defined (GAS_SYNTAX)
+#if defined (GNX_V3) || defined (CALL_MEMREF_IMPLICIT)
 	return \"jsr %1\";
 #else
         return \"jsr %a1\";

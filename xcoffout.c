@@ -399,6 +399,33 @@ xcoffout_end_block (file, line, n)
   ASM_OUTPUT_LBE (file, line, n);
 }
 
+/* Called at beginning of function (before prologue).
+   Declare function as needed for debugging.  */
+
+void
+xcoffout_declare_function (file, decl, name)
+     FILE *file;
+     tree decl;
+     char *name;
+{
+  char *n = name;
+  int i;
+
+  for (i = 0; name[i]; ++i)
+    {
+      if (name[i] == '[')
+	{
+	  n = alloca (i + 1);
+	  strncpy (n, name, i);
+	  n[i] = '\0';
+	  break;
+	}
+    }
+
+  dbxout_symbol (decl, 0);
+  fprintf (file, "\t.function .%s,.%s,16,044,FE..%s-.%s\n", n, n, n, n);
+}
+
 /* Called at beginning of function body (after prologue).
    Record the function's starting line number, so we can output
    relative line numbers for the other lines.
@@ -433,12 +460,12 @@ xcoffout_end_epilogue (file)
   /* We need to pass the correct function size to .function, otherwise,
      the xas assembler can't figure out the correct size for the function
      aux entry.  So, we emit a label after the last instruction which can
-     be used by the .function psuedo op to calculate the function size.  */
+     be used by the .function pseudo op to calculate the function size.  */
 
   char *fname = XSTR (XEXP (DECL_RTL (current_function_decl), 0), 0);
   if (*fname == '*')
     ++fname;
-  fprintf (file, "L..end_");
+  fprintf (file, "FE..");
   ASM_OUTPUT_LABEL (file, fname);
 }
 #endif /* XCOFF_DEBUGGING_INFO */

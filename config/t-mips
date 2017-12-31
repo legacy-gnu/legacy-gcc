@@ -1,10 +1,15 @@
-# It is not a good idea for particlar targets to do peculiar things with ALL.
-# --rms.
-#ALL		= Makefile start.encap libgcc.a
-EXTRA_PASSES	= mips-tfile mips-tdump ld
+EXTRA_PASSES	= mips-tfile mips-tdump
 CCLIBFLAGS	= -O -G 0
 LIBGCC2_CFLAGS	= -O2 $(GCC_CFLAGS) -g1 -G 0
 CONFIG2_H	= $(srcdir)/config/mips.h
+
+# We have a premade insn-attrtab.c to save the hour it takes to run genattrtab.
+# PREMADE_ATTRTAB = $(srcdir)/config/mips-at.c
+# PREMADE_ATTRTAB_MD = $(srcdir)/config/mips-at.md
+
+# Supress building libgcc1.a, since the MIPS compiler port is complete
+# and does not need anything from libgcc1.a.
+LIBGCC1 = libgcc1.null
 
 # Add additional dependencies to recompile selected modules whenever the
 # tm.h file changes.  The files compiled are:
@@ -48,9 +53,3 @@ mips-tdump: mips-tdump.o version.o $(LIBDEPS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o mips-tdump mips-tdump.o version.o $(LIBS)
 
 mips-tdump.o : mips-tdump.c $(CONFIG_H) $(CONFIG2_H) $(RTL_H)
-
-# Build collect
-
-ld: collect2
-	rm -f ld
-	ln collect2 ld

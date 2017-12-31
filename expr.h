@@ -282,7 +282,7 @@ extern rtx (*const insn_gen_function[]) ();
 
 extern optab add_optab;
 extern optab sub_optab;
-extern optab smul_optab;	/* Signed multiply */
+extern optab smul_optab;	/* Signed and floating-point multiply */
 extern optab smul_widen_optab;	/* Signed multiply with result 
 				   one machine mode wider than args */
 extern optab umul_widen_optab;
@@ -303,8 +303,8 @@ extern optab lshl_optab;	/* Logical shift left */
 extern optab lshr_optab;	/* Logical shift right */
 extern optab rotl_optab;	/* Rotate left */
 extern optab rotr_optab;	/* Rotate right */
-extern optab smin_optab;	/* Signed minimum value */
-extern optab smax_optab;	/* Signed maximum value */
+extern optab smin_optab;	/* Signed and floating-point minimum value */
+extern optab smax_optab;	/* Signed and floating-point maximum value */
 extern optab umin_optab;	/* Unsigned minimum value */
 extern optab umax_optab;	/* Unsigned maximum value */
 
@@ -320,6 +320,7 @@ extern optab abs_optab;		/* Abs value */
 extern optab one_cmpl_optab;	/* Bitwise not */
 extern optab ffs_optab;		/* Find first bit set */
 extern optab sqrt_optab;	/* Square root */
+extern optab strlen_optab;	/* String length */
 
 /* Passed to expand_binop and expand_unop to say which options to try to use
    if the requested operation can't be open-coded on the requisite mode.
@@ -441,7 +442,7 @@ extern void emit_0_to_1_insn ();
 /* Emit one rtl insn to compare two rtx's.  */
 extern void emit_cmp_insn ();
 
-/* Generate rtl to compate two rtx's, will call emit_cmp_insn.  */
+/* Generate rtl to compare two rtx's, will call emit_cmp_insn.  */
 extern rtx compare_from_rtx ();
 
 /* Emit some rtl insns to move data between rtx's, converting machine modes.
@@ -537,6 +538,15 @@ extern void adjust_stack ();
 
 /* Add some bytes to the stack.  An rtx says how many.  */
 extern void anti_adjust_stack ();
+
+/* This enum is used for the following two functions.  */
+enum save_level {SAVE_BLOCK, SAVE_FUNCTION, SAVE_NONLOCAL};
+
+/* Save the stack pointer at the specified level.  */
+extern void emit_stack_save ();
+
+/* Restore the stack pointer from a save area of the specified level.  */
+extern void emit_stack_restore ();
 
 /* Allocate some space on the stack dynamically and return its address.  An rtx
    says how many bytes.  */

@@ -461,9 +461,9 @@ yyparse()
   YYLTYPE *yyls = yylsa;
   YYLTYPE *yylsp;
 
-#define YYPOPSTACK   (yyvsp--, yysp--, yylsp--)
+#define YYPOPSTACK   (yyvsp--, yyssp--, yylsp--)
 #else
-#define YYPOPSTACK   (yyvsp--, yysp--)
+#define YYPOPSTACK   (yyvsp--, yyssp--)
 #endif
 
   int yystacksize = YYINITDEPTH;

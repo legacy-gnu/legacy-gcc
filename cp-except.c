@@ -813,7 +813,7 @@ cplus_expand_throw (exp)
   if (in_try_block (1))
     {
 #if 1
-      abort();
+      my_friendly_abort (35);
 #else
       expand_raise (decl);
 #endif
@@ -951,12 +951,12 @@ cplus_expand_end_catch (for_reraise)
   if (for_reraise)
     {
       if (! expand_escape_except ())
-	abort ();
+	my_friendly_abort (36);
     }
   else
     {
       if (! expand_end_catch ())
-	abort ();
+	my_friendly_abort (37);
     }
   expand_end_cond ();
 }
@@ -1009,7 +1009,7 @@ cplus_expand_reraise (exceptions)
       /* Set to zero so that destructor will not be called.  */
       emit_move_insn (ex_ptr_as_rtx, const0_rtx);
       if (! expand_escape_except ())
-	abort ();
+	my_friendly_abort (38);
 
       /* To avoid spurious warning messages, we add a goto to the end
 	 of the function.  This code is dead, and the compiler should
