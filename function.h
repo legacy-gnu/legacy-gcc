@@ -1,5 +1,5 @@
 /* Structure for saving state for a nested function.
-   Copyright (C) 1989 Free Software Foundation, Inc.
+   Copyright (C) 1989, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -28,7 +28,8 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 struct var_refs_queue
   {
     rtx modified;
-    rtx original;
+    enum machine_mode promoted_mode;
+    int unsignedp;
     struct var_refs_queue *next;
   };
 
@@ -157,6 +158,15 @@ struct function
 
   /* For md files.  */
   int uses_pic_offset_table;
+
+  /* For reorg.  */
+  rtx epilogue_delay_list;
+
+  /* For varasm.  */
+  struct constant_descriptor **const_rtx_hash_table;
+  struct pool_sym **const_rtx_sym_hash_table;
+  struct pool_constant *first_pool, *last_pool;
+  int pool_offset;
 };
 
 /* The FUNCTION_DECL for an inline function currently being expanded.  */
@@ -171,6 +181,18 @@ extern rtx return_label;
    Made for the sake of unshare_all_rtl.  */
 extern rtx stack_slot_list;
 
+/* Given a function decl for a containing function,
+   return the `struct function' for it.  */
+struct function *find_function_data ();
+
+/* Pointer to chain of `struct function' for containing functions.  */
+extern struct function *outer_function_chain;
+
+/* Put all this function's BLOCK nodes into a vector and return it.
+   Also store in each NOTE for the beginning or end of a block
+   the index of that block in the vector.  */
+tree *identify_blocks ();
+
 #ifdef rtx
 #undef rtx
 #endif
@@ -178,11 +200,3 @@ extern rtx stack_slot_list;
 #ifdef tree
 #undef tree
 #endif
-
-
-/* Given a function decl for a containing function,
-   return the `struct function' for it.  */
-struct function *find_function_data ();
-
-/* Pointer to chain of `struct function' for containing functions.  */
-extern struct function *outer_function_chain;

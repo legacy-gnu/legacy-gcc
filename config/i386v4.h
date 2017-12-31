@@ -22,28 +22,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "i386.h"	/* Base i386 target machine definitions */
 #include "att386.h"	/* Use the i386 AT&T assembler syntax */
 #include "svr4.h"	/* Definitions common to all SVR4 targets */
-#include "real.h"
 
 #undef TARGET_VERSION
 #define TARGET_VERSION fprintf (stderr, " (i386 System V Release 4)");
-
-/* By default, target has a 80387.  */
-
-#define TARGET_DEFAULT 1
-
-/* Machines that use the AT&T assembler syntax
-   also return floating point values in an FP register.  */
-/* Define how to find the value returned by a function.
-   VALTYPE is the data type of the value (as a tree).
-   If the precise function being called is known, FUNC is its FUNCTION_DECL;
-   otherwise, FUNC is 0.  */
-
-#define VALUE_REGNO(MODE) \
-  (((MODE) == SFmode || (MODE) == DFmode) ? FIRST_FLOAT_REG : 0)
-
-/* 1 if N is a possible register number for a function value. */
-
-#define FUNCTION_VALUE_REGNO_P(N) ((N) == 0 || (N)== FIRST_FLOAT_REG)
 
 /* The svr4 ABI for the i386 says that records and unions are returned
    in memory.  */
@@ -125,7 +106,7 @@ do { long value[2];							\
    have a precedent to follow with respect to DWARF register numbers
    for x86 FP registers, but the SDB on x86/svr4 is so completely
    broken with respect to FP registers that it is hardly worth thinking
-   of it as something to strive for compatability with.
+   of it as something to strive for compatibility with.
 
    The verison of x86/svr4 SDB I have at the moment does (partially)
    seem to believe that DWARF register number 11 is associated with
@@ -173,7 +154,7 @@ do { long value[2];							\
  : (n) == 6 ? 5 \
  : (n) == 7 ? 4 \
  : ((n) >= FIRST_STACK_REG && (n) <= LAST_STACK_REG) ? (n)+3 \
- : (abort (), 0))
+ : (-1))
 
 /* The routine used to output sequences of byte values.  We use a special
    version of this for most svr4 targets because doing so makes the
@@ -254,31 +235,5 @@ extern int maximum_field_alignment;
 #undef PCC_BITFIELD_TYPE_MATTERS
 #define PCC_BITFIELD_TYPE_MATTERS (maximum_field_alignment == 0)
 
-/* Code to handle #pragma directives.  The interface is a bit messy,
-   but there's no simpler way to do this while still using yylex.  */
-#define HANDLE_PRAGMA(FILE)					\
-  do {								\
-    while (c == ' ' || c == '\t')				\
-      c = getc (FILE);						\
-    if (c == '\n' || c == EOF)					\
-      {								\
-	handle_pragma_token (0, 0);				\
-	return c;						\
-      }								\
-    ungetc (c, FILE);						\
-    switch (yylex ())						\
-      {								\
-      case IDENTIFIER:						\
-      case TYPENAME:						\
-      case STRING:						\
-      case CONSTANT:						\
-	handle_pragma_token (token_buffer, yylval.ttype);	\
-	break;							\
-      default:							\
-	handle_pragma_token (token_buffer, 0);			\
-      }								\
-    if (nextchar >= 0)						\
-      c = nextchar, nextchar = -1;				\
-    else							\
-      c = getc (FILE);						\
-  } while (1)
+/* Handle #pragma pack and sometimes #pragma weak.  */
+#define HANDLE_SYSV_PRAGMA

@@ -1,4 +1,4 @@
-/* YACC parser for C syntax.
+/* YACC parser for C syntax and for Objective C.  -*-c-*-
    Copyright (C) 1987, 1988, 1989, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -17,6 +17,11 @@ You should have received a copy of the GNU General Public License
 along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
+/* This file defines the grammar of C and that of Objective C.
+   ifobjc ... end ifobjc  conditionals contain code for Objective C only.
+   ifc ... end ifc  conditionals contain code for C only.
+   The awk script cond.awk is used to convert this file into
+   c-parse.y and into objc-parse.y.  */
 
 /* To whomever it may concern: I have heard that such a thing was once
 written by AT&T, but I have never seen it.  */
@@ -52,6 +57,7 @@ State 199 contains 1 shift/reduce conflict.  (Two ways to recover from error.)
 #include <stdlib.h>
 #include <locale.h>
 #endif
+
 
 #ifndef errno
 extern int errno;
@@ -133,7 +139,8 @@ void yyerror ();
 %left HYPERUNARY
 %left <code> POINTSAT '.' '(' '['
 
-/* The Objective-C keywords, here so our token codes match obj's.  */
+/* The Objective-C keywords.  These are included in C and in
+   Objective C, so that the token codes are the same in both.  */
 %token INTERFACE IMPLEMENTATION END SELECTOR DEFS ENCODE
 %token CLASSNAME PUBLIC
 
@@ -172,6 +179,7 @@ void yyerror ();
 %type <filename> save_filename
 %type <lineno> save_lineno
 
+
 %{
 /* Number of statements (loosely speaking) seen so far.  */
 static int stmt_count;
@@ -190,6 +198,7 @@ static tree declspec_stack;
 /* 1 if we explained undeclared var errors.  */
 static int undeclared_variable_notice;
 
+
 /* Tell yyparse how to print a token's value, if yydebug is set.  */
 
 #define YYPRINT(FILE,YYCHAR,YYLVAL) yyprint(FILE,YYCHAR,YYLVAL)
@@ -199,8 +208,11 @@ extern void yyprint ();
 %%
 program: /* empty */
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids an empty source file"); }
+		    pedwarn ("ANSI C forbids an empty source file");
+		}
 	| extdefs
+		{
+		}
 	;
 
 /* the reason for the strange actions in this rule
@@ -236,7 +248,7 @@ datadef:
 	| typed_declspecs setspecs initdecls ';'
 	  {}
         | declmods ';'
-	  { error ("empty declaration"); }
+	  { pedwarn ("empty declaration"); }
 	| typed_declspecs ';'
 	  { shadow_tag ($1); }
 	| error ';'
@@ -268,7 +280,7 @@ fndef:
 	| declmods setspecs notype_declarator error
 		{ }
 	| setspecs notype_declarator
-		{ if (! start_function (0, $2, 0))
+		{ if (! start_function (NULL_TREE, $2, 0))
 		    YYERROR1;
 		  reinit_parse_for_function (); }
 	  xdecls
@@ -384,7 +396,7 @@ cast_expr:
 		  else
 		    name = "";
 		  $$ = digest_init (type, build_nt (CONSTRUCTOR, NULL_TREE, nreverse ($5)),
-				    0, 0, 0, name);
+				    NULL_PTR, 0, 0, name);
 		  if (TREE_CODE (type) == ARRAY_TYPE && TYPE_SIZE (type) == 0)
 		    {
 		      int failure = complete_array_type (type, $$, 1);
@@ -427,9 +439,11 @@ expr_no_commas:
 	| expr_no_commas '?' xexpr ':' expr_no_commas
 		{ $$ = build_conditional_expr ($1, $3, $5); }
 	| expr_no_commas '=' expr_no_commas
-		{ $$ = build_modify_expr ($1, NOP_EXPR, $3); }
+		{ $$ = build_modify_expr ($1, NOP_EXPR, $3);
+		  C_SET_EXP_ORIGINAL_CODE ($$, MODIFY_EXPR); }
 	| expr_no_commas ASSIGN expr_no_commas
-		{ $$ = build_modify_expr ($1, $2, $3); }
+		{ $$ = build_modify_expr ($1, $2, $3);
+		  C_SET_EXP_ORIGINAL_CODE ($$, MODIFY_EXPR); }
 	;
 
 primary:
@@ -444,9 +458,12 @@ primary:
 			yychar = YYLEX;
 		      if (yychar == '(')
 			{
-			  $$ = implicitly_declare ($1);
-			  assemble_external ($$);
-			  TREE_USED ($$) = 1;
+			    {
+			      /* Ordinary implicit function declaration.  */
+			      $$ = implicitly_declare ($1);
+			      assemble_external ($$);
+			      TREE_USED ($$) = 1;
+			    }
 			}
 		      else if (current_function_decl == 0)
 			{
@@ -456,34 +473,79 @@ primary:
 			}
 		      else
 			{
-			  if (IDENTIFIER_GLOBAL_VALUE ($1) != error_mark_node
-			      || IDENTIFIER_ERROR_LOCUS ($1) != current_function_decl)
 			    {
-			      error ("`%s' undeclared (first use this function)",
-				     IDENTIFIER_POINTER ($1));
-
-			      if (! undeclared_variable_notice)
+			      if (IDENTIFIER_GLOBAL_VALUE ($1) != error_mark_node
+				  || IDENTIFIER_ERROR_LOCUS ($1) != current_function_decl)
 				{
-				  error ("(Each undeclared identifier is reported only once");
-				  error ("for each function it appears in.)");
-				  undeclared_variable_notice = 1;
+				  error ("`%s' undeclared (first use this function)",
+					 IDENTIFIER_POINTER ($1));
+
+				  if (! undeclared_variable_notice)
+				    {
+				      error ("(Each undeclared identifier is reported only once");
+				      error ("for each function it appears in.)");
+				      undeclared_variable_notice = 1;
+				    }
 				}
+			      $$ = error_mark_node;
+			      /* Prevent repeated error messages.  */
+			      IDENTIFIER_GLOBAL_VALUE ($1) = error_mark_node;
+			      IDENTIFIER_ERROR_LOCUS ($1) = current_function_decl;
 			    }
-			  $$ = error_mark_node;
-			  /* Prevent repeated error messages.  */
-			  IDENTIFIER_GLOBAL_VALUE ($1) = error_mark_node;
-			  IDENTIFIER_ERROR_LOCUS ($1) = current_function_decl;
 			}
 		    }
 		  else if (TREE_TYPE ($$) == error_mark_node)
 		    $$ = error_mark_node;
+		  else if (C_DECL_ANTICIPATED ($$))
+		    {
+		      /* The first time we see a build-in function used,
+			 if it has not been declared.  */
+		      C_DECL_ANTICIPATED ($$) = 0;
+		      if (yychar == YYEMPTY)
+			yychar = YYLEX;
+		      if (yychar == '(')
+			{
+			  /* Omit the implicit declaration we
+			     would ordinarily do, so we don't lose
+			     the actual built in type.
+			     But print a diagnostic for the mismatch.  */
+			    if (TREE_CODE ($$) != FUNCTION_DECL)
+			      error ("`%s' implicitly declared as function",
+				     IDENTIFIER_POINTER (DECL_NAME ($$)));
+			  else if ((TYPE_MODE (TREE_TYPE (TREE_TYPE ($$)))
+				    != TYPE_MODE (integer_type_node))
+				   && (TREE_TYPE (TREE_TYPE ($$))
+				       != void_type_node))
+			    pedwarn ("type mismatch in implicit declaration for built-in function `%s'",
+				     IDENTIFIER_POINTER (DECL_NAME ($$)));
+			  /* If it really returns void, change that to int.  */
+			  if (TREE_TYPE (TREE_TYPE ($$)) == void_type_node)
+			    TREE_TYPE ($$)
+			      = build_function_type (integer_type_node,
+						     TYPE_ARG_TYPES (TREE_TYPE ($$)));
+			}
+		      else
+			pedwarn ("built-in function `%s' used without declaration",
+				 IDENTIFIER_POINTER (DECL_NAME ($$)));
+
+		      /* Do what we would ordinarily do when a fn is used.  */
+		      assemble_external ($$);
+		      TREE_USED ($$) = 1;
+		    }
 		  else
 		    {
 		      assemble_external ($$);
 		      TREE_USED ($$) = 1;
 		    }
+
 		  if (TREE_CODE ($$) == CONST_DECL)
-		    $$ = DECL_INITIAL ($$);
+		    {
+		      $$ = DECL_INITIAL ($$);
+		      /* This is to prevent an enum whose value is 0
+			 from being considered a null pointer constant.  */
+		      $$ = build1 (NOP_EXPR, TREE_TYPE ($$), $$);
+		      TREE_CONSTANT ($$) = 1;
+		    }
 		}
 	| CONSTANT
 	| string
@@ -517,22 +579,29 @@ primary:
 		  rtl_exp = expand_end_stmt_expr ($<ttype>2);
 		  /* The statements have side effects, so the group does.  */
 		  TREE_SIDE_EFFECTS (rtl_exp) = 1;
-		  /* Clear TREE_USED which is always set by poplevel.  This
-		     block will only be used if the BIND_EXPR is used.  */
-		  TREE_USED ($3) = 0;
 
 		  /* Make a BIND_EXPR for the BLOCK already made.  */
 		  $$ = build (BIND_EXPR, TREE_TYPE (rtl_exp),
 			      NULL_TREE, rtl_exp, $3);
+		  /* Remove the block from the tree at this point.
+		     It gets put back at the proper place
+		     when the BIND_EXPR is expanded.  */
+		  delete_block ($3);
 		}
 	| primary '(' exprlist ')'   %prec '.'
 		{ $$ = build_function_call ($1, $3); }
 	| primary '[' expr ']'   %prec '.'
 		{ $$ = build_array_ref ($1, $3); }
 	| primary '.' identifier
-		{ $$ = build_component_ref ($1, $3); }
+		{
+		    $$ = build_component_ref ($1, $3);
+		}
 	| primary POINTSAT identifier
-		{ $$ = build_component_ref (build_indirect_ref ($1, "->"), $3); }
+		{
+                  tree expr = build_indirect_ref ($1, "->");
+
+                    $$ = build_component_ref (expr, $3);
+		}
 	| primary PLUSPLUS
 		{ $$ = build_unary_op (POSTINCREMENT_EXPR, $1, 0); }
 	| primary MINUSMINUS
@@ -581,7 +650,8 @@ datadecl:
 		  declspec_stack = TREE_CHAIN (declspec_stack);
 		  resume_momentary ($2); }
 	| typed_declspecs ';'
-		{ shadow_tag ($1); }
+		{ shadow_tag_warned ($1, 1);
+		  pedwarn ("empty declaration"); }
 	| declmods ';'
 		{ pedwarn ("empty declaration"); }
 	;
@@ -609,7 +679,7 @@ decls:
 setspecs: /* empty */
 		{ $$ = suspend_momentary ();
 		  pending_xref_error ();
-		  declspec_stack = tree_cons (0, current_declspecs,
+		  declspec_stack = tree_cons (NULL_TREE, current_declspecs,
 					      declspec_stack);
 		  current_declspecs = $<ttype>0; }
 	;
@@ -653,7 +723,10 @@ reserved_declspecs:  /* empty */
 	| reserved_declspecs typespecqual_reserved
 		{ $$ = tree_cons (NULL_TREE, $2, $1); }
 	| reserved_declspecs SCSPEC
-		{ $$ = tree_cons (NULL_TREE, $2, $1); }
+		{ if (extra_warnings)
+		    warning ("`%s' is not at beginning of declaration",
+			     IDENTIFIER_POINTER ($2));
+		  $$ = tree_cons (NULL_TREE, $2, $1); }
 	;
 
 /* List of just storage classes and type modifiers.
@@ -662,13 +735,19 @@ reserved_declspecs:  /* empty */
 
 declmods:
 	  TYPE_QUAL
-		{ $$ = tree_cons (NULL_TREE, $1, NULL_TREE); }
+		{ $$ = tree_cons (NULL_TREE, $1, NULL_TREE);
+		  TREE_STATIC ($$) = 1; }
 	| SCSPEC
 		{ $$ = tree_cons (NULL_TREE, $1, NULL_TREE); }
 	| declmods TYPE_QUAL
-		{ $$ = tree_cons (NULL_TREE, $2, $1); }
+		{ $$ = tree_cons (NULL_TREE, $2, $1);
+		  TREE_STATIC ($$) = 1; }
 	| declmods SCSPEC
-		{ $$ = tree_cons (NULL_TREE, $2, $1); }
+		{ if (extra_warnings && TREE_STATIC ($1))
+		    warning ("`%s' is not at beginning of declaration",
+			     IDENTIFIER_POINTER ($2));
+		  $$ = tree_cons (NULL_TREE, $2, $1);
+		  TREE_STATIC ($$) = TREE_STATIC ($1); }
 	;
 
 
@@ -700,13 +779,9 @@ typespec: TYPESPEC
 		     In case of `foo foo, bar;'.  */
 		  $$ = lookup_name ($1); }
 	| TYPEOF '(' expr ')'
-		{ $$ = TREE_TYPE ($3);
-		  if (pedantic)
-		    pedwarn ("ANSI C forbids `typeof'"); }
+		{ $$ = TREE_TYPE ($3); }
 	| TYPEOF '(' typename ')'
-		{ $$ = groktypename ($3);
-		  if (pedantic)
-		    pedwarn ("ANSI C forbids `typeof'"); }
+		{ $$ = groktypename ($3); }
 	;
 
 /* A typespec that is a reserved word, or a type qualifier.  */
@@ -791,7 +866,7 @@ attrib
 	      $$ = $1;
 	    }
 	  else
-	    $$ = tree_cons ($1, $3); }
+	    $$ = tree_cons ($1, $3, NULL_TREE); }
     | IDENTIFIER '(' CONSTANT ')'
 	{ /* if not "aligned(n)", then issue warning */
 	  if (strcmp (IDENTIFIER_POINTER ($1), "aligned") != 0
@@ -802,7 +877,7 @@ attrib
 	      $$ = $1;
 	    }
 	  else
-	    $$ = tree_cons ($1, $3); }
+	    $$ = tree_cons ($1, $3, NULL_TREE); }
     | IDENTIFIER '(' IDENTIFIER ',' CONSTANT ',' CONSTANT ')'
 	{ /* if not "format(...)", then issue warning */
 	  if (strcmp (IDENTIFIER_POINTER ($1), "format") != 0
@@ -814,7 +889,11 @@ attrib
 	      $$ = $1;
 	    }
 	  else
-	    $$ = tree_cons ($1, tree_cons ($3, tree_cons ($5, $7))); }
+	    $$ = tree_cons ($1,
+			    tree_cons ($3,
+				       tree_cons ($5, $7, NULL_TREE),
+				       NULL_TREE),
+			    NULL_TREE); }
     ;
 
 init:
@@ -839,6 +918,15 @@ initlist:
 	| initlist ',' init
 		{ $$ = tree_cons (NULL_TREE, $3, $1); }
 	/* These are for labeled elements.  */
+	| '[' expr_no_commas ELLIPSIS expr_no_commas ']' init
+		{ $$ = build_tree_list (tree_cons ($2, NULL_TREE,
+						   build_tree_list ($4, NULL_TREE)),
+					$6); }
+	| initlist ',' '[' expr_no_commas ELLIPSIS expr_no_commas ']' init
+		{ $$ = tree_cons (tree_cons ($4, NULL_TREE,
+					     build_tree_list ($6, NULL_TREE)),
+				  $8,
+				  $1); }
 	| '[' expr_no_commas ']' init
 		{ $$ = build_tree_list ($2, $4); }
 	| initlist ',' '[' expr_no_commas ']' init
@@ -1013,7 +1101,7 @@ component_decl_list:
 		{ $$ = $1; }
 	| component_decl_list2 component_decl
 		{ $$ = chainon ($1, $2);
-		  warning ("no semicolon at end of struct or union"); }
+		  pedwarn ("no semicolon at end of struct or union"); }
 	;
 
 component_decl_list2:	/* empty */
@@ -1168,7 +1256,8 @@ pushlevel:  /* empty */
 		  pushlevel (0);
 		  clear_last_expr ();
 		  push_momentary ();
-		  expand_start_bindings (0); }
+		  expand_start_bindings (0);
+		}
 	;
 
 /* Read zero or more forward-declarations for labels
@@ -1336,14 +1425,16 @@ stmt:
 		     that we end every loop we start.  */
 		  expand_start_loop (1);
 		  emit_line_note (input_filename, lineno);
-		  expand_exit_loop_if_false (0, truthvalue_conversion ($4));
+		  expand_exit_loop_if_false (NULL_PTR,
+					     truthvalue_conversion ($4));
 		  position_after_white_space (); }
 	  lineno_labeled_stmt
 		{ expand_end_loop (); }
 	| do_stmt_start
 	  '(' expr ')' ';'
 		{ emit_line_note (input_filename, lineno);
-		  expand_exit_loop_if_false (0, truthvalue_conversion ($3));
+		  expand_exit_loop_if_false (NULL_PTR,
+					     truthvalue_conversion ($3));
 		  expand_end_loop ();
 		  clear_momentary (); }
 /* This rule is needed to make sure we end every loop we start.  */
@@ -1374,13 +1465,16 @@ stmt:
 		  /* Emit the end-test, with a line number.  */
 		  emit_line_note ($<filename>8, $<lineno>7);
 		  if ($6)
-		    expand_exit_loop_if_false (0, truthvalue_conversion ($6));
+		    expand_exit_loop_if_false (NULL_PTR,
+					       truthvalue_conversion ($6));
 		  /* Don't let the tree nodes for $9 be discarded by
 		     clear_momentary during the parsing of the next stmt.  */
 		  push_momentary ();
-		  position_after_white_space (); }
+		  $<lineno>7 = lineno;
+		  $<filename>8 = input_filename; }
 	  lineno_labeled_stmt
-		{ emit_line_note ($<filename>-1, $<lineno>0);
+		{ /* Emit the increment expression, with a line number.  */
+		  emit_line_note ($<filename>8, $<lineno>7);
 		  expand_loop_continue_here ();
 		  if ($9)
 		    c_expand_expr_stmt ($9);
@@ -1405,7 +1499,7 @@ stmt:
 	| CONTINUE ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
-		  if (! expand_continue_loop (0))
+		  if (! expand_continue_loop (NULL_PTR))
 		    error ("continue statement not within a loop"); }
 	| RETURN ';'
 		{ stmt_count++;
@@ -1461,7 +1555,7 @@ stmt:
 	| GOTO '*' expr ';'
 		{ stmt_count++;
 		  emit_line_note ($<filename>-1, $<lineno>0);
-		  expand_computed_goto ($3); }
+		  expand_computed_goto (convert (ptr_type_node, $3)); }
 	| ';'
 	;
 
@@ -1688,4 +1782,5 @@ identifiers_or_typenames:
 	| identifiers_or_typenames ',' identifier
 		{ $$ = chainon ($1, build_tree_list (NULL_TREE, $3)); }
 	;
+
 %%

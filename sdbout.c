@@ -53,7 +53,7 @@ AT&T C compiler.  From the example below I would conclude the following:
 
 /* Mips systems use the SDB functions to dump out symbols, but
    do not supply usable syms.h include files.  */
-#if defined(USG) && !defined(MIPS)
+#if defined(USG) && !defined(MIPS) && !defined (hpux)
 #include <syms.h>
 /* Use T_INT if we don't have T_VOID.  */
 #ifndef T_VOID
@@ -387,6 +387,17 @@ plain_type (type)
   return val;
 }
 
+static int
+template_name_p (name)
+     tree name;
+{
+  register char *ptr = IDENTIFIER_POINTER (name);
+  while (*ptr && *ptr != '<')
+    ptr++;
+
+  return *ptr != '\0';
+}
+
 static void
 sdbout_record_type_name (type)
      tree type;
@@ -410,11 +421,16 @@ sdbout_record_type_name (type)
 	       && TYPE_LANG_SPECIFIC (type))
 	{
 	  t = DECL_NAME (TYPE_NAME (type));
+	  /* The DECL_NAME for templates includes "<>", which breaks
+	     most assemblers.  Use its assembler name instead, which
+	     has been mangled into being safe.  */
+	  if (t && template_name_p (t))
+	    t = DECL_ASSEMBLER_NAME (TYPE_NAME (type));
 	}
 #endif
 
       /* Now get the name as a string, or invent one.  */
-      if (t != 0)
+      if (t != NULL_TREE)
 	name = IDENTIFIER_POINTER (t);
     }
 
@@ -452,6 +468,8 @@ plain_type_1 (type)
 	  return (TREE_UNSIGNED (type) ? T_USHORT : T_SHORT);
 	if (size == INT_TYPE_SIZE)
 	  return (TREE_UNSIGNED (type) ? T_UINT : T_INT);
+	if (size == LONG_TYPE_SIZE)
+	  return (TREE_UNSIGNED (type) ? T_ULONG : T_LONG);
 	return 0;
       }
 
@@ -616,7 +634,7 @@ sdbout_symbol (decl, local)
       context = decl_function_context (decl);
       if (context == current_function_decl)
 	return;
-      if (TREE_EXTERNAL (decl))
+      if (DECL_EXTERNAL (decl))
 	return;
       if (GET_CODE (DECL_RTL (decl)) != MEM
 	  || GET_CODE (XEXP (DECL_RTL (decl), 0)) != SYMBOL_REF)
@@ -634,7 +652,10 @@ sdbout_symbol (decl, local)
 	return;
 
       /* Output typedef name.  */
-      PUT_SDB_DEF (IDENTIFIER_POINTER (DECL_NAME (decl)));
+      if (template_name_p (DECL_NAME (decl)))
+	PUT_SDB_DEF (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
+      else
+	PUT_SDB_DEF (IDENTIFIER_POINTER (DECL_NAME (decl)));
       PUT_SDB_SCL (C_TPDEF);
       break;
 
@@ -646,7 +667,7 @@ sdbout_symbol (decl, local)
     case VAR_DECL:
       /* Don't mention a variable that is external.
 	 Let the file that defines it describe it.  */
-      if (TREE_EXTERNAL (decl))
+      if (DECL_EXTERNAL (decl))
 	return;
 
       /* Ignore __FUNCTION__, etc.  */
@@ -659,7 +680,12 @@ sdbout_symbol (decl, local)
       if (DECL_RTL (decl) == 0)
 	return;
 
-      value = eliminate_regs (DECL_RTL (decl), 0, 0);
+      DECL_RTL (decl) = eliminate_regs (DECL_RTL (decl), 0, NULL_RTX);
+#ifdef LEAF_REG_REMAP
+      if (leaf_function)
+	leaf_renumber_regs_insn (DECL_RTL (decl));
+#endif
+      value = DECL_RTL (decl);
 
       /* Don't mention a variable at all
 	 if it was completely optimized into nothingness.
@@ -671,11 +697,9 @@ sdbout_symbol (decl, local)
 	{
 	  regno = REGNO (DECL_RTL (decl));
 	  if (regno >= FIRST_PSEUDO_REGISTER)
-	    regno = reg_renumber[REGNO (DECL_RTL (decl))];
-	  if (regno < 0)
 	    return;
 	}
-      else if (GET_CODE (DECL_RTL (decl)) == SUBREG)
+      else if (GET_CODE (value) == SUBREG)
 	{
 	  int offset = 0;
 	  while (GET_CODE (value) == SUBREG)
@@ -687,10 +711,11 @@ sdbout_symbol (decl, local)
 	    {
 	      regno = REGNO (value);
 	      if (regno >= FIRST_PSEUDO_REGISTER)
-		regno = reg_renumber[REGNO (value)];
-	      if (regno >= 0)
-		regno += offset;
+		return;
+	      regno += offset;
 	    }
+	  alter_subreg (DECL_RTL (decl));
+	  value = DECL_RTL (decl);
 	}
 
       /* Emit any structure, union, or enum type that has not been output.
@@ -709,6 +734,11 @@ sdbout_symbol (decl, local)
       if (! local
 	  && GET_CODE (value) == MEM
 	  && DECL_INITIAL (decl))
+	return;
+
+      /* C++ in 2.3 makes nameless symbols.  That will be fixed later.
+	 For now, avoid crashing.  */
+      if (DECL_NAME (decl) == NULL_TREE)
 	return;
 
       /* Record the name for, starting a symtab entry.  */
@@ -946,7 +976,7 @@ sdbout_one_type (type)
       TREE_ASM_WRITTEN (type) = 1;
 #if 1
       /* This is reputed to cause trouble with the following case,
-	 but perhaps checking TYPE_SIZE above will fix it.
+	 but perhaps checking TYPE_SIZE above will fix it.  */
 
       /* Here is a test case:
 
@@ -1125,8 +1155,8 @@ sdbout_parms (parms)
 	/* Perform any necessary register eliminations on the parameter's rtl,
 	   so that the debugging output will be accurate.  */
 	DECL_INCOMING_RTL (parms) =
-	  eliminate_regs (DECL_INCOMING_RTL (parms), 0, 0);
-	DECL_RTL (parms) = eliminate_regs (DECL_RTL (parms), 0, 0);
+	  eliminate_regs (DECL_INCOMING_RTL (parms), 0, NULL_RTX);
+	DECL_RTL (parms) = eliminate_regs (DECL_RTL (parms), 0, NULL_RTX);
 
 	if (PARM_PASSED_IN_MEMORY (parms))
 	  {

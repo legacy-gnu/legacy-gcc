@@ -1,4 +1,4 @@
-/* Definitions of target machine for GNU compiler.  SONY NEWS-OS 3.0 version.
+/* Definitions of target machine for GNU compiler.  SONY NEWS-OS 4 version.
    Copyright (C) 1987, 1989 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -144,7 +144,17 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
       else if (TARGET_68020)                                    \
         fprintf (FILE, "\tlink.l fp,#%d\n", -fsize);            \
       else							\
-	fprintf (FILE, "\tlink fp,#0\n\tsub.l #%d,sp\n", fsize); }  \
+	fprintf (FILE, "\tlink fp,#0\n\tsub.l #%d,sp\n", fsize);\
+    }								\
+  else if (fsize)						\
+    {								\
+      int amt = fsize + 4;					\
+      /* Adding negative number is faster on the 68040.  */	\
+      if (fsize + 4 < 0x8000)					\
+	asm_fprintf (FILE, "\tadd.w %0I%d,%Rsp\n", - amt);	\
+      else							\
+	asm_fprintf (FILE, "\tadd.l %0I%d,%Rsp\n", - amt);	\
+    }								\
   for (regno = 16; regno < FIRST_PSEUDO_REGISTER; regno++)	\
     if (regs_ever_live[regno] && ! call_used_regs[regno])	\
        mask |= 1 << (regno - 16);				\
@@ -217,6 +227,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 	       foffset + fsize, fmask); }			\
   if (frame_pointer_needed)					\
     fprintf (FILE, "\tunlk fp\n");				\
+  else if (fsize)						\
+    {								\
+      if (fsize + 4 < 0x8000)					\
+	fprintf (FILE, "\tadd.w #%d,sp\n", fsize + 4);		\
+      else							\
+	fprintf (FILE, "\tadd.l #%d,sp\n", fsize + 4);		\
+    }								\
   if (current_function_pops_args)				\
     fprintf (FILE, "\trtd #%d\n", current_function_pops_args);	\
   else fprintf (FILE, "\trts\n"); }
@@ -245,6 +262,20 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define ASM_OUTPUT_SKIP(FILE,SIZE)  \
   fprintf (FILE, "\t.space %u\n", (SIZE))
+
+#if 0
+/* The NEWS assembler in version 3.4 complains about fmove.d, but this
+   macro proved not to work right.  3.4 is old, so forget about it. */
+#define ASM_OUTPUT_OPCODE(FILE, STRING) \
+{						\
+  if (!strncmp (STRING, "fmove.d", 7)		\
+      && CONSTANT_P (operands[1]))		\
+    {						\
+      fprintf (FILE, "fmove.x");		\
+      STRING += 7;				\
+    }						\
+}
+#endif
 
 /* Store in OUTPUT a string (made with alloca) containing
    an assembler-name for a local static variable named NAME.

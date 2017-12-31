@@ -25,6 +25,7 @@ __typeof, TYPEOF, NORID
 __typeof__, TYPEOF, NORID
 __volatile, TYPE_QUAL, RID_VOLATILE
 __volatile__, TYPE_QUAL, RID_VOLATILE
+__wchar_t, TYPESPEC, RID_WCHAR  /* Unique to ANSI C++ */,
 all, ALL, NORID			/* Extension */,
 except, EXCEPT, NORID		/* Extension */,
 exception, AGGR, RID_EXCEPTION	/* Extension */,

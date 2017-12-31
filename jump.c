@@ -1,5 +1,5 @@
 /* Optimize jump instructions, for GNU compiler.
-   Copyright (C) 1987, 1988, 1989, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1989, 1991, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -104,25 +104,18 @@ int can_reach_end;
 static int cross_jump_death_matters = 0;
 
 static int duplicate_loop_exit_test ();
-rtx delete_insn ();
-int redirect_jump ();
-static int redirect_exp ();
 void redirect_tablejump ();
 static int delete_labelref_insn ();
-int invert_jump ();
-static int invert_exp ();
-int condjump_p ();
-int simplejump_p ();
-
-extern rtx gen_jump ();
-
 static void mark_jump_label ();
 void delete_jump ();
+void delete_computation ();
 static void delete_from_jump_chain ();
 static int tension_vector_labels ();
 static void find_cross_jump ();
 static void do_cross_jump ();
 static int jump_back_p ();
+
+extern rtx gen_jump ();
 
 /* Delete no-op jumps and optimize jumps to jumps
    and jumps around jumps.
@@ -150,7 +143,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
      int noop_moves;
      int after_regscan;
 {
-  register rtx insn;
+  register rtx insn, next;
   int changed;
   int first = 1;
   int max_uid = 0;
@@ -306,7 +299,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
   if (noop_moves)
     for (insn = f; insn; )
       {
-	register rtx next = NEXT_INSN (insn);
+	next = NEXT_INSN (insn);
 
 	if (GET_CODE (insn) == INSN)
 	  {
@@ -368,8 +361,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		  }
 		else
 		  XEXP (SET_SRC (PATTERN (stack_adjust_insn)), 1)
-		    = gen_rtx (CONST_INT, VOIDmode, 
-			       stack_adjust_amount - total_pushed);
+		    = GEN_INT (stack_adjust_amount - total_pushed);
 
 		/* Change the appropriate push insns to ordinary stores.  */
 		p = insn;
@@ -396,7 +388,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		    if (total_pushed < 0)
 		      {
 			emit_insn_before (gen_add2_insn (stack_pointer_rtx,
-							 gen_rtx (CONST_INT, VOIDmode, - total_pushed)),
+							 GEN_INT (- total_pushed)),
 					  p);
 			break;
 		      }
@@ -433,8 +425,8 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		else if (sreg >= 0 && dreg >= 0)
 		  {
 		    rtx trial;
-		    rtx tem = find_equiv_reg (0, insn, 0,
-					      sreg, 0, dreg,
+		    rtx tem = find_equiv_reg (NULL_RTX, insn, 0,
+					      sreg, NULL_PTR, dreg,
 					      GET_MODE (SET_SRC (body)));
 
 #ifdef PRESERVE_DEATH_INFO_REGNO_P
@@ -463,8 +455,9 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		      }
 		  }
 		else if (dreg >= 0 && CONSTANT_P (SET_SRC (body))
-			 && find_equiv_reg (SET_SRC (body), insn, 0, dreg, 0,
-					    0, GET_MODE (SET_DEST (body))))
+			 && find_equiv_reg (SET_SRC (body), insn, 0, dreg,
+					    NULL_PTR, 0,
+					    GET_MODE (SET_DEST (body))))
 		  {
 		    /* This handles the case where we have two consecutive
 		       assignments of the same constant to pseudos that didn't
@@ -532,19 +525,38 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
       insn = next;
     }
 
+  /* If we haven't yet gotten to reload and we have just run regscan,
+     delete any insn that sets a register that isn't used elsewhere.
+     This helps some of the optimizations below by having less insns
+     being jumped around.  */
+
+  if (! reload_completed && after_regscan)
+    for (insn = f; insn; insn = next)
+      {
+	rtx set = single_set (insn);
+
+	next = NEXT_INSN (insn);
+
+	if (set && GET_CODE (SET_DEST (set)) == REG
+	    && REGNO (SET_DEST (set)) >= FIRST_PSEUDO_REGISTER
+	    && regno_first_uid[REGNO (SET_DEST (set))] == INSN_UID (insn)
+	    && regno_last_uid[REGNO (SET_DEST (set))] == INSN_UID (insn)
+	    && ! side_effects_p (SET_SRC (set)))
+	  delete_insn (insn);
+      }
+
   /* Now iterate optimizing jumps until nothing changes over one pass.  */
   changed = 1;
   while (changed)
     {
-      register rtx next;
       changed = 0;
 
       for (insn = f; insn; insn = next)
 	{
 	  rtx reallabelprev;
-	  rtx temp, temp1, temp2, temp3, temp4, temp5;
+	  rtx temp, temp1, temp2, temp3, temp4, temp5, temp6;
 	  rtx nlabel;
-	  int this_is_simplejump, this_is_condjump;
+	  int this_is_simplejump, this_is_condjump, reversep;
 #if 0
 	  /* If NOT the first iteration, if this is the last jump pass
 	     (just before final), do the special peephole optimizations.
@@ -609,6 +621,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		    != XEXP (XVECEXP (pat, diff_vec_p, 0), 0))
 		  break;
 	      if (i == len
+		  && dispatch != 0
 		  && GET_CODE (dispatch) == JUMP_INSN
 		  && JUMP_LABEL (dispatch) != 0
 		  /* Don't mess with a casesi insn.  */
@@ -629,7 +642,7 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	     it into a RETURN insn, possibly a conditional one.  */
 	  if (JUMP_LABEL (insn)
 	      && next_active_insn (JUMP_LABEL (insn)) == 0)
-	    changed |= redirect_jump (insn, 0);
+	    changed |= redirect_jump (insn, NULL_RTX);
 
 	  /* Detect jump to following insn.  */
 	  if (reallabelprev == insn && condjump_p (insn))
@@ -656,12 +669,11 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	    {
 	      if (GET_CODE (temp1) == BARRIER)
 		{
-		  reorder_insns (temp, temp, temp1);
+		  emit_insn_after (PATTERN (temp), temp1);
 		  temp1 = NEXT_INSN (temp1);
 		}
-	      else
-		delete_insn (temp);
 
+	      delete_insn (temp);
 	      redirect_jump (insn, get_label_before (temp1));
 	      reallabelprev = prev_real_insn (temp1);
 	      changed = 1;
@@ -692,28 +704,30 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	     TEMP to the jump insn preceding "x = a;"
 	     TEMP1 to X
 	     TEMP2 to the insn that sets "x = b;"
-	     TEMP3 to the insn that sets "x = a;"  */
+	     TEMP3 to the insn that sets "x = a;"
+	     TEMP4 to the set of "x = b";  */
 
 	  if (this_is_simplejump
 	      && (temp3 = prev_active_insn (insn)) != 0
 	      && GET_CODE (temp3) == INSN
-	      && GET_CODE (PATTERN (temp3)) == SET
-	      && GET_CODE (temp1 = SET_DEST (PATTERN (temp3))) == REG
+	      && (temp4 = single_set (temp3)) != 0
+	      && GET_CODE (temp1 = SET_DEST (temp4)) == REG
 #ifdef SMALL_REGISTER_CLASSES
 	      && REGNO (temp1) >= FIRST_PSEUDO_REGISTER
 #endif
 	      && (temp2 = next_active_insn (insn)) != 0
 	      && GET_CODE (temp2) == INSN
-	      && GET_CODE (PATTERN (temp2)) == SET
-	      && rtx_equal_p (SET_DEST (PATTERN (temp2)), temp1)
-	      && (GET_CODE (SET_SRC (PATTERN (temp2))) == REG
-		  || CONSTANT_P (SET_SRC (PATTERN (temp2))))
+	      && (temp4 = single_set (temp2)) != 0
+	      && rtx_equal_p (SET_DEST (temp4), temp1)
+	      && (GET_CODE (SET_SRC (temp4)) == REG
+		  || GET_CODE (SET_SRC (temp4)) == SUBREG
+		  || CONSTANT_P (SET_SRC (temp4)))
 	      && (REG_NOTES (temp2) == 0
 		  || ((REG_NOTE_KIND (REG_NOTES (temp2)) == REG_EQUAL
 		       || REG_NOTE_KIND (REG_NOTES (temp2)) == REG_EQUIV)
 		      && XEXP (REG_NOTES (temp2), 1) == 0
 		      && rtx_equal_p (XEXP (REG_NOTES (temp2), 0),
-				      SET_SRC (PATTERN (temp2)))))
+				      SET_SRC (temp4))))
 	      && (temp = prev_active_insn (temp3)) != 0
 	      && condjump_p (temp) && ! simplejump_p (temp)
 	      /* TEMP must skip over the "x = a;" insn */
@@ -724,9 +738,9 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 	      /* INSN must either branch to the insn after TEMP2 or the insn
 		 after TEMP2 must branch to the same place as INSN.  */
 	      && (reallabelprev == temp2
-		  || ((temp4 = next_active_insn (temp2)) != 0
-		      && simplejump_p (temp4)
-		      && JUMP_LABEL (temp4) == JUMP_LABEL (insn))))
+		  || ((temp5 = next_active_insn (temp2)) != 0
+		      && simplejump_p (temp5)
+		      && JUMP_LABEL (temp5) == JUMP_LABEL (insn))))
 	    {
 	      /* The test expression, X, may be a complicated test with
 		 multiple branches.  See if we can find all the uses of
@@ -774,11 +788,11 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		  && no_labels_between_p (p, insn)
 		  && ! reg_referenced_between_p (temp1, p, NEXT_INSN (temp3))
 		  && ! reg_set_between_p (temp1, p, temp3)
-		  && (GET_CODE (SET_SRC (PATTERN (temp2))) == CONST_INT
-		      || ! reg_set_between_p (SET_SRC (PATTERN (temp2)),
-					      p, temp2)))
+		  && (GET_CODE (SET_SRC (temp4)) == CONST_INT
+		      || ! reg_set_between_p (SET_SRC (temp4), p, temp2)))
 		{
-		  reorder_insns_with_line_notes (temp2, temp2, p);
+		  emit_insn_after_with_line_notes (PATTERN (temp2), p, temp2);
+		  delete_insn (temp2);
 
 		  /* Set NEXT to an insn that we know won't go away.  */
 		  next = next_active_insn (insn);
@@ -802,12 +816,170 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		}
 	    }
 
-	  /* If we have  x = a; if (...) x = b;
-	     and either A or B is zero, or if we have  if (...) x = 0;
-	     and jumps are expensive, try to use a store-flag insn to
-	     avoid the jump.  (If the jump would be faster, the machine
-	     should not have defined the scc insns!).  These cases are often
-	     made by the previous optimization.
+#ifndef HAVE_cc0
+	  /* If we have if (...) x = exp;  and branches are expensive,
+	     EXP is a single insn, does not have any side effects, cannot
+	     trap, and is not too costly, convert this to
+	     t = exp; if (...) x = t;
+
+	     Don't do this when we have CC0 because it is unlikely to help
+	     and we'd need to worry about where to place the new insn and
+	     the potential for conflicts.  We also can't do this when we have
+	     notes on the insn for the same reason as above.
+
+	     We set:
+
+	     TEMP to the "x = exp;" insn.
+	     TEMP1 to the single set in the "x = exp; insn.
+	     TEMP2 to "x".  */
+
+	  if (! reload_completed
+	      && this_is_condjump && ! this_is_simplejump
+	      && BRANCH_COST >= 3
+	      && (temp = next_nonnote_insn (insn)) != 0
+	      && GET_CODE (temp) == INSN
+	      && REG_NOTES (temp) == 0
+	      && (reallabelprev == temp
+		  || ((temp2 = next_active_insn (temp)) != 0
+		      && simplejump_p (temp2)
+		      && JUMP_LABEL (temp2) == JUMP_LABEL (insn)))
+	      && (temp1 = single_set (temp)) != 0
+	      && (temp2 = SET_DEST (temp1), GET_CODE (temp2) == REG)
+	      && GET_MODE_CLASS (GET_MODE (temp2)) == MODE_INT
+#ifdef SMALL_REGISTER_CLASSES
+	      && REGNO (temp2) >= FIRST_PSEUDO_REGISTER
+#endif
+	      && GET_CODE (SET_SRC (temp1)) != REG
+	      && GET_CODE (SET_SRC (temp1)) != SUBREG
+	      && GET_CODE (SET_SRC (temp1)) != CONST_INT
+	      && ! side_effects_p (SET_SRC (temp1))
+	      && ! may_trap_p (SET_SRC (temp1))
+	      && rtx_cost (SET_SRC (temp1)) < 10)
+	    {
+	      rtx new = gen_reg_rtx (GET_MODE (temp2));
+
+	      if (validate_change (temp, &SET_DEST (temp1), new, 0))
+		{
+		  next = emit_insn_after (gen_move_insn (temp2, new), insn);
+		  emit_insn_after_with_line_notes (PATTERN (temp), 
+						   PREV_INSN (insn), temp);
+		  delete_insn (temp);
+		}
+	    }
+
+	  /* Similarly, if it takes two insns to compute EXP but they
+	     have the same destination.  Here TEMP3 will be the second
+	     insn and TEMP4 the SET from that insn.  */
+
+	  if (! reload_completed
+	      && this_is_condjump && ! this_is_simplejump
+	      && BRANCH_COST >= 4
+	      && (temp = next_nonnote_insn (insn)) != 0
+	      && GET_CODE (temp) == INSN
+	      && REG_NOTES (temp) == 0
+	      && (temp3 = next_nonnote_insn (temp)) != 0
+	      && GET_CODE (temp3) == INSN
+	      && REG_NOTES (temp3) == 0
+	      && (reallabelprev == temp3
+		  || ((temp2 = next_active_insn (temp3)) != 0
+		      && simplejump_p (temp2)
+		      && JUMP_LABEL (temp2) == JUMP_LABEL (insn)))
+	      && (temp1 = single_set (temp)) != 0
+	      && (temp2 = SET_DEST (temp1), GET_CODE (temp2) == REG)
+	      && GET_MODE_CLASS (GET_MODE (temp2)) == MODE_INT
+#ifdef SMALL_REGISTER_CLASSES
+	      && REGNO (temp2) >= FIRST_PSEUDO_REGISTER
+#endif
+	      && ! side_effects_p (SET_SRC (temp1))
+	      && ! may_trap_p (SET_SRC (temp1))
+	      && rtx_cost (SET_SRC (temp1)) < 10
+	      && (temp4 = single_set (temp3)) != 0
+	      && rtx_equal_p (SET_DEST (temp4), temp2)
+	      && ! side_effects_p (SET_SRC (temp4))
+	      && ! may_trap_p (SET_SRC (temp4))
+	      && rtx_cost (SET_SRC (temp4)) < 10)
+	    {
+	      rtx new = gen_reg_rtx (GET_MODE (temp2));
+
+	      if (validate_change (temp, &SET_DEST (temp1), new, 0))
+		{
+		  next = emit_insn_after (gen_move_insn (temp2, new), insn);
+		  emit_insn_after_with_line_notes (PATTERN (temp),
+						   PREV_INSN (insn), temp);
+		  emit_insn_after_with_line_notes
+		    (replace_rtx (PATTERN (temp3), temp2, new),
+		     PREV_INSN (insn), temp3);
+		  delete_insn (temp);
+		  delete_insn (temp3);
+		}
+	    }
+
+	  /* Finally, handle the case where two insns are used to 
+	     compute EXP but a temporary register is used.  Here we must
+	     ensure that the temporary register is not used anywhere else. */
+
+	  if (! reload_completed
+	      && after_regscan
+	      && this_is_condjump && ! this_is_simplejump
+	      && BRANCH_COST >= 4
+	      && (temp = next_nonnote_insn (insn)) != 0
+	      && GET_CODE (temp) == INSN
+	      && REG_NOTES (temp) == 0
+	      && (temp3 = next_nonnote_insn (temp)) != 0
+	      && GET_CODE (temp3) == INSN
+	      && REG_NOTES (temp3) == 0
+	      && (reallabelprev == temp3
+		  || ((temp2 = next_active_insn (temp3)) != 0
+		      && simplejump_p (temp2)
+		      && JUMP_LABEL (temp2) == JUMP_LABEL (insn)))
+	      && (temp1 = single_set (temp)) != 0
+	      && (temp5 = SET_DEST (temp1), GET_CODE (temp5) == REG)
+	      && REGNO (temp5) >= FIRST_PSEUDO_REGISTER
+	      && regno_first_uid[REGNO (temp5)] == INSN_UID (temp)
+	      && regno_last_uid[REGNO (temp5)] == INSN_UID (temp3)
+	      && ! side_effects_p (SET_SRC (temp1))
+	      && ! may_trap_p (SET_SRC (temp1))
+	      && rtx_cost (SET_SRC (temp1)) < 10
+	      && (temp4 = single_set (temp3)) != 0
+	      && (temp2 = SET_DEST (temp4), GET_CODE (temp2) == REG)
+	      && GET_MODE_CLASS (GET_MODE (temp2)) == MODE_INT
+#ifdef SMALL_REGISTER_CLASSES
+	      && REGNO (temp2) >= FIRST_PSEUDO_REGISTER
+#endif
+	      && rtx_equal_p (SET_DEST (temp4), temp2)
+	      && ! side_effects_p (SET_SRC (temp4))
+	      && ! may_trap_p (SET_SRC (temp4))
+	      && rtx_cost (SET_SRC (temp4)) < 10)
+	    {
+	      rtx new = gen_reg_rtx (GET_MODE (temp2));
+
+	      if (validate_change (temp3, &SET_DEST (temp4), new, 0))
+		{
+		  next = emit_insn_after (gen_move_insn (temp2, new), insn);
+		  emit_insn_after_with_line_notes (PATTERN (temp),
+						   PREV_INSN (insn), temp);
+		  emit_insn_after_with_line_notes (PATTERN (temp3),
+						   PREV_INSN (insn), temp3);
+		  delete_insn (temp);
+		  delete_insn (temp3);
+		}
+	    }
+#endif /* HAVE_cc0 */
+
+	  /* We deal with four cases:
+
+	     1) x = a; if (...) x = b; and either A or B is zero,
+	     2) if (...) x = 0; and jumps are expensive,
+	     3) x = a; if (...) x = b; and A and B are constants where all the
+	        set bits in A are also set in B and jumps are expensive, and
+	     4) x = a; if (...) x = b; and A and B non-zero, and jumps are
+	        more expensive.
+	     5) if (...) x = b; if jumps are even more expensive.
+
+	     In each of these try to use a store-flag insn to avoid the jump.
+	     (If the jump would be faster, the machine should not have
+	     defined the scc insns!).  These cases are often made by the
+	     previous optimization.
 
 	     INSN here is the jump around the store.  We set:
 
@@ -831,18 +1003,20 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 #endif
 	      && GET_MODE_CLASS (GET_MODE (temp1)) == MODE_INT
 	      && (GET_CODE (temp2 = SET_SRC (PATTERN (temp))) == REG
+		  || GET_CODE (temp2) == SUBREG
 		  || GET_CODE (temp2) == CONST_INT)
-	      /* Allow either form, but prefer the former if both apply.  */
+	      /* Allow either form, but prefer the former if both apply. 
+		 There is no point in using the old value of TEMP1 if
+		 it is a register, since cse will alias them.  It can
+		 lose if the old value were a hard register since CSE
+		 won't replace hard registers.  */
 	      && (((temp3 = reg_set_last (temp1, insn)) != 0
-		   && ((GET_CODE (temp3) == REG
-#ifdef SMALL_REGISTER_CLASSES
-			&& REGNO (temp3) >= FIRST_PSEUDO_REGISTER
-#endif
-			)
-		       || GET_CODE (temp3) == CONST_INT))
+		   && GET_CODE (temp3) == CONST_INT)
 		  /* Make the latter case look like  x = x; if (...) x = 0;  */
-		  || ((temp3 = temp1, BRANCH_COST > 1)
-		      && temp2 == const0_rtx))
+		  || (temp3 = temp1,
+		      ((BRANCH_COST >= 2
+			&& temp2 == const0_rtx)
+		       || BRANCH_COST >= 3)))
 	      /* INSN must either branch to the insn after TEMP or the insn
 		 after TEMP must branch to the same place as INSN.  */
 	      && (reallabelprev == temp
@@ -850,34 +1024,63 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		      && simplejump_p (temp4)
 		      && JUMP_LABEL (temp4) == JUMP_LABEL (insn)))
 	      && (temp4 = get_condition (insn, &temp5)) != 0
+	      /* We must be comparing objects whose modes imply the size.
+		 We could handle BLKmode if (1) emit_store_flag could
+		 and (2) we could find the size reliably.  */
+	      && GET_MODE (XEXP (temp4, 0)) != BLKmode
 
-	      /* If B is zero, OK; if A is zero, can only do this if we
-		 can reverse the condition.  */
-	      && (temp2 == const0_rtx
+	      /* If B is zero, OK; if A is zero, can only do (1) if we
+		 can reverse the condition.  See if (3) applies possibly
+		 by reversing the condition.  Prefer reversing to (4) when
+		 branches are very expensive.  */
+	      && ((reversep = 0, temp2 == const0_rtx)
 		  || (temp3 == const0_rtx
-		      && (can_reverse_comparison_p (temp4, insn)))))
+		      && (reversep = can_reverse_comparison_p (temp4, insn)))
+		  || (BRANCH_COST >= 2
+		      && GET_CODE (temp2) == CONST_INT
+		      && GET_CODE (temp3) == CONST_INT
+		      && ((INTVAL (temp2) & INTVAL (temp3)) == INTVAL (temp2)
+			  || ((INTVAL (temp2) & INTVAL (temp3)) == INTVAL (temp3)
+			      && (reversep = can_reverse_comparison_p (temp4,
+								       insn)))))
+		  || BRANCH_COST >= 3)
+#ifdef HAVE_cc0
+	      /* If the previous insn sets CC0 and something else, we can't
+		 do this since we are going to delete that insn.  */
+
+	      && ! ((temp6 = prev_nonnote_insn (insn)) != 0
+		    && GET_CODE (temp6) == INSN
+		    && (sets_cc0_p (PATTERN (temp6)) == -1
+			|| (sets_cc0_p (PATTERN (temp6)) == 1
+			    && FIND_REG_INC_NOTE (temp6, NULL_RTX))))
+#endif
+	      )
 	    {
 	      enum rtx_code code = GET_CODE (temp4);
-	      rtx yes = temp3, var = temp1;
+	      rtx uval, cval, var = temp1;
 	      int normalizep;
 	      rtx target;
 
 	      /* If necessary, reverse the condition.  */
-	      if (temp3 == const0_rtx)
-		code = reverse_condition (code), yes = temp2;
+	      if (reversep)
+		code = reverse_condition (code), uval = temp2, cval = temp3;
+	      else
+		uval = temp3, cval = temp2;
 
 	      /* See if we can do this with a store-flag insn. */
 	      start_sequence ();
 
-	      /* If YES is the constant 1, it is best to just compute
-		 the result directly.  If YES is constant and STORE_FLAG_VALUE
+	      /* If CVAL is non-zero, normalize to -1.  Otherwise,
+		 if UVAL is the constant 1, it is best to just compute
+		 the result directly.  If UVAL is constant and STORE_FLAG_VALUE
 		 includes all of its bits, it is best to compute the flag
-		 value unnormalized and `and' it with YES.  Otherwise,
-		 normalize to -1 and `and' with YES.  */
-	      normalizep = (yes == const1_rtx ? 1
-			    : (GET_CODE (yes) == CONST_INT
-			       && (INTVAL (yes) & ~ STORE_FLAG_VALUE) == 0) ? 0
-			    : -1);
+		 value unnormalized and `and' it with UVAL.  Otherwise,
+		 normalize to -1 and `and' with UVAL.  */
+	      normalizep = (cval != const0_rtx ? -1
+			    : (uval == const1_rtx ? 1
+			       : (GET_CODE (uval) == CONST_INT
+				  && (INTVAL (uval) & ~STORE_FLAG_VALUE) == 0)
+			       ? 0 : -1));
 
 	      /* We will be putting the store-flag insn immediately in
 		 front of the comparison that was originally being done,
@@ -897,22 +1100,78 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 					normalizep);
 	      if (target)
 		{
+		  rtx before = insn;
 		  rtx seq;
 
-		  if (normalizep != 1)
-		    target = expand_and (yes, target,
-					 (GET_CODE (target) == REG
-					  ? target : 0));
-		  seq = gen_sequence ();
+		  /* Put the store-flag insns in front of the first insn
+		     used to compute the condition to ensure that we
+		     use the same values of them as the current 
+		     comparison.  However, the remainder of the insns we
+		     generate will be placed directly in front of the
+		     jump insn, in case any of the pseudos we use
+		     are modified earlier.  */
+
+		  seq = get_insns ();
 		  end_sequence ();
-		  emit_insn_before (seq, temp5);
-		  emit_insn_after (gen_move_insn (var, target), insn);
+
+		  emit_insns_before (seq, temp5);
+
+		  start_sequence ();
+
+		  /* Both CVAL and UVAL are non-zero.  */
+		  if (cval != const0_rtx && uval != const0_rtx)
+		    {
+		      rtx tem1, tem2;
+
+		      tem1 = expand_and (uval, target, NULL_RTX);
+		      if (GET_CODE (cval) == CONST_INT
+			  && GET_CODE (uval) == CONST_INT
+			  && (INTVAL (cval) & INTVAL (uval)) == INTVAL (cval))
+			tem2 = cval;
+		      else
+			{
+			  tem2 = expand_unop (GET_MODE (var), one_cmpl_optab,
+					      target, NULL_RTX, 0);
+			  tem2 = expand_and (cval, tem2,
+					     (GET_CODE (tem2) == REG
+					      ? tem2 : 0));
+			}
+
+		      /* If we usually make new pseudos, do so here.  This
+			 turns out to help machines that have conditional
+			 move insns.  */
+
+		      if (flag_expensive_optimizations)
+			target = 0;
+
+		      target = expand_binop (GET_MODE (var), ior_optab,
+					     tem1, tem2, target,
+					     1, OPTAB_WIDEN);
+		    }
+		  else if (normalizep != 1)
+		    target = expand_and (uval, target,
+					 (GET_CODE (target) == REG
+					  && ! preserve_subexpressions_p ()
+					  ? target : NULL_RTX));
+		  
+		  emit_move_insn (var, target);
+		  seq = get_insns ();
+		  end_sequence ();
+
+#ifdef HAVE_cc0
+		  /* If INSN uses CC0, we must not separate it from the
+		     insn that sets cc0.  */
+
+		  if (reg_mentioned_p (cc0_rtx, PATTERN (before)))
+		    before = prev_nonnote_insn (before);
+#endif
+
+		  emit_insns_before (seq, before);
+
 		  delete_insn (temp);
 		  next = NEXT_INSN (insn);
-#ifdef HAVE_cc0
-		  delete_insn (prev_nonnote_insn (insn));
-#endif
-		  delete_insn (insn);
+
+		  delete_jump (insn);
 		  changed = 1;
 		  continue;
 		}
@@ -950,6 +1209,10 @@ jump_optimize (f, cross_jump, noop_moves, after_regscan)
 		      && simplejump_p (temp3)
 		      && JUMP_LABEL (temp3) == JUMP_LABEL (insn)))
 	      && (temp3 = get_condition (insn, &temp4)) != 0
+	      /* We must be comparing objects whose modes imply the size.
+		 We could handle BLKmode if (1) emit_store_flag could
+		 and (2) we could find the size reliably.  */
+	      && GET_MODE (XEXP (temp3, 0)) != BLKmode
 	      && can_reverse_comparison_p (temp3, insn))
 	    {
 	      rtx temp6, target = 0, seq, init_insn = 0, init = temp2;
@@ -1718,8 +1981,8 @@ duplicate_loop_exit_test (loop_start)
 	case JUMP_INSN:
 	case INSN:
 	  if (++num_insns > 20
-	      || find_reg_note (insn, REG_RETVAL, 0)
-	      || find_reg_note (insn, REG_LIBCALL, 0))
+	      || find_reg_note (insn, REG_RETVAL, NULL_RTX)
+	      || find_reg_note (insn, REG_LIBCALL, NULL_RTX))
 	    return 0;
 	  break;
 	}
@@ -1996,10 +2259,10 @@ find_cross_jump (e1, e2, minimum, f1, f2)
 	  rtx equiv2;
 
 	  if (!lose && GET_CODE (p1) == GET_CODE (p2)
-	      && ((equiv1 = find_reg_note (i1, REG_EQUAL, 0)) != 0
-		  || (equiv1 = find_reg_note (i1, REG_EQUIV, 0)) != 0)
-	      && ((equiv2 = find_reg_note (i2, REG_EQUAL, 0)) != 0
-		  || (equiv2 = find_reg_note (i2, REG_EQUIV, 0)) != 0)
+	      && ((equiv1 = find_reg_note (i1, REG_EQUAL, NULL_RTX)) != 0
+		  || (equiv1 = find_reg_note (i1, REG_EQUIV, NULL_RTX)) != 0)
+	      && ((equiv2 = find_reg_note (i2, REG_EQUAL, NULL_RTX)) != 0
+		  || (equiv2 = find_reg_note (i2, REG_EQUIV, NULL_RTX)) != 0)
 	      /* If the equivalences are not to a constant, they may
 		 reference pseudos that no longer exist, so we can't
 		 use them.  */
@@ -2694,6 +2957,9 @@ mark_jump_label (x, insn, cross_jump)
 	register rtx next;
 	if (GET_CODE (label) != CODE_LABEL)
 	  abort ();
+	/* Ignore references to labels of containing functions.  */
+	if (LABEL_REF_NONLOCAL_P (x))
+	  break;
 	/* If there are other labels following this one,
 	   replace it with the last of the consecutive labels.  */
 	for (next = NEXT_INSN (label); next; next = NEXT_INSN (next))
@@ -2728,8 +2994,13 @@ mark_jump_label (x, insn, cross_jump)
 		    || ! (GET_CODE (next) == JUMP_INSN
 			  && (GET_CODE (PATTERN (next)) == ADDR_VEC
 			      || GET_CODE (PATTERN (next)) == ADDR_DIFF_VEC)))
-		  REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_LABEL, label,
-					      REG_NOTES (insn));
+		  {
+		    REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_LABEL, label,
+						REG_NOTES (insn));
+		    /* Record in the note whether label is nonlocal.  */
+		    LABEL_REF_NONLOCAL_P (REG_NOTES (insn))
+		      = LABEL_REF_NONLOCAL_P (x);
+		  }
 	      }
 	  }
 	return;
@@ -2743,7 +3014,7 @@ mark_jump_label (x, insn, cross_jump)
 	int eltnum = code == ADDR_DIFF_VEC ? 1 : 0;
 
 	for (i = 0; i < XVECLEN (x, eltnum); i++)
-	  mark_jump_label (XVECEXP (x, eltnum, i), 0, cross_jump);
+	  mark_jump_label (XVECEXP (x, eltnum, i), NULL_RTX, cross_jump);
 	return;
       }
     }
@@ -2771,13 +3042,12 @@ delete_jump (insn)
      rtx insn;
 {
   register rtx x = PATTERN (insn);
-  register rtx prev;
 
   if (GET_CODE (x) == SET
       && GET_CODE (SET_DEST (x)) == PC)
     {
-      prev = prev_nonnote_insn (insn);
 #ifdef HAVE_cc0
+      rtx prev = prev_nonnote_insn (insn);
       /* We assume that at this stage
 	 CC's are always set explicitly
 	 and always immediately before the jump that
@@ -2788,94 +3058,107 @@ delete_jump (insn)
 	  && sets_cc0_p (PATTERN (prev)))
 	{
 	  if (sets_cc0_p (PATTERN (prev)) > 0
-	      && !FIND_REG_INC_NOTE (prev, 0))
+	      && !FIND_REG_INC_NOTE (prev, NULL_RTX))
 	    delete_insn (prev);
 	  else
 	    /* Otherwise, show that cc0 won't be used.  */
 	    REG_NOTES (prev) = gen_rtx (EXPR_LIST, REG_UNUSED,
 					cc0_rtx, REG_NOTES (prev));
 	}
-#else
-      {
-	rtx note;
-
-	/* If we are running before flow.c, we need do nothing since flow.c
-	   will delete the set of the condition code if it is dead.  We also
-	   can't know if the register being used as the condition code is
-	   dead or not at this point.
-
-	   Otherwise, look at all our REG_DEAD notes.  If a previous insn
-	   does nothing other than set a register that dies in this jump,
-	   we can delete the insn.  */
-
-	for (note = REG_NOTES (insn); note; note = XEXP (note, 1))
-	  {
-	    rtx our_prev;
-
-	    if (REG_NOTE_KIND (note) != REG_DEAD
-		/* Verify that the REG_NOTE has a legal value.  */
-		|| GET_CODE (XEXP (note, 0)) != REG)
-	      continue;
-
-	    for (our_prev = prev_nonnote_insn (insn);
-		 our_prev && GET_CODE (our_prev) == INSN;
-		 our_prev = prev_nonnote_insn (our_prev))
-	      {
-		/* If we reach a SEQUENCE, it is too complex to try to
-		   do anything with it, so give up.  */
-		if (GET_CODE (PATTERN (our_prev)) == SEQUENCE)
-		  break;
-
-		if (GET_CODE (PATTERN (our_prev)) == USE
-		    && GET_CODE (XEXP (PATTERN (our_prev), 0)) == INSN)
-		  /* reorg creates USEs that look like this.  We leave them
-		     alone because reorg needs them for its own purposes.  */
-		  break;
-
-		if (reg_set_p (XEXP (note, 0), PATTERN (our_prev)))
-		  {
-		    if (FIND_REG_INC_NOTE (our_prev, 0))
-		      break;
-
-		    if (GET_CODE (PATTERN (our_prev)) == PARALLEL)
-		      {
-			/* If we find a SET of something else, we can't
-			   delete the insn.  */
-
-			int i;
-
-			for (i = 0; i < XVECLEN (PATTERN (our_prev), 0); i++)
-			  {
-			    rtx part = XVECEXP (PATTERN (our_prev), 0, i);
-
-			    if (GET_CODE (part) == SET
-				&& SET_DEST (part) != XEXP (note, 0))
-			      break;
-			  }
-
-			if (i == XVECLEN (PATTERN (our_prev), 0))
-			  delete_insn (our_prev);
-		      }
-		    else if (GET_CODE (PATTERN (our_prev)) == SET
-			     && SET_DEST (PATTERN (our_prev)) == XEXP (note, 0))
-		      delete_insn (our_prev);
-
-		    break;
-		  }
-
-		/* If OUR_PREV references the register that dies here,
-		   it is an additional use.  Hence any prior SET isn't
-		   dead.  */
-		if (reg_overlap_mentioned_p (XEXP (note, 0),
-					     PATTERN (our_prev)))
-		  break;
-	      }
-	  }
-      }
 #endif
       /* Now delete the jump insn itself.  */
-      delete_insn (insn);
+      delete_computation (insn);
     }
+}
+
+/* Delete INSN and recursively delete insns that compute values used only
+   by INSN.  This uses the REG_DEAD notes computed during flow analysis.
+   If we are running before flow.c, we need do nothing since flow.c will
+   delete dead code.  We also can't know if the registers being used are
+   dead or not at this point.
+
+   Otherwise, look at all our REG_DEAD notes.  If a previous insn does
+   nothing other than set a register that dies in this insn, we can delete
+   that insn as well.  */
+
+void
+delete_computation (insn)
+     rtx insn;
+{
+#ifndef HAVE_cc0
+  rtx note, next;
+
+  for (note = REG_NOTES (insn); note; note = next)
+    {
+      rtx our_prev;
+
+      next = XEXP (note, 1);
+
+      if (REG_NOTE_KIND (note) != REG_DEAD
+	  /* Verify that the REG_NOTE is legitimate.  */
+	  || GET_CODE (XEXP (note, 0)) != REG)
+	continue;
+
+      for (our_prev = prev_nonnote_insn (insn);
+	   our_prev && GET_CODE (our_prev) == INSN;
+	   our_prev = prev_nonnote_insn (our_prev))
+	{
+	  /* If we reach a SEQUENCE, it is too complex to try to
+	     do anything with it, so give up.  */
+	  if (GET_CODE (PATTERN (our_prev)) == SEQUENCE)
+	    break;
+
+	  if (GET_CODE (PATTERN (our_prev)) == USE
+	      && GET_CODE (XEXP (PATTERN (our_prev), 0)) == INSN)
+	    /* reorg creates USEs that look like this.  We leave them
+	       alone because reorg needs them for its own purposes.  */
+	    break;
+
+	  if (reg_set_p (XEXP (note, 0), PATTERN (our_prev)))
+	    {
+	      if (FIND_REG_INC_NOTE (our_prev, NULL_RTX))
+		break;
+
+	      if (GET_CODE (PATTERN (our_prev)) == PARALLEL)
+		{
+		  /* If we find a SET of something else, we can't
+		     delete the insn.  */
+
+		  int i;
+
+		  for (i = 0; i < XVECLEN (PATTERN (our_prev), 0); i++)
+		    {
+		      rtx part = XVECEXP (PATTERN (our_prev), 0, i);
+
+		      if (GET_CODE (part) == SET
+			  && SET_DEST (part) != XEXP (note, 0))
+			break;
+		    }
+
+		  if (i == XVECLEN (PATTERN (our_prev), 0))
+		    delete_computation (our_prev);
+		}
+	      else if (GET_CODE (PATTERN (our_prev)) == SET
+		       && SET_DEST (PATTERN (our_prev)) == XEXP (note, 0))
+		delete_computation (our_prev);
+
+	      break;
+	    }
+
+	  /* If OUR_PREV references the register that dies here, it is an
+	     additional use.  Hence any prior SET isn't dead.  However, this
+	     insn becomes the new place for the REG_DEAD note.  */
+	  if (reg_overlap_mentioned_p (XEXP (note, 0),
+				       PATTERN (our_prev)))
+	    {
+	      XEXP (note, 1) = REG_NOTES (our_prev);
+	      REG_NOTES (our_prev) = note;
+	      break;
+	    }
+	}
+    }
+#endif /* Don't HAVE_cc0 */
+  delete_insn (insn);
 }
 
 /* Delete insn INSN from the chain of insns and update label ref counts.
@@ -2890,6 +3173,8 @@ delete_insn (insn)
 {
   register rtx next = NEXT_INSN (insn);
   register rtx prev = PREV_INSN (insn);
+  register int was_code_label = (GET_CODE (insn) == CODE_LABEL);
+  register int dont_really_delete = 0;
 
   while (next && INSN_DELETED_P (next))
     next = NEXT_INSN (next);
@@ -2898,9 +3183,19 @@ delete_insn (insn)
   if (INSN_DELETED_P (insn))
     return next;
 
-  /* Mark this insn as deleted.  */
-
-  INSN_DELETED_P (insn) = 1;
+  /* Don't delete user-declared labels.  Convert them to special NOTEs
+     instead.  */
+  if (was_code_label && LABEL_NAME (insn) != 0
+      && optimize && ! dont_really_delete)
+    {
+      PUT_CODE (insn, NOTE);
+      NOTE_LINE_NUMBER (insn) = NOTE_INSN_DELETED_LABEL;
+      NOTE_SOURCE_FILE (insn) = 0;
+      dont_really_delete = 1;
+    }
+  else
+    /* Mark this insn as deleted.  */
+    INSN_DELETED_P (insn) = 1;
 
   /* If this is an unconditional jump, delete it from the jump chain.  */
   if (simplejump_p (insn))
@@ -2917,7 +3212,7 @@ delete_insn (insn)
 
   /* Patch out INSN (and the barrier if any) */
 
-  if (optimize)
+  if (optimize && ! dont_really_delete)
     {
       if (prev)
 	{
@@ -2964,7 +3259,7 @@ delete_insn (insn)
      delete the dispatch table.  The tablejump must have gone already.
      It isn't useful to fall through into a table.  */
 
-  if (GET_CODE (insn) == CODE_LABEL
+  if (was_code_label
       && NEXT_INSN (insn) != 0
       && GET_CODE (NEXT_INSN (insn)) == JUMP_INSN
       && (GET_CODE (PATTERN (NEXT_INSN (insn))) == ADDR_VEC
@@ -2973,8 +3268,7 @@ delete_insn (insn)
 
   /* If INSN was a label, delete insns following it if now unreachable.  */
 
-  if (GET_CODE (insn) == CODE_LABEL && prev
-      && GET_CODE (prev) == BARRIER)
+  if (was_code_label && prev && GET_CODE (prev) == BARRIER)
     {
       register RTX_CODE code;
       while (next != 0
@@ -3086,7 +3380,7 @@ invert_jump (jump, nlabel)
    Return 1 if we can do so, 0 if we cannot find a way to do so that
    matches a pattern.  */
 
-static int
+int
 invert_exp (x, insn)
      rtx x;
      rtx insn;
@@ -3234,7 +3528,7 @@ delete_from_jump_chain (jump)
    Return 0 if we found a change we would like to make but it is invalid.
    Otherwise, return 1.  */
 
-static int
+int
 redirect_exp (loc, olabel, nlabel, insn)
      rtx *loc;
      rtx olabel, nlabel;
@@ -3430,6 +3724,9 @@ rtx_renumbered_equal_p (x, y)
       return XINT (x, 0) == XINT (y, 0);
 
     case LABEL_REF:
+      /* We can't assume nonlocal labels have their following insns yet.  */
+      if (LABEL_REF_NONLOCAL_P (x) || LABEL_REF_NONLOCAL_P (y))
+	return XEXP (x, 0) == XEXP (y, 0);
       /* Two label-refs are equivalent if they point at labels
 	 in the same position in the instruction stream.  */
       return (next_real_insn (XEXP (x, 0))
@@ -3453,6 +3750,11 @@ rtx_renumbered_equal_p (x, y)
       register int j;
       switch (fmt[i])
 	{
+	case 'w':
+	  if (XWINT (x, i) != XWINT (y, i))
+	    return 0;
+	  break;
+
 	case 'i':
 	  if (XINT (x, i) != XINT (y, i))
 	    return 0;
@@ -3865,6 +4167,11 @@ rtx_equal_for_thread_p (x, y, yinsn)
     {
       switch (fmt[i])
 	{
+	case 'w':
+	  if (XWINT (x, i) != XWINT (y, i))
+	    return 0;
+	  break;
+
 	case 'n':
 	case 'i':
 	  if (XINT (x, i) != XINT (y, i))

@@ -60,7 +60,7 @@ extern int target_flags;
    since there are no machine instructions for them.  */
 #define WORDS_BIG_ENDIAN 1
 
-/* number of bits in an addressible storage unit */
+/* number of bits in an addressable storage unit */
 #define BITS_PER_UNIT 8
 
 /* Width in bits of a "word", which is the contents of a machine register.
@@ -105,6 +105,9 @@ extern int target_flags;
 /* Integer bit fields should have the same size and alignment
    as actual integers */
 #define PCC_BITFIELD_TYPE_MATTERS 1
+
+/* Specify the size_t type.  */
+#define SIZE_TYPE "unsigned int"
 
 /* Standard register usage.  */
 

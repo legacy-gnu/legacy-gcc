@@ -154,6 +154,11 @@ DEF_RTL_EXPR(MATCH_PARALLEL, "match_parallel", "isE", 'm')
 DEF_RTL_EXPR(MATCH_OP_DUP, "match_op_dup", "iE", 'm')
 
 /* Appears only in machine descriptions.
+   Means match only something equal to what is stored in the operand table
+   at the index specified by the argument.  For MATCH_PARALLEL.  */
+DEF_RTL_EXPR(MATCH_PAR_DUP, "match_par_dup", "iE", 'm')
+
+/* Appears only in machine descriptions.
    Defines the pattern for one kind of instruction.
    Operand:
    0: names this instruction.
@@ -231,7 +236,7 @@ DEF_RTL_EXPR(DEFINE_DELAY, "define_delay", "eE", 'x')
    Each gives a set of operations and associated delays.  The first three
    operands must be the same for each operation for the same function unit.
 
-   All delays are specified in units of COST_PER_CYCLE.
+   All delays are specified in cycles.
 
    1st operand: Name of function unit (mostly for documentation)
    2nd operand: Number of identical function units in CPU
@@ -245,19 +250,21 @@ DEF_RTL_EXPR(DEFINE_DELAY, "define_delay", "eE", 'x')
 		executing this operation.  The meaning depends on whether or
 		not the next operand is supplied.
    7th operand: If this operand is not specified, the 6th operand gives the
-		cost of scheduling another operation on this unit while a
-		previous one is active.  A value of zero should be used for a
-		pipelined unit.  If only one operation can be executed a time
-		and the unit is busy for the entire time, the 3rd operand
-		should be specified as 1 and the 6th and 7th operands will
-		be ignored.
+		number of cycles after the instruction matching the 4th
+		operand begins using the function unit until a subsequent
+		insn can begin.  A value of zero should be used for a
+		unit with no issue constraints.  If only one operation can
+		be executed a time and the unit is busy for the entire time,
+		the 3rd operand should be specified as 1, the 6th operand
+		sould be specified as 0, and the 7th operand should not
+		be specified.
 
 		If this operand is specified, it is a list of attribute
 		expressions.  If an insn for which any of these expressions
 		is true is currently executing on the function unit, the
-		delay will be given by the 6th operand.  Otherwise, the
-		insn can be immediately scheduled (subject to the limit on
-		the number of simultaneous operations executing on the
+		issue delay will be given by the 6th operand.  Otherwise,
+		the insn can be immediately scheduled (subject to the limit
+		on the number of simultaneous operations executing on the
 		unit.)  */
 DEF_RTL_EXPR(DEFINE_FUNCTION_UNIT, "define_function_unit", "siieiiV", 'x')
 
@@ -464,7 +471,7 @@ DEF_RTL_EXPR(TRAP_IF, "trap_if", "ei", 'x')
    ---------------------------------------------------------------------- */
 
 /* numeric integer constant */
-DEF_RTL_EXPR(CONST_INT, "const_int", "i", 'o')
+DEF_RTL_EXPR(CONST_INT, "const_int", "w", 'o')
 
 /* numeric double constant.
    Operand 0 is the MEM that stores this constant in memory,
@@ -473,7 +480,7 @@ DEF_RTL_EXPR(CONST_INT, "const_int", "i", 'o')
    Remaining operands hold the actual value.
    The number of operands may be more than 2 if cross-compiling;
    see init_rtl.  */
-DEF_RTL_EXPR(CONST_DOUBLE, "const_double", "e0ii", 'o')
+DEF_RTL_EXPR(CONST_DOUBLE, "const_double", "e0ww", 'o')
 
 /* String constant.  Used only for attributes right now.  */
 DEF_RTL_EXPR(CONST_STRING, "const_string", "s", 'o')

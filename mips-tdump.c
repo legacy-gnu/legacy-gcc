@@ -24,8 +24,21 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include <sys/file.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <a.out.h>
 #include "config.h"
+
+#ifdef index
+#undef index
+#undef rindex
+#endif
+#ifndef CROSS_COMPILE
+#include <a.out.h>
+#else
+#include "symconst.h"
+#define LANGUAGE_C
+#include "sym.h"
+#include "filehdr.h"
+#define ST_RFDESCAPE    0xfff
+#endif
 
 #ifdef __STDC__
 typedef void *PTR_T;
@@ -50,6 +63,7 @@ typedef char *CPTR_T;
 #define ushort	unsigned short
 #define uint	unsigned int
 #define ulong	unsigned long
+
 
 /* Do to size_t being defined in sys/types.h and different
    in stddef.h, we have to do this by hand.....  Note, these

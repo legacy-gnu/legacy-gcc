@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler.
-   Encore Multimax (OSF/1 with OSF/rose) version.
+   Intel 386 (OSF/1 with OSF/rose) version.
    Copyright (C) 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
@@ -18,28 +18,34 @@ You should have received a copy of the GNU General Public License
 along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
+/* Put leading underscores in front of names. */
+#define YES_UNDERSCORES
+
 #include "halfpic.h"
-#include "i386gas.h"
+#include "i386gstabs.h"
 
 #define OSF_OS
 
-/* Use a more friendly abort which prints internal compiler error,
-   rather than just dumping core.  */
+#undef  WORD_SWITCH_TAKES_ARG
+#define WORD_SWITCH_TAKES_ARG(STR)					\
+ (!strcmp (STR, "Tdata") || !strcmp (STR, "Ttext")			\
+  || !strcmp (STR, "Tbss") || !strcmp (STR, "include")			\
+  || !strcmp (STR, "imacros") || !strcmp (STR, "aux-info")		\
+  || !strcmp (STR, "pic-names"))
 
-#ifndef abort
-#define abort fancy_abort
-#endif
+#define MASK_HALF_PIC     	0x40000000	/* Mask for half-pic code */
+#define MASK_HALF_PIC_DEBUG	0x20000000	/* Debug flag */
 
-#define MASK_HALF_PIC     0x00000100  /* Mask for half-pic code */
-#define TARGET_HALF_PIC   (target_flags & MASK_HALF_PIC)
+#define TARGET_HALF_PIC	(target_flags & MASK_HALF_PIC)
+#define TARGET_DEBUG	(target_flags & MASK_HALF_PIC_DEBUG)
+#define HALF_PIC_DEBUG	TARGET_DEBUG
 
-#ifdef SUBTARGET_SWITCHES
-#undef SUBTARGET_SWITCHES
-#endif
+#undef	SUBTARGET_SWITCHES
 #define SUBTARGET_SWITCHES \
-     { "half-pic",     MASK_HALF_PIC},    \
-     { "no-half-pic", -MASK_HALF_PIC},
- 
+     { "half-pic",	 MASK_HALF_PIC},				\
+     { "no-half-pic",	-MASK_HALF_PIC},				\
+     { "debugb",	 MASK_HALF_PIC_DEBUG},
+
 /* Prefix that appears before all global/static identifiers, except for
    temporary labels.  */
 
@@ -51,14 +57,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define IDENTIFIER_SUFFIX ""
 
 /* Change default predefines.  */
-#ifdef CPP_PREDEFINES
-#undef CPP_PREDEFINES
-#endif
+#undef	CPP_PREDEFINES
 #define CPP_PREDEFINES "-DOSF -DOSF1 -Dunix -Di386"
 
-#ifdef  CPP_SPEC
 #undef  CPP_SPEC
-#endif
 #define CPP_SPEC "\
 %{.S:	-D__LANGUAGE_ASSEMBLY %{!ansi:-DLANGUAGE_ASSEMBLY}} \
 %{.cc:	-D__LANGUAGE_C_PLUS_PLUS} \
@@ -67,59 +69,58 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 %{.m:	-D__LANGUAGE_OBJECTIVE_C} \
 %{!.S:	-D__LANGUAGE_C %{!ansi:-DLANGUAGE_C}}"
 
-#ifdef  CC1_SPEC
+/* Turn on -mpic-extern by default.  */
 #undef  CC1_SPEC
-#endif
-#define CC1_SPEC                 \
-  "%{pic-none:    -mno-half-pic} \
-   %{pic-lib:     -mhalf-pic}    \
-   %{pic-extern:  -mhalf-pic}    \
-   %{pic-calls:   -mhalf-pic}"
+#define CC1_SPEC "\
+%{gline:%{!g:%{!g0:%{!g1:%{!g2: -g1}}}}} \
+%{pic-none:   -mno-half-pic} \
+%{pic-lib:    -mhalf-pic} \
+%{pic-extern: -mhalf-pic} \
+%{pic-calls:  -mhalf-pic} \
+%{pic-names*: -mhalf-pic} \
+%{!pic-*:     -mhalf-pic}"
 
-#ifdef ASM_SPEC
-#undef ASM_SPEC
-#endif
+#undef	ASM_SPEC
 #define ASM_SPEC       ""
 
-#ifdef  LINK_SPEC
 #undef  LINK_SPEC
-#endif
 #define LINK_SPEC      "%{v*: -v}                           \
 	               %{!noshrlib: %{pic-none: -noshrlib} %{!pic-none: -warn_nopic}} \
 	               %{nostdlib} %{noshrlib} %{glue}"
 
-#ifdef  LIB_SPEC
 #undef  LIB_SPEC
-#endif
-
 #define LIB_SPEC "-lc"
 
-#ifdef  LIBG_SPEC
 #undef  LIBG_SPEC
-#endif
-#define LIBG_SPEC      ""
+#define LIBG_SPEC ""
 
-#ifdef  STARTFILE_SPEC
 #undef  STARTFILE_SPEC
-#endif
 #define STARTFILE_SPEC "%{pg:gcrt0.o%s}%{!pg:%{p:mcrt0.o%s}%{!p:crt0.o%s}}"
 
-#ifdef  MACHINE_TYPE
-#undef  MACHINE_TYPE
-#endif
+#undef TARGET_VERSION_INTERNAL
+#undef TARGET_VERSION
 
-#define MACHINE_TYPE   ((!TARGET_486) ? "80386 running OSF/1 with OSF/rose objects" :  \
-                                        "80486 running OSF/1 with OSF/rose objects")
+#define I386_VERSION " 80386, OSF/rose objects"
 
-#ifdef  MD_EXEC_PREFIX
+#define TARGET_VERSION_INTERNAL(STREAM) fputs (I386_VERSION, STREAM)
+#define TARGET_VERSION TARGET_VERSION_INTERNAL (stderr)
+
 #undef  MD_EXEC_PREFIX
-#endif
 #define MD_EXEC_PREFIX		"/usr/ccs/gcc/"
 
-#ifdef  MD_STARTFILE_PREFIX
 #undef  MD_STARTFILE_PREFIX
-#endif
 #define MD_STARTFILE_PREFIX	"/usr/ccs/lib/"
+
+/* Specify size_t, ptrdiff_t, and wchar_t types.  */
+#undef	SIZE_TYPE
+#undef	PTRDIFF_TYPE
+#undef	WCHAR_TYPE
+#undef	WCHAR_TYPE_SIZE
+
+#define SIZE_TYPE	"long unsigned int"
+#define PTRDIFF_TYPE	"int"
+#define WCHAR_TYPE	"unsigned int"
+#define WCHAR_TYPE_SIZE BITS_PER_WORD
 
 /* Tell final.c we don't need a label passed to mcount.  */
 #define NO_PROFILE_DATA
@@ -139,26 +140,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define OPTIMIZATION_OPTIONS(LEVEL)					\
 {									\
-  flag_gnu_linker			= FALSE;			\
-									\
-  if (LEVEL)								\
-    {									\
-      flag_omit_frame_pointer		= TRUE;				\
-      flag_thread_jumps			= TRUE;				\
-    }									\
-									\
-  if (LEVEL >= 2)							\
-    {									\
-      flag_strength_reduce		= TRUE;				\
-      flag_cse_follow_jumps		= TRUE;				\
-      flag_expensive_optimizations	= TRUE;				\
-      flag_rerun_cse_after_loop		= TRUE;				\
-    }									\
+  flag_gnu_linker = FALSE;						\
 									\
   if (LEVEL >= 3)							\
-    {									\
-      flag_inline_functions		= TRUE;				\
-    }									\
+    flag_inline_functions = TRUE;					\
 }
 
 /* A C expression that is 1 if the RTX X is a constant which is a
@@ -171,11 +156,64 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    `high' expressions and `const' arithmetic expressions, in
    addition to `const_int' and `const_double' expressions.  */
 
-#ifdef CONSTANT_ADDRESS_P
-#undef CONSTANT_ADDRESS_P
-#endif
+#undef	CONSTANT_ADDRESS_P
 #define CONSTANT_ADDRESS_P(X)                                           \
   (CONSTANT_P (X) && (!HALF_PIC_P () || !HALF_PIC_ADDRESS_P (X)))
+
+/* Nonzero if the constant value X is a legitimate general operand.
+   It is given that X satisfies CONSTANT_P or is a CONST_DOUBLE.  */
+
+#undef	LEGITIMATE_CONSTANT_P
+#define LEGITIMATE_CONSTANT_P(X)					\
+  (!HALF_PIC_P ()							\
+   || GET_CODE (X) == CONST_DOUBLE					\
+   || GET_CODE (X) == CONST_INT						\
+   || !HALF_PIC_ADDRESS_P (X))
+
+/* GO_IF_LEGITIMATE_ADDRESS recognizes an RTL expression
+   that is a valid memory address for an instruction.
+   The MODE argument is the machine mode for the MEM expression
+   that wants to use this address. */
+
+#undef	GO_IF_LEGITIMATE_ADDRESS
+#define GO_IF_LEGITIMATE_ADDRESS(MODE, X, ADDR)				\
+{									\
+  if (CONSTANT_P (X))							\
+    {									\
+      if (! HALF_PIC_P () || ! HALF_PIC_ADDRESS_P (X))			\
+	goto ADDR;							\
+    }									\
+  else									\
+    {									\
+      GO_IF_INDEXING (X, ADDR);						\
+									\
+      if (GET_CODE (X) == PLUS)						\
+	{								\
+	  rtx x1 = XEXP (X, 1);						\
+									\
+	  if (CONSTANT_P (x1))						\
+	    {								\
+	      if (! HALF_PIC_P () || ! HALF_PIC_ADDRESS_P (x1))		\
+		{							\
+		  rtx x0 = XEXP (X, 0);					\
+		  GO_IF_INDEXING (x0, ADDR);				\
+		}							\
+	    }								\
+	}								\
+    }									\
+}
+
+/* Sometimes certain combinations of command options do not make sense
+   on a particular target machine.  You can define a macro
+   `OVERRIDE_OPTIONS' to take account of this.  This macro, if
+   defined, is executed once just after all the command options have
+   been parsed.  */
+
+#define OVERRIDE_OPTIONS						\
+{									\
+  if (TARGET_HALF_PIC)							\
+    half_pic_init ();							\
+}
 
 /* Define this macro if references to a symbol must be treated
    differently depending on something about the variable or
@@ -201,9 +239,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    the definition of `GO_IF_LEGITIMATE_ADDRESS' or
    `PRINT_OPERAND_ADDRESS'. */
 
-#ifdef ENCODE_SECTION_INFO
-#undef ENCODE_SECTION_INFO
-#endif
+#undef	ENCODE_SECTION_INFO
 #define ENCODE_SECTION_INFO(DECL)					\
 do									\
   {									\
@@ -211,6 +247,39 @@ do									\
       HALF_PIC_ENCODE (DECL);						\
   }									\
 while (0)
+
+
+/* Given a decl node or constant node, choose the section to output it in
+   and select that section.  */
+
+#undef	SELECT_RTX_SECTION
+#define SELECT_RTX_SECTION(MODE, RTX)					\
+do									\
+  {									\
+    if (MODE == Pmode && HALF_PIC_P () && HALF_PIC_ADDRESS_P (RTX))	\
+      data_section ();							\
+    else								\
+      readonly_data_section ();						\
+  }									\
+while (0)
+
+#undef	SELECT_SECTION
+#define SELECT_SECTION(DECL,RELOC)					\
+{									\
+  if (TREE_CODE (DECL) == STRING_CST)					\
+    {									\
+      if (flag_writable_strings)					\
+	data_section ();						\
+      else								\
+	readonly_data_section ();					\
+    }									\
+  else if (TREE_CODE (DECL) != VAR_DECL)				\
+    readonly_data_section ();						\
+  else if (!TREE_READONLY (DECL))					\
+    data_section ();							\
+  else									\
+    readonly_data_section ();						\
+}
 
 
 /* A C statement (sans semicolon) to output to the stdio stream
@@ -223,9 +292,7 @@ while (0)
    If this macro is not defined, then the variable name is defined
    in the usual manner as a label (by means of `ASM_OUTPUT_LABEL').  */
 
-#ifdef ASM_DECLARE_OBJECT_NAME
-#undef ASM_DECLARE_OBJECT_NAME
-#endif
+#undef	ASM_DECLARE_OBJECT_NAME
 #define ASM_DECLARE_OBJECT_NAME(STREAM, NAME, DECL)			\
 do									\
  {									\
@@ -244,8 +311,22 @@ do									\
  }									\
 while (0)
 
+/* This says what to print at the end of the assembly file */
+#define ASM_FILE_END(STREAM)						\
+do									\
+  {									\
+    if (HALF_PIC_P ())							\
+      HALF_PIC_FINISH (STREAM);						\
+  }									\
+while (0)
+
 /* Tell collect that the object format is OSF/rose.  */
 #define OBJECT_FORMAT_ROSE
+
+/* Tell collect where the appropriate binaries are.  */
+#define REAL_LD_FILE_NAME	"/usr/ccs/gcc/gld"
+#define REAL_NM_FILE_NAME	"/usr/ccs/bin/nm"
+#define REAL_STRIP_FILE_NAME	"/usr/ccs/bin/strip"
 
 /* Use atexit for static constructors/destructors, instead of defining
    our own exit function.  */
@@ -266,28 +347,46 @@ while (0)
 
 /* This is how to output an assembler line defining a `double' constant.  */
 
-#ifdef ASM_OUTPUT_DOUBLE
-#undef ASM_OUTPUT_DOUBLE
+#undef	ASM_OUTPUT_DOUBLE
+
+#ifndef	CROSS_COMPILE
+#define	ASM_OUTPUT_DOUBLE(STREAM, VALUE)				\
+do									\
+  {									\
+    long value_long[2];							\
+    REAL_VALUE_TO_TARGET_DOUBLE (VALUE, value_long);			\
+									\
+    fprintf (STREAM, "\t.long\t0x%08lx\t\t# %.20g\n\t.long\t0x%08lx\n",	\
+	   value_long[0], VALUE, value_long[1]);			\
+  }									\
+while (0)
+
+#else
+#define	ASM_OUTPUT_DOUBLE(STREAM, VALUE)				\
+  fprintf (STREAM, "\t.double\t%.20g\n", VALUE)
 #endif
-#define ASM_OUTPUT_DOUBLE(STREAM,VALUE)					\
-{									\
-  union { double d; long l[2]; } u2;					\
-  u2.d = VALUE;								\
-  fprintf (STREAM, "\t.long\t0x%08lx\t\t# %.20g\n\t.long\t0x%08lx\n",	\
-	   u2.l[0], u2.d, u2.l[1]);					\
-}
 
 /* This is how to output an assembler line defining a `float' constant.  */
 
-#ifdef ASM_OUTPUT_FLOAT
-#undef ASM_OUTPUT_FLOAT
+#undef	ASM_OUTPUT_FLOAT
+
+#ifndef	CROSS_COMPILE
+#define	ASM_OUTPUT_FLOAT(STREAM, VALUE)					\
+do									\
+  {									\
+    long value_long;							\
+    REAL_VALUE_TO_TARGET_SINGLE (VALUE, value_long);			\
+									\
+    fprintf (STREAM, "\t.long\t0x%08lx\t\t# %.12g (float)\n",		\
+	   value_long, VALUE);						\
+  }									\
+while (0)
+
+#else
+#define	ASM_OUTPUT_FLOAT(STREAM, VALUE)					\
+  fprintf (STREAM, "\t.float\t%.12g\n", VALUE)
 #endif
-#define ASM_OUTPUT_FLOAT(STREAM,VALUE)					\
-{									\
-  union { float f; long l; } u2;					\
-  u2.f = VALUE;								\
-  fprintf (STREAM, "\t.long\t0x%08lx\t\t# %.12g\n", u2.l, u2.f);	\
-}
+
 
 /* Generate calls to memcpy, etc., not bcopy, etc. */
 #define TARGET_MEM_FUNCTIONS
@@ -295,6 +394,10 @@ while (0)
 
 
 /* Defines to be able to build libgcc.a with GCC.  */
+
+/* It might seem that these are not important, since gcc 2 will never
+   call libgcc for these functions.  But programs might be linked with
+   code compiled by gcc 1, and then these will be used.  */
 
 #define perform_udivsi3(a,b)						\
 {									\
@@ -343,15 +446,18 @@ while (0)
   auto unsigned short ostatus;						\
   auto unsigned short nstatus;						\
   auto int ret;								\
+  auto double tmp;							\
 									\
   &ostatus;			/* guarantee these land in memory */	\
   &nstatus;								\
   &ret;									\
+  &tmp;									\
 									\
   asm volatile ("fnstcw %0" : "=m" (ostatus));				\
   nstatus = ostatus | 0x0c00;						\
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
-  asm volatile ("fldl %0" : /* no outputs */ : "m" (a));		\
+  tmp = a;								\
+  asm volatile ("fldl %0" : /* no outputs */ : "m" (tmp));		\
   asm volatile ("fistpl %0" : "=m" (ret));				\
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (ostatus));		\
 									\

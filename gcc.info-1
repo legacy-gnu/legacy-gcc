@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.47 from the input
+This is Info file gcc.info, produced by Makeinfo-1.49 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -11,17 +11,18 @@ preserved on all copies.
 
    Permission is granted to copy and distribute modified versions of
 this manual under the conditions for verbatim copying, provided also
-that the sections entitled "GNU General Public License" and "Boycott"
-are included exactly as in the original, and provided that the entire
-resulting derived work is distributed under the terms of a permission
-notice identical to this one.
+that the sections entitled "GNU General Public License" and "Protect
+Your Freedom--Fight `Look And Feel'" are included exactly as in the
+original, and provided that the entire resulting derived work is
+distributed under the terms of a permission notice identical to this
+one.
 
    Permission is granted to copy and distribute translations of this
 manual into another language, under the above conditions for modified
 versions, except that the sections entitled "GNU General Public
-License" and "Boycott", and this permission notice, may be included in
-translations approved by the Free Software Foundation instead of in the
-original English.
+License" and "Protect Your Freedom--Fight `Look And Feel'", and this
+permission notice, may be included in translations approved by the Free
+Software Foundation instead of in the original English.
 
 
 File: gcc.info,  Node: Top,  Next: Copying,  Up: (DIR)
@@ -31,7 +32,7 @@ Introduction
 
    This manual documents how to run, install and port the GNU C
 compiler, as well as its new features and incompatibilities, and how to
-report bugs. It corresponds to GNU CC version 2.2.
+report bugs. It corresponds to GNU CC version 2.3.
 
 * Menu:
 
@@ -353,8 +354,8 @@ modification follow.
 
                       END OF TERMS AND CONDITIONS
 
-Appendix: How to Apply These Terms to Your New Programs
-=======================================================
+How to Apply These Terms to Your New Programs
+=============================================
 
    If you develop a new program, and you want it to be of the greatest
 possible use to the public, the best way to achieve this is to make it
@@ -366,13 +367,13 @@ to attach them to the start of each source file to most effectively
 convey the exclusion of warranty; and each file should have at least
 the "copyright" line and a pointer to where the full notice is found.
 
-     ONE LINE TO GIVE THE PROGRAM'S NAME AND A BRIEF IDEA OF WHAT IT DOES.
+     ONE LINE TO GIVE THE PROGRAM'S NAME AND AN IDEA OF WHAT IT DOES.
      Copyright (C) 19YY  NAME OF AUTHOR
      
-     This program is free software; you can redistribute it and/or modify
-     it under the terms of the GNU General Public License as published by
-     the Free Software Foundation; either version 2 of the License, or
-     (at your option) any later version.
+     This program is free software; you can redistribute it and/or
+     modify it under the terms of the GNU General Public License
+     as published by the Free Software Foundation; either version 2
+     of the License, or (at your option) any later version.
      
      This program is distributed in the hope that it will be useful,
      but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -390,9 +391,10 @@ mail.
 this when it starts in an interactive mode:
 
      Gnomovision version 69, Copyright (C) 19YY NAME OF AUTHOR
-     Gnomovision comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
-     This is free software, and you are welcome to redistribute it
-     under certain conditions; type `show c' for details.
+     Gnomovision comes with ABSOLUTELY NO WARRANTY; for details
+     type `show w'.  This is free software, and you are welcome
+     to redistribute it under certain conditions; type `show c'
+     for details.
 
    The hypothetical commands `show w' and `show c' should show the
 appropriate parts of the General Public License.  Of course, the
@@ -404,8 +406,10 @@ program.
 your school, if any, to sign a "copyright disclaimer" for the program,
 if necessary.  Here is a sample; alter the names:
 
-     Yoyodyne, Inc., hereby disclaims all copyright interest in the program
-     `Gnomovision' (which makes passes at compilers) written by James Hacker.
+     Yoyodyne, Inc., hereby disclaims all copyright
+     interest in the program `Gnomovision'
+     (which makes passes at compilers) written
+     by James Hacker.
      
      SIGNATURE OF TY COON, 1 April 1989
      Ty Coon, President of Vice
@@ -483,13 +487,14 @@ of GNU CC.
 
    * Gary Miller ported GNU CC to Charles River Data Systems machines.
 
-   * Richard Kenner of New York University wrote the machine
-     descriptions for the AMD 29000, the IBM RT PC, and the IBM RS/6000
-     as well as the support for instruction attributes.  He also made
-     changes to better support RISC processors including changes to
-     common subexpression elimination, strength reduction, function
-     calling sequence handling, and condition code support, in addition
-     to generalizing the code for frame pointer elimination.
+   * Richard Kenner of the New York University Ultracomputer Research
+     Laboratory wrote the machine descriptions for the AMD 29000, the
+     DEC Alpha, the IBM RT PC, and the IBM RS/6000 as well as the
+     support for instruction attributes.  He also made changes to
+     better support RISC processors including changes to common
+     subexpression elimination, strength reduction, function calling
+     sequence handling, and condition code support, in addition to
+     generalizing the code for frame pointer elimination.
 
    * Richard Kenner and Michael Tiemann jointly developed reorg.c, the
      delay slot scheduler.
@@ -509,14 +514,16 @@ of GNU CC.
    * Mike Meissner at the Open Software Foundation finished the port to
      the MIPS cpu, including adding ECOFF debug support.
 
-   * Ron Guilmette implemented the protoize and unprotoize tools, the
-     support for Dwarf symbolic debugging information, and much of the
-     support for System V Release 4.  He has also worked heavily on the
-     Intel 386 and 860 support.
+   * Ron Guilmette implemented the `protoize' and `unprotoize' tools,
+     the support for Dwarf symbolic debugging information, and much of
+     the support for System V Release 4.  He has also worked heavily on
+     the Intel 386 and 860 support.
 
    * Torbjorn Granlund of the Swedish Institute of Computer Science
      implemented multiply-by-constant optimization and better long long
      support, and improved leaf function register allocation.
+
+   * Mike Stump implemented the support for Elxsi 64 bit CPU.
 
 
 File: gcc.info,  Node: Boycott,  Next: Invoking GCC,  Prev: Contributors,  Up: Top
@@ -602,7 +609,7 @@ others.
    The League needs both activist members and members who only pay their
 dues.
 
-   To join, or for more information, phone (617) 492-0023 or write to:
+   To join, or for more information, phone (617) 243-4091 or write to:
 
      League for Programming Freedom
      1 Kendall Square #143
@@ -664,23 +671,50 @@ control the preprocessor and others the compiler itself.  Yet other
 options control the assembler and linker; most of these are not
 documented here, since you rarely need to use any of them.
 
-   The GNU C compiler uses a command syntax much like the Unix C
-compiler. The `gcc' program accepts options and file names as operands.
-Multiple single-letter options may *not* be grouped: `-dr' is very
-different from `-d -r'.
+   The `gcc' program accepts options and file names as operands.  Many
+options have multiletter names; therefore multiple single-letter options
+may *not* be grouped: `-dr' is very different from `-d -r'.
 
    You can mix options and other arguments.  For the most part, the
-order you use doesn't matter; `gcc' reorders the command-line options so
-that the choices specified by option flags are applied to all input
-files.  Order does matter when you use several options of the same kind;
-for example, if you specify `-L' more than once, the directories are
-searched in the order specified.
+order you use doesn't matter.  Order does matter when you use several
+options of the same kind; for example, if you specify `-L' more than
+once, the directories are searched in the order specified.
 
    Many options have long names starting with `-f' or with `-W'--for
 example, `-fforce-mem', `-fstrength-reduce', `-Wformat' and so on. 
 Most of these have both positive and negative forms; the negative form
 of `-ffoo' would be `-fno-foo'.  This manual documents only one of
 these two forms, whichever one is not the default.
+
+* Menu:
+
+* Option Summary::	Brief list of all options, without explanations.
+* Overall Options::     Controlling the kind of output:
+                        an executable, object files, assembler files,
+                        or preprocessed source.
+* Dialect Options::     Controlling the variant of C language compiled.
+* Warning Options::     How picky should the compiler be?
+* Debugging Options::   Symbol tables, measurements, and debugging dumps.
+* Optimize Options::    How much optimization?
+* Preprocessor Options:: Controlling header files and macro definitions.
+                         Also, getting dependency information for Make.
+* Assembler Options::   Passing options to the assembler.
+* Link Options::        Specifying libraries and so on.
+* Directory Options::   Where to find header files and libraries.
+                        Where to find the compiler executable files.
+* Target Options::      Running a cross-compiler, or an old version of GNU CC.
+* Submodel Options::    Specifying minor hardware or convention variations,
+                        such as 68010 vs 68020.
+* Code Gen Options::    Specifying conventions for function calls, data layout
+                        and register usage.
+* Environment Variables:: Env vars that affect GNU CC.
+* Running Protoize::    Automatically adding or removing function prototypes.
+
+
+File: gcc.info,  Node: Option Summary,  Next: Overall Options,  Up: Invoking GCC
+
+Option Summary
+==============
 
    Here is a summary of all the options, grouped by type.  Explanations
 are in the following sections.
@@ -691,52 +725,62 @@ are in the following sections.
 
 *Language Options*
      *Note Options Controlling Dialect: Dialect Options.
-          -ansi  -fbuiltin  -fcond-mismatch  -fno-asm
+          -ansi  -fcond-mismatch  -fno-asm  -fno-builtin
           -fsigned-bitfields  -fsigned-char
           -funsigned-bitfields  -funsigned-char  -fwritable-strings
           -traditional  -traditional-cpp  -trigraphs
+          -fall-virtual  -fdollars-in-identifiers  -fenum-int-equiv
+          -fno-strict-prototype  -fthis-is-variable
 
 *Warning Options*
      *Note Options to Request or Suppress Warnings: Warning Options.
           -fsyntax-only  -pedantic  -pedantic-errors
           -w  -W  -Wall  -Waggregate-return
           -Wcast-align  -Wcast-qual  -Wcomment  -Wconversion  -Werror
-          -Wformat  -Wid-clash-LEN  -Wimplicit  -Wimport
-          -Winline -Wmissing-prototypes
-          -Wparentheses  -Wpointer-arith  -Wreturn-type  -Wshadow
+          -Wformat  -Wid-clash-LEN  -Wenum-clash  -Wimplicit  -Wimport
+          -Winline -Wmissing-prototypes  -Wnested-externs  -Wparentheses
+          -Wpointer-arith  -Wredundant-decls  -Wreturn-type  -Wshadow
           -Wstrict-prototypes  -Wswitch  -Wtraditional  -Wtrigraphs
           -Wuninitialized  -Wunused  -Wwrite-strings  -Wchar-subscripts
 
 *Debugging Options*
      *Note Options for Debugging Your Program or GCC: Debugging Options.
           -a  -dLETTERS  -fpretend-float
-          -g  -gLEVEL -ggdb  -gdwarf
-          -gstabs  -gstabs+  -gcoff -gxcoff
+          -g  -gLEVEL -ggdb  -gdwarf -gdwarf+
+          -gstabs  -gstabs+  -gcoff -gxcoff -gxcoff+
           -p  -pg  -save-temps
 
 *Optimization Options*
      *Note Options that Control Optimization: Optimize Options.
           -fcaller-saves  -fcse-follow-jumps  -fcse-skip-blocks
           -fdelayed-branch   -fexpensive-optimizations  -ffast-math
-          -ffloat-store  -fforce-addr  -fforce-mem  -finline
-          -finline-functions  -fkeep-inline-functions
-          -fno-defer-pop  -fno-function-cse  -fomit-frame-pointer
+          -ffloat-store  -fforce-addr  -fforce-mem
+          -finline-functions  -fkeep-inline-functions  -fno-defer-pop
+          -fno-function-cse  -fno-inline  -fno-peephole  -fomit-frame-pointer
           -frerun-cse-after-loop  -fschedule-insns  -fschedule-insns2
           -fstrength-reduce  -fthread-jumps
           -funroll-all-loops  -funroll-loops
+          -felide-constructors  -fmemoize-lookups  -fno-default-inline
           -O  -O2
 
 *Preprocessor Options*
      *Note Options Controlling the Preprocessor: Preprocessor Options.
-          -C  -dD  -dM  -dN
+          -AASSERTION  -C  -dD  -dM  -dN
           -DMACRO[=DEFN]  -E  -H
           -include FILE  -imacros FILE
           -M  -MD  -MM  -MMD  -nostdinc  -P  -trigraphs  -UMACRO
 
+*Assembler Option*
+     *Note Passing Options to the Assembler: Assembler Options.
+          -Wa,OPTION
+
 *Linker Options*
      *Note Options for Linking: Link Options.
           OBJECT-FILE-NAME
-          -lLIBRARY  -nostdlib  -static
+          -lLIBRARY  -nostdlib
+          -static  -shared  -symbolic
+          -Xlinker OPTION
+          -u SYMBOL
 
 *Directory Options*
      *Note Options for Directory Search: Directory Options.
@@ -749,14 +793,14 @@ are in the following sections.
 *Machine Dependent Options*
      *Note Hardware Models and Configurations: Submodel Options.
           *M680x0 Options*
-          -m68000 -m68020 -m68881 -mbitfield -mc68000 -mc68020 -mfpa
-          -mnobitfield -mrtd -mshort -msoft-float
+          -m68000 -m68020 -m68020-40 -m68030 -m68040 -m68881 -mbitfield
+          -mc68000 -mc68020 -mfpa -mnobitfield -mrtd -mshort -msoft-float
           
           *VAX Options*
           -mg -mgnu -munix
           
           *SPARC Options*
-          -mforce-align -mfpu -mno-epilogue
+          -mforce-align  -mno-epilogue
           
           *Convex Options*
           -margcount -mc1 -mc2 -mnoargcount
@@ -790,13 +834,44 @@ are in the following sections.
           -mno-half-pic -G NUM -nocpp
           
           *i386 Options*
-          -m486 -msoft-float
+          -m486 -mno-486 -msoft-float -msvr3-shlib -mieee-fp
+          -mno-fp-ret-in-387
+          
+          *HPPA Options*
+          -mno-bss
+          -mpa-risc-1-0
+          -mpa-risc-1-1
+          -mkernel
+          -mshared-libs
+          -mno-shared-libs
+          -mlong-calls
+          
+          *Intel 960 Options*
+          -mCPU TYPE
+          -mnumerics -msoft-float
+          -mcode-align -mno-code-align
+          -mleaf-procedures -mno-leaf-procedures
+          -mtail-call -mno-tail-call
+          -mcomplex-addr -mno-complex-addr
+          -mclean-linkage -mno-clean-linkage
+          -mic-compat -mic2.0-compat -mic3.0-compat
+          -masm-compat -mintel-asm
+          -mstrict-align -mno-strict-align
+          -mold-align -mno-old-align
+          
+          *DEC Alpha Options*
+          -mfp-regs -mno-fp-regs -mno-soft-float -msoft-float
+          
+          *System V Options*
+          -G  -Qy  -Qn  -YP,PATHS  -Ym,DIR
 
 *Code Generation Options*
      *Note Options for Code Generation Conventions: Code Gen Options.
           -fcall-saved-REG  -fcall-used-REG  -ffixed-REG
-          -fno-common  -fpcc-struct-return  -fpic  -fPIC  -fshared-data
-          -fshort-enums  -fshort-double  -fvolatile
+          -finhibit-size-directive  -fnonnull-objects  -fno-common
+          -fno-ident  -fno-gnu-linker  -fpcc-struct-return  -fpic  -fPIC
+          -fshared-data  -fshort-enums  -fshort-double  -fvolatile
+          -fverbose-asm
 
 * Menu:
 
@@ -809,18 +884,14 @@ are in the following sections.
 * Optimize Options::    How much optimization?
 * Preprocessor Options:: Controlling header files and macro definitions.
                          Also, getting dependency information for Make.
+* Assembler Options::   Passing options to the assembler.
 * Link Options::        Specifying libraries and so on.
 * Directory Options::   Where to find header files and libraries.
                         Where to find the compiler executable files.
 * Target Options::      Running a cross-compiler, or an old version of GNU CC.
-* Submodel Options::    Specifying minor hardware or convention variations,
-                        such as 68010 vs 68020.
-* Code Gen Options::    Specifying conventions for function calls, data layout
-                        and register usage.
-* Environment Variables:: Env vars that affect GNU CC.
 
 
-File: gcc.info,  Node: Overall Options,  Next: Dialect Options,  Prev: Invoking GCC,  Up: Invoking GCC
+File: gcc.info,  Node: Overall Options,  Next: Dialect Options,  Prev: Option Summary,  Up: Invoking GCC
 
 Options Controlling the Kind of Output
 ======================================
@@ -840,8 +911,12 @@ of compilation is done:
 `FILE.i'
      C source code which should not be preprocessed.
 
+`FILE.ii'
+     C++ source code which should not be preprocessed.
+
 `FILE.m'
-     Objective-C source code
+     Objective-C source code.  Note that you must link with the library
+     `libobjc.a' to make an Objective-C program work.
 
 `FILE.h'
      C header file (not to be compiled or linked).
@@ -935,169 +1010,5 @@ nothing at all.
      various stages of compilation.  This fails to work on some systems
      where the assembler is unable to read from a pipe; but the GNU
      assembler has no trouble.
-
-
-File: gcc.info,  Node: Dialect Options,  Next: Warning Options,  Prev: Overall Options,  Up: Invoking GCC
-
-Options Controlling Dialect
-===========================
-
-   The following options control the dialect of C that the compiler
-accepts:
-
-`-ansi'
-     Support all ANSI standard C programs.
-
-     This turns off certain features of GNU C that are incompatible
-     with ANSI C, such as the `asm', `inline' and `typeof' keywords, and
-     predefined macros such as `unix' and `vax' that identify the type
-     of system you are using.  It also enables the undesirable and
-     rarely used ANSI trigraph feature, and disallows `$' as part of
-     identifiers.
-
-     The alternate keywords `__asm__', `__extension__', `__inline__'
-     and `__typeof__' continue to work despite `-ansi'.  You would not
-     want to use them in an ANSI C program, of course, but it useful to
-     put them in header files that might be included in compilations
-     done with `-ansi'.  Alternate predefined macros such as `__unix__'
-     and `__vax__' are also available, with or without `-ansi'.
-
-     The `-ansi' option does not cause non-ANSI programs to be rejected
-     gratuitously.  For that, `-pedantic' is required in addition to
-     `-ansi'.  *Note Warning Options::.
-
-     The macro `__STRICT_ANSI__' is predefined when the `-ansi' option
-     is used.  Some header files may notice this macro and refrain from
-     declaring certain functions or defining certain macros that the
-     ANSI standard doesn't call for; this is to avoid interfering with
-     any programs that might use these names for other things.
-
-     The functions `alloca', `abort', `exit', and `_exit' are not
-     builtin functions when `-ansi' is used.
-
-`-fno-asm'
-     Do not recognize `asm', `inline' or `typeof' as a keyword.  These
-     words may then be used as identifiers.  You can use `__asm__',
-     `__inline__' and `__typeof__' instead. `-ansi' implies `-fno-asm'.
-
-`-fno-builtin'
-     Don't recognize built-in functions that do not begin with two
-     leading underscores. Currently, the functions affected include
-     `alloca', `abort', `exit', `_exit', `abs', `fabs', `labs',
-     `memcpy', `memcmp', `strcmp', `strcpy', `strlen', and `sqrt'.
-
-     The `-ansi' option prevents `alloca' and `_exit' from being
-     builtin functions.
-
-`-trigraphs'
-     Support ANSI C trigraphs.  You don't want to know about this
-     brain-damage.  The `-ansi' option implies `-trigraphs'.
-
-`-traditional'
-     Attempt to support some aspects of traditional C compilers.
-     Specifically:
-
-        * All `extern' declarations take effect globally even if they
-          are written inside of a function definition.  This includes
-          implicit declarations of functions.
-
-        * The keywords `typeof', `inline', `signed', `const' and
-          `volatile' are not recognized.  (You can still use the
-          alternative keywords such as `__typeof__', `__inline__', and
-          so on.)
-
-        * Comparisons between pointers and integers are always allowed.
-
-        * Integer types `unsigned short' and `unsigned char' promote to
-          `unsigned int'.
-
-        * Out-of-range floating point literals are not an error.
-
-        * String "constants" are not necessarily constant; they are
-          stored in writable space, and identical looking constants are
-          allocated separately.  (This is the same as the effect of
-          `-fwritable-strings'.)
-
-        * All automatic variables not declared `register' are preserved
-          by `longjmp'.  Ordinarily, GNU C follows ANSI C: automatic
-          variables not declared `volatile' may be clobbered.
-
-        * In the preprocessor, comments convert to nothing at all,
-          rather than to a space.  This allows traditional token
-          concatenation.
-
-        * In the preprocessor, macro arguments are recognized within
-          string constants in a macro definition (and their values are
-          stringified, though without additional quote marks, when they
-          appear in such a context).  The preprocessor always considers
-          a string constant to end at a newline.
-
-        * The predefined macro `__STDC__' is not defined when you use
-          `-traditional', but `__GNUC__' is (since the GNU extensions
-          which `__GNUC__' indicates are not affected by
-          `-traditional').  If you need to write header files that work
-          differently depending on whether `-traditional' is in use, by
-          testing both of these predefined macros you can distinguish
-          four situations: GNU C, traditional GNU C, other ANSI C
-          compilers, and other old C compilers.
-
-     You may wish to use `-fno-builtin' as well as `-traditional' if
-     your program uses names that are normally GNU C builtin functions
-     for other purposes of its own.
-
-`-traditional-cpp'
-     Attempt to support some aspects of traditional C preprocessors.
-     This includes the last three items in the table immediately above,
-     but none of the other effects of `-traditional'.
-
-`-fcond-mismatch'
-     Allow conditional expressions with mismatched types in the second
-     and third arguments.  The value of such an expression is void.
-
-`-funsigned-char'
-     Let the type `char' be unsigned, like `unsigned char'.
-
-     Each kind of machine has a default for what `char' should be.  It
-     is either like `unsigned char' by default or like `signed char' by
-     default.
-
-     Ideally, a portable program should always use `signed char' or
-     `unsigned char' when it depends on the signedness of an object.
-     But many programs have been written to use plain `char' and expect
-     it to be signed, or expect it to be unsigned, depending on the
-     machines they were written for.  This option, and its inverse, let
-     you make such a program work with the opposite default.
-
-     The type `char' is always a distinct type from each of `signed
-     char' or `unsigned char', even though its behavior is always just
-     like one of those two.
-
-`-fsigned-char'
-     Let the type `char' be signed, like `signed char'.
-
-     Note that this is equivalent to `-fno-unsigned-char', which is the
-     negative form of `-funsigned-char'.  Likewise, `-fno-signed-char'
-     is equivalent to `-funsigned-char'.
-
-`-fsigned-bitfields'
-`-funsigned-bitfields'
-`-fno-signed-bitfields'
-`-fno-unsigned-bitfields'
-     These options control whether a bitfield is signed or unsigned,
-     when the declaration does not use either `signed' or `unsigned'. 
-     By default, such a bitfield is signed, because this is consistent:
-     the basic integer types such as `int' are signed types.
-
-     However, when `-traditional' is used, bitfields are all unsigned
-     no matter what.
-
-`-fwritable-strings'
-     Store string constants in the writable data segment and don't
-     uniquize them.  This is for compatibility with old programs which
-     assume they can write into string constants.  `-traditional' also
-     has this effect.
-
-     Writing into string constants is a very bad idea; "constants"
-     should be constant.
 
 

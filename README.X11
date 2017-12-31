@@ -38,6 +38,8 @@ cc on the Sparc since GCC 2 produces proper -fpcc-struct-return code.
 
 mit/server/os/Imakefile -- Likewise.
 
+mit/clients/twm/Imakefile -- fix bad decls of malloc, realloc in gram.c.
+
 *** mit/config/Imake.tmpl.ORIG	Tue Dec 31 11:07:56 1991
 --- mit/config/Imake.tmpl	Tue Dec 31 12:30:47 1991
 ***************
@@ -159,3 +161,43 @@ mit/server/os/Imakefile -- Likewise.
   oscolor.o: $(ICONFIGFILES)
   	$(RM) $@
   	cc -c $(DBM_DEFINES) $(CDEBUGFLAGS) $(ALLDEFINES) $*.c
+*** 1.1 1992/09/08 19:52:07
+--- mit/server/ddx/sun/Imakefile        1992/09/08 21:10:22
+***************
+*** 43,48 ****
+--- 43,53 ----
+  LinkFile(sunGX.o,sunGX.o.dist)
+  #endif
+
++ #if HasGcc2
++ SpecialObjectRule(sunCG2C.o,sunCG2C.c,-fvolatile)
++ SpecialObjectRule(sunCG2M.o,sunCG2M.c,-fvolatile)
++ #endif
++ 
+  sunInitExtMono.o: $(ICONFIGFILES)
+  ObjectFromSpecialSource(sunInitExtMono,../mi/miinitext,-UPEXEXT)
+  ObjectFromSpecialSource(sunInitMono,sunInit,-DMONO_ONLY)
+
+*** /tmp/RCSAa24446     Tue Sep 15 12:23:32 1992
+--- mit/clients/twm/Imakefile   Thu Aug 13 18:18:07 1992
+***************
+*** 32,41 ****
+--- 32,48 ----
+  ComplexProgramTarget(twm)
+  InstallNonExecFile(system.twmrc,$(TWMDIR))
+  
++ #if HasGcc2 && defined (SunArchitecture)
+  gram.h gram.c: gram.y
+        yacc $(YFLAGS) gram.y
++       sed -e 's/^extern char \*malloc(), \*realloc();//g' y.tab.c >gram.c
++       $(MV) y.tab.h gram.h
++ #else
++ gram.h gram.c: gram.y
++       yacc $(YFLAGS) gram.y
+        $(MV) y.tab.c gram.c
+        $(MV) y.tab.h gram.h
++ #endif
+  
+  clean::
+        $(RM) y.tab.h y.tab.c lex.yy.c gram.h gram.c lex.c deftwmrc.c 
+

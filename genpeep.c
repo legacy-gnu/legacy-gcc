@@ -19,7 +19,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include <stdio.h>
-#include "config.h"
+#include "hconfig.h"
 #include "rtl.h"
 #include "obstack.h"
 
@@ -106,7 +106,7 @@ gen_peephole (peep)
       /* Walk the insn's pattern, remembering at all times the path
 	 down to the walking point.  */
 
-      match_rtx (XVECEXP (peep, 0, i), 0, insn_code_number);
+      match_rtx (XVECEXP (peep, 0, i), NULL_PTR, insn_code_number);
     }
 
   /* We get this far if the pattern matches.
@@ -186,6 +186,7 @@ match_rtx (x, path, fail_label)
       return;
 
     case MATCH_DUP:
+    case MATCH_PAR_DUP:
       printf ("  x = ");
       print_path (path);
       printf (";\n");
@@ -310,6 +311,24 @@ match_rtx (x, path, fail_label)
 
 	  printf ("  if (XINT (x, %d) != %d) goto L%d;\n",
 		  i, XINT (x, i), fail_label);
+	}
+      else if (fmt[i] == 'w')
+	{
+	  /* Make sure that at run time `x' is the RTX we want to test.  */
+	  if (i != 0)
+	    {
+	      printf ("  x = ");
+	      print_path (path);
+	      printf (";\n");
+	    }
+
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT
+	  printf ("  if (XWINT (x, %d) != %d) goto L%d;\n",
+		  i, XWINT (x, i), fail_label);
+#else
+	  printf ("  if (XWINT (x, %d) != %ld) goto L%d;\n",
+		  i, XWINT (x, i), fail_label);
+#endif
 	}
       else if (fmt[i] == 's')
 	{

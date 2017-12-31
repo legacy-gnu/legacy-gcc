@@ -70,6 +70,57 @@ reg everywhere, if that looks like an improvement.  Which is if the
 reg is used only a few times.  Use rtx_cost to determine if the
 change is really an improvement.
 
+* Clean up how cse works.
+
+The scheme is that each value has just one hash entry.  The
+first_same_value and next_same_value chains are no longer needed.
+
+For arithmetic, each hash table elt has the following slots:
+
+* Operation.  This is an rtx code.
+* Mode.
+* Operands 0, 1 and 2.  These point to other hash table elements.
+
+So, if we want to enter (PLUS:SI (REG:SI 30) (CONST_INT 104)), we
+first enter (CONST_INT 104) and find the entry that (REG:SI 30) now
+points to.  Then we put these elts into operands 0 and 1 of a new elt.
+We put PLUS and SI into the new elt.
+
+Registers and mem refs would never be entered into the table as such.
+However, the values they contain would be entered.  There would be a
+table indexed by regno which points at the hash entry for the value in
+that reg.
+
+The hash entry index now plays the role of a qty number.
+We still need qty_first_reg, reg_next_eqv, etc. to record which regs
+share a particular qty.
+
+When a reg is used whose contents are unknown, we need to create a
+hash table entry whose contents say "unknown", as a place holder for
+whatever the reg contains.  If that reg is added to something, then
+the hash entry for the sum will refer to the "unknown" entry.  Use
+UNKNOWN for the rtx code in this entry.  This replaces make_new_qty.
+
+For a constant, a unique hash entry would be made based on the
+value of the constant.
+
+What about MEM?  Each time a memory address is referenced, we need a
+qty (a hash table elt) to represent what is in it.  (Just as for a
+register.)  If this isn't known, create one, just as for a reg whose
+contents are unknown.
+
+We need a way to find all mem refs that still contain a certain value.
+Do this with a chain of hash elts (for memory addresses) that point to
+locations that hold the value.  The hash elt for the value itself should
+point to the start of the chain.  It would be good for the hash elt
+for an address to point to the hash elt for the contents of that address
+(but this ptr can be null if the contents have never been entered).
+
+With this data structure, nothing need ever be invalidated except
+the lists of which regs or mems hold a particular value.  It is easy
+to see if there is a reg or mem that is equiv to a particular value.
+If the value is constant, it is always explicitly constant.
+
 * Support more general tail-recursion among different functions.
 
 This might be possible under certain circumstances, such as when
@@ -123,7 +174,7 @@ or outside of a particular loop where the variable is not used.  (The
 latter is nice because it might let the variable be in a register most
 of the time even though the loop needs all the registers.)
 
-It might not be very hard to do this in global-alloc.c when a variable
+It might not be very hard to do this in global.c when a variable
 fails to get a hard register for its entire life span.
 
 The first step is to find a loop in which the variable is live, but

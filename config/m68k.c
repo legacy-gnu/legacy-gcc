@@ -44,6 +44,10 @@ enum reg_class regno_reg_class[]
 
 #endif /* defined SUPPORT_SUN_FPA */
 
+/* This flag is used to communicate between movhi and ASM_OUTPUT_CASE_END,
+   if SGS_SWITCH_TABLE.  */
+int switch_table_difference_label_flag;
+
 static rtx find_addr_reg ();
 rtx legitimize_pic_address ();
 
@@ -176,6 +180,11 @@ output_function_prologue (stream, size)
       mask &= ~ (1 << (15 - FRAME_POINTER_REGNUM));
       num_saved_regs--;
     }
+
+#if NEED_PROBE
+  fprintf (stream, "\ttstl sp@(%d)\n", NEED_PROBE - num_saved_regs * 4);
+#endif
+
   if (num_saved_regs <= 2)
     {
       /* Store each separately in the same order moveml uses.
@@ -1246,10 +1255,9 @@ int
 standard_68881_constant_p (x)
      rtx x;
 {
-  union {double d; int i[2];} u;
   register double d;
 
-  /* fmovecr must be emulated on the 68040, so it shoudn't be used at all. */
+  /* fmovecr must be emulated on the 68040, so it shouldn't be used at all. */
   if (TARGET_68040)
     return 0;
 
@@ -1258,14 +1266,7 @@ standard_68881_constant_p (x)
     return 0;
 #endif
 
-#ifdef HOST_WORDS_BIG_ENDIAN
-  u.i[0] = CONST_DOUBLE_LOW (x);
-  u.i[1] = CONST_DOUBLE_HIGH (x);
-#else
-  u.i[0] = CONST_DOUBLE_HIGH (x);
-  u.i[1] = CONST_DOUBLE_LOW (x);
-#endif 
-  d = u.d;
+  REAL_VALUE_FROM_CONST_DOUBLE (d, x);
 
   if (d == 0)
     return 0x0f;
@@ -1297,7 +1298,6 @@ int
 floating_exact_log2 (x)
      rtx x;
 {
-  union {double d; int i[2];} u;
   register double d, d1;
   int i;
 
@@ -1306,14 +1306,7 @@ floating_exact_log2 (x)
     return 0;
 #endif
 
-#ifdef HOST_WORDS_BIG_ENDIAN
-  u.i[0] = CONST_DOUBLE_LOW (x);
-  u.i[1] = CONST_DOUBLE_HIGH (x);
-#else
-  u.i[0] = CONST_DOUBLE_HIGH (x);
-  u.i[1] = CONST_DOUBLE_LOW (x);
-#endif 
-  d = u.d;
+  REAL_VALUE_FROM_CONST_DOUBLE (d, x);
 
   if (! (d > 0))
     return 0;
@@ -1357,7 +1350,6 @@ int
 standard_sun_fpa_constant_p (x)
      rtx x;
 {
-  union {double d; int i[2];} u;
   register double d;
 
 #if HOST_FLOAT_FORMAT != TARGET_FLOAT_FORMAT
@@ -1365,10 +1357,7 @@ standard_sun_fpa_constant_p (x)
     return 0;
 #endif
 
-
-  u.i[0] = CONST_DOUBLE_LOW (x);
-  u.i[1] = CONST_DOUBLE_HIGH (x);
-  d = u.d;
+  REAL_VALUE_FROM_CONST_DOUBLE (d, x);
 
   if (d == 0.0)
     return 0x200;		/* 0 once 0x1ff is anded with it */
@@ -1610,17 +1599,17 @@ print_operand (file, op, letter)
 #endif
   else if (GET_CODE (op) == CONST_DOUBLE && GET_MODE (op) == SFmode)
     {
-      union { double d; int i[2]; } u;
+      double d;
       union { float f; int i; } u1;
-      PRINT_OPERAND_EXTRACT_FLOAT (op);
-      u1.f = u.d;
+      REAL_VALUE_FROM_CONST_DOUBLE (d, op);
+      u1.f = d;
       PRINT_OPERAND_PRINT_FLOAT (letter, file);
     }
   else if (GET_CODE (op) == CONST_DOUBLE && GET_MODE (op) != DImode)
     {
-      union { double d; int i[2]; } u;
-      PRINT_OPERAND_EXTRACT_FLOAT (op);
-      ASM_OUTPUT_DOUBLE_OPERAND (file, u.d);
+      double d;
+      REAL_VALUE_FROM_CONST_DOUBLE (d, op);
+      ASM_OUTPUT_DOUBLE_OPERAND (file, d);
     }
   else
     {
@@ -1782,7 +1771,7 @@ print_operand_address (file, addr)
 	    ireg = reg2;
 	  }
 	if (ireg != 0 && breg == 0 && GET_CODE (addr) == LABEL_REF
- 	  && ! (flag_pic && ireg == pic_offset_table_rtx))
+	    && ! (flag_pic && ireg == pic_offset_table_rtx))
 	  {
 	    int scale = 1;
 	    if (GET_CODE (ireg) == MULT)
@@ -1798,7 +1787,7 @@ print_operand_address (file, addr)
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     reg_names[REGNO (XEXP (ireg, 0))]);
 #else
-		asm_fprintf (file, "%LL%d-%LLI%d-2.b(%Rpc,%s.w",
+		asm_fprintf (file, "%LL%d-%LLI%d.b(%Rpc,%s.w",
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     reg_names[REGNO (XEXP (ireg, 0))]);
@@ -1818,7 +1807,7 @@ print_operand_address (file, addr)
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     reg_names[REGNO (ireg)]);
 #else
-		asm_fprintf (file, "%LL%d-%LLI%d-2.b(%Rpc,%s.l",
+		asm_fprintf (file, "%LL%d-%LLI%d.b(%Rpc,%s.l",
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			     reg_names[REGNO (ireg)]);
@@ -1842,7 +1831,7 @@ print_operand_address (file, addr)
 	    break;
 	  }
 	if (breg != 0 && ireg == 0 && GET_CODE (addr) == LABEL_REF
- 	  && ! (flag_pic && breg == pic_offset_table_rtx))
+	    && ! (flag_pic && breg == pic_offset_table_rtx))
 	  {
 #ifdef MOTOROLA
 #ifdef SGS
@@ -1850,7 +1839,7 @@ print_operand_address (file, addr)
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 reg_names[REGNO (breg)]);
 #else
-	    asm_fprintf (file, "%LL%d-%LLI%d-2.b(%Rpc,%s.l",
+	    asm_fprintf (file, "%LL%d-%LLI%d.b(%Rpc,%s.l",
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 reg_names[REGNO (breg)]);
@@ -1880,9 +1869,9 @@ print_operand_address (file, addr)
 	      {
 		output_addr_const (file, addr);
 	        if ((flag_pic == 1) && (breg == pic_offset_table_rtx))
-	          fprintf (file, ":w");
+	          fprintf (file, ".w");
 	        if ((flag_pic == 2) && (breg == pic_offset_table_rtx))
-	          fprintf (file, ":l");
+	          fprintf (file, ".l");
 	      }
 	    fprintf (file, "(%s", reg_names[REGNO (breg)]);
 	    if (ireg != 0)
@@ -1937,7 +1926,7 @@ print_operand_address (file, addr)
 	    break;
 	  }
 	else if (reg1 != 0 && GET_CODE (addr) == LABEL_REF
- 	       && ! (flag_pic && reg1 == pic_offset_table_rtx))	
+		 && ! (flag_pic && reg1 == pic_offset_table_rtx))	
 	  {
 #ifdef MOTOROLA
 #ifdef SGS
@@ -1945,7 +1934,7 @@ print_operand_address (file, addr)
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 reg_names[REGNO (reg1)]);
 #else
-	    asm_fprintf (file, "%LL%d-%LLI%d-2.b(%Rpc,%s.l)",
+	    asm_fprintf (file, "%LL%d-%LLI%d.b(%Rpc,%s.l)",
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 CODE_LABEL_NUMBER (XEXP (addr, 0)),
 			 reg_names[REGNO (reg1)]);

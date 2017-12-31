@@ -13,7 +13,12 @@ g++ \- GNU project C++ Compiler (v2 preliminary)
 .RB g++ " [" \c
 .IR option " | " filename " ].\|.\|.
 .SH DESCRIPTION
-The C and C++ compilers are integrated.  Both process input files
+The C and C++ compilers are integrated;
+.B g++
+is a script to call
+.B gcc with options to recognize C++.  
+.B gcc
+processes input files
 through one or more of four stages: preprocessing, compilation,
 assembly, and linking.  This man page contains full descriptions for 
 .I only
@@ -28,6 +33,8 @@ C++ source files use one of the suffixes `\|\c
 .B .cc\c
 \&\|', or `\|\c
 .B .cxx\c
+\&\|'; preprocessed C++ files use the suffix `\|\c
+.B .ii\c
 \&\|'.
 .SH OPTIONS
 There are many command-line options, including options to control
@@ -405,9 +412,7 @@ file specified.
 .TP
 .B \-static
 On systems that support dynamic linking, this prevents linking with the shared
-libraries.  (`\|\c
-.B \-g\c
-\&\|' also has this effect.)  On other systems, this option has no effect.
+libraries.  On other systems, this option has no effect.
 .TP
 .B \-traditional
 Attempt to support some aspects of traditional C compilers.
@@ -660,7 +665,7 @@ gld: the GNU linker\c
 
 .SH BUGS
 Report bugs to
-.BR bug\-gcc@prep.ai.mit.edu .
+.BR bug\-g++@prep.ai.mit.edu .
 Bugs tend actually to be fixed if they can be isolated, so it is in your
 interest to report them in such a way that they can be easily reproduced.
 .SH COPYING

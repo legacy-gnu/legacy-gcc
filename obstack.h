@@ -1,5 +1,5 @@
 /* obstack.h - object stack macros
-   Copyright (C) 1988 Free Software Foundation, Inc.
+   Copyright (C) 1988, 1992 Free Software Foundation, Inc.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -41,7 +41,7 @@ as the first argument.
 
 One motivation for this package is the problem of growing char strings
 in symbol tables.  Unless you are "fascist pig with a read-only mind"
-[Gosper's immortal quote from HAKMEM item 154, out of context] you
+--Gosper's immortal quote from HAKMEM item 154, out of context--you
 would not like to put any arbitrary upper limit on the length of your
 symbols.
 
@@ -92,7 +92,7 @@ Summary:
 	Exactly one object is growing in an obstack at any one time.
 	You can run one obstack per control block.
 	You may have as many control blocks as you dare.
-	Because of the way we do it, you can `unwind' a obstack
+	Because of the way we do it, you can `unwind' an obstack
 	  back to a previous state. (You may remove objects much
 	  as you would with a stack.)
 */
@@ -115,6 +115,32 @@ Summary:
 #define __INT_TO_PTR(P) ((P) + (char *)0)
 #endif
 
+/* We need the type of the resulting object.  In ANSI C it is ptrdiff_t
+   but in traditional C it is usually long.  If we are in ANSI C and
+   don't already have ptrdiff_t get it.  */
+
+#if defined (__STDC__) && ! defined (offsetof)
+#if defined (__GNUC__) && defined (IN_GCC)
+/* On Next machine, the system's stddef.h screws up if included
+   after we have defined just ptrdiff_t, so include all of gstddef.h.
+   Otherwise, define just ptrdiff_t, which is all we need.  */
+#ifndef __NeXT__
+#define __need_ptrdiff_t
+#endif
+
+/* While building GCC, the stddef.h that goes with GCC has this name.  */
+#include "gstddef.h"
+#else
+#include <stddef.h>
+#endif
+#endif
+
+#ifdef __STDC__
+#define PTR_INT_TYPE ptrdiff_t
+#else
+#define PTR_INT_TYPE long
+#endif
+
 struct _obstack_chunk		/* Lives at front of each chunk. */
 {
   char  *limit;			/* 1 past end of this chunk */
@@ -129,14 +155,16 @@ struct obstack		/* control current object in current chunk */
   char	*object_base;		/* address of object we are building */
   char	*next_free;		/* where to add next char to current object */
   char	*chunk_limit;		/* address of char after current chunk */
-  int	temp;			/* Temporary for some macros.  */
+  PTR_INT_TYPE temp;		/* Temporary for some macros.  */
   int   alignment_mask;		/* Mask of alignment for each object. */
   struct _obstack_chunk *(*chunkfun) (); /* User's fcn to allocate a chunk.  */
   void (*freefun) ();		/* User's function to free a chunk.  */
-  /* Nonzero means there is a possibility the current chunk contains
-     a zero-length object.  This prevents freeing the chunk
-     if we allocate a bigger chunk to replace it.  */
-  char  maybe_empty_object;
+  char *extra_arg;		/* first arg for chunk alloc/dealloc funcs */
+  unsigned use_extra_arg:1;	/* chunk alloc/dealloc funcs take extra arg */
+  unsigned maybe_empty_object:1;/* There is a possibility that the current
+				   chunk contains a zero-length object.  This
+				   prevents freeing the chunk if we allocate
+				   a bigger chunk to replace it. */
 };
 
 /* Declare the external functions we use; they are in obstack.c.  */
@@ -146,10 +174,13 @@ extern void _obstack_newchunk (struct obstack *, int);
 extern void _obstack_free (struct obstack *, void *);
 extern void _obstack_begin (struct obstack *, int, int,
 			    void *(*) (), void (*) ());
+extern void _obstack_begin_1 (struct obstack *, int, int,
+			      void *(*) (), void (*) (), void *);
 #else
 extern void _obstack_newchunk ();
 extern void _obstack_free ();
 extern void _obstack_begin ();
+extern void _obstack_begin_1 ();
 #endif
 
 #ifdef __STDC__
@@ -215,11 +246,19 @@ int obstack_chunk_size (struct obstack *obstack);
 
 #define obstack_init(h) \
   _obstack_begin ((h), 0, 0, \
-		  (void *(*) ()) obstack_chunk_alloc, obstack_chunk_free)
+		  (void *(*) ()) obstack_chunk_alloc, (void (*) ()) obstack_chunk_free)
 
 #define obstack_begin(h, size) \
   _obstack_begin ((h), (size), 0, \
-		  (void *(*) ()) obstack_chunk_alloc, obstack_chunk_free)
+		  (void *(*) ()) obstack_chunk_alloc, (void (*) ()) obstack_chunk_free)
+
+#define obstack_specify_allocation(h, size, alignment, chunkfun, freefun) \
+  _obstack_begin ((h), (size), (alignment), \
+		    (void *(*) ()) (chunkfun), (void (*) ()) (freefun))
+
+#define obstack_specify_allocation_with_arg(h, size, alignment, chunkfun, freefun, arg) \
+  _obstack_begin_1 ((h), (size), (alignment), \
+		    (void *(*) ()) (chunkfun), (void (*) ()) (freefun), (arg))
 
 #define obstack_1grow_fast(h,achar) (*((h)->next_free)++ = achar)
 

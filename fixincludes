@@ -5,6 +5,11 @@
 
 # See README-fixinc for more information.
 
+# Directory where gcc sources (and sometimes special include files) live.
+# fixincludes doesn't use this, but fixinc.svr4 does, and I want to make
+# sure somebody doesn't try to use arg3 for something incompatible. -- gumby
+SRCDIR=${3-${SRCDIR-.}}
+
 # Directory containing the original header files.
 # (This was named INCLUDES, but that conflicts with a name in Makefile.in.)
 INPUT=${2-${INPUT-/usr/include}}
@@ -13,9 +18,26 @@ INPUT=${2-${INPUT-/usr/include}}
 # unrecognizable.
 TERM=unknown
 export TERM
+# This prevents two problems:
+# Either ex might find a .exrc file and get confused,
+# or ex might complain if the EXINIT variable is invalid. 
+# We know there is no .exrc in the GCC source.
+# `set' is a no-op ex command.
+EXINIT=set
+export EXINIT
+
+# Define PWDCMD as a command to use to get the working dir
+# in the form that we want.
+PWDCMD=pwd
+case "`pwd`" in
+//*)
+	# On an Apollo, discard everything before `/usr'.
+	PWDCMD="eval pwd | sed -e 's,.*/usr/,/usr/,'"
+	;;
+esac
 
 # Directory in which to store the results.
-LIB=${1-${LIB-/usr/local/lib/gcc-include}}
+LIB=${1?"fixincludes: output directory not specified"}
 
 # Make sure it exists.
 if [ ! -d $LIB ]; then
@@ -23,7 +45,7 @@ if [ ! -d $LIB ]; then
 fi
 
 # Make LIB absolute.
-cd $LIB; LIB=`pwd`
+cd $LIB; LIB=`${PWDCMD}`
 
 # Fail if no arg to specify a directory for the output.
 if [ x$1 = x ]
@@ -31,7 +53,7 @@ then echo fixincludes: no output directory specified
 exit 1
 fi
 
-echo 'Building fixincludes in ' ${LIB}
+echo Building fixed headers in ${LIB}
 
 # Determine whether this system has symbolic links.
 if ln -s X $LIB/ShouldNotExist 2>/dev/null; then
@@ -41,17 +63,65 @@ else
   LINKS=false
 fi
 
-echo 'Making directories:'
+echo Finding directories and links to directories
 cd ${INPUT}
 # Find all directories and all symlinks that point to directories.
-files=`	find . -type d -print | sed '/^.$/d'
-	$LINKS && find . -type l -exec test -d '{}' \; -print`
+# Put the list in $files.
+# Each time we find a symlink, add it to newdirs
+# so that we do another find within the dir the link points to.
+# Note that $files may have duplicates in it;
+# later parts of this file are supposed to ignore them.
+dirs="."
+levels=2
+while [ -n "$dirs" ] && [ $levels -gt 0 ]
+do
+    levels=`expr $levels - 1`
+    newdirs=
+    for d in $dirs
+    do
+	echo " Searching $INPUT/$d"
+	if [ "$d" != . ]
+	then
+	    d=$d/.
+	fi
+
+	# Find all directories under $d, relative to $d, excluding $d itself.
+        files="$files `find $d -type d -print | \
+		       sed -e '/\/\.$/d' -e '/^\.$/d'`"
+	# Find all links to directories.
+	# Using `-exec test -d' in find fails on some systems,
+	# and trying to run test via sh fails on others,
+	# so this is the simplest alternative left.
+	# First find all the links, then test each one.
+	theselinks=
+	$LINKS && \
+	  theselinks=`find $d -type l -print`
+	for d1 in $theselinks --dummy--
+	do
+	    # If the link points to a directory,
+	    # add that dir to $newdirs
+	    if [ -d $d1 ]
+	    then
+		newdirs="$newdirs $d1"
+	    fi
+	done
+    done
+
+    files="$files $newdirs"
+    dirs="$newdirs"
+done
+
+dirs=
+echo "All directories (including links to directories):"
+echo $files
+
 for file in $files; do
   rm -rf $LIB/$file
   if [ ! -d $LIB/$file ]
   then mkdir $LIB/$file
   fi
 done
+mkdir $LIB/root
 
 # treetops gets an alternating list
 # of old directories to copy
@@ -59,11 +129,11 @@ done
 treetops="${INPUT} ${LIB}"
 
 if $LINKS; then
-  echo 'Making internal symbolic directory links'
+  echo 'Making symbolic directory links'
   for file in $files; do
     dest=`ls -ld $file | sed -n 's/.*-> //p'`
     if [ "$dest" ]; then    
-      cwd=`pwd`
+      cwd=`${PWDCMD}`
       # In case $dest is relative, get to $file's dir first.
       cd ${INPUT}
       cd `echo ./$file | sed -n 's&[^/]*$&&p'`
@@ -73,22 +143,43 @@ if $LINKS; then
       if [ $? = 0 ]; then
 	cd $dest
 	# X gets the dir that the link actually leads to.
-	x=`pwd`
+	x=`${PWDCMD}`
+	# If a link points to ., make a similar link to .
+	if [ $x = $INPUT ]; then
+	  echo $file '->' . ': Making link'
+	  rm -fr ${LIB}/$file > /dev/null 2>&1
+	  ln -s . ${LIB}/$file > /dev/null 2>&1
 	# If link leads back into ${INPUT},
 	# make a similar link here.
-	if expr $x : "${INPUT}/.*" > /dev/null; then
+	elif expr $x : "${INPUT}/.*" > /dev/null; then
 	  # Y gets the actual target dir name, relative to ${INPUT}.
 	  y=`echo $x | sed -n "s&${INPUT}/&&p"`
 	  echo $file '->' $y ': Making link'
 	  rm -fr ${LIB}/$file > /dev/null 2>&1
 	  ln -s ${LIB}/$y ${LIB}/$file > /dev/null 2>&1
 	else
-	  # If the link is to outside ${INPUT},
+	  # If the link is to a dir $target outside ${INPUT},
+	  # repoint the link at ${INPUT}/root$target
+	  # and process $target into ${INPUT}/root$target
 	  # treat this directory as if it actually contained the files.
-# This line used to have $dest instead of $x.
-# $dest seemed to be wrong for links found in subdirectories
-# of ${INPUT}.  Does this change break anything?
-	  treetops="$treetops $x ${LIB}/$file"
+	  echo $file '->' root$x ': Making link'
+	  if [ -d $LIB/root$x ]
+	  then true
+	  else
+	    dirname=root$x/
+	    dirmade=.
+	    cd $LIB
+	    while [ x$dirname != x ]; do
+	      component=`echo $dirname | sed -e 's|/.*$||'`
+	      mkdir $component >/dev/null 2>&1
+	      cd $component
+	      dirmade=$dirmade/$component
+	      dirname=`echo $dirname | sed -e 's|[^/]*/||'`
+	    done
+	  fi
+	  rm -fr ${LIB}/$file > /dev/null 2>&1
+	  ln -s ${LIB}/root$x ${LIB}/$file > /dev/null 2>&1
+	  treetops="$treetops $x ${LIB}/root$x"
 	fi
       fi
       cd $cwd
@@ -99,11 +190,25 @@ fi
 set - $treetops
 while [ $# != 0 ]; do
   # $1 is an old directory to copy, and $2 is the new directory to copy to.
-  echo "Finding header files in $1:"
   cd ${INPUT}
   cd $1
-  files=`find . -name '*.h' -type f -print`
-  echo 'Checking header files:'
+# The same dir can appear more than once in treetops.
+# There's no need to scan it more than once.
+  if [ -f $2/DONE ]
+  then
+    files=
+  else
+    touch $2/DONE
+    echo Fixing directory $1 into $2
+# Check .h files which are symlinks as well as those which are files.
+# A link to a header file will not be processed by anything but this.
+    if $LINKS; then
+      files=`find . -name '*.h' \( -type f -o -type l \) -print`
+    else
+      files=`find . -name '*.h' -type f -print`
+    fi
+    echo Checking header files
+  fi
 # Note that BSD43_* are used on recent MIPS systems.
   for file in $files; do
 # This call to egrep is essential, since checking a file with egrep
@@ -113,7 +218,7 @@ while [ $# != 0 ]; do
 # But the argument to egrep must be kept small, or many versions of egrep
 # won't be able to handle it.
 # rms: I removed `|#[el].*if.*[^/ 	]' because it made egrep fail.
-    if egrep '[ 	_]_IO|CTRL|#define.NULL|#[el]*if.*([0-9]|sparc|vax|sun|pyr)' $file > /dev/null; then
+    if egrep '//|[ 	_]_IO|CTRL|#define.NULL|#[el]*if.*([0-9]|sparc|vax|sun|pyr)' $file > /dev/null; then
       echo Fixing $file
       if [ -r $file ]; then
 	cp $file $2/$file >/dev/null 2>&1	\
@@ -127,17 +232,18 @@ while [ $# != 0 ]; do
 				   :loop
 	  /\\$/			N
 	  /\\$/			b loop
+	  /\/\//			s|//\(.*\)$|/*\1*/|
 	  /[ 	]_IO[A-Z]*[ 	]*(/	s/(\(.\),/('\''\1'\'',/
 	  /[ 	]BSD43__IO[A-Z]*[ 	]*(/	s/(\(.\),/('\''\1'\'',/
-	  /#define._IO/		s/'\''x'\''/x/g
+	  /#define._IO/			s/'\''x'\''/x/g
 	  /#define.BSD43__IO/		s/'\''x'\''/x/g
-	  /[^A-Z]CTRL[ 	]*(/	s/\([^'\'']\))/'\''\1'\'')/
+	  /[^A-Z]CTRL[ 	]*(/		s/\([^'\'']\))/'\''\1'\'')/
 	  /#define.CTRL/		s/'\''c'\''/c/g
 	  /#define._CTRL/		s/'\''c'\''/c/g
 	  /#define.BSD43_CTRL/		s/'\''c'\''/c/g
-	  /#[a-z]*if.*[	 (]m68k/		s/\([^_]\)m68k/\1__m68k__/g
+	  /#[a-z]*if.*[	 (]m68k/	s/\([^_]\)m68k/\1__m68k__/g
 	  /#[a-z]*if.*[	 (]__i386/	s/__i386/__i386__/g
-	  /#[a-z]*if.*[	 (]i386/		s/\([^_]\)i386/\1__i386__/g
+	  /#[a-z]*if.*[	 (]i386/	s/\([^_]\)i386/\1__i386__/g
 	  /#[a-z]*if.*[	 (]sparc/	s/\([^_]\)sparc/\1__sparc__/g
 	  /#[a-z]*if.*[	 (]mc68000/	s/\([^_]\)mc68000/\1__mc68000__/g
 	  /#[a-z]*if.*[	 (]vax/		s/\([^_]\)vax/\1__vax__/g
@@ -227,7 +333,8 @@ EOF
   fi
 fi
 
-# Fix this file to avoid interfering with stddef.h.
+# Fix this file to avoid interfering with stddef.h, but don't mistakenly
+# match e.g. ssize_t present in AIX for the ps/2.
 file=sys/types.h
 if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
   cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
@@ -237,7 +344,7 @@ fi
 if [ -r ${LIB}/$file ]; then
   echo Fixing $file
   ex ${LIB}/$file <<EOF
-  /typedef.*size_t.*;/
+  /typedef.*[ 	]size_t.*;/
   i
 #ifndef _GCC_SIZE_T
 #define _GCC_SIZE_T
@@ -250,6 +357,24 @@ if [ -r ${LIB}/$file ]; then
 EOF
   if cmp $file ${LIB}/$file >/dev/null 2>&1; then
     echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm ${LIB}/$file
+  fi
+fi
+
+# Fix an error in this file: the #if says _cplusplus, not the double
+# underscore __cplusplus that it should be
+file=tinfo.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/rpcsvc 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file, __cplusplus macro
+  sed -e 's/[ 	]_cplusplus/ __cplusplus/' ${LIB}/$file > ${LIB}/${file}.sed
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
     rm ${LIB}/$file
   fi
 fi
@@ -365,6 +490,31 @@ fi
 file=X11/Xmu.h
 if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
   mkdir ${LIB}/X11 2>/dev/null
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file sprintf declaration
+  ex ${LIB}/$file <<EOF
+  /^extern char \*	sprintf();$/c
+#ifndef __STDC__
+extern char *	sprintf();
+#endif /* !defined __STDC__ */
+.
+  wq
+EOF
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm ${LIB}/$file
+  fi
+fi
+
+# Incorrect sprintf declaration in X11/Xmu/Xmu.h
+# (It's not clear whether the right file name is this or X11/Xmu.h.)
+file=X11/Xmu/Xmu.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  mkdir ${LIB}/X11/Xmu 2>/dev/null
   cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
   chmod +w ${LIB}/$file 2>/dev/null
 fi
@@ -605,7 +755,7 @@ fi
 # many other systems have similar text but correct versions of the file.
 # To ensure only Sun's is fixed, we grep for a likely unique string.
 file=memory.h
-if egrep '/\*	@\(#\)memory.h 1.4 88/08/19 SMI; from S5R2 1.2	\*/' $file > /dev/null; then
+if egrep '/\*	@\(#\)memory\.h 1\.[2-4] 8./../.. SMI; from S5R2 1\.2	\*/' $file > /dev/null; then
   if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
     cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
     chmod +w ${LIB}/$file 2>/dev/null
@@ -660,7 +810,45 @@ if [ -r ${LIB}/$file ]; then
   fi
 fi
 
+# Don't use or define the name va_list in stdio.h.
+# This is for ANSI and also to interoperate properly with gvarargs.h.
+file=stdio.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
+  chmod +w ${LIB}/$file 2>/dev/null
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file, use of va_list
+  # Arrange for stdio.h to use stdarg.h to define __gnuc_va_list
+  (echo "#define __need___va_list"
+   echo "#include <stdarg.h>") > ${LIB}/${file}.sed
+  # Use __gnuc_va_list in arg types in place of va_list.
+  # Define __va_list__ (something harmless and unused) instead of va_list.
+  # Don't claim to have defined va_list.
+  sed -e 's@ va_list @ __gnuc_va_list @' \
+      -e 's@ va_list@ __va_list__@' \
+      -e 's@\*va_list@*__va_list__@' \
+      -e 's@VA_LIST@DUMMY_VA_LIST@' \
+    ${LIB}/$file >> ${LIB}/${file}.sed
+  
+  rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm -f ${LIB}/$file
+  fi
+fi
+
+# Cancel out ansi_compat.h on Ultrix.  Replace it with empty file.
+file=ansi_compat.h
+if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
+  if grep -s ULTRIX $file; then
+    echo "/* This file intentionally left blank.  */" > $LIB/$file
+  fi
+fi
+
 # parameter to atof not const on DECstation Ultrix V4.0.
+# also get rid of bogus inline definitions in HP-UX 8.0
 file=math.h
 if [ -r $file ] && [ ! -r ${LIB}/$file ]; then
   cp $file ${LIB}/$file >/dev/null 2>&1 || echo "Can't copy $file"
@@ -670,12 +858,26 @@ fi
 if [ -r ${LIB}/$file ]; then
   echo Fixing $file, non-const arg
   sed -e 's@atof( char \*__nptr );@atof( const char *__nptr );@' \
+      -e 's@inline int abs(int d) { return (d>0)?d:-d; }@@' \
+      -e 's@inline double abs(double d) { return fabs(d); }@@' \
     ${LIB}/$file > ${LIB}/${file}.sed
   rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
   if cmp $file ${LIB}/$file >/dev/null 2>&1; then
     echo Deleting ${LIB}/$file\; no fixes were needed.
     rm -f ${LIB}/$file
   fi
+fi
+
+# These two files on SunOS 4 are included by other files
+# in the same directory, using "...".  So we must make sure they exist
+# in the same directory as the other fixed files.
+if [ -r ${INPUT}/multimedia/audio_errno.h ]
+then
+  ln -s ${INPUT}/multimedia/audio_errno.h ${LIB}/multimedia 2>/dev/null
+fi
+if [ -r ${INPUT}/multimedia/audio_hdr.h ]
+then
+  ln -s ${INPUT}/multimedia/audio_hdr.h ${LIB}/multimedia 2>/dev/null
 fi
 
 echo 'Removing unneeded directories:'

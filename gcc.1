@@ -1,7 +1,7 @@
 .\" Copyright (c) 1991 Free Software Foundation              -*-Text-*-
 .\" See section COPYING for conditions for redistribution
 .\" FIXME: no info here on predefines.  Should there be?  extra for C++...
-.TH GCC 1 "27dec1991" "GNU Tools" "GNU Tools"
+.TH GCC 1 "28may1992" "GNU Tools" "GNU Tools"
 .de BP
 .sp
 .ti \-.2i
@@ -18,9 +18,10 @@ gcc, g++ \- GNU project C and C++ Compiler (v2 preliminary)
 .SH WARNING
 The information in this man page is an extract from the full
 documentation of the GNU C compiler, and is limited to the meaning of
-the options. 
+the options.  This man page is not kept up to date except when
+volunteers want to maintain it.
 
-For complete, current documentation, refer to the Info file `\|\c
+For complete and current documentation, refer to the Info file `\|\c
 .B gcc\c
 \&\|' or the manual
 .I 
@@ -64,7 +65,10 @@ processing to be done:
 \&	Objective-C source; preprocess, compile, assemble
 .br
 .B .i\c
-\&	preprocessed C or C++; compile, assemble
+\&	preprocessed C; compile, assemble
+.br
+.B .ii\c
+\&	preprocessed C++; compile, assemble
 .br
 .B .s\c
 \&	Assembler source; assemble 
@@ -1163,9 +1167,7 @@ Only the files you specify will be passed to the linker.
 .TP
 .B \-static
 On systems that support dynamic linking, this prevents linking with the shared
-libraries.  (`\|\c
-.B \-g\c
-\&\|' also has this effect.)  On other systems, this option has no effect.
+libraries.  On other systems, this option has no effect.
 .PP
 
 .SH DIRECTORY OPTIONS

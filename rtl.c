@@ -26,8 +26,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "obstack.h"
 #define	obstack_chunk_alloc	xmalloc
 #define	obstack_chunk_free	free
-extern int xmalloc ();
-extern void free ();
 
 /* Obstack used for allocating RTL objects.
    Between functions, this is the permanent_obstack.
@@ -37,7 +35,9 @@ extern void free ();
 
 extern struct obstack *rtl_obstack;
 
-extern long ftell();
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+extern long atol();
+#endif
 
 /* Indexed by rtx code, gives number of operands for an rtx with that code.
    Does NOT include rtx header data (code and links).
@@ -138,6 +138,8 @@ char *rtx_format[] = {
      "i" an integer
          prints the integer
      "n" like "i", but prints entries from `note_insn_name'
+     "w" an integer of width HOST_BITS_PER_WIDE_INT
+         prints the integer
      "s" a pointer to a string
          prints the string
      "S" like "s", but optional:
@@ -171,7 +173,9 @@ char *note_insn_name[] = { "NOTE_INSN_FUNCTION_BEG", "NOTE_INSN_DELETED",
 			   "NOTE_INSN_BLOCK_BEG", "NOTE_INSN_BLOCK_END",
 			   "NOTE_INSN_LOOP_BEG", "NOTE_INSN_LOOP_END",
 			   "NOTE_INSN_FUNCTION_END", "NOTE_INSN_SETJMP",
-			   "NOTE_INSN_LOOP_CONT", "NOTE_INSN_LOOP_VTOP" };
+			   "NOTE_INSN_LOOP_CONT", "NOTE_INSN_LOOP_VTOP",
+			   "NOTE_INSN_PROLOGUE_END", "NOTE_INSN_EPILOGUE_BEG",
+			   "NOTE_INSN_DELETED_LABEL"};
 
 char *reg_note_name[] = { "", "REG_DEAD", "REG_INC", "REG_EQUIV", "REG_WAS_0",
 			  "REG_EQUAL", "REG_RETVAL", "REG_LIBCALL",
@@ -282,6 +286,11 @@ copy_rtx (orig)
 	    XEXP (copy, i) = copy_rtx (XEXP (orig, i));
 	  break;
 
+	case '0':
+	case 'u':
+	  XEXP (copy, i) = XEXP (orig, i);
+	  break;
+
 	case 'E':
 	case 'V':
 	  XVEC (copy, i) = XVEC (orig, i);
@@ -293,9 +302,21 @@ copy_rtx (orig)
 	    }
 	  break;
 
-	default:
+	case 'w':
+	  XWINT (copy, i) = XWINT (orig, i);
+	  break;
+
+	case 'i':
 	  XINT (copy, i) = XINT (orig, i);
 	  break;
+
+	case 's':
+	case 'S':
+	  XSTR (copy, i) = XSTR (orig, i);
+	  break;
+
+	default:
+	  abort ();
 	}
     }
   return copy;
@@ -351,6 +372,11 @@ copy_most_rtx (orig, may_share)
 	    XEXP (copy, i) = copy_most_rtx (XEXP (orig, i), may_share);
 	  break;
 
+	case '0':
+	case 'u':
+	  XEXP (copy, i) = XEXP (orig, i);
+	  break;
+
 	case 'E':
 	case 'V':
 	  XVEC (copy, i) = XVEC (orig, i);
@@ -363,9 +389,22 @@ copy_most_rtx (orig, may_share)
 	    }
 	  break;
 
-	default:
+	case 'w':
+	  XWINT (copy, i) = XWINT (orig, i);
+	  break;
+
+	case 'n':
+	case 'i':
 	  XINT (copy, i) = XINT (orig, i);
 	  break;
+
+	case 's':
+	case 'S':
+	  XSTR (copy, i) = XSTR (orig, i);
+	  break;
+
+	default:
+	  abort ();
 	}
     }
   return copy;
@@ -492,6 +531,7 @@ read_rtx (infile)
   rtx return_rtx;
   register int c;
   int tmp_int;
+  HOST_WIDE_INT tmp_wide;
 
   /* Linked list structure for making RTXs: */
   struct rtx_list
@@ -604,8 +644,7 @@ read_rtx (infile)
 	    }
 	  /* get vector length and allocate it */
 	  XVEC (return_rtx, i) = (list_counter
-				  ? rtvec_alloc (list_counter)
-				  : (struct rtvec_def *) NULL);
+				  ? rtvec_alloc (list_counter) : NULL_RTVEC);
 	  if (list_counter > 0)
 	    {
 	      next_rtx = list_rtx;
@@ -676,6 +715,16 @@ read_rtx (infile)
 	}
 	break;
 
+      case 'w':
+	read_name (tmp_char, infile);
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT
+	tmp_wide = atoi (tmp_char);
+#else
+	tmp_wide = atol (tmp_char);
+#endif
+	XWINT (return_rtx, i) = tmp_wide;
+	break;
+
       case 'i':
       case 'n':
 	read_name (tmp_char, infile);
@@ -729,7 +778,7 @@ init_rtl ()
       /* Set the GET_RTX_FORMAT of CONST_DOUBLE to a string
 	 of as many `i's as we now have elements.  */
       for (i = 0; i < rtx_length[(int) CONST_DOUBLE]; i++)
-	*s++ = 'i';
+	*s++ = 'w';
       *s++ = 0;
     }
 #endif

@@ -46,6 +46,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #undef STRING_ASM_OP
 #undef COMMON_ASM_OP
 #undef SKIP_ASM_OP
+#undef SET_ASM_OP	/* Has no equivalent.  See ASM_OUTPUT_DEF below.  */
 
 /* Provide a set of pre-definitions and pre-assertions appropriate for
    the Sparc running svr4.  __svr4__ is our extension.  */
@@ -150,35 +151,6 @@ do { ASM_OUTPUT_ALIGN ((FILE), 2);					\
 #define INIT_SECTION_ASM_OP	".section\t\".init\",#alloc"
 #define CTORS_SECTION_ASM_OP    ".section\t\".ctors\",#alloc"
 #define DTORS_SECTION_ASM_OP    ".section\t\".dtors\",#alloc"
-
-/* Code to handle #pragma directives.  The interface is a bit messy,
-   but there's no simpler way to do this while still using yylex.  */
-#define HANDLE_PRAGMA(FILE)					\
-  do {								\
-    while (c == ' ' || c == '\t')				\
-      c = getc (FILE);						\
-    if (c == '\n' || c == EOF)					\
-      {								\
-	handle_pragma_token (0, 0);				\
-	return c;						\
-      }								\
-    ungetc (c, FILE);						\
-    switch (yylex ())						\
-      {								\
-      case IDENTIFIER:						\
-      case TYPENAME:						\
-      case STRING:						\
-      case CONSTANT:						\
-	handle_pragma_token (token_buffer, yylval.ttype);	\
-	break;							\
-      default:							\
-	handle_pragma_token (token_buffer, 0);			\
-      }								\
-    if (nextchar >= 0)						\
-      c = nextchar, nextchar = -1;				\
-    else							\
-      c = getc (FILE);						\
-  } while (1)
 
 /* If the host and target formats match, output the floats as hex.  */
 #if HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT

@@ -1188,6 +1188,7 @@ VAX operand formatting codes:
 
  letter	   print
    C	reverse branch condition
+   D	64-bit immediate operand
    B	the low 8 bits of the complement of a constant operand
    H	the low 16 bits of the complement of a constant operand
    M	a mask for the N highest bits of a word
@@ -1198,6 +1199,10 @@ VAX operand formatting codes:
    h	the low 16 bits of a negated constant operand
    #	'd' or 'g' depending on whether dfloat or gfloat is used  */
 
+/* The purpose of D is to get around a quirk or bug in vax assembler
+   whereby -1 in a 64-bit immediate operand means 0x00000000ffffffff,
+   which is not a 64-bit minus one.  */
+
 #define PRINT_OPERAND_PUNCT_VALID_P(CODE)				\
   ((CODE) == '#')
 
@@ -1206,6 +1211,8 @@ VAX operand formatting codes:
   if (CODE == '#') fputc (ASM_DOUBLE_CHAR, FILE);			\
   else if (CODE == 'C')							\
     fputs (rev_cond_name (X), FILE);					\
+  else if (CODE == 'D' && GET_CODE (X) == CONST_INT && INTVAL (X) < 0)	\
+    fprintf (FILE, "0xffffffff%08x", INTVAL (X));			\
   else if (CODE == 'P' && GET_CODE (X) == CONST_INT)			\
     fprintf (FILE, "$%d", INTVAL (X) + 1);				\
   else if (CODE == 'N' && GET_CODE (X) == CONST_INT)			\
@@ -1227,7 +1234,11 @@ VAX operand formatting codes:
     fprintf (FILE, "%s", reg_names[REGNO (X)]);				\
   else if (GET_CODE (X) == MEM)						\
     output_address (XEXP (X, 0));					\
-  else if (GET_CODE (X) == CONST_DOUBLE && GET_MODE (X) != DImode)	\
+  else if (GET_CODE (X) == CONST_DOUBLE && GET_MODE (X) == SFmode)	\
+    { union { double d; int i[2]; } u;					\
+      u.i[0] = CONST_DOUBLE_LOW (X); u.i[1] = CONST_DOUBLE_HIGH (X);	\
+      fprintf (FILE, "$0f%.20e", u.d); }				\
+  else if (GET_CODE (X) == CONST_DOUBLE && GET_MODE (X) == DFmode)	\
     { union { double d; int i[2]; } u;					\
       u.i[0] = CONST_DOUBLE_LOW (X); u.i[1] = CONST_DOUBLE_HIGH (X);	\
       fprintf (FILE, "$0%c%.20e", ASM_DOUBLE_CHAR, u.d); }		\

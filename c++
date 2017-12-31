@@ -2,75 +2,106 @@
 # Compile programs, treating .c files as C++.
 : || exec /bin/sh -f $0 $argv:q
 
-newargs=
-quote=no
-library=-lg++
-havefiles=
+# The compiler name might be different when doing cross-compilation
+# (this should be configured)
+gcc_name=gcc
+speclang=-xnone
 
-for arg in $*;
+# replace the command name by the name of the new command
+progname=`basename $0`
+case "$0" in
+  */*)
+    gcc=`echo $0 | sed -e "s;/[^/]*$;;"`/$gcc_name
+    ;;
+  *)
+    gcc=$gcc_name
+    ;;
+esac
+
+# $first is yes for first arg, no afterwards.
+first=yes
+# If next arg is the argument of an option, $quote is non-empty.
+# More precisely, it is the option that wants an argument.
+quote=
+# $library is made empty to disable use of libg++.
+library=-lg++
+numargs=$#
+
+# ash requires the newline before `do'.
+for arg
 do
-  if [ $quote = yes ]
+  if [ $first = yes ]
   then
-    newargs="$newargs $arg"
-    quote=no
+    # Need some 1st arg to `set' which does not begin with `-'.
+    # We get rid of it after the loop ends.
+    set gcc
+    first=no
+  fi
+  # If you have to ask what this does, you should not edit this file. :-)
+  # The ``S'' at the start is so that echo -nostdinc does not eat the
+  # -nostdinc.
+  arg=`echo "S$arg" | sed "s/^S//; s/'/'\\\\\\\\''/g"`
+  if [ x$quote != x ]
+  then
+    quote=
   else
-    quote=no
+    quote=
     case $arg in
       -nostdlib)
 	# Inhibit linking with -lg++.
-	newargs="$newargs $arg"
 	library=
 	;;
+      -lm)
+	# Because libg++ uses things from the math library, make sure it
+	# always comes before the math library.
+	set "$@" $library
+	library=""
+	;;
       -[bBVDUoeTuIYmLiA] | -Tdata)
-	newargs="$newargs $arg"
 	# these switches take following word as argument,
 	# so don't treat it as a file name.
-	quote=yes
+	quote=$arg
 	;;
       -[cSEM] | -MM)
 	# Don't specify libraries if we won't link,
 	# since that would cause a warning.
-	newargs="$newargs $arg"
 	library=
 	;;
-      -xnone)
-	newargs="$newargs $arg"
-	speclang=
-	;;
       -x*)
-	newargs="$newargs $arg"
-	speclang=yes
+	speclang=$arg
+	;;
+      -v)
+	# catch `g++ -v'
+	if [ $numargs = 1 ] ; then library="" ; fi
 	;;
       -*)
 	# Pass other options through; they don't need -x and aren't inputs.
-	newargs="$newargs $arg"
 	;;
       *)
-	havefiles=yes
 	# If file ends in .c or .i, put options around it.
 	# But not if a specified -x option is currently active.
-	temp=`expr $arg : '.*\.[ci]$'`
-	if [ \( x$temp != x0 \) -a \( x$speclang = x \) ]
-	then
-	  newargs="$newargs -xc++ $arg -xnone"
-	else
-	  newargs="$newargs $arg"
-	fi
+	case "$speclang $arg" in -xnone\ *.[ci])
+	  set "$@" -xc++ "'$arg'" -xnone
+	  continue
+	esac
 	;;
     esac
   fi
+  set "$@" "'$arg'"
 done
 
-if [ x$havefiles = x ]
-then
-  echo "$0: no input files specified"
+# Get rid of that initial 1st arg
+if [ $first = no ]; then
+  shift
+else
+  echo "$0: No input files specified."
   exit 1
 fi
 
-progname=`echo $0 |sed -e 's|/[^/]*$|/gcc|'`
-if [ -f ${progname} ]
+if [ x$quote != x ]
 then
-exec ${progname} $newargs $library
-else
-exec gcc $newargs $library
+  echo "$0: argument to \`$quote' missing"
+  exit 1
 fi
+
+eval $gcc "$@" $library

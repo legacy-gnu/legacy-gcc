@@ -28,7 +28,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    cp-lex.c for very minor efficiency gains (primarily in function
    inlining).  */
 
-#include <assert.h>
 #include <stdio.h>
 #include "obstack.h"
 
@@ -104,6 +103,7 @@ inline
 void
 feed_input (str, len, delete)
      char *str;
+     int len;
      struct obstack *delete;
 {
   struct input_source *inp = allocate_input ();
@@ -142,7 +142,7 @@ getch ()
       if (input->offset == input->length)
 	{
 	  struct input_source *inp = input;
-	  assert (putback_char == -1);
+	  my_friendly_assert (putback_char == -1, 223);
 	  to_be_restored = inp->input;
 	  input->offset++;
 	  return EOF;
@@ -172,7 +172,7 @@ void
 put_back (ch)
      int ch;
 {
-  assert (putback_char == -1);
+  my_friendly_assert (putback_char == -1, 224);
   putback_char = ch;
 }
 

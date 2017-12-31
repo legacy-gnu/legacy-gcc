@@ -28,7 +28,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include <sys/types.h>
 #include <stdio.h>
-#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <signal.h>
@@ -104,12 +103,18 @@ extern int errno;
   ((magic) == U802WRMAGIC || (magic) == U802ROMAGIC || (magic) == U802TOCMAGIC)
 #endif
 
-#if defined (_AIX) || defined (USG)
+/* Many versions of ldfcn.h define these.  */
+#ifdef FREAD
 #undef FREAD
 #undef FWRITE
 #endif
 
 #include <ldfcn.h>
+
+/* Mips-news overrides this macro.  */
+#ifndef MY_ISCOFF
+#define MY_ISCOFF(X) ISCOFF (X)
+#endif
 
 #endif /* OBJECT_FORMAT_COFF */
 
@@ -198,7 +203,29 @@ static void  choose_temp_base ();
 
 generic *xcalloc ();
 generic *xmalloc ();
+
+extern char *index ();
+extern char *rindex ();
 
+#ifdef NO_DUP2
+dup2 (oldfd, newfd)
+     int oldfd;
+     int newfd;
+{
+  int fdtmp[256];
+  int fdx = 0;
+  int fd;
+ 
+  if (oldfd == newfd)
+    return 0;
+  close (newfd);
+  while ((fd = dup (oldfd)) != newfd) /* good enough for low fd's */
+    fdtmp[fdx++] = fd;
+  while (fdx > 0)
+    close (fdtmp[--fdx]);
+}
+#endif
+
 char *
 my_strerror (e)
      int e;
@@ -353,8 +380,14 @@ is_ctor_dtor (s)
     { "GLOBAL_$I$", sizeof ("GLOBAL_$I$")-1, 1, 0 },
     { "GLOBAL_$D$", sizeof ("GLOBAL_$I$")-1, 2, 0 },
 #endif
+#ifdef CFRONT_LOSSAGE /* Don't collect cfront initialization functions.
+			 cfront has its own linker procedure to collect them;
+			 if collect2 gets them too, they get collected twice
+			 when the cfront procedure is run and the compiler used
+			 for linking happens to be GCC.  */
     { "sti__", sizeof ("sti__")-1, 1, 1 },
     { "std__", sizeof ("std__")-1, 2, 1 },
+#endif /* CFRONT_LOSSAGE */
     { NULL, 0, 0, 0 }
   };
 
@@ -461,12 +494,18 @@ main (argc, argv)
   if (argc < 2)
     fatal ("no arguments");
 
-  signal (SIGQUIT, handler);
-  signal (SIGINT,  handler);
-  signal (SIGALRM, handler);
-  signal (SIGHUP,  handler);
-  signal (SIGSEGV, handler);
-  signal (SIGBUS,  handler);
+  if (signal (SIGQUIT, SIG_IGN) != SIG_IGN)
+    signal (SIGQUIT, handler);
+  if (signal (SIGINT, SIG_IGN) != SIG_IGN)
+    signal (SIGINT, handler);
+  if (signal (SIGALRM, SIG_IGN) != SIG_IGN)
+    signal (SIGALRM, handler);
+  if (signal (SIGHUP, SIG_IGN) != SIG_IGN)
+    signal (SIGHUP, handler);
+  if (signal (SIGSEGV, SIG_IGN) != SIG_IGN)
+    signal (SIGSEGV, handler);
+  if (signal (SIGBUS, SIG_IGN) != SIG_IGN)
+    signal (SIGBUS, handler);
 
   /* Try to discover a valid linker/assembler/nm/strip to use.  */
   len = strlen (argv[0]);
@@ -483,7 +522,7 @@ main (argc, argv)
 
   if (prefix == (char *)0)
     {
-      p = strrchr (argv[0], '/');
+      p = rindex (argv[0], '/');
       if (p != (char *)0)
 	{
 	  prefix = argv[0];
@@ -547,7 +586,10 @@ main (argc, argv)
 
   /* Determine the full path name of the C compiler to use.  */
   c_file_name = getenv ("COLLECT_GCC");
-  if (c_file_name == 0 || c_file_name[0] != '/')
+  /* If this is absolute, it must be a file that exists.
+     If it is relative, it must be something that execvp was able to find.
+     Either way, we can pass it to execvp and find the same executable.  */
+  if (c_file_name == 0)
     {
       c_file_name = xcalloc (clen + sizeof ("gcc"), 1);
       bcopy (prefix, c_file_name, len);
@@ -676,7 +718,7 @@ main (argc, argv)
 	    }
 
       else if (first_file
-	       && (p = strrchr (arg, '.')) != (char *)0
+	       && (p = rindex (arg, '.')) != (char *)0
 	       && strcmp (p, ".o") == 0)
 	{
 	  first_file = 0;
@@ -854,8 +896,6 @@ fork_execute (prog, argv)
      char **argv;
 {
   int pid;
-  void (*int_handler) ();
-  void (*quit_handler) ();
 
   if (vflag || debug)
     {
@@ -882,13 +922,7 @@ fork_execute (prog, argv)
       fatal_perror ("executing %s", prog);
     }
 
-  int_handler  = (void (*) ())signal (SIGINT,  SIG_IGN);
-  quit_handler = (void (*) ())signal (SIGQUIT, SIG_IGN);
-
   do_wait (prog);
-
-  signal (SIGINT,  int_handler);
-  signal (SIGQUIT, quit_handler);
 }
 
 
@@ -1180,7 +1214,7 @@ scan_prog_file (prog_name, which_pass)
   if ((ldptr = ldopen (prog_name, ldptr)) == NULL)
     fatal ("%s: can't open as COFF file", prog_name);
       
-  if (!ISCOFF (HEADER(ldptr).f_magic))
+  if (!MY_ISCOFF (HEADER (ldptr).f_magic))
     fatal ("%s: not a COFF file", prog_name);
 
   if (GCC_CHECK_HDR (ldptr))
@@ -1380,11 +1414,11 @@ scan_prog_file (prog_name, which_pass)
       load_cmd = load_end++;
       load_hdr = (load_union_t *) (obj + offset);
 
-      /* If modifing the program file, copy the header.  */
+      /* If modifying the program file, copy the header.  */
       if (rw)
 	{
 	  load_union_t *ptr = (load_union_t *) xmalloc (load_hdr->hdr.ldci_cmd_size);
-	  bcopy (load_hdr, ptr, load_hdr->hdr.ldci_cmd_size);
+	  bcopy ((generic *)load_hdr, (generic *)ptr, load_hdr->hdr.ldci_cmd_size);
 	  load_hdr = ptr;
 
 	  /* null out old command map, because we will rewrite at the end.  */
@@ -1567,7 +1601,7 @@ scan_prog_file (prog_name, which_pass)
 	  if (debug)
 	    print_load_command (load_hdr, offset, i);
 
-	  bcopy (load_hdr, obj + offset, size);
+	  bcopy ((generic *)load_hdr, (generic *)(obj + offset), size);
 	  offset += size;
 	}
     }

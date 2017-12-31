@@ -21,9 +21,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "m68kv4.h"
 
-/* Alter assembler syntax for fsgldiv.  */
+/* Alter assembler syntax for fsgldiv and fsglmul.
+   It is highly likely that this is a generic SGS m68k assembler dependency.
+   If so, it should eventually be handled in the m68ksgs.h ASM_OUTPUT_OPCODE
+   macro, like the other SGS assembler quirks.  -fnf */
 
-#define FSGLDIV_USE_S
+#define FSGLDIV_USE_S		/* Use fsgldiv.s, not fsgldiv.x */
+#define FSGLMUL_USE_S		/* Use fsglmul.s, not fsglmul.x */
 
 /* Names to predefine in the preprocessor for this target machine.  For the
    Amiga, these definitions match those of the native AT&T compiler.  Note
@@ -33,12 +37,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #undef CPP_PREDEFINES
 #define CPP_PREDEFINES \
   "-Dm68k -Dunix -DAMIX -Amachine(m68k) -Acpu(m68k) -Asystem(unix) -Alint(off)"
-
-/* This is the library routine that is used to transfer control from
-   the trampoline to the actual nested function.  FIXME:  This needs to
-   be implemented still.  -fnf */
-
-#undef TRANSFER_FROM_TRAMPOLINE
 
 /* At end of a switch table, define LDnnn iff the symbol LInnn was defined.
    Some SGS assemblers have a bug such that "Lnnn-LInnn-2.b(pc,d0.l*2)"
@@ -52,7 +50,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define ASM_OUTPUT_CASE_END(FILE,NUM,TABLE)				\
 do {									\
   if (switch_table_difference_label_flag)				\
-    asm_fprintf ((FILE), "%s %LLD%d,%LL%d\n", SET_ASM_OP, (NUM), (NUM));\
+    asm_fprintf ((FILE), "\t%s %LLD%d,%LL%d\n", SET_ASM_OP, (NUM), (NUM));\
   switch_table_difference_label_flag = 0;				\
 } while (0)
 
@@ -85,7 +83,7 @@ do {									\
 #undef ASM_OUTPUT_ALIGNED_LOCAL
 #define ASM_OUTPUT_ALIGNED_LOCAL(FILE, NAME, SIZE, ALIGN)		\
 do {									\
-  fprintf ((FILE), "%s\t%s,%u,%u\n",					\
+  fprintf ((FILE), "\t%s\t%s,%u,%u\n",					\
 	   BSS_ASM_OP, (NAME), (SIZE), MAX ((ALIGN) / BITS_PER_UNIT, 4)); \
 } while (0)
 

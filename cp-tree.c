@@ -24,13 +24,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "cp-tree.h"
 #include "flags.h"
-#include "assert.h"
 
 #define CEIL(x,y) (((x) + (y) - 1) / (y))
 
 /* Return nonzero if REF is an lvalue valid for this language.
    Lvalues can be assigned, unless they have TREE_READONLY.
-   Lvalues can have their address taken, unless they have TREE_REGDECL.  */
+   Lvalues can have their address taken, unless they have DECL_REGISTER.  */
 
 int
 lvalue_p (ref)
@@ -90,6 +89,13 @@ lvalue_p (ref)
 	    return 0;
 	  else
 	    return 1;
+	break;
+
+      case ADDR_EXPR:
+	/* ANSI C++ June 5 1992 WP 5.4.14.  The result of a cast to a
+	   reference is an lvalue.  */
+	if (TREE_CODE (TREE_TYPE (ref)) == REFERENCE_TYPE)
+	  return 1;
 	break;
       }
   return 0;
@@ -179,7 +185,7 @@ break_out_cleanups (exp)
 }
 
 /* Recursively perform a preorder search EXP for CALL_EXPRs, making
-   copies where they are found.  Retuns a deep copy all nodes transitively
+   copies where they are found.  Returns a deep copy all nodes transitively
    containing CALL_EXPRs.  */
 
 tree
@@ -199,25 +205,47 @@ break_out_calls (exp)
   if (code == CALL_EXPR)
     return copy_node (exp);
 
+  /* Don't try and defeat a save_expr, as it should only be done once. */
+    if (code == SAVE_EXPR)
+       return exp;
+
   switch (TREE_CODE_CLASS (code))
     {
-    case 'x':  /* something random, like an identifier.  */
-    case 't':  /* a type node */
     default:
       abort ();
 
     case 'c':  /* a constant */
-    case 'd':  /* A decl node */
+    case 't':  /* a type node */
+    case 'x':  /* something random, like an identifier or an ERROR_MARK.  */
       return exp;
 
-    case 'e':  /* a expression */
+    case 'd':  /* A decl node */
+      t1 = break_out_calls (DECL_INITIAL (exp));
+      if (t1 != DECL_INITIAL (exp))
+	{
+	  exp = copy_node (exp);
+	  DECL_INITIAL (exp) = t1;
+	}
+      return exp;
+
+    case 'b':  /* A block node */
+      {
+	/* Don't know how to handle these correctly yet.   Must do a
+	   break_out_calls on all DECL_INITIAL values for local variables,
+	   and also break_out_calls on all sub-blocks and sub-statements.  */
+	abort ();
+      }
+      return exp;
+
+    case 'e':  /* an expression */
+    case 'r':  /* a reference */
     case 's':  /* an expression with side effects */
-      for (i = tree_code_length[(int) code]; i >= 0; i--)
+      for (i = tree_code_length[(int) code] - 1; i >= 0; i--)
 	{
 	  t1 = break_out_calls (TREE_OPERAND (exp, i));
 	  if (t1 != TREE_OPERAND (exp, i))
 	    {
-	      if (changed == 0)
+	      if (changed++ == 0)
 		exp = copy_node (exp);
 	      TREE_OPERAND (exp, i) = t1;
 	    }
@@ -229,7 +257,6 @@ break_out_calls (exp)
       t2 = break_out_calls (TREE_OPERAND (exp, 1));
       if (t2 != TREE_OPERAND (exp, 1))
 	changed = 1;
-    case 'r':  /* a reference */
     case '1':  /* a unary arithmetic expression */
       t1 = break_out_calls (TREE_OPERAND (exp, 0));
       if (t1 != TREE_OPERAND (exp, 0))
@@ -252,7 +279,7 @@ extern struct obstack *saveable_obstack;
 
 /* Here is how primitive or already-canonicalized types' hash
    codes are made.  MUST BE CONSISTENT WITH tree.c !!! */
-#define TYPE_HASH(TYPE) ((int) (TYPE) & 0777777)
+#define TYPE_HASH(TYPE) ((HOST_WIDE_INT) (TYPE) & 0777777)
 
 /* Construct, lay out and return the type of methods belonging to class
    BASETYPE and whose arguments and values are described by TYPE.
@@ -300,7 +327,6 @@ build_cplus_staticfn_type (basetype, rettype, argtypes)
      tree basetype, rettype, argtypes;
 {
   register tree t;
-  tree ptype = build_pointer_type (basetype);
   int hashcode;
 
   /* Make a node of the sort we want.  */
@@ -354,7 +380,7 @@ build_cplus_array_type (elt_type, index_type)
   return t;
 }
 
-/* Add OFFSET to all child types of T.
+/* Add OFFSET to all base types of T.
 
    OFFSET, which is a type offset, is number of bytes.
 
@@ -365,21 +391,19 @@ propagate_binfo_offsets (binfo, offset)
      tree binfo;
      tree offset;
 {
-  tree t = BINFO_TYPE (binfo);
   tree binfos = BINFO_BASETYPES (binfo);
   int i, n_baselinks = binfos ? TREE_VEC_LENGTH (binfos) : 0;
 
   for (i = 0; i < n_baselinks; /* note increment is done in the loop.  */)
     {
-      tree child = TREE_VEC_ELT (binfos, i);
+      tree base_binfo = TREE_VEC_ELT (binfos, i);
 
-      if (TREE_VIA_VIRTUAL (child))
+      if (TREE_VIA_VIRTUAL (base_binfo))
 	i += 1;
       else
 	{
 	  int j;
-	  tree child_binfos = BINFO_BASETYPES (child);
-	  tree basetype = BINFO_TYPE (child);
+	  tree base_binfos = BINFO_BASETYPES (base_binfo);
 	  tree delta;
 
 	  for (j = i+1; j < n_baselinks; j++)
@@ -389,41 +413,42 @@ propagate_binfo_offsets (binfo, offset)
 		   between the classes, not just the size of each class.  */
 		delta = size_binop (MINUS_EXPR,
 				    BINFO_OFFSET (TREE_VEC_ELT (binfos, j)),
-				    BINFO_OFFSET (child));
+				    BINFO_OFFSET (base_binfo));
 		break;
 	      }
 
 #if 0
-	  if (BINFO_OFFSET_ZEROP (child))
-	    BINFO_OFFSET (child) = offset;
+	  if (BINFO_OFFSET_ZEROP (base_binfo))
+	    BINFO_OFFSET (base_binfo) = offset;
 	  else
-	    BINFO_OFFSET (child)
-	      = size_binop (PLUS_EXPR, BINFO_OFFSET (child), offset);
+	    BINFO_OFFSET (base_binfo)
+	      = size_binop (PLUS_EXPR, BINFO_OFFSET (base_binfo), offset);
 #else
-	  BINFO_OFFSET (child) = offset;
+	  BINFO_OFFSET (base_binfo) = offset;
 #endif
-	  if (child_binfos)
+	  if (base_binfos)
 	    {
 	      int k;
 	      tree chain = NULL_TREE;
 
-	      /* Now unshare the structure beneath CHILD.  */
-	      for (k = TREE_VEC_LENGTH (child_binfos)-1;
+	      /* Now unshare the structure beneath BASE_BINFO.  */
+	      for (k = TREE_VEC_LENGTH (base_binfos)-1;
 		   k >= 0; k--)
 		{
-		  tree child_child = TREE_VEC_ELT (child_binfos, k);
-		  if (! TREE_VIA_VIRTUAL (child_child))
-		    TREE_VEC_ELT (child_binfos, k)
-		      = make_binfo (BINFO_OFFSET (child_child),
-				    BINFO_TYPE (child_child),
-				    BINFO_VTABLE (child_child),
-				    BINFO_VIRTUALS (child_child),
+		  tree base_base_binfo = TREE_VEC_ELT (base_binfos, k);
+		  if (! TREE_VIA_VIRTUAL (base_base_binfo))
+		    TREE_VEC_ELT (base_binfos, k)
+		      = make_binfo (BINFO_OFFSET (base_base_binfo),
+				    BINFO_TYPE (base_base_binfo),
+				    BINFO_VTABLE (base_base_binfo),
+				    BINFO_VIRTUALS (base_base_binfo),
 				    chain);
-		  chain = TREE_VEC_ELT (child_binfos, k);
-		  TREE_VIA_PUBLIC (chain) = TREE_VIA_PUBLIC (child_child);
+		  chain = TREE_VEC_ELT (base_binfos, k);
+		  TREE_VIA_PUBLIC (chain) = TREE_VIA_PUBLIC (base_base_binfo);
+		  TREE_VIA_PROTECTED (chain) = TREE_VIA_PROTECTED (base_base_binfo);
 		}
-	      /* Now propagate the offset to the children.  */
-	      propagate_binfo_offsets (child, offset);
+	      /* Now propagate the offset to the base types.  */
+	      propagate_binfo_offsets (base_binfo, offset);
 	    }
 
 	  /* Go to our next class that counts for offset propagation.  */
@@ -514,27 +539,28 @@ layout_vbasetypes (rec, max)
   for (vbase_types = CLASSTYPE_VBASECLASSES (rec); vbase_types;
        vbase_types = TREE_CHAIN (vbase_types))
     {
-      tree child_binfos = BINFO_BASETYPES (vbase_types);
+      tree base_binfos = BINFO_BASETYPES (vbase_types);
 
-      if (child_binfos)
+      if (base_binfos)
 	{
 	  tree chain = NULL_TREE;
 	  int j;
-	  /* Now unshare the structure beneath CHILD.  */
+	  /* Now unshare the structure beneath BASE_BINFO.  */
 
-	  for (j = TREE_VEC_LENGTH (child_binfos)-1;
+	  for (j = TREE_VEC_LENGTH (base_binfos)-1;
 	       j >= 0; j--)
 	    {
-	      tree child_child = TREE_VEC_ELT (child_binfos, j);
-	      if (! TREE_VIA_VIRTUAL (child_child))
-		TREE_VEC_ELT (child_binfos, j)
-		  = make_binfo (BINFO_OFFSET (child_child),
-				BINFO_TYPE (child_child),
-				BINFO_VTABLE (child_child),
-				BINFO_VIRTUALS (child_child),
+	      tree base_base_binfo = TREE_VEC_ELT (base_binfos, j);
+	      if (! TREE_VIA_VIRTUAL (base_base_binfo))
+		TREE_VEC_ELT (base_binfos, j)
+		  = make_binfo (BINFO_OFFSET (base_base_binfo),
+				BINFO_TYPE (base_base_binfo),
+				BINFO_VTABLE (base_base_binfo),
+				BINFO_VIRTUALS (base_base_binfo),
 				chain);
-	      chain = TREE_VEC_ELT (child_binfos, j);
-	      TREE_VIA_PUBLIC (chain) = TREE_VIA_PUBLIC (child_child);
+	      chain = TREE_VEC_ELT (base_binfos, j);
+	      TREE_VIA_PUBLIC (chain) = TREE_VIA_PUBLIC (base_base_binfo);
+	      TREE_VIA_PROTECTED (chain) = TREE_VIA_PROTECTED (base_base_binfo);
 	    }
 
 	  propagate_binfo_offsets (vbase_types, BINFO_OFFSET (vbase_types));
@@ -560,9 +586,9 @@ layout_basetypes (rec, binfos)
   tree vbase_decls = NULL_TREE;
 
 #ifdef STRUCTURE_SIZE_BOUNDARY
-  int record_align = MAX (STRUCTURE_SIZE_BOUNDARY, TYPE_ALIGN (rec));
+  unsigned record_align = MAX (STRUCTURE_SIZE_BOUNDARY, TYPE_ALIGN (rec));
 #else
-  int record_align = MAX (BITS_PER_UNIT, TYPE_ALIGN (rec));
+  unsigned record_align = MAX (BITS_PER_UNIT, TYPE_ALIGN (rec));
 #endif
 
   /* Record size so far is CONST_SIZE + VAR_SIZE bits,
@@ -570,7 +596,7 @@ layout_basetypes (rec, binfos)
      and VAR_SIZE is a tree expression.
      If VAR_SIZE is null, the size is just CONST_SIZE.
      Naturally we try to avoid using VAR_SIZE.  */
-  register int const_size = 0;
+  register unsigned const_size = 0;
   register tree var_size = 0;
   int i, n_baseclasses = binfos ? TREE_VEC_LENGTH (binfos) : 0;
 
@@ -580,24 +606,32 @@ layout_basetypes (rec, binfos)
   for (i = 0; i < n_baseclasses; i++)
     {
       int inc, desired_align, int_vbase_size;
-      register tree child = TREE_VEC_ELT (binfos, i);
-      register tree basetype = BINFO_TYPE (child);
+      register tree base_binfo = TREE_VEC_ELT (binfos, i);
+      register tree basetype = BINFO_TYPE (base_binfo);
       tree decl, offset;
 
       if (TYPE_SIZE (basetype) == 0)
 	{
-	  error_with_aggr_type (child, "base class `%s' has incomplete type");
-	  TREE_VIA_PUBLIC (child) = 1;
-	  TREE_VIA_VIRTUAL (child) = 0;
+	  error_with_aggr_type (base_binfo, "base class `%s' has incomplete type");
+	  TREE_VIA_PUBLIC (base_binfo) = 1;
+	  TREE_VIA_PROTECTED (base_binfo) = 0;
+	  TREE_VIA_VIRTUAL (base_binfo) = 0;
+
+	  /* Should handle this better so that
+
+	     class A;
+	     class B: private A { virtual void F(); };
+
+	     does not dump core when compiled. */
+	  my_friendly_abort (121);
 	  continue;
 	}
 
       /* All basetypes are recorded in the association list of the
 	 derived type.  */
 
-      if (TREE_VIA_VIRTUAL (child))
+      if (TREE_VIA_VIRTUAL (base_binfo))
 	{
-	  tree binfo;
 	  int j;
 	  char *name = (char *)alloca (TYPE_NAME_LENGTH (basetype)
 				       + sizeof (VBASE_NAME) + 1);
@@ -612,24 +646,30 @@ layout_basetypes (rec, binfos)
 	     make our own pointer.  */
 	  for (j = 0; j < n_baseclasses; j++)
 	    {
-	      tree other_child = TREE_VEC_ELT (binfos, j);
-	      if (! TREE_VIA_VIRTUAL (other_child)
+	      tree other_base_binfo = TREE_VEC_ELT (binfos, j);
+	      if (! TREE_VIA_VIRTUAL (other_base_binfo)
 		  && binfo_member (basetype,
-				   CLASSTYPE_VBASECLASSES (BINFO_TYPE (other_child))))
+				   CLASSTYPE_VBASECLASSES (BINFO_TYPE (other_base_binfo))))
 		goto got_it;
 	    }
 	  sprintf (name, VBASE_NAME_FORMAT, TYPE_NAME_STRING (basetype));
 	  decl = build_lang_decl (FIELD_DECL, get_identifier (name),
 				  build_pointer_type (basetype));
+	  /* If you change any of the below, take a look at all the
+	     other VFIELD_BASEs and VTABLE_BASEs in the code, and change
+	     them too. */
 	  DECL_ASSEMBLER_NAME (decl) = get_identifier (VTABLE_BASE);
 	  DECL_VIRTUAL_P (decl) = 1;
 	  DECL_FIELD_CONTEXT (decl) = rec;
 	  DECL_CLASS_CONTEXT (decl) = rec;
 	  DECL_FCONTEXT (decl) = basetype;
+	  DECL_FIELD_SIZE (decl) = 0;
+	  DECL_ALIGN (decl) = TYPE_ALIGN (ptr_type_node);
 	  TREE_CHAIN (decl) = vbase_decls;
+	  BINFO_VPTR_FIELD (base_binfo) = decl;
 	  vbase_decls = decl;
 
-	  if (TYPE_HAS_DESTRUCTOR (basetype)
+	  if (warn_nonvdtor && TYPE_HAS_DESTRUCTOR (basetype)
 	      && DECL_VINDEX (TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0)) == NULL_TREE)
 	    {
 	      warning_with_decl (TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0),
@@ -652,25 +692,25 @@ layout_basetypes (rec, binfos)
 	    * TYPE_ALIGN (basetype);
 	  offset = size_int ((const_size + BITS_PER_UNIT - 1) / BITS_PER_UNIT);
 
-	  if (TYPE_HAS_DESTRUCTOR (basetype)
+	  if (warn_nonvdtor && TYPE_HAS_DESTRUCTOR (basetype)
 	      && DECL_VINDEX (TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0)) == NULL_TREE)
 	    {
 	      warning_with_decl (TREE_VEC_ELT (CLASSTYPE_METHOD_VEC (basetype), 0),
 				 "destructor `%s' non-virtual");
 	      warning ("in inheritance relationship `%s:%s %s'",
 		       TYPE_NAME_STRING (rec),
-		       TREE_VIA_VIRTUAL (child) ? " virtual" : "",
+		       TREE_VIA_VIRTUAL (base_binfo) ? " virtual" : "",
 		       TYPE_NAME_STRING (basetype));
 	    }
 	}
-      BINFO_OFFSET (child) = offset;
+      BINFO_OFFSET (base_binfo) = offset;
       if (CLASSTYPE_VSIZE (basetype))
 	{
-	  BINFO_VTABLE (child) = TYPE_BINFO_VTABLE (basetype);
-	  BINFO_VIRTUALS (child) = TYPE_BINFO_VIRTUALS (basetype);
+	  BINFO_VTABLE (base_binfo) = TYPE_BINFO_VTABLE (basetype);
+	  BINFO_VIRTUALS (base_binfo) = TYPE_BINFO_VIRTUALS (basetype);
 	}
-      TREE_CHAIN (child) = TYPE_BINFO (rec);
-      TYPE_BINFO (rec) = child;
+      TREE_CHAIN (base_binfo) = TYPE_BINFO (rec);
+      TYPE_BINFO (rec) = base_binfo;
 
       /* Add only the amount of storage not present in
 	 the virtual baseclasses.  */
@@ -758,11 +798,12 @@ list_hash_lookup (hashcode, list)
     if (h->hashcode == hashcode
 	&& TREE_VIA_VIRTUAL (h->list) == TREE_VIA_VIRTUAL (list)
 	&& TREE_VIA_PUBLIC (h->list) == TREE_VIA_PUBLIC (list)
+	&& TREE_VIA_PROTECTED (h->list) == TREE_VIA_PROTECTED (list)
 	&& TREE_PURPOSE (h->list) == TREE_PURPOSE (list)
 	&& TREE_VALUE (h->list) == TREE_VALUE (list)
 	&& TREE_CHAIN (h->list) == TREE_CHAIN (list))
       {
-	assert (TREE_TYPE (h->list) == TREE_TYPE (list));
+	my_friendly_assert (TREE_TYPE (h->list) == TREE_TYPE (list), 299);
 	return h->list;
       }
   return 0;
@@ -823,8 +864,8 @@ list_hash_canon (hashcode, list)
 }
 
 tree
-hash_tree_cons (via_public, via_virtual, purpose, value, chain)
-     int via_public, via_virtual;
+hash_tree_cons (via_public, via_virtual, via_protected, purpose, value, chain)
+     int via_public, via_virtual, via_protected;
      tree purpose, value, chain;
 {
   struct obstack *ambient_obstack = current_obstack;
@@ -834,6 +875,7 @@ hash_tree_cons (via_public, via_virtual, purpose, value, chain)
   current_obstack = &class_obstack;
   t = tree_cons (purpose, value, chain);
   TREE_VIA_PUBLIC (t) = via_public;
+  TREE_VIA_PROTECTED (t) = via_protected;
   TREE_VIA_VIRTUAL (t) = via_virtual;
   hashcode = list_hash (t);
   t = list_hash_canon (hashcode, t);
@@ -901,7 +943,7 @@ get_decl_list (value)
 
   if (list != NULL_TREE)
     {
-      assert (TREE_CHAIN (list) == NULL_TREE);
+      my_friendly_assert (TREE_CHAIN (list) == NULL_TREE, 301);
       return list;
     }
 
@@ -957,7 +999,7 @@ list_hash_lookup_or_cons (value)
 
   if (list != NULL_TREE)
     {
-      assert (TREE_CHAIN (list) == NULL_TREE);
+      my_friendly_assert (TREE_CHAIN (list) == NULL_TREE, 302);
       return list;
     }
 
@@ -968,11 +1010,12 @@ list_hash_lookup_or_cons (value)
     if (h->hashcode == hashcode
 	&& TREE_VIA_VIRTUAL (h->list) == 0
 	&& TREE_VIA_PUBLIC (h->list) == 0
+	&& TREE_VIA_PROTECTED (h->list) == 0
 	&& TREE_PURPOSE (h->list) == 0
 	&& TREE_VALUE (h->list) == value)
       {
-	assert (TREE_TYPE (h->list) == 0);
-	assert (TREE_CHAIN (h->list) == 0);
+	my_friendly_assert (TREE_TYPE (h->list) == 0, 303);
+	my_friendly_assert (TREE_CHAIN (h->list) == 0, 304);
 	return h->list;
       }
 
@@ -1002,7 +1045,7 @@ make_binfo (offset, type, vtable, virtuals, chain)
      tree vtable, virtuals;
      tree chain;
 {
-  tree binfo = make_tree_vec (5);
+  tree binfo = make_tree_vec (6);
   tree old_binfo = TYPE_BINFO (type);
   tree last;
 
@@ -1011,9 +1054,10 @@ make_binfo (offset, type, vtable, virtuals, chain)
     TREE_USED (binfo) = TREE_USED (chain);
 
   TREE_TYPE (binfo) = TYPE_MAIN_VARIANT (type);
-  TREE_VEC_ELT (binfo, 1) = offset;
-  TREE_VEC_ELT (binfo, 2) = vtable;
-  TREE_VEC_ELT (binfo, 3) = virtuals;
+  BINFO_OFFSET (binfo) = offset;
+  BINFO_VTABLE (binfo) = vtable;
+  BINFO_VIRTUALS (binfo) = virtuals;
+  BINFO_VPTR_FIELD (binfo) = NULL_TREE;
 
   last = binfo;
   if (old_binfo != NULL_TREE
@@ -1025,13 +1069,14 @@ make_binfo (offset, type, vtable, virtuals, chain)
       BINFO_BASETYPES (binfo) = make_tree_vec (n_baseclasses);
       for (i = 0; i < n_baseclasses; i++)
 	{
-	  tree child = TREE_VEC_ELT (binfos, i);
-	  tree old_child = old_binfo ? BINFO_BASETYPE (old_binfo, i) : 0;
-	  BINFO_BASETYPE (binfo, i) = child;
+	  tree base_binfo = TREE_VEC_ELT (binfos, i);
+	  tree old_base_binfo = old_binfo ? BINFO_BASETYPE (old_binfo, i) : 0;
+	  BINFO_BASETYPE (binfo, i) = base_binfo;
 	  if (old_binfo)
 	    {
-	      TREE_VIA_PUBLIC (child) = TREE_VIA_PUBLIC (old_child);
-	      TREE_VIA_VIRTUAL (child) = TREE_VIA_VIRTUAL (old_child);
+	      TREE_VIA_PUBLIC (base_binfo) = TREE_VIA_PUBLIC (old_base_binfo);
+	      TREE_VIA_PROTECTED (base_binfo) = TREE_VIA_PROTECTED (old_base_binfo);
+	      TREE_VIA_VIRTUAL (base_binfo) = TREE_VIA_VIRTUAL (old_base_binfo);
 	    }
 	}
     }
@@ -1256,7 +1301,7 @@ decl_list_length (t)
   register tree tail;
   register int len = 0;
 
-  assert (TREE_CODE (t) == FUNCTION_DECL);
+  my_friendly_assert (TREE_CODE (t) == FUNCTION_DECL, 300);
   for (tail = t; tail; tail = DECL_CHAIN (tail))
     len++;
 
@@ -1386,7 +1431,7 @@ static int
 id_cmp (p1, p2)
      tree *p1, *p2;
 {
-  return (int)TREE_VALUE (*p1) - (int)TREE_VALUE (*p2);
+  return (HOST_WIDE_INT)TREE_VALUE (*p1) - (HOST_WIDE_INT)TREE_VALUE (*p2);
 }
 
 /* Build the FUNCTION_TYPE or METHOD_TYPE which may raise exceptions
@@ -1654,18 +1699,20 @@ print_lang_statistics ()
 }
 
 /* This is used by the `assert' macro.  It is provided in libgcc.a,
-   which `cc' doesn't know how to link.  */
+   which `cc' doesn't know how to link.  Note that the C++ front-end
+   no longer actually uses the `assert' macro (instead, it calls
+   my_friendly_assert).  But all of the back-end files still need this.  */
 void
 __eprintf (string, expression, line, filename)
 #ifdef __STDC__
      const char *string;
      const char *expression;
-     int line;
+     unsigned line;
      const char *filename;
 #else
      char *string;
      char *expression;
-     int line;
+     unsigned line;
      char *filename;
 #endif
 {
@@ -1694,7 +1741,6 @@ tree
 array_type_nelts_total (type)
      tree type;
 {
-  tree index_type = TYPE_DOMAIN (type);
   tree sz = array_type_nelts_top (type);
   type = TREE_TYPE (type);
   while (TREE_CODE (type) == ARRAY_TYPE)

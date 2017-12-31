@@ -18,6 +18,27 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "m68k.h"
 
+/* Use new NeXT include file search path.  */
+
+#ifndef CROSS_COMPILE /* In a cross compiler with NeXT as target, don't expect
+			 the host to use Next's directory scheme.  */
+#define INCLUDE_DEFAULTS				\
+  {							\
+    { GPLUSPLUS_INCLUDE_DIR, 1},			\
+    { GCC_INCLUDE_DIR, 0},				\
+    { LOCAL_INCLUDE_DIR, 0},				\
+    { "/NextDeveloper/Headers", 0},			\
+    { "/NextDeveloper/Headers/ansi", 0},		\
+    { "/NextDeveloper/Headers/bsd", 0},			\
+    { "/LocalDeveloper/Headers", 0},			\
+    { "/LocalDeveloper/Headers/ansi", 0},		\
+    { "/LocalDeveloper/Headers/bsd", 0},		\
+    { "/NextDeveloper/2.0CompatibleHeaders", 0},	\
+    { STANDARD_INCLUDE_DIR, 0},				\
+    { 0, 0}						\
+  }
+#endif /* CROSS_COMPILE */
+
 #define EXTRA_FORMAT_FUNCTIONS \
       "NXPrintf",	FALSE,	2,	FALSE,	\
       "NXScanf",	TRUE,	2,	FALSE,	\
@@ -78,6 +99,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define WORD_SWITCH_TAKES_ARG(STR)	 	\
   (!strcmp (STR, "Ttext") ? 1 :			\
    !strcmp (STR, "Tdata") ? 1 :			\
+   !strcmp (STR, "Tbss") ? 1 :			\
    !strcmp (STR, "include") ? 1 :		\
    !strcmp (STR, "imacros") ? 1 :		\
    !strcmp (STR, "segalign") ? 1 :		\
@@ -94,7 +116,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Names to predefine in the preprocessor for this target machine.  */
 
-#define CPP_PREDEFINES "-Dmc68000 -Dm68k -DNeXT -Dunix -D__MACH__"
+#define CPP_PREDEFINES "-Dmc68000 -Dm68k -DNeXT -Dunix -D__MACH__ -D__ARCHITECTURE__=\"m68k\""
 
 /* Machine dependent ccp options.  */
 

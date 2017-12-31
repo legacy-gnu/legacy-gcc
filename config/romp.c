@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on ROMP.
-   Copyright (C) 1990, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1990, 1991, 1992 Free Software Foundation, Inc.
    Contributed by Richard Kenner (kenner@nyu.edu)
 
 This file is part of GNU CC.
@@ -1203,8 +1203,7 @@ output_epilog (file, size)
     }
 
   /* Output any pending floating-point operations.  */
-  if (write_code)
-    output_fpops (file);
+  output_fpops (file);
 }
 
 /* For the ROMP we need to make new SYMBOL_REFs for the actual name of a
@@ -1809,6 +1808,8 @@ output_fpops (file)
 	    case CONST_INT:
 	    case CONST_DOUBLE:
 	    case CONST:
+	    case SYMBOL_REF:
+	    case LABEL_REF:
 	      type += 0x20;
 	      opbyte = 0;
 	      immed[i] = fpop->ops[i];

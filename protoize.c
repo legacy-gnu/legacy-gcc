@@ -50,7 +50,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #ifdef POSIX /* We should be able to define _POSIX_SOURCE unconditionally,
 		but some systems respond in buggy ways to it,
-		including Sunos 4.1.1.  Which we don't classify as POSIX.  */
+		including SunOS 4.1.1.  Which we don't classify as POSIX.  */
 /* In case this is a POSIX system with an ANSI C compiler,
    ask for definition of all POSIX facilities.  */
 #undef _POSIX_SOURCE
@@ -75,6 +75,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    with something from a system header file, so effectively nullify that.  */
 #define getopt getopt_loser
 #include "getopt.h"
+#undef getopt
 
 extern int errno;
 extern char *sys_errlist[];
@@ -172,7 +173,7 @@ extern size_t   strlen ()
 #endif
 extern int      strncmp ();
 extern char *   strncpy ();
-extern char *   strrchr ();
+extern char *   rindex ();
 
 /* Fork is not declared because the declaration caused a conflict
    on the HPPA.  */
@@ -193,15 +194,6 @@ extern char *   strrchr ();
 #else
 #define STRINGIFY(STRING) "STRING"
 #endif
-
-/* POSIX systems will not have definitions for WIFEXITED or WEXITSTATUS.
-   Define them correctly and so that they work for all environments.  */
-
-#undef WIFEXITED
-#define WIFEXITED(status_word) ((*((int *)&status_word) & 0xff) == 0x00)
-
-#undef WEXITSTATUS
-#define WEXITSTATUS(status_word) ((*((int *)&status_word) & 0xff00) >> 8)
 
 /* Define a default place to find the SYSCALLS.X file.  */
 
@@ -606,8 +598,7 @@ xmalloc (byte_count)
   rv = malloc (byte_count);
   if (rv == NULL)
     {
-      fprintf (stderr, "\n%s: fatal error: can't allocate %u more bytes of memory\n",
-	       pname, byte_count);
+      fprintf (stderr, "\n%s: virtual memory exceeded\n", pname);
       exit (1);
       return 0;		/* avoid warnings */
     }
@@ -627,8 +618,7 @@ xrealloc (old_space, byte_count)
   rv = realloc (old_space, byte_count);
   if (rv == NULL)
     {
-      fprintf (stderr, "\n%s: fatal error: can't allocate %u more bytes of memory\n",
-	       pname, byte_count);
+      fprintf (stderr, "\n%s: virtual memory exceeded\n", pname);
       exit (1);
       return 0;		/* avoid warnings */
     }
@@ -813,7 +803,7 @@ file_could_be_converted (const char *path)
     char *dir_last_slash;
 
     strcpy (dir_name, path);
-    dir_last_slash = strrchr (dir_name, '/');
+    dir_last_slash = rindex (dir_name, '/');
     if (dir_last_slash)
       *dir_last_slash = '\0';
     else
@@ -847,7 +837,7 @@ file_normally_convertible (const char *path)
     char *dir_last_slash;
 
     strcpy (dir_name, path);
-    dir_last_slash = strrchr (dir_name, '/');
+    dir_last_slash = rindex (dir_name, '/');
     if (dir_last_slash)
       *dir_last_slash = '\0';
     else
@@ -1415,7 +1405,7 @@ find_file (filename, do_not_stat)
         {
           if (my_stat (filename, &stat_buf) == -1)
             {
-              fprintf (stderr, "%s: error: can't get status of `%s': %s\n",
+              fprintf (stderr, "%s: %s: can't get status: %s\n",
 		       pname, shortpath (NULL, filename), sys_errlist[errno]);
               stat_buf.st_mtime = (time_t) -1;
             }
@@ -1452,7 +1442,7 @@ check_aux_info (cond)
 }
 
 /* Given a pointer to the closing right parenthesis for a particular formals
-   list (in a aux_info file) find the corresponding left parenthesis and
+   list (in an aux_info file) find the corresponding left parenthesis and
    return a pointer to it.  */
 
 static const char *
@@ -1752,11 +1742,10 @@ save_def_or_dec (l, is_syscalls)
           {
             if (strcmp (def_dec_p->ansi_decl, other->ansi_decl))
               {
-                fprintf (stderr, "%s: error: declaration of function `%s' at %s(%d) takes different forms\n",
-			 pname,
-			 def_dec_p->hash_entry->symbol,
+                fprintf (stderr, "%s:%d: declaration of function `%s' takes different forms\n",
 			 def_dec_p->file->hash_entry->symbol,
-			 def_dec_p->line);
+			 def_dec_p->line,
+			 def_dec_p->hash_entry->symbol);
                 exit (1);
               }
             free_def_dec (def_dec_p);
@@ -2010,7 +1999,7 @@ gen_aux_info_file (base_filename)
     {
       if (child_pid == -1)
         {
-          fprintf (stderr, "%s: error: could not fork process: %s\n",
+          fprintf (stderr, "%s: could not fork process: %s\n",
 		   pname, sys_errlist[errno]);
           return 0;
         }
@@ -2092,6 +2081,7 @@ process_aux_info_file (base_source_filename, keep_it, is_syscalls)
   const char *aux_info_second_line;
   time_t aux_info_mtime;
   size_t aux_info_size;
+  int must_create;
 
   /* Construct the aux_info filename from the base source filename.  */
 
@@ -2101,40 +2091,63 @@ process_aux_info_file (base_source_filename, keep_it, is_syscalls)
   /* Check that the aux_info file exists and is readable.  If it does not
      exist, try to create it (once only).  */
 
+  /* If file doesn't exist, set must_create.
+     Likewise if it exists and we can read it but it is obsolete.
+     Otherwise, report an error.  */
+  must_create = 0;
+
+  /* Come here with must_create set to 1 if file is out of date.  */
 start_over: ;
 
-  {
-    int retries = 0;
+  if (my_access (aux_info_filename, R_OK) == -1)
+    {
+      if (errno == ENOENT)
+	{
+	  if (is_syscalls)
+	    {
+	      fprintf (stderr, "%s: warning: missing SYSCALLS file `%s'\n",
+		       pname, aux_info_filename);
+	      return;
+	    }
+	  must_create = 1;
+	}
+      else
+	{
+	  fprintf (stderr, "%s: can't read aux info file `%s': %s\n",
+		   pname, shortpath (NULL, aux_info_filename),
+		   sys_errlist[errno]);
+	  errors++;
+	  return;
+	}
+    }
+#if 0 /* There is code farther down to take care of this.  */
+  else
+    {
+      struct stat s1, s2;
+      stat (aux_info_file_name, &s1);
+      stat (base_source_file_name, &s2);
+      if (s2.st_mtime > s1.st_mtime)
+	must_create = 1;
+    }
+#endif /* 0 */
 
-retry:
-    if (my_access (aux_info_filename, R_OK) == -1)
-      {
-        if (errno == ENOENT && retries == 0)
-          {
-            if (is_syscalls)
-              {
-                fprintf (stderr, "%s: warning: missing SYSCALLS file `%s'\n",
-			 pname, aux_info_filename);
-                return;
-              }
-            if (!gen_aux_info_file (base_source_filename))
-	      {
-		errors++;
-		return;
-	      }
-            retries++;
-            goto retry;
-          }
-        else
-          {
-            fprintf (stderr, "%s: error: can't read aux info file `%s': %s\n",
-		     pname, shortpath (NULL, aux_info_filename),
-		     sys_errlist[errno]);
-            errors++;
-            return;
-          }
-      }
-  }
+  /* If we need a .X file, create it, and verify we can read it.  */
+  if (must_create)
+    {
+      if (!gen_aux_info_file (base_source_filename))
+	{
+	  errors++;
+	  return;
+	}
+      if (my_access (aux_info_filename, R_OK) == -1)
+	{
+	  fprintf (stderr, "%s: can't read aux info file `%s': %s\n",
+		   pname, shortpath (NULL, aux_info_filename),
+		   sys_errlist[errno]);
+	  errors++;
+	  return;
+	}
+    }
 
   {
     struct stat stat_buf;
@@ -2143,7 +2156,7 @@ retry:
   
     if (my_stat (aux_info_filename, &stat_buf) == -1)
       {
-        fprintf (stderr, "%s: error: can't get status of aux info file `%s': %s\n",
+        fprintf (stderr, "%s: can't get status of aux info file `%s': %s\n",
 		 pname, shortpath (NULL, aux_info_filename),
 		 sys_errlist[errno]);
         errors++;
@@ -2161,6 +2174,27 @@ retry:
        contains information about are at least this old or older.  */
   
     aux_info_mtime = stat_buf.st_mtime;
+
+    if (!is_syscalls)
+      {
+	/* Compare mod time with the .c file; update .X file if obsolete.
+	   The code later on can fail to check the .c file
+	   if it did not directly define any functions.  */
+
+	if (my_stat (base_source_filename, &stat_buf) == -1)
+	  {
+	    fprintf (stderr, "%s: can't get status of aux info file `%s': %s\n",
+		     pname, shortpath (NULL, base_source_filename),
+		     sys_errlist[errno]);
+	    errors++;
+	    return;
+	  }
+	if (stat_buf.st_mtime > aux_info_mtime)
+	  {
+	    must_create = 1;
+	    goto start_over;
+	  }
+      }
   }
 
   {
@@ -2170,7 +2204,7 @@ retry:
   
     if ((aux_info_file = my_open (aux_info_filename, O_RDONLY, 0444 )) == -1)
       {
-        fprintf (stderr, "%s: error: can't open aux info file `%s' for reading: %s\n",
+        fprintf (stderr, "%s: can't open aux info file `%s' for reading: %s\n",
 		 pname, shortpath (NULL, aux_info_filename),
 		 sys_errlist[errno]);
         return;
@@ -2186,7 +2220,7 @@ retry:
   
     if (read (aux_info_file, aux_info_base, aux_info_size) != aux_info_size)
       {
-        fprintf (stderr, "%s: error: while reading aux info file `%s': %s\n",
+        fprintf (stderr, "%s: error reading aux info file `%s': %s\n",
 		 pname, shortpath (NULL, aux_info_filename),
 		 sys_errlist[errno]);
         free (aux_info_base);
@@ -2198,7 +2232,7 @@ retry:
   
     if (close (aux_info_file))
       {
-        fprintf (stderr, "%s: error: while closing aux info file `%s': %s\n",
+        fprintf (stderr, "%s: error closing aux info file `%s': %s\n",
 		 pname, shortpath (NULL, aux_info_filename),
 		 sys_errlist[errno]);
         free (aux_info_base);
@@ -2210,9 +2244,9 @@ retry:
   /* Delete the aux_info file (unless requested not to).  If the deletion
      fails for some reason, don't even worry about it.  */
 
-  if (!keep_it)
+  if (must_create && !keep_it)
     if (my_unlink (aux_info_filename) == -1)
-      fprintf (stderr, "%s: error: can't delete aux info file `%s': %s\n",
+      fprintf (stderr, "%s: can't delete aux info file `%s': %s\n",
 	       pname, shortpath (NULL, aux_info_filename),
 	       sys_errlist[errno]);
 
@@ -2247,7 +2281,7 @@ retry:
 	char *dir_end;
 	aux_info_relocated_name = xmalloc (base_len + (p-invocation_filename));
 	strcpy (aux_info_relocated_name, base_source_filename);
-	dir_end = strrchr (aux_info_relocated_name, '/');
+	dir_end = rindex (aux_info_relocated_name, '/');
 	if (dir_end)
 	  dir_end++;
 	else
@@ -2278,7 +2312,7 @@ retry:
 		xfree (aux_info_relocated_name);
                 if (keep_it && my_unlink (aux_info_filename) == -1)
                   {
-                    fprintf (stderr, "%s: error: can't delete file `%s': %s\n",
+                    fprintf (stderr, "%s: can't delete file `%s': %s\n",
 			     pname, shortpath (NULL, aux_info_filename),
 			     sys_errlist[errno]);
                     return;
@@ -2486,7 +2520,7 @@ find_extern_def (head, user)
             if (!conflict_noted)	/* first time we noticed? */
               {
                 conflict_noted = 1;
-                fprintf (stderr, "%s: error: conflicting extern definitions of '%s'\n",
+                fprintf (stderr, "%s: conflicting extern definitions of '%s'\n",
 			 pname, head->hash_entry->symbol);
                 if (!quiet_flag)
                   {
@@ -2608,7 +2642,7 @@ find_static_definition (user)
     }
   else if (num_static_defs > 1)
     {
-      fprintf (stderr, "%s: error: multiple static defs of `%s' in file `%s'\n",
+      fprintf (stderr, "%s: multiple static defs of `%s' in file `%s'\n",
 	       pname, head->hash_entry->symbol,
 	       shortpath (NULL, user->file->hash_entry->symbol));
       return NULL;
@@ -4058,7 +4092,7 @@ edit_file (hp)
   /* The cast avoids an erroneous warning on AIX.  */
   if (my_stat ((char *)convert_filename, &stat_buf) == -1)
     {
-      fprintf (stderr, "%s: error: can't get status for file `%s': %s\n",
+      fprintf (stderr, "%s: can't get status for file `%s': %s\n",
 	       pname, shortpath (NULL, convert_filename), sys_errlist[errno]);
       return;
     }
@@ -4092,7 +4126,7 @@ edit_file (hp)
 
     if ((input_file = my_open (convert_filename, O_RDONLY, 0444)) == -1)
       {
-        fprintf (stderr, "%s: error: can't open file `%s' for reading: %s\n",
+        fprintf (stderr, "%s: can't open file `%s' for reading: %s\n",
 		 pname, shortpath (NULL, convert_filename),
 		 sys_errlist[errno]);
         return;
@@ -4105,7 +4139,7 @@ edit_file (hp)
     if (read (input_file, new_orig_text_base, orig_size) != orig_size)
       {
         close (input_file);
-        fprintf (stderr, "\n%s: error: while reading input file `%s': %s\n",
+        fprintf (stderr, "\n%s: error reading input file `%s': %s\n",
 		 pname, shortpath (NULL, convert_filename),
 		 sys_errlist[errno]);
         return;
@@ -4138,7 +4172,7 @@ edit_file (hp)
     strcat (clean_filename, ".clean");
     if ((clean_file = creat (clean_filename, 0666)) == -1)
       {
-        fprintf (stderr, "%s: error: can't create/open clean file `%s': %s\n",
+        fprintf (stderr, "%s: can't create/open clean file `%s': %s\n",
 		 pname, shortpath (NULL, clean_filename),
 		 sys_errlist[errno]);
         return;
@@ -4147,7 +4181,7 @@ edit_file (hp)
     /* Write the clean file.  */
   
     if (write (clean_file, new_clean_text_base, clean_size) != clean_size)
-      fprintf (stderr, "%s: error: while writing file `%s': %s\n",
+      fprintf (stderr, "%s: error writing file `%s': %s\n",
 	       pname, shortpath (NULL, clean_filename), sys_errlist[errno]);
   
     close (clean_file);
@@ -4247,7 +4281,7 @@ edit_file (hp)
             }
           else
             {
-              fprintf (stderr, "%s: error: can't link file `%s' to `%s': %s\n",
+              fprintf (stderr, "%s: can't link file `%s' to `%s': %s\n",
 		       pname,
 		       shortpath (NULL, convert_filename),
 		       shortpath (NULL, new_filename),
@@ -4259,7 +4293,7 @@ edit_file (hp)
 
   if (my_unlink (convert_filename) == -1)
     {
-      fprintf (stderr, "%s: error: can't delete file `%s': %s\n",
+      fprintf (stderr, "%s: can't delete file `%s': %s\n",
 	       pname, shortpath (NULL, convert_filename), sys_errlist[errno]);
       return;
     }
@@ -4271,7 +4305,7 @@ edit_file (hp)
   
     if ((output_file = creat (convert_filename, 0666)) == -1)
       {
-        fprintf (stderr, "%s: error: can't create/open output file `%s': %s\n",
+        fprintf (stderr, "%s: can't create/open output file `%s': %s\n",
 		 pname, shortpath (NULL, convert_filename),
 		 sys_errlist[errno]);
         return;
@@ -4283,7 +4317,7 @@ edit_file (hp)
       unsigned int out_size = (repl_write_ptr + 1) - repl_text_base;
   
       if (write (output_file, repl_text_base, out_size) != out_size)
-        fprintf (stderr, "%s: error: while writing file `%s': %s\n",
+        fprintf (stderr, "%s: error writing file `%s': %s\n",
 		 pname, shortpath (NULL, convert_filename),
 		 sys_errlist[errno]);
     }
@@ -4301,7 +4335,7 @@ edit_file (hp)
 
   /* The cast avoids an erroneous warning on AIX.  */
   if (my_chmod ((char *)convert_filename, stat_buf.st_mode) == -1)
-    fprintf (stderr, "%s: error: can't change mode of file `%s': %s\n",
+    fprintf (stderr, "%s: can't change mode of file `%s': %s\n",
 	     pname, shortpath (NULL, convert_filename), sys_errlist[errno]);
 
   /* Note:  We would try to change the owner and group of the output file
@@ -4438,7 +4472,7 @@ main (argc, argv)
   int c;
   const char *params = "";
 
-  pname = strrchr (argv[0], '/');
+  pname = rindex (argv[0], '/');
   pname = pname ? pname+1 : argv[0];
 
   cwd_buffer = getpwd ();
@@ -4454,9 +4488,9 @@ main (argc, argv)
 
   while ((c = getopt_long (argc, argv,
 #ifdef UNPROTOIZE
-			   "c:d:i:knNp:qVx:",
+			   "c:d:i:knNp:qvVx:",
 #else
-			   "B:c:Cd:gklnNp:qVx:",
+			   "B:c:Cd:gklnNp:qvVx:",
 #endif
 			   longopts, &longind)) != EOF)
     {
@@ -4475,6 +4509,7 @@ main (argc, argv)
 	  exclude_list = string_list_cons (optarg, exclude_list);
 	  break;
 	    
+	case 'v':
 	case 'V':
 	  version_flag = 1;
 	  break;

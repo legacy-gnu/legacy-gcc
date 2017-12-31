@@ -19,7 +19,8 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
-/* This file is the type analyzer for GNU C++.  */
+/* This file is the type analyzer for GNU C++.  To debug it, define SPEW_DEBUG
+   when compiling cp-parse.c and cp-spew.c.  */
 
 #include "config.h"
 #include <stdio.h>
@@ -30,7 +31,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "cp-tree.h"
 #include "flags.h"
 #include "obstack.h"
-#include <assert.h>
 
 /* This takes a token stream that hasn't decided much about types and
    tries to figure out as much as it can, with excessive lookahead and
@@ -64,15 +64,21 @@ extern int end_of_file;
 struct obstack token_obstack;
 int first_token;
   
-/* #define SPEW_DEBUG */
 #ifdef SPEW_DEBUG
-static int spew_debug = 0;
-static int yylex_ctr = 0;
+int spew_debug = 0;
+static unsigned int yylex_ctr = 0;
 static int debug_yychar ();
 #endif
 
 static char follows_typename[END_OF_SAVED_INPUT+1];
 static char follows_identifier[END_OF_SAVED_INPUT+1];
+
+/* This is a hack!!! TEMPLATE_TYPE_SEEN_BEFORE_SCOPE consists of the name
+ * of the last template_type parsed in cp-parse.y if it is followed by a
+ * scope operator.  It will be reset inside the next invocation of yylex().
+ * This is used for recognizing nested types inside templates.
+ * - niklas@appli.se */
+tree template_type_seen_before_scope;
 
 /* Initialize token_obstack. Called once, from init_lex.  */
 void
@@ -80,7 +86,6 @@ init_spew ()
 {
   static char *chars_following_identifier = ".+-|/%^!?:";
   short *ps;
-  char *pc;
   static short toks_follow_ids[] =
     { POINTSAT_LEFT_RIGHT, ASSIGN, RANGE, OROR, ANDAND, MIN_MAX, EQCOMPARE,
       ARITHCOMPARE, LSHIFT, RSHIFT, UNARY, PLUSPLUS, MINUSMINUS, POINTSAT,
@@ -90,7 +95,6 @@ init_spew ()
       AGGR, VISSPEC, DELETE, RAISE, RERAISE, TRY, EXCEPT, CATCH,
       THROW, ANSI_TRY, ANSI_THROW, EXTERN_LANG_STRING, ALL,
       END_OF_SAVED_INPUT, -1 };
-  static char *chars_following_typename = "(";
   static short toks_follow_types[] =
     { IDENTIFIER, TYPENAME, SCOPED_TYPENAME, SCSPEC, TYPESPEC, TYPE_QUAL,
       ELLIPSIS, THIS, OPERATOR, DYNAMIC, TEMPLATE, SCOPE, START_DECLARATOR,
@@ -127,7 +131,7 @@ nth_token (n)
 {
   /* could just have this do slurp_ implicitly, but this way is easier
    * to debug... */
-  assert (n < num_tokens());
+  my_friendly_assert (n < num_tokens(), 298);
   return ((struct token*)obstack_base(&token_obstack))+n+first_token;
 }
 
@@ -231,12 +235,15 @@ shift_tokens (n)
       char *tmp;
 
       obstack_blank (&token_obstack, (n-first_token) * sizeof (struct token));
-      tmp = (char *)alloca ((num_tokens () + (n-first_token))
-			    * sizeof (struct token));
-      /* This move does not rely on the system being able to handle
-	 overlapping moves.  */
-      bcopy (nth_token (0), tmp, old_token_count * sizeof (struct token));
-      bcopy (tmp, nth_token (n), old_token_count * sizeof (struct token));
+      if (old_token_count)
+	{
+	  tmp = (char *)alloca ((num_tokens () + (n-first_token))
+				* sizeof (struct token));
+	  /* This move does not rely on the system being able to handle
+	     overlapping moves.  */
+	  bcopy (nth_token (0), tmp, old_token_count * sizeof (struct token));
+	  bcopy (tmp, nth_token (n), old_token_count * sizeof (struct token));
+	}
       first_token = 0;
     }
 }
@@ -276,8 +283,7 @@ int
 yylex()
 {
   struct token tmp_token;
-  tree t2;
-  tree dk, trrr;
+  tree trrr;
 
  retry:
 #ifdef SPEW_DEBUG
@@ -288,10 +294,34 @@ yylex()
   }
 #endif
   
+  /* This is a kludge for recognizing nested types in templates */
+  if (template_type_seen_before_scope)
+    {
+      shift_tokens (2);		/* Sync in hack_more_ids (yes, it's ugly) */
+      nth_token (1)->yychar = SCOPE;
+      yylval.ttype = hack_more_ids (0, template_type_seen_before_scope);
+      template_type_seen_before_scope = 0;
+      if (!yylval.ttype)
+	{
+	  /* Sync back again, leaving SCOPE on the token stream, because we
+	   * failed to substitute the original SCOPE token with a
+	   * SCOPED_TYPENAME.  See rule "template_type" in cp-parse.y */
+	  consume_token ();
+	}
+      else
+	{
+	  yychar = SCOPED_TYPENAME;
+#ifdef SPEW_DEBUG    
+	  if (spew_debug)
+	    debug_yychar(yychar);
+#endif
+	  return yychar;
+	}
+    }
+
   /* if we've got tokens, send them */
   if (num_tokens())
     {
-      tree tmp;
       tmp_token= *nth_token(0);
 
       /* TMP_TOKEN.YYLVAL.TTYPE may have been allocated on the wrong obstack.
@@ -474,8 +504,8 @@ yylex()
   if (tmp_token.yychar == SCOPED_TYPENAME)
     {
 #if 0
-      t2 = resolve_scope_to_name (NULL_TREE, tmp_token.yylval.ttype);
-      if (t2)
+      tree t2 = resolve_scope_to_name (NULL_TREE, tmp_token.yylval.ttype);
+      if (t2 != NULL_TREE)
 	{
 	  tmp_token.yylval.ttype = t2;
 	  tmp_token.yychar = TYPENAME;
@@ -598,7 +628,7 @@ frob_identifier ()
 				     tok->yylval.ttype);
 	      tb = resolve_scope_to_name (NULL_TREE, ta);
 
-	      if (tb)
+	      if (tb != NULL_TREE)
 		{
 		  if (nth_token (2)->yychar == OPERATOR)
 		    {
@@ -737,6 +767,11 @@ arbitrate_lookup (name, exp_decl, type_decl)
 	   expressions.  */
 	if (follows_identifier[nth_token (2)->yychar])
 	  return exp_decl;
+
+	/* If we see a id&, or id&) the we are probably in an argument list. */
+	if (ch=='&'
+	    && (nth_token (2)->yychar == ',' || nth_token (2)->yychar == ')'))
+	  return type_decl;
 
 	/* Look for the first identifier or other distinguishing token
 	   we find in the next several tokens.  */
@@ -925,7 +960,7 @@ hack_more_ids(n, outer)
     return NULL_TREE;
   val = build_parse_node (SCOPE_REF, outer, nth_token (n + 2)->yylval.ttype);
   type = resolve_scope_to_name (NULL_TREE, val);
-  if (! type)
+  if (type == NULL_TREE)
     return NULL_TREE;
   consume_token ();
   consume_token ();
@@ -1004,15 +1039,12 @@ hack_scope ()
   
   
 #ifdef SPEW_DEBUG    
-
-/*
- * debug_yychar takes a yychar (token number) value and prints its
- * name. This only works if cp-tab.c is compiled with YYDEBUG != 0.
- */
+/* debug_yychar takes a yychar (token number) value and prints its name. */
 static int
 debug_yychar (yy)
      int yy;
 {
+  /* In cp-parse.y: */
   extern char *debug_yytranslate ();
   
   int i;

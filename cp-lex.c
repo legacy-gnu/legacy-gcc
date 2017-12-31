@@ -1,4 +1,4 @@
-/* Separate lexical analyzer for GNU C++.
+/* Seperate lexical analyzer for GNU C++.
    Copyright (C) 1987, 1989, 1992 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
@@ -21,11 +21,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* This file is the lexical analyzer for GNU C++.  */
 
+#if defined(GATHER_STATISTICS) || defined(SPEW_DEBUG)
+#undef YYDEBUG
+#define YYDEBUG 1
+#endif
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <errno.h>
 #include <setjmp.h>
-#include <string.h>
 #include "config.h"
 #include "input.h"
 #include "tree.h"
@@ -34,15 +38,19 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "cp-tree.h"
 #include "flags.h"
 #include "obstack.h"
-#include <assert.h>
+
+#ifdef MULTIBYTE_CHARS
+#include <stdlib.h>
+#include <locale.h>
+#endif
+
+#ifndef errno
 extern int errno;		/* needed for VAX.  */
+#endif
 extern jmp_buf toplevel;
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-
-extern int xmalloc ();
-extern void free ();
 
 extern struct obstack *expression_obstack, permanent_obstack;
 extern struct obstack *current_obstack, *saveable_obstack;
@@ -55,17 +63,14 @@ extern char *get_directive_line ();	/* In c-common.c */
    Keep in mind that X can be computed more than once.  */
 #ifndef FILE_NAME_NONDIRECTORY
 #define FILE_NAME_NONDIRECTORY(X)		\
- (strrchr (X, '/') != 0 ? strrchr (X, '/') + 1 : X)
+ (rindex (X, '/') != 0 ? rindex (X, '/') + 1 : X)
 #endif
 
-/* If you don't have strrchr, but instead have rindex,
-   add your machine to this list, and send mail to
-   tiemann@wheaties.ai.mit.edu.  */
-#if defined(sequent) || defined(convex)
-#define strrchr rindex
-#endif
-extern char *strrchr ();
+extern char *index ();
+extern char *rindex ();
+
 void extract_interface_info ();
+void yyerror ();
 
 /* This obstack is needed to hold text.  It is not safe to use
    TOKEN_BUFFER because `check_newline' calls `yylex'.  */
@@ -91,7 +96,6 @@ extern void feed_input (/* char *, int, struct obstack * */);
 char **opname_tab;
 char **assignop_tab;
 
-#define YYEMPTY		-2
 extern int yychar;		/*  the lookahead symbol		*/
 extern YYSTYPE yylval;		/*  the semantic value of the		*/
 				/*  lookahead symbol			*/
@@ -106,10 +110,12 @@ YYLTYPE yylloc;			/*  location data for the lookahead	*/
    yylex must look this up to detect typedefs, which get token type TYPENAME,
    so it is left around in case the identifier is not a typedef but is
    used in a context which makes it a reference to a variable.  */
-extern tree lastiddecl;
+tree lastiddecl;
 
-/* C++ extensions */
-extern tree ridpointers[];	/* need this up here */
+/* The elements of `ridpointers' are identifier nodes
+   for the reserved type names and storage classes.
+   It is indexed by a RID_... value.  */
+tree ridpointers[(int) RID_MAX];
 
 /* We may keep statistics about how long which files took to compile.  */
 static int header_time, body_time;
@@ -232,18 +238,30 @@ int interface_unknown;		/* whether or not we know this class
 
 /* lexical analyzer */
 
+/* File used for outputting assembler code.  */
+extern FILE *asm_out_file;
+
+#ifndef WCHAR_TYPE_SIZE
+#ifdef INT_TYPE_SIZE
+#define WCHAR_TYPE_SIZE INT_TYPE_SIZE
+#else
+#define WCHAR_TYPE_SIZE	BITS_PER_WORD
+#endif
+#endif
+
+/* Number of bytes in a wide character.  */
+#define WCHAR_BYTES (WCHAR_TYPE_SIZE / BITS_PER_UNIT)
+
 static int maxtoken;		/* Current nominal length of token buffer.  */
 char *token_buffer;		/* Pointer to token buffer.
 				   Actual allocated length is maxtoken + 2.  */
-static int max_wide;		/* Current nominal length of wide_buffer.  */
-static int *wide_buffer;	/* Pointer to wide-string buffer.
-				   Actual allocated length is max_wide + 1.  */
-
-#define NORID RID_UNUSED
 
 #include "cp-hash.h"
 
 int check_newline ();
+
+/* Nonzero tells yylex to ignore \ in string constants.  */
+static int ignore_escape_flag = 0;
 
 static int skip_white_space ();
 
@@ -540,8 +558,6 @@ init_lex ()
 
   maxtoken = 40;
   token_buffer = (char *) xmalloc (maxtoken + 2);
-  max_wide = 40;
-  wide_buffer = (int *) xmalloc (max_wide + 1);
 
   ridpointers[(int) RID_INT] = get_identifier ("int");
   SET_IDENTIFIER_AS_LIST (ridpointers[(int) RID_INT],
@@ -596,6 +612,9 @@ init_lex ()
 			  build_tree_list (NULL_TREE, ridpointers[(int) RID_REGISTER]));
 
   /* C++ extensions. These are probably not correctly named. */
+  ridpointers[(int) RID_WCHAR] = get_identifier ("__wchar_t");
+  SET_IDENTIFIER_AS_LIST (ridpointers[(int) RID_WCHAR],
+			  build_tree_list (NULL_TREE, ridpointers[(int) RID_WCHAR]));
   class_type_node = build_int_2 (class_type, 0);
   TREE_TYPE (class_type_node) = class_type_node;
   ridpointers[(int) RID_CLASS] = class_type_node;
@@ -778,6 +797,171 @@ reinit_parse_for_function ()
   current_member_init_list = NULL_TREE;
 }
 
+static
+#ifdef __GNUC__
+__inline
+#endif
+void
+yyprint (file, yychar, yylval)
+     FILE *file;
+     int yychar;
+     YYSTYPE yylval;
+{
+  tree t;
+  switch (yychar)
+    {
+    case IDENTIFIER:
+    case TYPENAME:
+    case TYPESPEC:
+    case PTYPENAME:
+    case IDENTIFIER_DEFN:
+    case TYPENAME_DEFN:
+    case PTYPENAME_DEFN:
+    case TYPENAME_COLON:
+    case TYPENAME_ELLIPSIS:
+    case SCOPED_TYPENAME:
+    case SCSPEC:
+      t = yylval.ttype;
+    print_id:
+      my_friendly_assert (TREE_CODE (t) == IDENTIFIER_NODE, 224);
+      if (IDENTIFIER_POINTER (t))
+	  fprintf (file, " `%s'", IDENTIFIER_POINTER (t));
+      break;
+    case AGGR:
+      if (yylval.ttype == class_type_node)
+	fprintf (file, " `class'");
+      else if (yylval.ttype == record_type_node)
+	fprintf (file, " `struct'");
+      else if (yylval.ttype == union_type_node)
+	fprintf (file, " `union'");
+      else if (yylval.ttype == enum_type_node)
+	fprintf (file, " `enum'");
+      else
+	my_friendly_abort (80);
+      break;
+    case PRE_PARSED_CLASS_DECL:
+      t = yylval.ttype;
+      my_friendly_assert (TREE_CODE (t) == TREE_LIST, 225);
+      t = TREE_VALUE (t);
+      goto print_id;
+    }
+}
+
+static int *reduce_count;
+int *token_count;
+
+#define REDUCE_LENGTH (sizeof (yyr2) / sizeof (yyr2[0]))
+#define TOKEN_LENGTH (256 + sizeof (yytname) / sizeof (yytname[0]))
+
+int *
+init_parse ()
+{
+#ifdef GATHER_STATISTICS
+  reduce_count = (int *)malloc (sizeof (int) * (REDUCE_LENGTH + 1));
+  bzero (reduce_count, sizeof (int) * (REDUCE_LENGTH + 1));
+  reduce_count += 1;
+  token_count = (int *)malloc (sizeof (int) * (TOKEN_LENGTH + 1));
+  bzero (token_count, sizeof (int) * (TOKEN_LENGTH + 1));
+  token_count += 1;
+#endif
+  return token_count;
+}
+
+#ifdef GATHER_STATISTICS
+void
+yyhook (yyn)
+     int yyn;
+{
+  reduce_count[yyn] += 1;
+}
+#endif
+
+static int
+reduce_cmp (p, q)
+     int *p, *q;
+{
+  return reduce_count[*q] - reduce_count[*p];
+}
+
+static int
+token_cmp (p, q)
+     int *p, *q;
+{
+  return token_count[*q] - token_count[*p];
+}
+
+void
+print_parse_statistics ()
+{
+#ifdef GATHER_STATISTICS
+#if YYDEBUG != 0
+  int i;
+  int maxlen = REDUCE_LENGTH;
+  unsigned *sorted;
+  
+  if (reduce_count[-1] == 0)
+    return;
+
+  if (TOKEN_LENGTH > REDUCE_LENGTH)
+    maxlen = TOKEN_LENGTH;
+  sorted = (unsigned *) alloca (sizeof (int) * maxlen);
+
+  for (i = 0; i < TOKEN_LENGTH; i++)
+    sorted[i] = i;
+  qsort (sorted, TOKEN_LENGTH, sizeof (int), token_cmp);
+  for (i = 0; i < TOKEN_LENGTH; i++)
+    {
+      int index = sorted[i];
+      if (token_count[index] == 0)
+	break;
+      if (token_count[index] < token_count[-1])
+	break;
+      fprintf (stderr, "token %d, `%s', count = %d\n",
+	       index, yytname[YYTRANSLATE (index)], token_count[index]);
+    }
+  fprintf (stderr, "\n");
+  for (i = 0; i < REDUCE_LENGTH; i++)
+    sorted[i] = i;
+  qsort (sorted, REDUCE_LENGTH, sizeof (int), reduce_cmp);
+  for (i = 0; i < REDUCE_LENGTH; i++)
+    {
+      int index = sorted[i];
+      if (reduce_count[index] == 0)
+	break;
+      if (reduce_count[index] < reduce_count[-1])
+	break;
+      fprintf (stderr, "rule %d, line %d, count = %d\n",
+	       index, yyrline[index], reduce_count[index]);
+    }
+  fprintf (stderr, "\n");
+#endif
+#endif
+}
+
+/* Sets the value of the 'yydebug' variable to VALUE.
+   This is a function so we don't have to have YYDEBUG defined
+   in order to build the compiler.  */
+void
+set_yydebug (value)
+     int value;
+{
+#if YYDEBUG != 0
+  yydebug = value;
+#else
+  warning ("YYDEBUG not defined.");
+#endif
+}
+
+#ifdef SPEW_DEBUG
+const char *
+debug_yytranslate (value)
+    int value;
+{
+  return yytname[YYTRANSLATE (value)];
+}
+
+#endif
+
 /* Functions and data structures for #pragma interface.
 
    `#pragma implementation' means that the main file being compiled
@@ -844,7 +1028,7 @@ interface_strcmp (s)
 	return 0;
 
       /* Don't get faked out by xxx.yyy.cc vs xxx.zzz.cc.  */
-      if (strchr (s1, '.') || strchr (t1, '.'))
+      if (index (s1, '.') || index (t1, '.'))
 	continue;
 
       if (*s1 == '\0' || s1[-1] != '.' || t1[-1] != '.')
@@ -882,7 +1066,7 @@ set_vardecl_interface_info (prev, vars)
 	set_typedecl_interface_info (prev, TYPE_NAME (type));
       else
 	CLASSTYPE_VTABLE_NEEDS_WRITING (type) = 1;
-      TREE_EXTERNAL (vars) = CLASSTYPE_INTERFACE_ONLY (type);
+      DECL_EXTERNAL (vars) = CLASSTYPE_INTERFACE_ONLY (type);
       TREE_PUBLIC (vars) = 1;
     }
 }
@@ -912,19 +1096,26 @@ do_pending_inlines ()
   
   /* Now start processing the first inline function.  */
   t = prev;
-  assert ((t->parm_vec == NULL_TREE) == (t->bindings == NULL_TREE));
+  my_friendly_assert ((t->parm_vec == NULL_TREE) == (t->bindings == NULL_TREE),
+		      226);
   if (t->parm_vec)
     push_template_decls (t->parm_vec, t->bindings, 0);
   if (t->len > 0)
     {
       feed_input (t->buf, t->len, t->can_free ? &inline_text_obstack : 0);
       lineno = t->lineno;
+#if 0
       if (input_filename != t->filename)
 	{
 	  input_filename = t->filename;
 	  /* Get interface/implementation back in sync.  */
 	  extract_interface_info ();
 	}
+#else
+      input_filename = t->filename;
+      interface_unknown = t->interface == 1;
+      interface_only = t->interface == 0;
+#endif
       yychar = PRE_PARSED_FUNCTION_DECL;
     }
   /* Pass back a handle on the rest of the inline functions, so that they
@@ -934,18 +1125,20 @@ do_pending_inlines ()
       /* If we're working from a template, don't change
 	 the `inline' state.  */
       && t->parm_vec == NULL_TREE)
-    TREE_INLINE (t->fndecl) = 1;
+    DECL_INLINE (t->fndecl) = 1;
   DECL_PENDING_INLINE_INFO (t->fndecl) = 0;
 }
 
 extern struct pending_input *to_be_restored;
+static int nextchar = -1;
 
 void
 process_next_inline (t)
      tree t;
 {
   struct pending_inline *i = (struct pending_inline *) TREE_PURPOSE (t);
-  assert ((i->parm_vec == NULL_TREE) == (i->bindings == NULL_TREE));
+  my_friendly_assert ((i->parm_vec == NULL_TREE) == (i->bindings == NULL_TREE),
+		      227);
   if (i->parm_vec)
     pop_template_decls (i->parm_vec, i->bindings, 0);
   i = i->next;
@@ -957,16 +1150,20 @@ process_next_inline (t)
       /* restore_pending_input will abort unless yychar is either
        * END_OF_SAVED_INPUT or YYEMPTY; since we already know we're
        * hosed, feed back YYEMPTY.
+       *  We also need to discard nextchar, since that may have gotten
+       * set as well.
        */
-      yychar = YYEMPTY;
+      nextchar = -1;
     }
-  else
-    yychar = YYEMPTY;
+  yychar = YYEMPTY;
+  if (to_be_restored == 0)
+    my_friendly_abort (123);
   restore_pending_input (to_be_restored);
   to_be_restored = 0;
   if (i && i->fndecl != NULL_TREE)
     {
-      assert ((i->parm_vec == NULL_TREE) == (i->bindings == NULL_TREE));
+      my_friendly_assert ((i->parm_vec == NULL_TREE) == (i->bindings == NULL_TREE),
+			  228);
       if (i->parm_vec)
 	push_template_decls (i->parm_vec, i->bindings, 0);
       feed_input (i->buf, i->len, i->can_free ? &inline_text_obstack : 0);
@@ -978,10 +1175,16 @@ process_next_inline (t)
 	  /* If we're working from a template, don't change
 	     the `inline' state.  */
 	  && i->parm_vec == NULL_TREE)
-	TREE_INLINE (i->fndecl) = 1;
+	DECL_INLINE (i->fndecl) = 1;
       DECL_PENDING_INLINE_INFO (i->fndecl) = 0;
     }
-  extract_interface_info ();
+  if (i)
+    {
+      interface_unknown = i->interface == 1;
+      interface_only = i->interface == 0;
+    }
+  else
+    extract_interface_info ();
 }
 
 /* Since inline methods can refer to text which has not yet been seen,
@@ -1012,7 +1215,7 @@ consume_string (this_obstack)
       if (c == '\n')
 	{
 	  if (pedantic)
-	    pedwarn ("ANSI C forbids newline in string constant");
+	    pedwarn ("ANSI C++ forbids newline in string constant");
 	  lineno++;
 	}
       obstack_1grow (this_obstack, c);
@@ -1020,10 +1223,8 @@ consume_string (this_obstack)
   while (c != '\"');
 }
 
-static int nextchar = -1;
 static int nextyychar = YYEMPTY;
 static YYSTYPE nextyylval;
-static tree nextlastiddecl;
 
 struct pending_input {
   int nextchar, yychar, nextyychar, eof;
@@ -1058,11 +1259,11 @@ void
 restore_pending_input (p)
      struct pending_input *p;
 {
-  assert (nextchar == -1);
+  my_friendly_assert (nextchar == -1, 229);
   nextchar = p->nextchar;
-  assert (yychar == YYEMPTY || yychar == END_OF_SAVED_INPUT);
+  my_friendly_assert (yychar == YYEMPTY || yychar == END_OF_SAVED_INPUT, 230);
   yychar = p->yychar;
-  assert (nextyychar == YYEMPTY);
+  my_friendly_assert (nextyychar == YYEMPTY, 231);
   nextyychar = p->nextyychar;
   yylval = p->yylval;
   nextyylval = p->nextyylval;
@@ -1106,7 +1307,7 @@ yyungetc (ch, rescan)
     }
   else
     {
-      assert (nextyychar == YYEMPTY);
+      my_friendly_assert (nextyychar == YYEMPTY, 232);
       nextyychar = yychar;
       nextyylval = yylval;
       yychar = ch;
@@ -1138,7 +1339,7 @@ store_pending_inline (decl, t)
       tree type = current_class_type;
       /* Assumption: In this (possibly) nested class sequence, only
 	 one name will have template parms.  */
-      while (type)
+      while (type && TREE_CODE_CLASS (TREE_CODE (type)) == 't')
 	{
 	  tree decl = TYPE_NAME (type);
 	  tree tmpl = IDENTIFIER_TEMPLATE (DECL_NAME (decl));
@@ -1153,14 +1354,15 @@ store_pending_inline (decl, t)
 	  || TREE_CODE (TREE_TYPE (decl)) == FUNCTION_TYPE)
 	{
 	  if (TREE_CODE (TREE_TYPE (decl)) == METHOD_TYPE)
-	    assert (TYPE_MAX_VALUE (TREE_TYPE (decl)) == current_class_type);
+	    my_friendly_assert (TYPE_MAX_VALUE (TREE_TYPE (decl)) == current_class_type,
+				233);
 
 	  /* Inline functions can be compiled immediately.  Other functions
 	     will be output separately, so if we're in interface-only mode,
 	     punt them now, or output them now if we're doing implementations
 	     and we know no overrides will exist.  Otherwise, we delay until
 	     end-of-file, to see if the definition is really required.  */
-	  if (TREE_INLINE (decl))
+	  if (DECL_INLINE (decl))
 	    /* delay_to_eof == 0 */;
 	  else if (current_class_type && !interface_unknown)
 	    {
@@ -1249,6 +1451,9 @@ reinit_parse_for_method (yychar, decl)
       t->token = YYEMPTY;
       t->can_free = 1;
       t->deja_vu = 0;
+      t->interface = ((interface_unknown || processing_template_defn)
+		      ? 1
+		      : (interface_only ? 0 : 2));
       store_pending_inline (decl, t);
     }
 }
@@ -1474,6 +1679,9 @@ cons_up_default_function (type, name, kind)
     t->token = YYEMPTY;
     t->can_free = 0;
     t->deja_vu = 0;
+    t->interface = ((interface_unknown || processing_template_defn)
+		    ? 1
+		    : (interface_only ? 0 : 2));
     store_pending_inline (fn, t);
     /* We make this declaration private (static in the C sense).  */
     TREE_PUBLIC (fn) = 0;
@@ -1481,7 +1689,7 @@ cons_up_default_function (type, name, kind)
   finish_method (fn);
   DECL_CLASS_CONTEXT (fn) = type;
   /* Show that this function was generated by the compiler.  */
-  DECL_IGNORED_P (fn) = 1;
+  DECL_SOURCE_LINE (fn) = 0;
   return fn;
 }
 
@@ -1776,7 +1984,6 @@ check_newline ()
 			   && ((c = getch ()) == ' ' || c == '\t' || c == '\n'))
 		    {
 		      char *main_filename = main_input_filename ? main_input_filename : input_filename;
-		      char *tmp;
 
 		      while (c == ' ' || c == '\t')
 			c = getch ();
@@ -1815,7 +2022,8 @@ check_newline ()
 			      impl_file_chain = ifiles;
 			    }
 			}
-		      else if (main_input_filename == input_filename
+		      else if ((main_input_filename != 0
+				&& ! strcmp (main_input_filename, input_filename))
 			       || ! strcmp (input_filename, main_filename))
 			{
 			  write_virtuals = 3;
@@ -1889,11 +2097,10 @@ check_newline ()
 	      && getch () == 't'
 	      && ((c = getch ()) == ' ' || c == '\t'))
 	    {
-	      /* Conditionally used.  */
+#ifdef ASM_OUTPUT_IDENT
               extern FILE *asm_out_file;
-
-	      if (pedantic)
-		error ("ANSI C does not allow #ident");
+#endif
+	      /* #ident.  The pedantic warning is now in cccp.c.  */
 
 	      /* Here we have just seen `#ident '.
 		 A string constant should follow.  */
@@ -1914,9 +2121,13 @@ check_newline ()
 		  goto skipline;
 		}
 
+	      if (! flag_no_ident)
+		{
 #ifdef ASM_OUTPUT_IDENT
-	      ASM_OUTPUT_IDENT (asm_out_file, TREE_STRING_POINTER (yylval.ttype));
+		  ASM_OUTPUT_IDENT (asm_out_file,
+				    TREE_STRING_POINTER (yylval.ttype));
 #endif
+		}
 
 	      /* Skip the rest of this line.  */
 	      goto skipline;
@@ -1979,7 +2190,11 @@ linenum:
 
       /* More follows: it must be a string constant (filename).  */
 
+      /* Read the string constant, but don't treat \ as special.  */
+      ignore_escape_flag = 1;
       token = real_yylex ();
+      ignore_escape_flag = 0;
+
       if (token != STRING || TREE_CODE (yylval.ttype) != STRING_CST)
 	{
 	  error ("invalid #line");
@@ -2145,19 +2360,31 @@ linenum:
 
 #define ENDFILE -1  /* token that represents end-of-file */
 
+/* Read an escape sequence, returning its equivalent as a character,
+   or store 1 in *ignore_ptr if it is backslash-newline.  */
+
 static int
-readescape ()
+readescape (ignore_ptr)
+     int *ignore_ptr;
 {
   register int c = getch ();
-  register unsigned count;
   register int code;
+  register unsigned count;
   unsigned firstdig;
+  int nonnull;
 
   switch (c)
     {
     case 'x':
+      if (warn_traditional)
+	warning ("the meaning of `\\x' varies with -traditional");
+
+      if (flag_traditional)
+	return c;
+
       code = 0;
       count = 0;
+      nonnull = 0;
       while (1)
 	{
 	  c = getch ();
@@ -2173,15 +2400,23 @@ readescape ()
 	    code += c - 'A' + 10;
 	  if (c >= '0' && c <= '9')
 	    code += c - '0';
-	  if (count == 0)
-	    firstdig = code;
-	  count++;
+	  if (code != 0 || count != 0)
+	    {
+	      if (count == 0)
+		firstdig = code;
+	      count++;
+	    }
+	  nonnull = 1;
 	}
-      if (count == 0)
+      if (! nonnull)
 	error ("\\x used with no following hex digits");
+      else if (count == 0)
+	/* Digits are all 0's.  Ok.  */
+	;
       else if ((count - 1) * 4 >= TYPE_PRECISION (integer_type_node)
-	       || ((1 << (TYPE_PRECISION (integer_type_node) - (count - 1) * 4))
-		   <= firstdig))
+	       || (count > 1
+		   && ((1 << (TYPE_PRECISION (integer_type_node) - (count - 1) * 4))
+		       <= firstdig)))
 	warning ("hex escape out of range");
       return code;
 
@@ -2202,7 +2437,8 @@ readescape ()
 
     case '\n':
       lineno++;
-      return -1;
+      *ignore_ptr = 1;
+      return 0;
 
     case 'n':
       return TARGET_NEWLINE;
@@ -2220,25 +2456,37 @@ readescape ()
       return TARGET_BS;
 
     case 'a':
+      if (warn_traditional)
+	warning ("the meaning of `\\a' varies with -traditional");
+
+      if (flag_traditional)
+	return c;
       return TARGET_BELL;
 
     case 'v':
       return TARGET_VT;
 
+    case 'e':
     case 'E':
+      if (pedantic)
+	pedwarn ("non-ANSI-standard escape sequence, `\\%c'", c);
       return 033;
 
     case '?':
+      return c;
+
       /* `\(', etc, are used at beginning of line to avoid confusing Emacs.  */
     case '(':
     case '{':
     case '[':
+      if (pedantic)
+	pedwarn ("unknown escape sequence `\\%c'", c);
       return c;
     }
-  if (c >= 040 && c <= 0177)
-    warning ("unknown escape sequence `\\%c'", c);
+  if (c >= 040 && c < 0177)
+    pedwarn ("unknown escape sequence `\\%c'", c);
   else
-    warning ("unknown escape sequence: `\\' followed by char code 0x%x", c);
+    pedwarn ("unknown escape sequence: `\\' followed by char code 0x%x", c);
   return c;
 }
 
@@ -2307,13 +2555,13 @@ tree do_identifier (token)
       && TREE_CODE (current_class_type) != UNINSTANTIATED_P_TYPE)
     {
       /* Could be from one of the base classes.  */
-      tree field = lookup_field (current_class_type, token, 1);
+      tree field = lookup_field (current_class_type, token, 1, 0);
       if (field == 0)
 	;
       else if (field == error_mark_node)
 	/* We have already generated the error message.
 	   But we still want to return this value.  */
-	id = lookup_field (current_class_type, token, 0);
+	id = lookup_field (current_class_type, token, 0, 0);
       else if (TREE_CODE (field) == VAR_DECL
 	       || TREE_CODE (field) == CONST_DECL)
 	id = field;
@@ -2330,6 +2578,14 @@ tree do_identifier (token)
 
   if (!id || id == error_mark_node)
     {
+      if (id == error_mark_node && current_class_type != NULL_TREE)
+	{
+	  id = lookup_nested_field (token);
+	  /* In lookup_nested_field(), we marked this so we can gracefully
+	     leave this whole mess.  */
+	  if (id && id != error_mark_node && TREE_TYPE (id) == error_mark_node)
+	    return id;
+	}
       if (yychar == '(' || yychar == LEFT_RIGHT)
 	{
 	  id = implicitly_declare (token);
@@ -2431,9 +2687,8 @@ real_yylex ()
   register int value;
   int wide_flag = 0;
   int dollar_seen = 0;
-  static tree typename_scope_in_progress;
+  int i;
 
- relex:
   if (nextchar >= 0)
     c = nextchar, nextchar = -1;
   else
@@ -2447,11 +2702,13 @@ real_yylex ()
       case ' ':
       case '\t':
       case '\f':
-      case '\r':
       case '\v':
       case '\b':
 	c = getch ();
 	break;
+
+      case '\r':
+	/* Call skip_white_space so we can warn if appropriate.  */
 
       case '\n':
       case '/':
@@ -2467,7 +2724,6 @@ real_yylex ()
 
 /*  yylloc.first_line = lineno; */
 
- reswitch:
   switch (c)
     {
     case EOF:
@@ -2656,7 +2912,6 @@ real_yylex ()
 		&& (THIS_NAME_P (tmp)
 		    || VPTR_NAME_P (tmp)
 		    || DESTRUCTOR_NAME_P (tmp)
-		    || WRAPPER_OR_ANTI_WRAPPER_NAME_P (tmp)
 		    || VTABLE_NAME_P (tmp)
 		    || TEMP_NAME_P (tmp)
 		    || ANON_AGGRNAME_P (tmp)
@@ -2742,9 +2997,8 @@ real_yylex ()
 	int largest_digit = 0;
 	int numdigits = 0;
 	/* for multi-precision arithmetic,
-	   we store only 8 live bits in each short,
-	   giving us 64 bits of reliable precision */
-	short shorts[8];
+	   we store only 8 live bits in each short.  */
+	short shorts[MAX_SHORTS];
 	int overflow = 0;
 
 	enum anon1 { NOT_FLOAT, AFTER_POINT, TOO_MANY_POINTS} floatflag
@@ -2753,7 +3007,7 @@ real_yylex ()
 	p = token_buffer;
 	*p++ = c;
 
-	for (count = 0; count < 8; count++)
+	for (count = 0; count < MAX_SHORTS; count++)
 	  shorts[count] = 0;
 
 	if (c == '0')
@@ -2854,7 +3108,7 @@ real_yylex ()
 		  largest_digit = c;
 		numdigits++;
 
-		for (count = 0; count < 8; count++)
+		for (count = 0; count < MAX_SHORTS; count++)
 		  {
 		    shorts[count] *= base;
 		    if (count)
@@ -2865,8 +3119,8 @@ real_yylex ()
 		    else shorts[0] += c;
 		  }
 
-		if (shorts[7] >= 1<<8
-		    || shorts[7] < - (1 << 8))
+		if (shorts[MAX_SHORTS - 1] >= 1<<8
+		    || shorts[MAX_SHORTS - 1] < - (1 << 8))
 		  overflow = TRUE;
 
 		if (p >= token_buffer + maxtoken - 3)
@@ -2929,14 +3183,14 @@ real_yylex ()
 	      {
 		set_float_handler (handler);
 		value = REAL_VALUE_ATOF (token_buffer);
-		set_float_handler (0);
+		set_float_handler (NULL);
 	      }
 #ifdef ERANGE
 	    if (errno == ERANGE && !flag_traditional)
 	      {
 		char *p1 = token_buffer;
 		/* Check for "0.0" and variants;
-		   Sunos 4 spuriously returns ERANGE for them.  */
+		   SunOS 4 spuriously returns ERANGE for them.  */
 		while (*p1 == '0') p1++;
 		if (*p1 == '.')
 		  {
@@ -2965,7 +3219,7 @@ real_yylex ()
 		      error ("two `f's in floating constant");
 		    f_seen = 1;
 		    type = float_type_node;
-		    value = REAL_VALUE_TRUNCATE (TYPE_MODE (type), value);
+		    value = real_value_truncate (TYPE_MODE (type), value);
 		  }
 		else if (c == 'l' || c == 'L')
 		  {
@@ -3004,6 +3258,7 @@ real_yylex ()
 	else
 	  {
 	    tree type;
+	    HOST_WIDE_INT high, low;
 	    int spec_unsigned = 0;
 	    int spec_long = 0;
 	    int spec_long_long = 0;
@@ -3023,7 +3278,7 @@ real_yylex ()
 			if (spec_long_long)
 			  error ("three `l's in integer constant");
 			else if (pedantic)
-			  pedwarn ("ANSI C forbids long long integer constants");
+			  pedwarn ("ANSI C++ forbids long long integer constants");
 			spec_long_long = 1;
 		      }
 		    spec_long = 1;
@@ -3051,6 +3306,10 @@ real_yylex ()
 
 	    put_back (c);
 
+	    /* ??? This code assumes that everything but long long is 32-bits.
+	       Probably this code needs to be replaced with code similar
+	       to that in c-lex.c, but I don't want to do it. -- RK.  */
+
 	    if ((overflow || shorts[7] || shorts[6] || shorts[5] || shorts[4])
 		&& !spec_long_long)
 	      warning ("integer constant out of range");
@@ -3063,14 +3322,15 @@ real_yylex ()
 
 	    /* This is simplified by the fact that our constant
 	       is always positive.  */
-	    yylval.ttype
-	      = (build_int_2
-		 ((((long)shorts[3]<<24) + ((long)shorts[2]<<16)
-		   + ((long)shorts[1]<<8) + (long)shorts[0]),
-		  (spec_long_long
-		   ? (((long)shorts[7]<<24) + ((long)shorts[6]<<16)
-		      + ((long)shorts[5]<<8) + (long)shorts[4])
-		   : 0)));
+	    high = low = 0;
+
+	    for (i = 0; i < MAX_SHORTS / 2; i++)
+	      {
+		high |= (HOST_WIDE_INT) shorts[i + MAX_SHORTS / 2] << (i * 8);
+		low |= (HOST_WIDE_INT) shorts[i] << (i * 8);
+	      }
+	    
+	    yylval.ttype = build_int_2 (low, high);
 
 #if 0
 	    /* Find the first allowable type that the value fits in.  */
@@ -3147,7 +3407,7 @@ real_yylex ()
 	      {
 #if 0
 		if (warn_traditional && base != 10)
-		  warning ("small nondecimal constant becomes signed in ANSI C");
+		  warning ("small nondecimal constant becomes signed in ANSI C++");
 #endif
 		type = integer_type_node;
 	      }
@@ -3168,7 +3428,7 @@ real_yylex ()
 	      {
 #if 0
 		if (warn_traditional && !spec_unsigned)
-		  warning ("large integer constant becomes unsigned in ANSI C");
+		  warning ("large integer constant becomes unsigned in ANSI C++");
 #endif
 		if (flag_traditional && !spec_unsigned)
 		  type = long_integer_type_node;
@@ -3186,7 +3446,7 @@ real_yylex ()
 	      {
 #if 0
 		if (warn_traditional && !spec_unsigned)
-		  warning ("large nondecimal constant is unsigned in ANSI C");
+		  warning ("large nondecimal constant is unsigned in ANSI C++");
 #endif
 
 		if (flag_traditional && !spec_unsigned)
@@ -3213,13 +3473,21 @@ real_yylex ()
     char_constant:
       {
 	register int result = 0;
-	register num_chars = 0;
+	register int num_chars = 0;
 	unsigned width = TYPE_PRECISION (char_type_node);
 	int max_chars;
 
-	if (wide_flag) width = TYPE_PRECISION (integer_type_node);
-
-	max_chars = TYPE_PRECISION (integer_type_node) / width;
+	if (wide_flag)
+	  {
+	    width = WCHAR_TYPE_SIZE;
+#ifdef MULTIBYTE_CHARS
+	    max_chars = MB_CUR_MAX;
+#else
+	    max_chars = 1;
+#endif
+	  }
+	else
+	  max_chars = TYPE_PRECISION (integer_type_node) / width;
 
 	while (1)
 	  {
@@ -3232,17 +3500,18 @@ real_yylex ()
 
 	    if (c == '\\')
 	      {
-		c = readescape ();
-		if (c < 0)
+		int ignore = 0;
+		c = readescape (&ignore);
+		if (ignore)
 		  goto tryagain;
 		if (width < HOST_BITS_PER_INT
 		    && (unsigned) c >= (1 << width))
-		  warning ("escape sequence out of range for character");
+		  pedwarn ("escape sequence out of range for character");
 	      }
 	    else if (c == '\n')
 	      {
 		if (pedantic)
-		  pedwarn ("ANSI C forbids newline in character constant");
+		  pedwarn ("ANSI C++ forbids newline in character constant");
 		lineno++;
 	      }
 
@@ -3284,72 +3553,77 @@ real_yylex ()
 	    if (TREE_UNSIGNED (char_type_node)
 		|| ((result >> (num_bits - 1)) & 1) == 0)
 	      yylval.ttype
-		= build_int_2 (result & ((unsigned) ~0
+		= build_int_2 (result & ((unsigned HOST_WIDE_INT) ~0
 					 >> (HOST_BITS_PER_INT - num_bits)),
 			       0);
 	    else
 	      yylval.ttype
-		= build_int_2 (result | ~((unsigned) ~0
+		= build_int_2 (result | ~((unsigned HOST_WIDE_INT) ~0
 					  >> (HOST_BITS_PER_INT - num_bits)),
 			       -1);
-	    TREE_TYPE (yylval.ttype) = char_type_node;
+	    if (num_chars<=1)
+	      TREE_TYPE (yylval.ttype) = char_type_node;
+	    else
+	      TREE_TYPE (yylval.ttype) = integer_type_node;
 	  }
 	else
 	  {
+#ifdef MULTIBYTE_CHARS
+	    /* Set the initial shift state and convert the next sequence.  */
+	    result = 0;
+	    /* In all locales L'\0' is zero and mbtowc will return zero,
+	       so don't use it.  */
+	    if (num_chars > 1
+		|| (num_chars == 1 && token_buffer[1] != '\0'))
+	      {
+		wchar_t wc;
+		(void) mbtowc (NULL, NULL, 0);
+		if (mbtowc (& wc, token_buffer + 1, num_chars) == num_chars)
+		  result = wc;
+		else
+		  warning ("Ignoring invalid multibyte character");
+	      }
+#endif
 	    yylval.ttype = build_int_2 (result, 0);
-	    TREE_TYPE (yylval.ttype) = integer_type_node;
+	    TREE_TYPE (yylval.ttype) = wchar_type_node;
 	  }
-	value = CONSTANT; break;
+
+	value = CONSTANT;
+	break;
       }
 
     case '"':
     string_constant:
       {
-	int *widep;
 	register char *p;
 
 	c = getch ();
 	p = token_buffer + 1;
 
-	if (wide_flag)
-	  widep = wide_buffer;
-
 	while (c != '"' && c >= 0)
 	  {
-	    if (c == '\\')
+	    /* ignore_escape_flag is set for reading the filename in #line.  */
+	    if (!ignore_escape_flag && c == '\\')
 	      {
-		c = readescape ();
-		if (c < 0)
+		int ignore = 0;
+		c = readescape (&ignore);
+		if (ignore)
 		  goto skipnewline;
-		if (!wide_flag && c >= (1 << BITS_PER_UNIT))
-		  warning ("escape sequence out of range for character");
+		if (!wide_flag
+		    && TYPE_PRECISION (char_type_node) < HOST_BITS_PER_INT
+		    && c >= ((unsigned) 1 << TYPE_PRECISION (char_type_node)))
+		  pedwarn ("escape sequence out of range for character");
 	      }
 	    else if (c == '\n')
 	      {
 		if (pedantic)
-		  pedwarn ("ANSI C forbids newline in string constant");
+		  pedwarn ("ANSI C++ forbids newline in string constant");
 		lineno++;
 	      }
 
-	    /* Store the char in C into the appropriate buffer.  */
-
-	    if (wide_flag)
-	      {
-		if (widep == wide_buffer + max_wide)
-		  {
-		    int n = widep - wide_buffer;
-		    max_wide *= 2;
-		    wide_buffer = (int *) xrealloc (wide_buffer, max_wide + 1);
-		    widep = wide_buffer + n;
-		  }
-		*widep++ = c;
-	      }
-	    else
-	      {
-		if (p == token_buffer + maxtoken)
-		  p = extend_token_buffer (p);
-		*p++ = c;
-	      }
+	    if (p == token_buffer + maxtoken)
+	      p = extend_token_buffer (p);
+	    *p++ = c;
 
 	  skipnewline:
 	    c = getch ();
@@ -3358,25 +3632,48 @@ real_yylex ()
 		break;
 	    }
 	  }
+	*p = 0;
 
 	/* We have read the entire constant.
 	   Construct a STRING_CST for the result.  */
 
 	if (wide_flag)
 	  {
-	    /* If this is a L"..." wide-string, make a vector
-	       of the ints in wide_buffer.  */
-	    *widep = 0;
-	    /* We have not implemented the case where `int'
-	       on the target and on the execution machine differ in size.  */
-	    assert (TYPE_PRECISION (integer_type_node) == sizeof (int) * BITS_PER_UNIT);
-	    yylval.ttype = build_string ((widep - wide_buffer + 1) * sizeof (int),
-					 (char *)wide_buffer);
-	    TREE_TYPE (yylval.ttype) = int_array_type_node;
+	    /* If this is a L"..." wide-string, convert the multibyte string
+	       to a wide character string.  */
+	    char *widep = (char *) alloca ((p - token_buffer) * WCHAR_BYTES);
+	    int len;
+
+#ifdef MULTIBYTE_CHARS
+	    len = mbstowcs ((wchar_t *) widep, token_buffer + 1, p - token_buffer);
+	    if ((unsigned) len >= (p - token_buffer))
+	      {
+		warning ("Ignoring invalid multibyte string");
+		len = 0;
+	      }
+	    bzero (widep + (len * WCHAR_BYTES), WCHAR_BYTES);
+#else
+	    {
+	      union { long l; char c[sizeof (long)]; } u;
+	      int big_endian;
+	      char *wp, *cp;
+
+	      /* Determine whether host is little or big endian.  */
+	      u.l = 1;
+	      big_endian = u.c[sizeof (long) - 1];
+	      wp = widep + (big_endian ? WCHAR_BYTES - 1 : 0);
+
+	      bzero (widep, (p - token_buffer) * WCHAR_BYTES);
+	      for (cp = token_buffer + 1; cp < p; cp++)
+		*wp = *cp, wp += WCHAR_BYTES;
+	      len = p - token_buffer - 1;
+	    }
+#endif
+	    yylval.ttype = build_string ((len + 1) * WCHAR_BYTES, widep);
+	    TREE_TYPE (yylval.ttype) = wchar_array_type_node;
 	  }
 	else
 	  {
-	    *p = 0;
 	    yylval.ttype = build_string (p - token_buffer, token_buffer + 1);
 	    TREE_TYPE (yylval.ttype) = char_array_type_node;
 	  }
@@ -3627,13 +3924,12 @@ build_lang_decl (code, name, type)
   DECL_LANG_SPECIFIC (t) = (struct lang_decl *) pi;
   LANG_DECL_PERMANENT ((struct lang_decl *) pi)
     = obstack == &permanent_obstack;
-  assert (LANG_DECL_PERMANENT ((struct lang_decl *) pi)
-	  == TREE_PERMANENT  (t));
+  my_friendly_assert (LANG_DECL_PERMANENT ((struct lang_decl *) pi)
+	  == TREE_PERMANENT  (t), 234);
   DECL_MAIN_VARIANT (t) = t;
   if (current_lang_name == lang_name_cplusplus)
     {
       DECL_LANGUAGE (t) = lang_cplusplus;
-
 #ifndef NO_AUTO_OVERLOAD
       if (code == FUNCTION_DECL && name != 0
 	  && ! (IDENTIFIER_LENGTH (name) == 4
@@ -3691,7 +3987,7 @@ build_lang_field_decl (code, name, type)
   if (! TREE_PERMANENT (t))
     obstack = saveable_obstack;
   else
-    assert (obstack == &permanent_obstack);
+    my_friendly_assert (obstack == &permanent_obstack, 235);
 
   pi = (int *) obstack_alloc (obstack, sizeof (struct lang_decl_flags));
   while (i > 0)
@@ -3733,7 +4029,7 @@ make_lang_type (code)
   if (! TREE_PERMANENT (t))
     obstack = saveable_obstack;
   else
-    assert (obstack == &permanent_obstack);
+    my_friendly_assert (obstack == &permanent_obstack, 236);
 
   pi = (int *) obstack_alloc (obstack, sizeof (struct lang_type));
   while (i > 0)
@@ -3773,7 +4069,7 @@ copy_decl_lang_specific (decl)
   if (! TREE_PERMANENT (decl))
     obstack = saveable_obstack;
   else
-    assert (obstack == &permanent_obstack);
+    my_friendly_assert (obstack == &permanent_obstack, 237);
 
   pi = (int *) obstack_alloc (obstack, sizeof (struct lang_decl));
   while (i-- > 0)
@@ -3848,4 +4144,35 @@ compiler_error_with_decl (decl, s)
   else
     fprintf (stderr, s, "((anonymous))");
   fprintf (stderr, " (compiler error)\n");
+}
+
+void
+yyerror (string)
+     char *string;
+{
+  extern int end_of_file;
+  extern int input_redirected ();
+  char buf[200];
+
+  strcpy (buf, string);
+
+  /* We can't print string and character constants well
+     because the token_buffer contains the result of processing escapes.  */
+  if (end_of_file)
+    strcat (buf, input_redirected ()
+	    ? " at end of saved text"
+	    : " at end of input");
+  else if (token_buffer[0] == 0)
+    strcat (buf, " at null character");
+  else if (token_buffer[0] == '"')
+    strcat (buf, " before string constant");
+  else if (token_buffer[0] == '\'')
+    strcat (buf, " before character constant");
+  else if (token_buffer[0] < 040 || (unsigned char) token_buffer[0] >= 0177)
+    sprintf (buf + strlen (buf), " before character 0%o",
+	     (unsigned char) token_buffer[0]);
+  else
+    strcat (buf, " before `%s'");
+
+  error (buf, token_buffer);
 }

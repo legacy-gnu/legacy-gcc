@@ -1,5 +1,5 @@
 /* Analyze RTL for C-Compiler
-   Copyright (C) 1987, 1988, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1991, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -184,7 +184,7 @@ rtx_addr_varies_p (x)
    Only obvious integer terms are detected.
    This is used in cse.c with the `related_value' field.*/
 
-int
+HOST_WIDE_INT
 get_integer_term (x)
      rtx x;
 {
@@ -528,9 +528,9 @@ single_set (insn)
     {
       for (i = 0, set = 0; i < XVECLEN (PATTERN (insn), 0); i++)
 	if (GET_CODE (XVECEXP (PATTERN (insn), 0, i)) == SET
-	    && ! (find_reg_note (insn, REG_UNUSED,
-				SET_DEST (XVECEXP (PATTERN (insn), 0, i)))
-		  || side_effects_p (XVECEXP (PATTERN (insn), 0, i))))
+	    && (! find_reg_note (insn, REG_UNUSED,
+				 SET_DEST (XVECEXP (PATTERN (insn), 0, i)))
+		|| side_effects_p (XVECEXP (PATTERN (insn), 0, i))))
 	  {
 	    if (set)
 	      return 0;
@@ -561,7 +561,7 @@ find_last_value (x, pinsn, valid_to)
     if (GET_RTX_CLASS (GET_CODE (p)) == 'i')
       {
 	rtx set = single_set (p);
-	rtx note = find_reg_note (p, REG_EQUAL, 0);
+	rtx note = find_reg_note (p, REG_EQUAL, NULL_RTX);
 
 	if (set && rtx_equal_p (x, SET_DEST (set)))
 	  {
@@ -735,7 +735,7 @@ reg_overlap_mentioned_p (x, in)
   endregno = regno + (regno < FIRST_PSEUDO_REGISTER
 		      ? HARD_REGNO_NREGS (regno, GET_MODE (x)) : 1);
 
-  return refers_to_regno_p (regno, endregno, in, 0);
+  return refers_to_regno_p (regno, endregno, in, NULL_PTR);
 }
 
 /* Used for communications between the next few functions.  */
@@ -779,8 +779,8 @@ reg_set_last_1 (x, pat)
 /* Return the last value to which REG was set prior to INSN.  If we can't
    find it easily, return 0.
 
-   We only return a REG or constant because it is too hard to check if a
-   MEM remains unchanged.  */
+   We only return a REG, SUBREG, or constant because it is too hard to
+   check if a MEM remains unchanged.  */
 
 rtx
 reg_set_last (x, insn)
@@ -818,7 +818,8 @@ reg_set_last (x, insn)
 	else if (reg_set_last_value)
 	  {
 	    if (CONSTANT_P (reg_set_last_value)
-		|| (GET_CODE (reg_set_last_value) == REG
+		|| ((GET_CODE (reg_set_last_value) == REG
+		     || GET_CODE (reg_set_last_value) == SUBREG)
 		    && ! reg_set_between_p (reg_set_last_value,
 					    NEXT_INSN (insn), orig_insn)))
 	      return reg_set_last_value;
@@ -886,6 +887,11 @@ rtx_equal_p (x, y)
     {
       switch (fmt[i])
 	{
+	case 'w':
+	  if (XWINT (x, i) != XWINT (y, i))
+	    return 0;
+	  break;
+
 	case 'n':
 	case 'i':
 	  if (XINT (x, i) != XINT (y, i))

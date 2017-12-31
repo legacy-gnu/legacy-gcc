@@ -1,5 +1,5 @@
 /* Sets (bit vectors) of hard registers, and operations on them.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC
 
@@ -22,35 +22,26 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* If HARD_REG_SET is a macro, its definition is a scalar type
    that has enough bits for all the target machine's hard registers.
-   Otherwise, it is a typedef for a suitable array of longs,
-   and HARD_REG_SET_LONGS is how many.  */
+   Otherwise, it is a typedef for a suitable array of HOST_WIDE_INTs,
+   and HARD_REG_SET_LONGS is how many.
 
-#ifndef HOST_BITS_PER_LONG_LONG
-#define HOST_BITS_PER_LONG_LONG (2 * HOST_BITS_PER_LONG)
-#endif
+   Note that lots of code assumes that the first part of a regset is
+   the same format as a HARD_REG_SET.  To help make sure this is true,
+   we only try the widest integer mode (HOST_WIDE_INT) instead of all the
+   smaller types.  This only loses if there are a very few registers and
+   then only in the few cases where we have an array of HARD_REG_SETs,
+   so it isn't worth making this as complex as it used to be.  */
 
-#if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_CHAR
-#define HARD_REG_SET char
+#if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_WIDE_INT
+#define HARD_REG_SET HOST_WIDE_INT
+
 #else
-#if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_SHORT
-#define HARD_REG_SET short
-#else
-#if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_INT
-#define HARD_REG_SET int
-#else
-#if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_LONG
-#define HARD_REG_SET long
-#else
-#if 0 && defined (__GNUC__) && FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_LONGLONG
-#define HARD_REG_SET long long
-#else
+
 #define HARD_REG_SET_LONGS \
- ((FIRST_PSEUDO_REGISTER + HOST_BITS_PER_LONG - 1) / HOST_BITS_PER_LONG)
-typedef long HARD_REG_SET[HARD_REG_SET_LONGS];
-#endif
-#endif
-#endif
-#endif
+ ((FIRST_PSEUDO_REGISTER + HOST_BITS_PER_WIDE_INT - 1)	\
+  / HOST_BITS_PER_WIDE_INT)
+typedef HOST_WIDE_INT HARD_REG_SET[HARD_REG_SET_LONGS];
+
 #endif
 
 /* HARD_CONST is used to cast a constant to a HARD_REG_SET
@@ -114,72 +105,77 @@ typedef long HARD_REG_SET[HARD_REG_SET_LONGS];
 #define GO_IF_HARD_REG_EQUAL(X,Y,TO) if ((X) == (Y)) goto TO
 #else
 
-#define UHOST_BITS_PER_LONG ((unsigned) HOST_BITS_PER_LONG)
+#define UHOST_BITS_PER_WIDE_INT ((unsigned) HOST_BITS_PER_WIDE_INT)
 
-#define SET_HARD_REG_BIT(SET, BIT)  \
-  ((SET)[(BIT) / UHOST_BITS_PER_LONG] |= 1 << ((BIT) % UHOST_BITS_PER_LONG))
-#define CLEAR_HARD_REG_BIT(SET, BIT)  \
-  ((SET)[(BIT) / UHOST_BITS_PER_LONG] &= ~(1 << ((BIT) % UHOST_BITS_PER_LONG)))
-#define TEST_HARD_REG_BIT(SET, BIT)  \
-  ((SET)[(BIT) / UHOST_BITS_PER_LONG] & (1 << ((BIT) % UHOST_BITS_PER_LONG)))
+#define SET_HARD_REG_BIT(SET, BIT)		\
+  ((SET)[(BIT) / UHOST_BITS_PER_WIDE_INT]	\
+   |= (HOST_WIDE_INT) 1 << ((BIT) % UHOST_BITS_PER_WIDE_INT))
+
+#define CLEAR_HARD_REG_BIT(SET, BIT)		\
+  ((SET)[(BIT) / UHOST_BITS_PER_WIDE_INT]	\
+   &= ~((HOST_WIDE_INT) 1 << ((BIT) % UHOST_BITS_PER_WIDE_INT)))
+
+#define TEST_HARD_REG_BIT(SET, BIT)		\
+  ((SET)[(BIT) / UHOST_BITS_PER_WIDE_INT]	\
+   & ((HOST_WIDE_INT) 1 << ((BIT) % UHOST_BITS_PER_WIDE_INT)))
 
 #define CLEAR_HARD_REG_SET(TO)  \
-do { register long *scan_tp_ = (TO);				\
+do { register HOST_WIDE_INT *scan_tp_ = (TO);			\
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ = 0; } while (0)
 
 #define SET_HARD_REG_SET(TO)  \
-do { register long *scan_tp_ = (TO);				\
+do { register HOST_WIDE_INT *scan_tp_ = (TO);			\
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ = -1; } while (0)
 
 #define COPY_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ = *scan_fp_++; } while (0)
 
 #define COMPL_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ = ~ *scan_fp_++; } while (0)
 
 #define AND_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ &= *scan_fp_++; } while (0)
 
 #define AND_COMPL_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ &= ~ *scan_fp_++; } while (0)
 
 #define IOR_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ |= *scan_fp_++; } while (0)
 
 #define IOR_COMPL_HARD_REG_SET(TO, FROM)  \
-do { register long *scan_tp_ = (TO), *scan_fp_ = (FROM);	\
+do { register HOST_WIDE_INT *scan_tp_ = (TO), *scan_fp_ = (FROM); \
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        *scan_tp_++ |= ~ *scan_fp_++; } while (0)
 
 #define GO_IF_HARD_REG_SUBSET(X,Y,TO)  \
-do { register long *scan_xp_ = (X), *scan_yp_ = (Y);		\
+do { register HOST_WIDE_INT *scan_xp_ = (X), *scan_yp_ = (Y);	\
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        if (0 != (*scan_xp_++ & ~*scan_yp_++)) break;		\
      if (i == HARD_REG_SET_LONGS) goto TO; } while (0)
 
 #define GO_IF_HARD_REG_EQUAL(X,Y,TO)  \
-do { register long *scan_xp_ = (X), *scan_yp_ = (Y);		\
+do { register HOST_WIDE_INT *scan_xp_ = (X), *scan_yp_ = (Y);	\
      register int i;						\
      for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
        if (*scan_xp_++ != ~*scan_yp_++)) break;			\

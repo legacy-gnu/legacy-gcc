@@ -37,11 +37,30 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define I386 1
 
+/* Stubs for half-pic support if not OSF/1 reference platform.  */
+
+#ifndef HALF_PIC_P
+#define HALF_PIC_P() 0
+#define HALF_PIC_NUMBER_PTRS 0
+#define HALF_PIC_NUMBER_REFS 0
+#define HALF_PIC_ENCODE(DECL)
+#define HALF_PIC_DECLARE(NAME)
+#define HALF_PIC_INIT()	error ("half-pic init called on systems that don't support it.")
+#define HALF_PIC_ADDRESS_P(X) 0
+#define HALF_PIC_PTR(X) X
+#define HALF_PIC_FINISH(STREAM)
+#endif
+
 /* Run-time compilation parameters selecting different hardware subsets.  */
 
 extern int target_flags;
 
 /* Macros used in the machine description to test the flags.  */
+
+/* configure can arrage to make this 2, to force a 486.  */
+#ifndef TARGET_CPU_DEFAULT
+#define TARGET_CPU_DEFAULT 0
+#endif
 
 /* Compile 80387 insns for floating point (not library calls).  */
 #define TARGET_80387 (target_flags & 1)
@@ -66,6 +85,11 @@ extern int target_flags;
    generated in such cases, in which case this isn't needed.  */
 #define TARGET_IEEE_FP (target_flags & 0100)
 
+/* Functions that return a floating point value may return that value
+   in the 387 FPU or in 386 integer registers.  If set, this flag causes
+   the 387 to be used, which is compatible with most calling conventions. */
+#define TARGET_FLOAT_RETURNS_IN_80387 (target_flags & 0200)
+
 /* Macro to define tables used to set the flags.
    This is a list in braces of pairs in braces,
    each pair being { "NAME", VALUE }
@@ -74,19 +98,28 @@ extern int target_flags;
 
 #define TARGET_SWITCHES  \
   { { "80387", 1},				\
+    { "no-80387", -1},				\
     { "soft-float", -1},			\
+    { "no-soft-float", 1},			\
     { "486", 2},				\
-    { "no486", -2},				\
+    { "no-486", -2},				\
     { "386", -2},				\
     { "rtd", 8},				\
-    { "nortd", -8},				\
+    { "no-rtd", -8},				\
     { "regparm", 020},				\
-    { "noregparm", -020},			\
+    { "no-regparm", -020},			\
     { "svr3-shlib", 040},			\
-    { "nosvr3-shlib", -040},			\
+    { "no-svr3-shlib", -040},			\
     { "ieee-fp", 0100},				\
-    { "noieee-fp", -0100},			\
-    { "", TARGET_DEFAULT}}
+    { "no-ieee-fp", -0100},			\
+    { "fp-ret-in-387", 0200},			\
+    { "no-fp-ret-in-387", -0200},		\
+    SUBTARGET_SWITCHES                          \
+    { "", TARGET_DEFAULT | TARGET_CPU_DEFAULT}}
+
+/* This is meant to be redefined in the host dependent files */
+#define SUBTARGET_SWITCHES
+
 
 /* target machine storage layout */
 
@@ -212,6 +245,15 @@ extern int target_flags;
 	fixed_regs[PIC_OFFSET_TABLE_REGNUM] = 1;	\
 	call_used_regs[PIC_OFFSET_TABLE_REGNUM] = 1;	\
       }							\
+    if (! TARGET_80387 && ! TARGET_FLOAT_RETURNS_IN_80387) \
+      { 						\
+	int i; 						\
+	HARD_REG_SET x;					\
+        COPY_HARD_REG_SET (x, reg_class_contents[(int)FLOAT_REGS]); \
+        for (i = 0; i < FIRST_PSEUDO_REGISTER; i++ )	\
+         if (TEST_HARD_REG_BIT (x, i)) 			\
+	  fixed_regs[i] = call_used_regs[i] = 1; 	\
+      }							\
   }
 
 /* Return number of consecutive hard regs needed starting at reg REGNO
@@ -234,11 +276,12 @@ extern int target_flags;
    Make it clear that the fp regs could not hold a 16-byte float.  */
 
 #define HARD_REGNO_MODE_OK(REGNO, MODE) \
-  ((REGNO) < 2 ? 1							\
-   : (REGNO) < 4 ? 1							\
-   : (REGNO) >= 8 ? ((GET_MODE_CLASS (MODE) == MODE_FLOAT		\
-		      || GET_MODE_CLASS (MODE) == MODE_COMPLEX_FLOAT)	\
-		     && GET_MODE_UNIT_SIZE (MODE) <= 8)			\
+  ((REGNO) < 2 ? 1						\
+   : (REGNO) < 4 ? 1						\
+   : FP_REGNO_P ((REGNO))					\
+   ? ((GET_MODE_CLASS (MODE) == MODE_FLOAT			\
+       || GET_MODE_CLASS (MODE) == MODE_COMPLEX_FLOAT)		\
+      && GET_MODE_UNIT_SIZE (MODE) <= 8)			\
    : (MODE) != QImode)
 
 /* Value is 1 if it is a good idea to tie two pseudo registers
@@ -419,16 +462,22 @@ extern enum reg_class regclass_map[FIRST_PSEUDO_REGISTER];
 /* Get reg_class from a letter such as appears in the machine description.  */
 
 #define REG_CLASS_FROM_LETTER(C)	\
-  ((C) == 'r' ? GENERAL_REGS :		\
-   (C) == 'q' ? Q_REGS :		\
-   (C) == 'f' ? FLOAT_REGS :		\
-   (C) == 't' ? FP_TOP_REG :		\
-   (C) == 'u' ? FP_SECOND_REG :		\
-   (C) == 'a' ? AREG :			\
-   (C) == 'b' ? BREG :			\
-   (C) == 'c' ? CREG :			\
-   (C) == 'd' ? DREG :			\
-   (C) == 'D' ? DIREG :			\
+  ((C) == 'r' ? GENERAL_REGS :					\
+   (C) == 'q' ? Q_REGS :					\
+   (C) == 'f' ? (TARGET_80387 || TARGET_FLOAT_RETURNS_IN_80387	\
+		 ? FLOAT_REGS					\
+		 : NO_REGS) :					\
+   (C) == 't' ? (TARGET_80387 || TARGET_FLOAT_RETURNS_IN_80387	\
+		 ? FP_TOP_REG					\
+		 : NO_REGS) :					\
+   (C) == 'u' ? (TARGET_80387 || TARGET_FLOAT_RETURNS_IN_80387	\
+		 ? FP_SECOND_REG				\
+		 : NO_REGS) :					\
+   (C) == 'a' ? AREG :						\
+   (C) == 'b' ? BREG :						\
+   (C) == 'c' ? CREG :						\
+   (C) == 'd' ? DREG :						\
+   (C) == 'D' ? DIREG :						\
    (C) == 'S' ? SIREG : NO_REGS)
 
 /* The letters I, J, K, L and M in a register constraint string
@@ -549,6 +598,10 @@ extern enum reg_class regclass_map[FIRST_PSEUDO_REGISTER];
 	      == void_type_node))) ? (SIZE)			\
    : (aggregate_value_p (FUNTYPE)) ? GET_MODE_SIZE (Pmode) : 0)
 
+/* Define how to find the value returned by a function.
+   VALTYPE is the data type of the value (as a tree).
+   If the precise function being called is known, FUNC is its FUNCTION_DECL;
+   otherwise, FUNC is 0.  */
 #define FUNCTION_VALUE(VALTYPE, FUNC)  \
    gen_rtx (REG, TYPE_MODE (VALTYPE), \
 	    VALUE_REGNO (TYPE_MODE (VALTYPE)))
@@ -699,16 +752,16 @@ do {						\
      mov #STATIC,ecx
      mov #FUNCTION,eax
      jmp @eax  */
-#define TRAMPOLINE_TEMPLATE(FILE)					\
-{									\
-  ASM_OUTPUT_CHAR (FILE, gen_rtx (CONST_INT, VOIDmode, 0xb9));		\
-  ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
-  ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
-  ASM_OUTPUT_CHAR (FILE, gen_rtx (CONST_INT, VOIDmode, 0xb8));		\
-  ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
-  ASM_OUTPUT_SHORT (FILE, const0_rtx);					\
-  ASM_OUTPUT_CHAR (FILE, gen_rtx (CONST_INT, VOIDmode, 0xff));		\
-  ASM_OUTPUT_CHAR (FILE, gen_rtx (CONST_INT, VOIDmode, 0xe0));		\
+#define TRAMPOLINE_TEMPLATE(FILE)			\
+{							\
+  ASM_OUTPUT_CHAR (FILE, GEN_INT (0xb9));		\
+  ASM_OUTPUT_SHORT (FILE, const0_rtx);			\
+  ASM_OUTPUT_SHORT (FILE, const0_rtx);			\
+  ASM_OUTPUT_CHAR (FILE, GEN_INT (0xb8));		\
+  ASM_OUTPUT_SHORT (FILE, const0_rtx);			\
+  ASM_OUTPUT_SHORT (FILE, const0_rtx);			\
+  ASM_OUTPUT_CHAR (FILE, GEN_INT (0xff));		\
+  ASM_OUTPUT_CHAR (FILE, GEN_INT (0xe0));		\
 }
 
 /* Length in units of the trampoline for entering a nested function.  */
@@ -973,13 +1026,13 @@ do {						\
       if (GET_CODE (XEXP (X, 0)) == REG)                                \
 	{ register rtx temp = gen_reg_rtx (Pmode);			\
 	  register rtx val = force_operand (XEXP (X, 1), temp);		\
-	  if (val != temp) emit_move_insn (temp, val, 0);		\
+	  if (val != temp) emit_move_insn (temp, val);			\
 	  XEXP (X, 1) = temp;						\
 	  goto WIN; }							\
       else if (GET_CODE (XEXP (X, 1)) == REG)				\
 	{ register rtx temp = gen_reg_rtx (Pmode);			\
 	  register rtx val = force_operand (XEXP (X, 0), temp);		\
-	  if (val != temp) emit_move_insn (temp, val, 0);		\
+	  if (val != temp) emit_move_insn (temp, val);			\
 	  XEXP (X, 0) = temp;						\
 	  goto WIN; }}}
 
@@ -1170,7 +1223,7 @@ while (0)
    For floating-point equality comparisons, CCFPEQmode should be used.
    VOIDmode should be used in all other cases.  */
 
-#define SELECT_CC_MODE(OP,X) \
+#define SELECT_CC_MODE(OP,X,Y) \
   (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT			\
    && ((OP) == EQ || (OP) == NE) ? CCFPEQmode : CCmode)
 
@@ -1228,8 +1281,7 @@ extern struct rtx_def *(*i386_compare_gen)(), *(*i386_compare_gen_eq)();
    For non floating point regs, the following are the HImode names.
 
    For float regs, the stack top is sometimes referred to as "%st(0)"
-   instead of just "%st".  PRINT_REG in i386.c handles with with the
-   "y" code.  */
+   instead of just "%st".  PRINT_REG handles this with the "y" code.  */
 
 #define HI_REGISTER_NAMES \
 {"ax","dx","cx","bx","si","di","bp","sp",          \
@@ -1383,7 +1435,7 @@ do { union { float f; long l;} tem;			\
 #define TARGET_VT 013
 #define TARGET_FF 014
 #define TARGET_CR 015
-
+
 /* Print operand X (an rtx) in assembler syntax to file FILE.
    CODE is a letter or dot (`z' in `%z0') or 0 if no letter was specified.
    The CODE z takes the size of operand from the following digit, and
@@ -1402,12 +1454,81 @@ do { union { float f; long l;} tem;			\
 #define PRINT_OPERAND_PUNCT_VALID_P(CODE)				\
   ((CODE) == '*')
 
+/* Print the name of a register based on its machine mode and number.
+   If CODE is 'w', pretend the mode is HImode.
+   If CODE is 'b', pretend the mode is QImode.
+   If CODE is 'k', pretend the mode is SImode.
+   If CODE is 'h', pretend the reg is the `high' byte register.
+   If CODE is 'y', print "st(0)" instead of "st", if the reg is stack op. */
+
+extern char *hi_reg_name[];
+extern char *qi_reg_name[];
+extern char *qi_high_reg_name[];
+
+#define PRINT_REG(X, CODE, FILE) \
+  do { if (REGNO (X) == ARG_POINTER_REGNUM)		\
+	 abort ();					\
+       fprintf (FILE, "%s", RP);			\
+       switch ((CODE == 'w' ? 2 			\
+		: CODE == 'b' ? 1			\
+		: CODE == 'k' ? 4			\
+		: CODE == 'y' ? 3			\
+		: CODE == 'h' ? 0			\
+		: GET_MODE_SIZE (GET_MODE (X))))	\
+	 {						\
+	 case 3:					\
+	   if (STACK_TOP_P (X))				\
+	     {						\
+	       fputs ("st(0)", FILE);			\
+	       break;					\
+	     }						\
+	 case 4:					\
+	 case 8:					\
+	   if (! FP_REG_P (X)) fputs ("e", FILE);	\
+	 case 2:					\
+	   fputs (hi_reg_name[REGNO (X)], FILE);	\
+	   break;					\
+	 case 1:					\
+	   fputs (qi_reg_name[REGNO (X)], FILE);	\
+	   break;					\
+	 case 0:					\
+	   fputs (qi_high_reg_name[REGNO (X)], FILE);	\
+	   break;					\
+	 }						\
+     } while (0)
+
 #define PRINT_OPERAND(FILE, X, CODE)  \
   print_operand (FILE, X, CODE)
-
 
 #define PRINT_OPERAND_ADDRESS(FILE, ADDR)  \
   print_operand_address (FILE, ADDR)
+
+/* Print the name of a register for based on its machine mode and number.
+   This macro is used to print debugging output.
+   This macro is different from PRINT_REG in that it may be used in
+   programs that are not linked with aux-output.o.  */
+
+#define DEBUG_PRINT_REG(X, CODE, FILE) \
+  do { static char *hi_name[] = HI_REGISTER_NAMES;	\
+       static char *qi_name[] = QI_REGISTER_NAMES;	\
+       fprintf (FILE, "%s", RP);			\
+       if (REGNO (X) == ARG_POINTER_REGNUM)		\
+	 { fputs ("argp", FILE); break; }		\
+       if (STACK_TOP_P (X))				\
+	 { fputs ("st(0)", FILE); break; }		\
+       switch (GET_MODE_SIZE (GET_MODE (X)))		\
+	 {						\
+	 case 8:					\
+	 case 4:					\
+	   if (! FP_REG_P (X)) fputs ("e", FILE);	\
+	 case 2:					\
+	   fputs (hi_name[REGNO (X)], FILE);		\
+	   break;					\
+	 case 1:					\
+	   fputs (qi_name[REGNO (X)], FILE);		\
+	   break;					\
+	 }						\
+     } while (0)
 
 /* Output the prefix for an immediate operand, or for an offset operand.  */
 #define PRINT_IMMED_PREFIX(FILE)  fputs (IP, (FILE))

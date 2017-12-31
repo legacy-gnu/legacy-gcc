@@ -17,10 +17,35 @@ You should have received a copy of the GNU General Public License
 along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-#define DECSTATION
 #define DEC_OSF1
 
 #define CPP_PREDEFINES "-D__ANSI_COMPAT \
 -DMIPSEL -DR3000 -DSYSTYPE_BSD -D_SYSTYPE_BSD -Dbsd4_2 -Dhost_mips -Dmips -Dosf -Dunix"
 
+#define LINK_SPEC "\
+%{G*} \
+%{!mgas: \
+	%{EL} %{!EL: -EL} \
+	%{EB: %e-EB not supported} \
+	%{mips1} %{mips2} %{mips3} %{bestGnum} \
+	%{shared} %{non_shared} %{call_shared} %{no_archive} %{exact_version} \
+	%{!shared: %{!non_shared: %{!call_shared: -non_shared}}}}"
+
 #include "decstatn.h"
+
+/* Specify size_t, ptrdiff_t, and wchar_t types.  */
+#undef	SIZE_TYPE
+#undef	PTRDIFF_TYPE
+#undef	WCHAR_TYPE
+#undef	WCHAR_TYPE_SIZE
+
+#define SIZE_TYPE	"long unsigned int"
+#define PTRDIFF_TYPE	"int"
+#define WCHAR_TYPE	"short unsigned int"
+#define WCHAR_TYPE_SIZE SHORT_TYPE_SIZE
+
+/* turn off collect2 COFF support, since ldfcn now has elf declaration */
+#undef OBJECT_FORMAT_COFF
+
+#undef MACHINE_TYPE
+#define MACHINE_TYPE "DECstation running DEC OSF/1"

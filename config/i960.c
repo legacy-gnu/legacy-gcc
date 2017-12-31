@@ -57,11 +57,6 @@ static int i960_last_maxbitalignment;
 
 enum insn_types i960_last_insn_type;
 
-/* Where to save/restore register 14 to/from before/after a procedure call
-   when it holds an argument block pointer.  */
-
-static rtx g14_save_reg;
-
 /* The leaf-procedure return register.  Set only if this is a leaf routine.  */
 
 static int i960_leaf_ret_reg;
@@ -433,7 +428,7 @@ gen_compare_reg (code, x, y)
      rtx x, y;
 {
   rtx cc_reg;
-  enum machine_mode ccmode = SELECT_CC_MODE (code, x);
+  enum machine_mode ccmode = SELECT_CC_MODE (code, x, y);
   enum machine_mode mode
     = GET_MODE (x) == VOIDmode ? GET_MODE (y) : GET_MODE (x);
 
@@ -493,7 +488,9 @@ i960_address_cost (x)
       if (GET_CODE (base) == PLUS || GET_CODE (base) == MULT)
 	return 6;
 
-      abort ();
+      /* This is an invalid address.  The return value doesn't matter, but
+	 for convenience we make this more expensive than anything else.  */
+      return 12;
     }
   if (GET_CODE (x) == MULT)
     return 6;
@@ -595,7 +592,7 @@ i960_output_ldconst (dst, src)
     }
   else if (mode == DImode)
     {
-      rtx upperhalf, lowerhalf;
+      rtx upperhalf, lowerhalf, xoperands[2];
       char *string;
 
       if (GET_CODE (src) == CONST_DOUBLE)
@@ -618,21 +615,24 @@ i960_output_ldconst (dst, src)
 	return "movl	%1,%0";
 
       /* Output the upper half with a recursive call.  */
-      string = i960_output_ldconst (gen_rtx (REG, SImode, REGNO (dst) + 1),
-				    upperhalf);
-      output_asm_insn (string);
+      xoperands[0] = gen_rtx (REG, SImode, REGNO (dst) + 1);
+      xoperands[1] = upperhalf;
+      output_asm_insn (i960_output_ldconst (xoperands[0], xoperands[1]),
+		       xoperands);
       /* The lower word is emitted as normally.  */
     }
   else if (mode == SFmode)
     {
 #if HOST_FLOAT_FORMAT == TARGET_FLOAT_FORMAT
-      union { long l; float f; } flt;
+      REAL_VALUE_TYPE d;
+      long value;
 
-      flt.f = (float) *((double *) &CONST_DOUBLE_LOW (src));
+      REAL_VALUE_FROM_CONST_DOUBLE (d, src);
+      REAL_VALUE_TO_TARGET_SINGLE (d, value);
 
       output_asm_insn ("# ldconst	%1,%0",operands);
       operands[0] = gen_rtx (REG, SImode, REGNO (dst));
-      operands[1] = gen_rtx (CONST_INT, VOIDmode, flt.l);
+      operands[1] = gen_rtx (CONST_INT, VOIDmode, value);
       output_asm_insn (i960_output_ldconst (operands[0], operands[1]),
 		      operands);
 #else
@@ -733,7 +733,7 @@ i960_output_ldconst (dst, src)
 }
 
 /* Determine if there is an opportunity for a bypass optimization.
-   Bypass suceeds on the 960K* if the destination of the previous
+   Bypass succeeds on the 960K* if the destination of the previous
    instruction is the second operand of the current instruction.
    Bypass always succeeds on the C*.
  
@@ -1185,18 +1185,29 @@ i960_function_epilogue (file, size)
 /* Output code for a call insn.  */
 
 char *
-i960_output_call_insn (target, argsize_rtx, insn)
-     register rtx target, argsize_rtx, insn;
+i960_output_call_insn (target, argsize_rtx, arg_pointer, scratch_reg, insn)
+     register rtx target, argsize_rtx, arg_pointer, scratch_reg, insn;
 {
-  int non_indirect;
   int argsize = INTVAL (argsize_rtx);
   rtx nexti = next_real_insn (insn);
-  rtx operands[1];
+  rtx operands[3];
 
   operands[0] = target;
+  operands[1] = arg_pointer;
+  operands[2] = scratch_reg;
 
-  non_indirect = ((GET_CODE (target) == MEM)
-		  && (GET_CODE (XEXP (target, 0)) == SYMBOL_REF));
+  if (current_function_args_size != 0)
+    output_asm_insn ("mov	g14,%2", operands);
+
+  if (argsize > 48)
+    output_asm_insn ("lda	%a1,g14", operands);
+  else if (current_function_args_size != 0)
+    output_asm_insn ("mov	0,g14", operands);
+
+  /* The code used to assume that calls to SYMBOL_REFs could not be more
+     than 24 bits away (b vs bx, callj vs callx).  This is not true.  This
+     feature is now implemented by relaxing in the GNU linker.  It can convert
+     bx to b if in range, and callx to calls/call/balx/bal as appropriate.  */
 
   /* Nexti could be zero if the called routine is volatile.  */
   if (optimize && (*epilogue_string == 0) && argsize == 0 && tail_call_ok 
@@ -1205,12 +1216,15 @@ i960_output_call_insn (target, argsize_rtx, insn)
       /* Delete following return insn.  */
       if (nexti && no_labels_between_p (insn, nexti))
 	delete_insn (nexti);
-      output_asm_insn (non_indirect ? "b	 %0" : "bx	 %0",
-		       operands);
+      output_asm_insn ("bx	%0", operands);
       return "# notreached";
     }
 
-  output_asm_insn (non_indirect ? "callj	%0" : "callx	%0", operands);
+  output_asm_insn ("callx	%0", operands);
+
+  if (current_function_args_size != 0)
+    output_asm_insn ("mov	%2,g14", operands);
+
   return "";
 }
 
@@ -1966,30 +1980,6 @@ i960_function_arg (cum, mode, type, named)
 
   return ret;
 }
-
-/* Return the rtx for the register representing the return value, or 0
-   if the return value must be passed through the stack.  */
-
-rtx
-i960_function_value (type)
-     tree type;
-{
-  int mode = TYPE_MODE (type);
-
-  if (mode == BLKmode)
-    {
-      unsigned int size = int_size_in_bytes (type);
-
-      if (size <= 16)
-	mode = mode_for_size (i960_object_bytes_bitalign (size), MODE_INT, 0);
-    }
-
-  if (mode == BLKmode || mode == VOIDmode)
-    /* Tell stmt.c and expr.c to pass in address */
-    return 0;
-  else
-    return gen_rtx (REG, mode, 0);
-}
 
 /* Floating-point support.  */
 
@@ -2039,13 +2029,14 @@ tree
 i960_round_size (tsize)
      tree tsize;
 {
-  int size, align;
+  int size, byte_size, align;
 
   if (TREE_CODE (tsize) != INTEGER_CST)
     return tsize;
 
   size = TREE_INT_CST_LOW (tsize);
-  align = i960_object_bytes_bitalign (size / BITS_PER_UNIT);
+  byte_size = (size + BITS_PER_UNIT - 1) / BITS_PER_UNIT;
+  align = i960_object_bytes_bitalign (byte_size);
 
   /* Handle #pragma align.  */
   if (align > i960_maxbitalignment)
@@ -2064,16 +2055,18 @@ i960_round_align (align, tsize)
      int align;
      tree tsize;
 {
+  int byte_size;
+
   if (TREE_CODE (tsize) != INTEGER_CST)
     return align;
 
-  align = i960_object_bytes_bitalign (TREE_INT_CST_LOW (tsize)
-				      / BITS_PER_UNIT);
+  byte_size = (TREE_INT_CST_LOW (tsize) + BITS_PER_UNIT - 1) / BITS_PER_UNIT;
+  align = i960_object_bytes_bitalign (byte_size);
   return align;
 }
 
 /* Do any needed setup for a varargs function.  For the i960, we must
-   create a register paramter block if one doesn't exist, and then copy
+   create a register parameter block if one doesn't exist, and then copy
    all register parameters to memory.  */
 
 void
@@ -2179,80 +2172,6 @@ secondary_reload_class (class, mode, in)
     return NO_REGS;
 
   return LOCAL_OR_GLOBAL_REGS;
-}
-
-/* Emit the code necessary for a procedure call.  Return value is needed
-   after the call if target is non-zero.  */
-
-void
-i960_expand_call (first_operand, second_operand, target)
-     rtx first_operand, second_operand, target;
-{
-  /* Used to ensure that g14_save_reg is initialized once and only once
-     for each function if it is needed.  */
-  static char *this_function_name = 0;
-  int frob_g14 = 0;
-
-  if (this_function_name != current_function_name)
-    {
-      rtx seq, first;
-      struct sequence_stack *seq_stack;
-
-      this_function_name = current_function_name;
-
-      /* If the current function has an argument block, then save g14 into
-	 a pseudo at the top of the function and restore it after this
-	 function call.  If the current function has no argument block,
-	 then g14 is zero before and after the call.  */
-
-      if (current_function_args_size != 0)
-	{
-	  start_sequence ();
-	  seq_stack = sequence_stack;
-	  while (seq_stack->next)
-	    seq_stack = seq_stack->next;
-	  first = seq_stack->first;
-	  g14_save_reg = copy_to_reg (arg_pointer_rtx);
-	  seq = gen_sequence ();
-	  end_sequence ();
-	  emit_insn_after (seq, first);
-	}
-    }
-
-  if (current_function_args_size != 0)
-    frob_g14 = 1;
-
-  if (GET_CODE (second_operand) != CONST_INT || INTVAL (second_operand) > 48)
-    {
-      /* Calling a function needing an argument block.  */
-      emit_insn (gen_rtx (SET, VOIDmode, arg_pointer_rtx,
-			  virtual_outgoing_args_rtx));
-    }
-  else
-    {
-      /* Calling a normal function -- only set to zero if we know our g14
-	 is nonzero.  */
-      if (frob_g14)
-	emit_insn (gen_rtx (SET, VOIDmode, arg_pointer_rtx, const0_rtx));
-    }
-
-  if (target)
-    emit_call_insn (gen_rtx (SET, VOIDmode, target,
-			     gen_rtx (CALL, VOIDmode, first_operand,
-				      second_operand)));
-  else
-    emit_call_insn (gen_rtx (CALL, VOIDmode, first_operand, second_operand));
-
-  if (frob_g14)
-    emit_insn (gen_rtx (SET, VOIDmode, arg_pointer_rtx, g14_save_reg));
-  else if (GET_CODE (second_operand) != CONST_INT
-	   || INTVAL (second_operand) > 48)
-    {
-      /* Calling a function needing an argument block.  It will have set
-	 reg14 back to zero before returning, so we must emit a clobber here
-	 to tell cse that g14 has changed.  */
-      emit_insn (gen_rtx (CLOBBER, VOIDmode, arg_pointer_rtx));
-    }
 }
 
 /* Look at the opcode P, and set i96_last_insn_type to indicate which

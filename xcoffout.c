@@ -134,7 +134,8 @@ assign_type_number (syms, name, number)
   tree decl;
 
   for (decl = syms; decl; decl = TREE_CHAIN (decl))
-    if (!strcmp (IDENTIFIER_POINTER (DECL_NAME (decl)), name))
+    if (DECL_NAME (decl)
+	&& strcmp (IDENTIFIER_POINTER (DECL_NAME (decl)), name) == 0)
       {
 	TREE_ASM_WRITTEN (decl) = 1;
 	TYPE_SYMTAB_ADDRESS (TREE_TYPE (decl)) = number;
@@ -359,7 +360,7 @@ xcoffout_block (block, depth, args)
 	  next_block_number++;
 
 	  /* Output the subblocks.  */
-	  xcoffout_block (BLOCK_SUBBLOCKS (block), depth + 1, 0);
+	  xcoffout_block (BLOCK_SUBBLOCKS (block), depth + 1, NULL_TREE);
 	}
       block = BLOCK_CHAIN (block);
     }
@@ -415,7 +416,7 @@ xcoffout_declare_function (file, decl, name)
     {
       if (name[i] == '[')
 	{
-	  n = alloca (i + 1);
+	  n = (char *) alloca (i + 1);
 	  strncpy (n, name, i);
 	  n[i] = '\0';
 	  break;

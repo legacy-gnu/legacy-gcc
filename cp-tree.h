@@ -26,9 +26,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #ifndef PARANOID
 #define PARANOID 0
 #endif
-#if PARANOID
-#include <assert.h>
-#endif
 
 /* Language-dependent contents of an identifier.  */
 
@@ -60,7 +57,7 @@ struct lang_id2
   (((struct lang_identifier *)(NODE))->class_template_info)
 #else
 #define IDENTIFIER_LANG_SPECIFIC_PTR(NODE) \
-  (assert (TREE_CODE (NODE) == IDENTIFIER_NODE),	\
+  (my_friendly_assert (TREE_CODE (NODE) == IDENTIFIER_NODE, 325),	\
    (struct lang_identifier *) (NODE))
 #define IDENTIFIER_GLOBAL_VALUE(NODE)	\
   (((struct lang_identifier *)(NODE))->global_value)
@@ -81,7 +78,7 @@ struct lang_id2
 __inline
 #endif
 static tree * IDENTIFIER_TYPE_VALUE_PTR(NODE) tree NODE; { return
-  (assert (TREE_CODE (NODE) == IDENTIFIER_NODE),
+  (my_friendly_assert (TREE_CODE (NODE) == IDENTIFIER_NODE, 326),
    &TREE_TYPE (NODE)) ;}
 #define SET_IDENTIFIER_TYPE_VALUE(NODE,TYPE) (IDENTIFIER_TYPE_VALUE(NODE)=TYPE)
 #endif
@@ -120,6 +117,8 @@ extern tree identifier_typedecl_value ();
   (((struct lang_identifier *)(NODE))->x == 0 ? ((struct lang_identifier *)(NODE))->x = (struct lang_id2 *)perm_calloc (1, sizeof (struct lang_id2)) : 0, \
    ((struct lang_identifier *)(NODE))->x->error_locus = (VALUE))
 
+#define IDENTIFIER_VIRTUAL_P(NODE) TREE_LANG_FLAG_1(NODE)
+
 /* Nonzero if this identifier is the prefix for a mangled C++ operator name.  */
 #define IDENTIFIER_OPNAME_P(NODE) TREE_LANG_FLAG_2(NODE)
 
@@ -139,17 +138,18 @@ extern tree purpose_member (), value_member ();
 extern tree binfo_member ();
 
 /* in cp-typeck.c */
-extern tree build_component_ref(), build_conditional_expr();
-extern tree build_x_compound_expr (), build_compound_expr();
-extern tree build_unary_op(), build_binary_op(), build_function_call();
+extern tree build_component_ref (), build_conditional_expr ();
+extern tree build_x_compound_expr (), build_compound_expr ();
+extern tree build_unary_op (), build_binary_op (), build_function_call ();
 extern tree build_binary_op_nodefault ();
-extern tree build_indirect_ref(), build_array_ref(), build_c_cast();
-extern tree build_modify_expr();
+extern tree build_indirect_ref (), build_array_ref (), build_c_cast ();
+extern tree build_modify_expr ();
 extern tree c_sizeof (), c_alignof ();
 extern tree store_init_value ();
 extern tree digest_init ();
 extern tree c_expand_start_case ();
 extern tree default_conversion ();
+extern int comptypes (), compparms (), compexcepttypes ();
 
 /* Given two integer or real types, return the type for their sum.
    Given two compatible ANSI C types, returns the merged type.  */
@@ -194,6 +194,8 @@ extern tree make_anon_name ();
 extern tree make_type_decl ();
 
 #endif
+extern void cplus_decl_attributes ();
+
 /* Functions in c-common.c: */
 
 /* Concatenate a list of STRING_CST nodes into one STRING_CST.  */
@@ -212,6 +214,10 @@ extern void binary_op_error ();
    and, if so, perhaps change them both back to their original type.  */
 
 extern tree shorten_compare ();
+
+/* Prepare expr to be an argument of a TRUTH_NOT_EXPR,
+   or validate its data type for an `if' or `while' statement or ?..: exp. */
+extern tree truthvalue_conversion ();
 
 extern tree double_type_node, long_double_type_node, float_type_node;
 extern tree char_type_node, unsigned_char_type_node, signed_char_type_node;
@@ -224,6 +230,10 @@ extern tree unsigned_type_node;
 extern tree string_type_node, char_array_type_node, int_array_type_node;
 extern tree wchar_array_type_node;
 extern tree wchar_type_node, signed_wchar_type_node, unsigned_wchar_type_node;
+extern tree intQI_type_node, unsigned_intQI_type_node;
+extern tree intHI_type_node, unsigned_intHI_type_node;
+extern tree intSI_type_node, unsigned_intSI_type_node;
+extern tree intDI_type_node, unsigned_intDI_type_node;
 
 extern int current_function_returns_value;
 extern int current_function_returns_null;
@@ -254,6 +264,10 @@ extern int flag_gnu_xref;
 
 extern int flag_gnu_binutils;
 
+/* Nonzero means ignore `#ident' directives.  */
+
+extern int flag_no_ident;
+
 /* Nonzero means warn about implicit declarations.  */
 
 extern int warn_implicit;
@@ -282,10 +296,23 @@ extern int warn_strict_prototypes;
 
 extern int warn_parentheses;
 
+/* Warn about a subscript that has type char.  */
+
+extern int warn_char_subscripts;
+
 /* Nonzero means warn about pointer casts that can drop a type qualifier
    from the pointer target type.  */
 
 extern int warn_cast_qual;
+
+/* Warn about traditional constructs whose meanings changed in ANSI C.  */
+
+extern int warn_traditional;
+
+/* Nonzero means warn about non virtual destructors in classes that have
+   virtual functions. */
+
+extern int warn_nonvdtor;
 
 /* Nonzero means do some things the same way PCC does.  */
 
@@ -295,12 +322,14 @@ extern int flag_traditional;
 
 extern int flag_signed_bitfields;
 
-/* 2 means write out only specific virtual function tables
+/* 3 means write out only virtuals function tables `defined'
+   in this implementation file.
+   2 means write out only specific virtual function tables
    and give them (C) public visibility.
    1 means write out virtual function tables and give them
    (C) public visibility.
    0 means write out virtual function tables and give them
-   (C) static visibility.
+   (C) static visibility (default).
    -1 means declare virtual function tables extern.  */
 
 extern int write_virtuals;
@@ -354,12 +383,15 @@ __inline
 #endif
 static tree *
 TYPE_IDENTIFIER_PTR(NODE) tree NODE; { return
-  (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'),
+  (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 327),
    &DECL_NAME (TYPE_NAME (NODE))) ;}
 #endif
 
 #define TYPE_NAME_STRING(NODE) (IDENTIFIER_POINTER (TYPE_IDENTIFIER (NODE)))
 #define TYPE_NAME_LENGTH(NODE) (IDENTIFIER_LENGTH (TYPE_IDENTIFIER (NODE)))
+
+#define TYPE_ASSEMBLER_NAME_STRING(NODE) (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (TYPE_NAME  (NODE))))
+#define TYPE_ASSEMBLER_NAME_LENGTH(NODE) (IDENTIFIER_LENGTH (DECL_ASSEMBLER_NAME (TYPE_NAME (NODE))))
 
 #define IS_AGGR_TYPE_2(TYPE1,TYPE2) \
   (TREE_CODE (TYPE1) == TREE_CODE (TYPE2)	\
@@ -395,8 +427,9 @@ extern int is_aggr_type_2 ();
 #define PROMOTES_TO_AGGR_TYPE(NODE,CODE) (promotes_to_aggr_type (NODE, CODE))
 /* #define IS_AGGR_TYPE_2(TYPE1, TYPE2) (is_aggr_type_2 (TYPE1, TYPE2)) */
 #endif
-/* Nonzero iff TYPE is derived from PARENT.  */
-#define DERIVED_FROM_P(PARENT, TYPE) (get_base_distance (PARENT, TYPE, 0, 0) >= 0)
+/* Nonzero iff TYPE is uniquely derived from PARENT.  Under MI, PARENT can be an
+   ambiguous base class of TYPE, and this macro will be false.  */
+#define UNIQUELY_DERIVED_FROM_P(PARENT, TYPE) (get_base_distance (PARENT, TYPE, 0, 0) >= 0)
 
 enum conversion_type { ptr_conv, constptr_conv, int_conv, real_conv, last_conversion_type };
 
@@ -455,7 +488,6 @@ struct lang_type
 
       unsigned debug_requested : 1;
       unsigned dynamic : 1;
-      unsigned has_wrapper_pred : 1;
       unsigned has_method_call_overloaded : 1;
       unsigned private_attr : 1;
       unsigned alters_visibilities : 1;
@@ -507,7 +539,6 @@ struct lang_type
 
   char *mi_matrix;
   union tree_node *conversions[last_conversion_type];
-  union tree_node *wrap_type;
 
   union tree_node *dossier;
 
@@ -542,15 +573,6 @@ struct lang_type
 
 /* Nonzero for TREE_LIST or _TYPE node means that this node is class-local.  */
 #define TREE_NONLOCAL_FLAG(NODE) (TREE_LANG_FLAG_0 (NODE))
-
-/* Ditto, for `private' declarations.  */
-#define TREE_VIA_PRIVATE(NODE) ((NODE)->common.private_flag)
-
-/* Nonzero for TREE_LIST node means that the path to the
-   base class is via a `protected' declaration, which preserves
-   protected fields from the base class as protected.
-   OVERLOADED.  */
-#define TREE_VIA_PROTECTED(NODE) ((NODE)->common.static_flag)
 
 /* Nonzero for a _CLASSTYPE node which we know to be private.  */
 #define TYPE_PRIVATE_P(NODE) (TYPE_LANG_SPECIFIC(NODE)->type_flags.private_attr)
@@ -596,12 +618,6 @@ struct lang_type
 
 /* The is the VAR_DECL that contains NODE's dossier.  */
 #define CLASSTYPE_DOSSIER(NODE) (TYPE_LANG_SPECIFIC(NODE)->dossier)
-
-#define TYPE_WRAP_TYPE(NODE) (TYPE_LANG_SPECIFIC(NODE)->wrap_type)
-
-#define TYPE_HAS_WRAPPER(NODE) (TYPE_LANG_SPECIFIC(NODE)->wrap_type == TYPE_MAIN_VARIANT (NODE))
-#define TYPE_NEEDS_WRAPPER(NODE) (TYPE_LANG_SPECIFIC(NODE)->wrap_type != 0 && TYPE_LANG_SPECIFIC(NODE)->wrap_type != TYPE_MAIN_VARIANT (NODE))
-#define TYPE_HAS_WRAPPER_PRED(NODE) (TYPE_LANG_SPECIFIC(NODE)->type_flags.has_wrapper_pred)
 
 /* Nonzero means that this _CLASSTYPE node overloads operator().  */
 #define TYPE_OVERLOADS_CALL_EXPR(NODE) (TYPE_LANG_SPECIFIC(NODE)->type_flags.has_call_overloaded)
@@ -651,25 +667,25 @@ struct lang_type
 #define SET_CLASSTYPE_MARKED6(NODE) (CLASSTYPE_MARKED6(NODE) = 1)
 #define CLEAR_CLASSTYPE_MARKED6(NODE) (CLASSTYPE_MARKED6(NODE) = 0)
 #else
-#define CLASSTYPE_MARKED(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked)
-#define CLASSTYPE_MARKED2(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2)
-#define CLASSTYPE_MARKED3(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3)
-#define CLASSTYPE_MARKED4(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4)
-#define CLASSTYPE_MARKED5(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5)
-#define CLASSTYPE_MARKED6(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6)
+#define CLASSTYPE_MARKED(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 328), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked)
+#define CLASSTYPE_MARKED2(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 329), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2)
+#define CLASSTYPE_MARKED3(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 330), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3)
+#define CLASSTYPE_MARKED4(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 331), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4)
+#define CLASSTYPE_MARKED5(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 332), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5)
+#define CLASSTYPE_MARKED6(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 333), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6)
 /* Macros to modify the above flags */
-#define SET_CLASSTYPE_MARKED(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked = 1)
-#define CLEAR_CLASSTYPE_MARKED(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked = 0)
-#define SET_CLASSTYPE_MARKED2(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2 = 1)
-#define CLEAR_CLASSTYPE_MARKED2(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2 = 0)
-#define SET_CLASSTYPE_MARKED3(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3 = 1)
-#define CLEAR_CLASSTYPE_MARKED3(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3 = 0)
-#define SET_CLASSTYPE_MARKED4(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4 = 1)
-#define CLEAR_CLASSTYPE_MARKED4(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4 = 0)
-#define SET_CLASSTYPE_MARKED5(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5 = 1)
-#define CLEAR_CLASSTYPE_MARKED5(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5 = 0)
-#define SET_CLASSTYPE_MARKED6(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6 = 1)
-#define CLEAR_CLASSTYPE_MARKED6(NODE) (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't'), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6 = 0)
+#define SET_CLASSTYPE_MARKED(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 334), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked = 1)
+#define CLEAR_CLASSTYPE_MARKED(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 335), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked = 0)
+#define SET_CLASSTYPE_MARKED2(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 336), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2 = 1)
+#define CLEAR_CLASSTYPE_MARKED2(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 337), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked2 = 0)
+#define SET_CLASSTYPE_MARKED3(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 338), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3 = 1)
+#define CLEAR_CLASSTYPE_MARKED3(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 339), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked3 = 0)
+#define SET_CLASSTYPE_MARKED4(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 340), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4 = 1)
+#define CLEAR_CLASSTYPE_MARKED4(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 341), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked4 = 0)
+#define SET_CLASSTYPE_MARKED5(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 342), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5 = 1)
+#define CLEAR_CLASSTYPE_MARKED5(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 343), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked5 = 0)
+#define SET_CLASSTYPE_MARKED6(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 344), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6 = 1)
+#define CLEAR_CLASSTYPE_MARKED6(NODE) (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 't', 345), TYPE_LANG_SPECIFIC(NODE)->type_flags.marked6 = 0)
 #endif
 
 #define CLASSTYPE_TAGS(NODE) (TYPE_LANG_SPECIFIC(NODE)->tags)
@@ -1075,6 +1091,17 @@ struct lang_decl
 /* Record whether a typedef for type `int' was actually `signed int'.  */
 #define C_TYPEDEF_EXPLICITLY_SIGNED(exp) DECL_LANG_FLAG_1 ((exp))
 
+/* Nonzero if the type T promotes to itself.
+   ANSI C states explicitly the list of types that promote;
+   in particular, short promotes to int even if they have the same width.  */
+#define C_PROMOTING_INTEGER_TYPE_P(t)				\
+  (TREE_CODE ((t)) == INTEGER_TYPE				\
+   && (TYPE_MAIN_VARIANT (t) == char_type_node			\
+       || TYPE_MAIN_VARIANT (t) == signed_char_type_node	\
+       || TYPE_MAIN_VARIANT (t) == unsigned_char_type_node	\
+       || TYPE_MAIN_VARIANT (t) == short_integer_type_node	\
+       || TYPE_MAIN_VARIANT (t) == short_unsigned_type_node))
+
 /* Mark which labels are explicitly declared.
    These may be shadowed, and may be referenced from nested functions.  */
 #define C_DECLARED_LABEL_FLAG(label) TREE_LANG_FLAG_1 (label)
@@ -1125,7 +1152,7 @@ struct lang_decl
 
 /* Nonzero for VAR_DECL node means that `external' was specified in
    its declaration.  */
-#define DECL_EXTERNAL(NODE) (DECL_LANG_FLAG_2(NODE))
+#define DECL_THIS_EXTERN(NODE) (DECL_LANG_FLAG_2(NODE))
 
 /* Nonzero for SAVE_EXPR if used to initialize a PARM_DECL.  */
 #define PARM_DECL_EXPR(NODE) (TREE_LANG_FLAG_2(NODE))
@@ -1157,7 +1184,7 @@ struct lang_decl
 __inline
 #endif
 static tree * DECL_NESTED_TYPENAME_PTR(NODE) tree NODE; { return
-  (assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 'd'),
+  (my_friendly_assert (TREE_CODE_CLASS (TREE_CODE (NODE)) == 'd', 346),
    &(NODE)->decl.arguments) ;}
 #endif
 
@@ -1224,7 +1251,7 @@ extern tree default_function_type;
 extern tree define_function ();
 extern tree build_member_type ();
 extern tree build_push_scope ();
-
+extern void finish_builtin_type ();
 extern tree vtable_entry_type;
 extern tree __t_desc_type_node, __i_desc_type_node, __m_desc_type_node;
 extern tree class_star_type_node;
@@ -1299,6 +1326,7 @@ extern tree error_not_base_type ();
 /* in cp-type2.c */
 extern tree binfo_or_else ();
 extern void my_friendly_abort ();
+extern void error_with_aggr_type ();
 
 /* in tree.c */
 extern tree build_let ();
@@ -1310,7 +1338,7 @@ extern tree build_cplus_new ();
 extern tree build_cplus_array_type ();
 extern tree build_cplus_method_type ();
 extern tree build_classtype_variant ();
-extern tree hash_tree_cons (), hash_tree_chain ();
+extern tree hash_tree_cons (), hash_tree_chain (), hash_chainon ();
 extern tree list_hash_lookup_or_cons ();
 extern tree layout_basetypes ();
 extern tree copy_to_permanent ();
@@ -1329,6 +1357,7 @@ extern tree lookup_exception_type (), lookup_exception_cname ();
 extern tree lookup_exception_object ();
 extern tree cplus_expand_start_catch ();
 extern tree cplus_expand_end_try ();
+extern void finish_exception_decl ();
 
 /* in cp-class.c */
 extern tree current_class_name;
@@ -1344,14 +1373,13 @@ extern tree make_destructor_name ();
 extern tree build_scoped_ref (), build_vfield_ref ();
 extern tree build_method_call (), build_overload_call ();
 extern tree build_type_pathname ();
-extern tree start_method (), start_type_method ();
+extern tree start_method ();
 extern tree finish_method ();
 
-extern tree lookup_field (), lookup_fnfields ();
+extern tree lookup_field (), lookup_nested_field (), lookup_fnfields ();
 
 void pushclass (), popclass (), pushclasstype ();
 extern tree build_operator_fnname (), build_opfncall (), build_type_conversion ();
-extern tree build_wrapper ();
 
 /* Points to the name of that function. May not be the DECL_NAME
    of CURRENT_FUNCTION_DECL due to overloading */
@@ -1380,6 +1408,7 @@ extern tree get_linktable_name (), get_dtable_name (), get_sos_dtable ();
 #endif
 extern tree get_member_function ();
 extern tree build_member_call (), build_offset_ref ();
+extern tree build_virtual_init ();
 
 extern int current_function_assigns_this;
 extern int current_function_just_assigned_this;
@@ -1391,13 +1420,13 @@ extern int current_function_parms_stored;
 #define OPERATOR_FORMAT "__%s"
 #define OPERATOR_TYPENAME_FORMAT "__op"
 
-/* Cannot use '$' up front, because this confuses gdb.
-   Note that any format of this kind *must* make the
-   format for `this' lexicographically less than any other
-   parameter name, i.e. "$this" is less than anything else can be.
+/* Cannot use '$' up front, because this confuses gdb
+   (names beginning with '$' are gdb-local identifiers).
 
    Note that all forms in which the '$' is significant are long enough
-   for direct indexing.  */
+   for direct indexing (meaning that if we know there is a '$'
+   at a particular location, we can index into the string at
+   any other location that provides distinguishing characters).  */
 
 /* Define NO_DOLLAR_IN_LABEL in your favorite tm file if your assembler
    doesn't allow '$' in symbol names.  */
@@ -1405,13 +1434,9 @@ extern int current_function_parms_stored;
 
 #define JOINER '$'
 
-#define THIS_NAME "$t"
 #define VPTR_NAME "$v"
 #define THROW_NAME "$eh_throw"
 #define DESTRUCTOR_DECL_PREFIX "_$_"
-#define WRAPPER_DECL_FORMAT "__W$%s"
-#define WRAPPER_PRED_DECL_FORMAT "__P$%s"
-#define ANTI_WRAPPER_DECL_FORMAT "__w$%s"
 #define IN_CHARGE_NAME "__in$chrg"
 #define AUTO_VTABLE_NAME "__vtbl$me__"
 #define AUTO_TEMP_NAME "_$tmp_"
@@ -1432,13 +1457,9 @@ extern int current_function_parms_stored;
 
 #define JOINER '.'
 
-#define THIS_NAME ".t"
 #define VPTR_NAME ".v"
 #define THROW_NAME ".eh_throw"
 #define DESTRUCTOR_DECL_PREFIX "_._"
-#define WRAPPER_DECL_FORMAT "__W.%s"
-#define WRAPPER_PRED_DECL_FORMAT "__P.%s"
-#define ANTI_WRAPPER_DECL_FORMAT "__w.%s"
 #define IN_CHARGE_NAME "__in.chrg"
 #define AUTO_VTABLE_NAME "__vtbl.me__"
 #define AUTO_TEMP_NAME "_.tmp_"
@@ -1458,10 +1479,8 @@ extern int current_function_parms_stored;
 
 #endif	/* NO_DOLLAR_IN_LABEL */
 
+#define THIS_NAME "this"
 #define DESTRUCTOR_NAME_FORMAT "~%s"
-#define WRAPPER_NAME_FORMAT "()%s"
-#define WRAPPER_PRED_NAME_FORMAT "()?%s"
-#define ANTI_WRAPPER_NAME_FORMAT "~()%s"
 #define FILE_FUNCTION_PREFIX_LEN 9
 #define VTABLE_DELTA_NAME "delta"
 #define VTABLE_DELTA2_NAME "delta2"
@@ -1469,25 +1488,10 @@ extern int current_function_parms_stored;
 #define VTABLE_PFN_NAME "pfn"
 #define EXCEPTION_CLEANUP_NAME "exception cleanup"
 
-#define THIS_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[0] == JOINER \
-			      && IDENTIFIER_POINTER (ID_NODE)[1] == 't')
+#define THIS_NAME_P(ID_NODE) (strcmp(IDENTIFIER_POINTER (ID_NODE), "this") == 0)
 #define VPTR_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[0] == JOINER \
 			      && IDENTIFIER_POINTER (ID_NODE)[1] == 'v')
 #define DESTRUCTOR_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[1] == JOINER)
-
-#define WRAPPER_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[1] == '_' \
-				 && IDENTIFIER_POINTER (ID_NODE)[2] == 'W' \
-				 && IDENTIFIER_POINTER (ID_NODE)[3] == JOINER)
-#define WRAPPER_PRED_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[1] == '_' \
-				 && IDENTIFIER_POINTER (ID_NODE)[2] == 'P' \
-				 && IDENTIFIER_POINTER (ID_NODE)[3] == JOINER)
-#define ANTI_WRAPPER_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[1] == '_' \
-				      && IDENTIFIER_POINTER (ID_NODE)[2] == 'w' \
-				      && IDENTIFIER_POINTER (ID_NODE)[3] == JOINER)
-#define WRAPPER_OR_ANTI_WRAPPER_NAME_P(ID_NODE) \
-  (IDENTIFIER_POINTER (ID_NODE)[1] == '_' \
-   && (IDENTIFIER_POINTER (ID_NODE)[2]|('W'^'w')) == 'w' \
-   && IDENTIFIER_POINTER (ID_NODE)[3] == JOINER)
 
 #define VTABLE_NAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[3] == JOINER \
   && IDENTIFIER_POINTER (ID_NODE)[2] == 't'\
@@ -1509,7 +1513,8 @@ extern int current_function_parms_stored;
 /* For anonymous aggregate types, we need some sort of name to
    hold on to.  In practice, this should not appear, but it should
    not be harmful if it does.  */
-#define ANON_AGGRNAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[0] == JOINER)
+#define ANON_AGGRNAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[0] == JOINER \
+				  && IDENTIFIER_POINTER (ID_NODE)[1] == '_')
 #define ANON_PARMNAME_FORMAT "_%d"
 #define ANON_PARMNAME_P(ID_NODE) (IDENTIFIER_POINTER (ID_NODE)[0] == '_' \
 				  && IDENTIFIER_POINTER (ID_NODE)[1] <= '9')
@@ -1550,17 +1555,17 @@ struct pending_inline
   tree parm_vec, bindings;	/* in case this is derived from a template */
   unsigned int can_free : 1;	/* free this after we're done with it? */
   unsigned int deja_vu : 1;	/* set iff we don't want to see it again.  */
+  unsigned int interface : 2;	/* 0=interface 1=unknown 2=implementation */
 };
 
 extern tree combine_strings ();
 extern int yylex ();
 
 /* in cp-method.c */
-extern tree wrapper_name, wrapper_pred_name, anti_wrapper_name;
 extern struct pending_inline *pending_inlines;
 extern char *print_fndecl_with_types ();
 extern tree hack_identifier ();
-extern tree hack_operator (), hack_wrapper ();
+extern tree hack_operator ();
 
 /* 1 for -fall-virtual: make every member function (except
    constructors) lay down in the virtual function table.
@@ -1578,6 +1583,12 @@ extern int flag_all_virtual;
 
 extern int flag_this_is_variable;
 
+/* Controls whether enums and ints freely convert.
+   1 means with complete freedom.
+   0 means enums can convert to ints, but not vice-versa.  */
+
+extern int flag_int_enum_equivalence;
+
 /* Nonzero means layout structures so that we can do garbage collection.  */
 
 extern int flag_gc;
@@ -1594,7 +1605,7 @@ extern int current_function_obstack_index;
 
 extern int current_function_obstack_usage;
 
-enum overload_flags { NO_SPECIAL = 0, DTOR_FLAG, OP_FLAG, TYPENAME_FLAG, WRAPPER_FLAG, WRAPPER_PRED_FLAG, ANTI_WRAPPER_FLAG };
+enum overload_flags { NO_SPECIAL = 0, DTOR_FLAG, OP_FLAG, TYPENAME_FLAG };
 
 extern tree default_conversion (), pushdecl (), pushdecl_top_level ();
 extern tree push_overloaded_decl ();
@@ -1681,10 +1692,11 @@ extern tree decl_constant_value ();
 
 /* in cp-init.c */
 extern tree resolve_offset_ref ();
+extern tree build_vbase_delete ();
 
 /* in cp-lex.c  */
 extern char *operator_name_string ();
-
+extern void compiler_error_with_decl ();
 extern tree build_opid ();
 extern tree do_identifier ();
 extern tree arbitrate_lookup ();
@@ -1705,11 +1717,11 @@ extern tree convert_from_reference ();
 extern tree init_vbase_pointers ();
 extern tree build_vbase_pointer (), build_vbase_path ();
 extern tree lookup_fnfield (), next_baselink ();
+extern tree build_vbase_vtables_init ();
 
 extern tree get_binfo ();
 extern tree get_vbase_types ();
 extern tree get_baselinks ();
-extern tree get_wrapper ();
 extern tree make_binfo (), copy_binfo ();
 extern tree binfo_value (), virtual_member ();
 extern tree virtual_offset ();
@@ -1755,5 +1767,9 @@ extern int processing_template_decl, processing_template_defn;
 #define PRINT_LANG_TYPE
 
 #define UNKNOWN_TYPE LANG_TYPE
+
+/* in cp-xref.c */
+extern void GNU_xref_start_scope ();
+extern void GNU_xref_end_scope ();
 
 /* -- end of C++ */

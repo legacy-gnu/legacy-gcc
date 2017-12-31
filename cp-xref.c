@@ -26,15 +26,11 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "input.h"
 
 #include <ctype.h>
-#ifdef USG
-#include <memory.h>
-#include <string.h>
-#define rindex strrchr
-#else
-#include <strings.h>
-#endif
 
 char *getpwd ();
+
+extern char *index ();
+extern char *rindex ();
 
 /* The character(s) used to join a directory specification (obtained with
    getwd or equivalent) with a non-absolute file name.  */
@@ -367,12 +363,12 @@ GNU_xref_decl (fndecl,decl)
     {
       if (fndecl == NULL && TREE_STATIC(decl)
 	  && TREE_READONLY(decl) && DECL_INITIAL(decl) != 0
-	  && !TREE_PUBLIC(decl) && !TREE_EXTERNAL(decl)
+	  && !TREE_PUBLIC(decl) && !DECL_EXTERNAL(decl)
 	  && DECL_MODE(decl) != BLKmode) cls = "CONST";
-      else if (TREE_EXTERNAL(decl)) cls = "EXTERN";
+      else if (DECL_EXTERNAL(decl)) cls = "EXTERN";
       else if (TREE_PUBLIC(decl)) cls = "EXTDEF";
       else if (TREE_STATIC(decl)) cls = "STATIC";
-      else if (TREE_REGDECL(decl)) cls = "REGISTER";
+      else if (DECL_REGISTER(decl)) cls = "REGISTER";
       else cls = "AUTO";
     }
   else if (TREE_CODE (decl) == PARM_DECL) cls = "PARAM";
@@ -380,7 +376,7 @@ GNU_xref_decl (fndecl,decl)
   else if (TREE_CODE (decl) == CONST_DECL) cls = "CONST";
   else if (TREE_CODE (decl) == FUNCTION_DECL)
     {
-      if (TREE_EXTERNAL (decl)) cls = "EXTERN";
+      if (DECL_EXTERNAL (decl)) cls = "EXTERN";
       else if (TREE_PUBLIC (decl)) cls = "EFUNCTION";
       else cls = "SFUNCTION";
     }
@@ -423,7 +419,7 @@ GNU_xref_decl (fndecl,decl)
   else
     name = IDENTIFIER_POINTER (DECL_NAME (decl));
 
-  type_as_string (buf, TREE_TYPE (decl));
+  strcpy (buf, type_as_string (TREE_TYPE (decl)));
   simplify_type (buf);
 
   fprintf (xref_file, "DCL %s %d %s %d %s %s %s\n",
@@ -635,7 +631,7 @@ GNU_xref_member(cls, fld)
   fprintf(xref_file, "MEM %s %d %s %s %s %d %d %d %d %d %d %d\n",
 	  filename(xf), fld->decl.linenum, d,  bufa,  prot,
 	  (TREE_CODE (fld) == FUNCTION_DECL ? 0 : 1),
-	  (TREE_INLINE (fld) ? 1 : 0),
+	  (DECL_INLINE (fld) ? 1 : 0),
 	  (DECL_FRIEND_P(fld) ? 1 : 0),
 	  (DECL_VINDEX(fld) ? 1 : 0),
 	  (TREE_STATIC(fld) ? 1 : 0),

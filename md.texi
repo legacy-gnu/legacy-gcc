@@ -329,6 +329,16 @@ However, if parts of its @var{operands} are matched by
 @code{match_operand} patterns, those parts may have constraints of
 their own.
 
+@findex match_op_dup
+@item (match_op_dup:@var{m} @var{n}[@var{operands}@dots{}])
+Like @code{match_dup}, except that it applies to operators instead of
+operands.  When constructing an insn, operand number @var{n} will be
+substituted at this point.  But in matching, @code{match_op_dup} behaves
+differently.  It assumes that operand number @var{n} has already been
+determined by a @code{match_operator} appearing earlier in the
+recognition template, and it matches only an identical-looking
+expression.
+
 @findex match_parallel
 @item (match_parallel @var{n} @var{predicate} [@var{subpat}@dots{}])
 This pattern is a placeholder for an insn that consists of a
@@ -352,10 +362,10 @@ in a @code{parallel}.  For example,
 @example
 (define_insn ""
   [(match_parallel 0 "load_multiple_operation"
-		   [(set (match_operand:SI 1 "gen_reg_operand" "=r")
-			 (match_operand:SI 2 "memory_operand" "m"))
-		    (use (reg:SI 179))
-		    (clobber (reg:SI 179))])]
+                   [(set (match_operand:SI 1 "gpc_reg_operand" "=r")
+                         (match_operand:SI 2 "memory_operand" "m"))
+                    (use (reg:SI 179))
+                    (clobber (reg:SI 179))])]
   ""
   "loadm 0,0,%1,%2")
 @end example
@@ -370,11 +380,16 @@ An insn that matches this pattern might look like:
 
 @example
 (parallel [(set (reg:SI 20) (mem:SI (reg:SI 100)))
-	   (use (reg:SI 179))
-	   (clobber (reg:SI 179))
-	   (set (reg:SI 21) (mem:SI (plus:SI (reg:SI 100) (const_int 4))))
-	   (set (reg:SI 22) (mem:SI (plus:SI (reg:SI 100) (const_int 8))))])
+           (use (reg:SI 179))
+           (clobber (reg:SI 179))
+           (set (reg:SI 21) (mem:SI (plus:SI (reg:SI 100) (const_int 4))))
+           (set (reg:SI 22) (mem:SI (plus:SI (reg:SI 100) (const_int 8))))])
 @end example
+
+@findex match_par_dup
+@item (match_par_dup @var{n} [@var{subpat}@dots{}])
+Like @code{match_op_dup}, but for @code{match_parallel} instead of
+@code{match_operator}.
 
 @findex address
 @item (address (match_operand:@var{m} @var{n} "address_operand" ""))
@@ -439,6 +454,11 @@ as if it were a memory reference.
 @samp{%l@var{digit}} is used to substitute a @code{label_ref} into a jump
 instruction.
 
+@samp{%=} outputs a number which is unique to each instruction in the
+entire compilation.  This is useful for making local labels to be
+referred to more than once in a single template that generates multiple
+assembler instructions.
+
 @samp{%} followed by a punctuation character specifies a substitution that
 does not use an operand.  Only one case is standard: @samp{%%} outputs a
 @samp{%} into the assembler code.  Other nonstandard cases can be
@@ -496,8 +516,8 @@ might write this pattern:
                  (match_operand:SI 2 "general_operand" "g,r")))]
   ""
   "@@
-   addr %1,%0
-   addm %1,%0")
+   addr %2,%0
+   addm %2,%0")
 @end example
 
 @cindex @code{*} in template
@@ -1528,7 +1548,7 @@ instruction is followed by a conditional branch instruction.  In that
 case, the @samp{cmp@var{m}} (and @samp{tst@var{m}}) patterns should
 simply store the operands away and generate all the required insns in a
 @code{define_expand} (@pxref{Expander Definitions}) for the conditional
-branch operations.  All calls to expand @samp{v@var{cond}} patterns are
+branch operations.  All calls to expand @samp{b@var{cond}} patterns are
 immediately preceded by calls to expand either a @samp{cmp@var{m}}
 pattern or a @samp{tst@var{m}} pattern.
 
@@ -1607,10 +1627,10 @@ such as
 @example
 (define_insn ""
   [(set (pc)
-	(if_then_else (match_operator 0 "comparison_operator"
-				      [(cc0) (const_int 0)])
-		      (return)
-		      (pc)))]
+        (if_then_else (match_operator 0 "comparison_operator"
+                                      [(cc0) (const_int 0)])
+                      (return)
+                      (pc)))]
   "@var{condition}"
   "@dots{}")
 @end example
@@ -1813,9 +1833,9 @@ example,
 (define_insn ""
   [(set (pc)
         (if_then_else (match_operator 0 "comparison_operator"
-				      [(cc0) (const_int 0)])
-		      (pc)
-		      (label_ref (match_operand 1 "" ""))))]
+                                      [(cc0) (const_int 0)])
+                      (pc)
+                      (label_ref (match_operand 1 "" ""))))]
   "@var{condition}"
   "@dots{}")
 @end example
@@ -1960,9 +1980,9 @@ discussed above, we have the pattern
 @example
 (define_insn ""
   [(set (reg:CC_NOOV 0)
-	(compare:CC_NOOV (plus:SI (match_operand:SI 0 "register_operand" "%r")
-				  (match_operand:SI 1 "arith_operand" "rI"))
-			 (const_int 0)))]
+        (compare:CC_NOOV (plus:SI (match_operand:SI 0 "register_operand" "%r")
+                                  (match_operand:SI 1 "arith_operand" "rI"))
+                         (const_int 0)))]
   ""
   "@dots{}")
 @end example
@@ -2037,8 +2057,8 @@ for that instruction as
 @example
 (define_insn ""
   [(set (match_operand:@var{m} 0 @dots{})
-	(and:@var{m} (not:@var{m} (match_operand:@var{m} 1 @dots{}))
-		     (match_operand:@var{m} 2 @dots{})))]
+        (and:@var{m} (not:@var{m} (match_operand:@var{m} 1 @dots{}))
+                     (match_operand:@var{m} 2 @dots{})))]
   "@dots{}"
   "@dots{}")
 @end example
@@ -2049,8 +2069,8 @@ Similarly, a pattern for a ``NAND'' instruction should be written
 @example
 (define_insn ""
   [(set (match_operand:@var{m} 0 @dots{})
-	(ior:@var{m} (not:@var{m} (match_operand:@var{m} 1 @dots{}))
-		     (not:@var{m} (match_operand:@var{m} 2 @dots{}))))]
+        (ior:@var{m} (not:@var{m} (match_operand:@var{m} 1 @dots{}))
+                     (not:@var{m} (match_operand:@var{m} 2 @dots{}))))]
   "@dots{}"
   "@dots{}")
 @end example
@@ -2518,7 +2538,10 @@ with the insns given by @var{new-insn-pattern-1},
 The @var{preparation statements} are similar to those specified for
 @code{define_expand} (@pxref{Expander Definitions}) and are executed
 before the new RTL is generated to prepare for the generated code
-or emit some insns whose pattern is not fixed.
+or emit some insns whose pattern is not fixed.  Unlike those in
+@code{define_expand}, however, these statements must not generate
+any new pseudo-registers.  Once reload has completed, they also
+must not allocate any space in the stack frame.
 
 Patterns are matched against @var{insn-pattern} in two different
 circumstances.  If an insn needs to be split for delay slot scheduling
@@ -2537,14 +2560,14 @@ example from @file{a29k.md}, which splits a @code{sign_extend} from
 @example
 (define_split
   [(set (match_operand:SI 0 "gen_reg_operand" "")
-	(sign_extend:SI (match_operand:HI 1 "gen_reg_operand" "")))]
+        (sign_extend:SI (match_operand:HI 1 "gen_reg_operand" "")))]
   ""
   [(set (match_dup 0)
-	(ashift:SI (match_dup 1)
-		   (const_int 16)))
+        (ashift:SI (match_dup 1)
+                   (const_int 16)))
    (set (match_dup 0)
-	(ashiftrt:SI (match_dup 0)
-		     (const_int 16)))]
+        (ashiftrt:SI (match_dup 0)
+                     (const_int 16)))]
   "
 @{ operands[1] = gen_lowpart (SImode, operands[1]); @}")
 @end example
@@ -2566,8 +2589,8 @@ Here is an example of this use of @code{define_split}, taken from
 @example
 (define_split
   [(set (match_operand:SI 0 "gen_reg_operand" "")
-	(plus:SI (match_operand:SI 1 "gen_reg_operand" "")
-		 (match_operand:SI 2 "non_add_cint_operand" "")))]
+        (plus:SI (match_operand:SI 1 "gen_reg_operand" "")
+                 (match_operand:SI 2 "non_add_cint_operand" "")))]
   ""
   [(set (match_dup 0) (plus:SI (match_dup 1) (match_dup 3)))
    (set (match_dup 0) (plus:SI (match_dup 0) (match_dup 4)))]
@@ -2595,8 +2618,8 @@ an equality comparison of a register and a large constant:
 @example
 (define_split
   [(set (match_operand:CC 0 "cc_reg_operand" "")
-	(compare:CC (match_operand:SI 1 "gen_reg_operand" "")
-		    (match_operand:SI 2 "non_short_cint_operand" "")))
+        (compare:CC (match_operand:SI 1 "gen_reg_operand" "")
+                    (match_operand:SI 2 "non_short_cint_operand" "")))
    (clobber (match_operand:SI 3 "gen_reg_operand" ""))]
   "find_single_use (operands[0], insn, 0)
    && (GET_CODE (*find_single_use (operands[0], insn, 0)) == EQ
@@ -2703,7 +2726,7 @@ the following lines will be written to the file @file{insn-attr.h}.
 @example
 #define HAVE_ATTR_type
 enum attr_type @{TYPE_BRANCH, TYPE_FP, TYPE_LOAD,
-		 TYPE_STORE, TYPE_ARITH@};
+                 TYPE_STORE, TYPE_ARITH@};
 extern enum attr_type get_attr_type ();
 @end example
 
@@ -2902,7 +2925,7 @@ second operand of the @code{set} is an attribute expression
 
 When the attribute value depends on the @samp{alternative} attribute
 (i.e., which is the applicable alternative in the constraint of the
-insn), the @code{set_attr_alternative} expression can can be used.  It
+insn), the @code{set_attr_alternative} expression can be used.  It
 allows the specification of a vector of attribute expressions, one for
 each alternative.
 
@@ -3137,14 +3160,14 @@ used to specify which variety of processor is used.  For example,
 (define_attr "cpu" "m88100,m88110,m88000"
  (const
   (cond [(symbol_ref "TARGET_88100") (const_string "m88100")
-	 (symbol_ref "TARGET_88110") (const_string "m88110")]
-	(const_string "m88000"))))
+         (symbol_ref "TARGET_88110") (const_string "m88110")]
+        (const_string "m88000"))))
 
 (define_attr "memory" "fast,slow"
  (const
   (if_then_else (symbol_ref "TARGET_FAST_MEM")
-		(const_string "fast")
-		(const_string "slow"))))
+                (const_string "fast")
+                (const_string "slow"))))
 @end example
 
 The routine generated for constant attributes has no parameters as it
@@ -3246,13 +3269,13 @@ due to function unit conflicts.
 
 For the purposes of the specifications in this section, a machine is
 divided into @dfn{function units}, each of which execute a specific
-class of instructions.  Function units that accept one instruction each
-cycle and allow a result to be used in the succeeding instruction
-(usually via forwarding) need not be specified.  Classic RISC
-microprocessors will normally have a single function unit, which we can
-call @samp{memory}.  The newer ``superscalar'' processors will often
-have function units for floating point operations, usually at least
-a floating point adder and multiplier.
+class of instructions in first-in-first-out order.  Function units that
+accept one instruction each cycle and allow a result to be used in the
+succeeding instruction (usually via forwarding) need not be specified.
+Classic RISC microprocessors will normally have a single function unit,
+which we can call @samp{memory}.  The newer ``superscalar'' processors
+will often have function units for floating point operations, usually at
+least a floating point adder and multiplier.
 
 @findex define_function_unit
 Each usage of a function units by a class of insns is specified with a
@@ -3260,8 +3283,8 @@ Each usage of a function units by a class of insns is specified with a
 
 @example
 (define_function_unit @var{name} @var{multiplicity} @var{simultaneity}
-		      @var{test} @var{ready-delay} @var{busy-delay}
-		     [@var{conflict-list}])
+                      @var{test} @var{ready-delay} @var{issue-delay}
+                     [@var{conflict-list}])
 @end example
 
 @var{name} is a string giving the name of the function unit.
@@ -3291,21 +3314,25 @@ unit and a function unit may be specified in more than one
 after which the result of the instruction can be used without
 introducing any stalls.
 
-@var{busy-delay} is an integer that represents the default cost if an
-insn is scheduled for this unit while the unit is active with another
-insn.  If @var{simultaneity} is zero, this specification is ignored.
-Otherwise, a zero value indicates that these insns execute on @var{name}
-in a fully pipelined fashion, even if @var{simultaneity} is non-zero.  A
-non-zero value indicates that scheduling a new insn on this unit while
-another is active will incur a cost.  A cost of two indicates a single
-cycle delay.  For a normal non-pipelined function unit, @var{busy-delay}
-will be twice @var{ready-delay}.
+@var{issue-delay} is an integer that specifies the number of cycles
+after the instruction matching the @var{test} expression begins using
+this unit until a subsequent instruction can begin.  A cost of @var{N}
+indicates an @var{N-1} cycle delay.  A subsequent instruction may also
+be delayed if an earlier instruction has a longer @var{ready-delay}
+value.  This blocking effect is computed using the @var{simultaneity},
+@var{ready-delay}, @var{issue-delay}, and @var{conflict-list} terms.
+For a normal non-pipelined function unit, @var{simultaneity} is one, the
+unit is taken to block for the @var{ready-delay} cycles of the executing
+insn, and smaller values of @var{issue-delay} are ignored.
 
 @var{conflict-list} is an optional list giving detailed conflict costs
 for this unit.  If specified, it is a list of condition test expressions
-which are applied to insns already executing in @var{name}.  For each
-insn that is in the list, @var{busy-delay} will be used for the conflict
-cost, while a value of zero will be used for insns not in the list.
+to be applied to insns chosen to execute in @var{name} following the
+particular insn matching @var{test} that is already executing in
+@var{name}.  For each insn in the list, @var{issue-delay} specifies the
+conflict cost; for insns not in the list, the cost is zero.  If not
+specified, @var{conflict-list} defaults to all instructions that use the
+function unit.
 
 Typical uses of this vector are where a floating point function unit can
 pipeline either single- or double-precision operations, but not both, or
@@ -3317,7 +3344,7 @@ instruction is required) and where only one load instruction can be executed
 simultaneously.  This would be specified as:
 
 @example
-(define_function_unit "memory" 1 1 (eq_attr "type" "load") 2 4)
+(define_function_unit "memory" 1 1 (eq_attr "type" "load") 2 0)
 @end example
 
 For the case of a floating point function unit that can pipeline either
@@ -3325,21 +3352,18 @@ single or double precision, but not both, the following could be specified:
 
 @example
 (define_function_unit
-   "fp" 1 1 (eq_attr "type" "sp_fp") 4 8 (eq_attr "type" "dp_fp")]
+   "fp" 1 0 (eq_attr "type" "sp_fp") 4 4 [(eq_attr "type" "dp_fp")])
 (define_function_unit
-   "fp" 1 1 (eq_attr "type" "dp_fp") 4 8 (eq_attr "type" "sp_fp")]
+   "fp" 1 0 (eq_attr "type" "dp_fp") 4 4 [(eq_attr "type" "sp_fp")])
 @end example
 
-@strong{Note:} No code currently exists to avoid function unit
-conflicts, only data conflicts.  Hence @var{multiplicity},
-@var{simultaneity}, @var{busy-cost}, and @var{conflict-list} are
-currently ignored.  When such code is written, it is possible that the
-specifications for these values may be changed.  It has recently come to
-our attention that these specifications may not allow modeling of some
-of the newer ``superscalar'' processors that have insns using multiple
-pipelined units.  These insns will cause a potential conflict for the
-second unit used during their execution and there is no way of
-representing that conflict.  We welcome any examples of how function
-unit conflicts work in such processors and suggestions for their
-representation.
+@strong{Note:} The scheduler attempts to avoid function unit conflicts
+and uses all the specifications in the @code{define_function_unit}
+expression.  It has recently come to our attention that these
+specifications may not allow modeling of some of the newer
+``superscalar'' processors that have insns using multiple pipelined
+units.  These insns will cause a potential conflict for the second unit
+used during their execution and there is no way of representing that
+conflict.  We welcome any examples of how function unit conflicts work
+in such processors and suggestions for their representation.
 @end ifset

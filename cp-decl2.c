@@ -27,14 +27,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    line numbers.  For example, the CONST_DECLs for enum values.  */
 
 #include "config.h"
+#include <stdio.h>
 #include "tree.h"
+#include "rtl.h"
 #include "flags.h"
 #include "cp-tree.h"
 #include "cp-lex.h"
 #include "cp-decl.h"
-#include "assert.h"
-
-#define NULL 0
 
 extern tree grokdeclarator ();
 static void grok_function_init ();
@@ -60,6 +59,10 @@ static int global_temp_name_counter;
 
 /* The (assembler) name of the first globally-visible object output.  */
 extern char * first_global_object_name;
+
+/* Flag used when debugging cp-spew.c */
+
+extern int spew_debug;
 
 /* C (and C++) language-specific option variables.  */
 
@@ -118,6 +121,10 @@ int warn_write_strings;
 
 int warn_cast_qual;
 
+/* Warn about traditional constructs whose meanings changed in ANSI C.  */
+
+int warn_traditional;
+
 /* Nonzero means warn about sizeof(function) or addition/subtraction
    of function pointers.  */
 
@@ -132,9 +139,18 @@ int warn_strict_prototypes;
 
 int warn_missing_prototypes;
 
+/* Nonzero means warn about multiple (redundant) decls for the same single
+   variable or function.  */
+
+int warn_redundant_decls;
+
 /* Warn about *printf or *scanf format/argument anomalies. */
 
 int warn_format;
+
+/* Warn about a subscript that has type char.  */
+
+int warn_char_subscripts = 0;
 
 /* Warn if a type conversion is done that might have confusing results.  */
 
@@ -151,6 +167,10 @@ int warn_overloaded_virtual;
 
 /* Non-zero means warn when converting between different enumeral types.  */
 int warn_enum_clash;
+
+/* Non-zero means warn when declaring a class that has a non virtual
+   destructor, when it really ought to have a virtual one. */
+int warn_nonvdtor = 1;
 
 /* Nonzero means `$' can be in an identifier.
    See cccp.c for reasons why this breaks some obscure ANSI C programs.  */
@@ -311,15 +331,16 @@ lang_decode_option (p)
   if (!strcmp (p, "-ftraditional") || !strcmp (p, "-traditional"))
     flag_traditional = 1, dollars_in_ident = 1, flag_writable_strings = 1,
     flag_this_is_variable = 1;
-  /* The +e options are for cfront compatibility.  */
-  else if (p[0] == '+' && p[1] == 'e')
+  /* The +e options are for cfront compatibility.  They come in as
+     `-+eN', to kludge around gcc.c's argument handling.  */
+  else if (p[0] == '-' && p[1] == '+' && p[2] == 'e')
     {
       int old_write_virtuals = write_virtuals;
-      if (p[2] == '1')
+      if (p[3] == '1')
 	write_virtuals = 1;
-      else if (p[2] == '0')
+      else if (p[3] == '0')
 	write_virtuals = -1;
-      else if (p[2] == '2')
+      else if (p[3] == '2')
 	write_virtuals = 2;
       else error ("invalid +e option");
       if (old_write_virtuals != 0
@@ -420,12 +441,18 @@ lang_decode_option (p)
 	warn_write_strings = setting;
       else if (!strcmp (p, "cast-qual"))
 	warn_cast_qual = setting;
+      else if (!strcmp (p, "traditional"))
+	warn_traditional = setting;
+      else if (!strcmp (p, "char-subscripts"))
+	warn_char_subscripts = setting;
       else if (!strcmp (p, "pointer-arith"))
 	warn_pointer_arith = setting;
       else if (!strcmp (p, "strict-prototypes"))
 	warn_strict_prototypes = setting;
       else if (!strcmp (p, "missing-prototypes"))
 	warn_missing_prototypes = setting;
+      else if (!strcmp (p, "redundant-decls"))
+	warn_redundant_decls = setting;
       else if (!strcmp (p, "format"))
 	warn_format = setting;
       else if (!strcmp (p, "conversion"))
@@ -443,9 +470,9 @@ lang_decode_option (p)
       else if (!strcmp (p, "all"))
 	{
 	  extra_warnings = setting;
-	  warn_implicit = setting;
 	  explicit_warn_return_type = setting;
 	  warn_unused = setting;
+	  warn_implicit = setting;
 	  warn_switch = setting;
 	  warn_uninitialized = setting;
 #if 0
@@ -461,6 +488,13 @@ lang_decode_option (p)
     }
   else if (!strcmp (p, "-ansi"))
     flag_no_asm = 1, dollars_in_ident = 0, flag_ansi = 1;
+#ifdef SPEW_DEBUG
+  /* Undocumented, only ever used when you're invoking cc1plus by hand, since
+     it's probably safe to assume no sane person would ever want to use this
+     under normal circumstances.  */
+  else if (!strcmp (p, "-spew-debug"))
+    spew_debug = 1;
+#endif
   else
     return 0;
 
@@ -515,6 +549,24 @@ grok_method_quals (ctype, function, quals)
 
   TREE_TYPE (function) = fntype;
   return ctype;
+}
+
+/* This routine replaces cryptic DECL_NAMEs with readable DECL_NAMEs.
+   It leaves DECL_ASSEMBLER_NAMEs with the correct value.  */
+/* This does not yet work with user defined conversion operators
+   It should.  */
+static void
+substitute_nice_name (decl)
+     tree decl;
+{
+  if (DECL_NAME (decl) && TREE_CODE (DECL_NAME (decl)) == IDENTIFIER_NODE)
+    {
+      extern char *decl_as_string ();
+      char *n = decl_as_string (DECL_NAME (decl));
+      if (n[strlen (n) - 1] == ' ')
+	n[strlen (n) - 1] = 0;
+      DECL_NAME (decl) = get_identifier (n);
+    }
 }
 
 /* Classes overload their constituent function names automatically.
@@ -592,17 +644,19 @@ grokclassfn (ctype, cname, function, flags, quals)
 		 of virtual baseclasses or not.  */
 	      parm = build_decl (PARM_DECL, in_charge_identifier, integer_type_node);
 	      DECL_ARG_TYPE (parm) = integer_type_node;
-	      TREE_REGDECL (parm) = 1;
+	      DECL_REGISTER (parm) = 1;
 	      TREE_CHAIN (parm) = last_function_parms;
 	      last_function_parms = parm;
 	    }
 	}
 
       parm = build_decl (PARM_DECL, this_identifier, type);
+      /* Mark the artificial `this' parameter as "artificial".  */
+      DECL_SOURCE_LINE (parm) = 0;
       DECL_ARG_TYPE (parm) = type;
       /* We can make this a register, so long as we don't
 	 accidentally complain if someone tries to take its address.  */
-      TREE_REGDECL (parm) = 1;
+      DECL_REGISTER (parm) = 1;
 #if 0
       /* it is wrong to flag the object as readonly, when
 	 flag_this_is_variable is 0. */
@@ -624,7 +678,12 @@ grokclassfn (ctype, cname, function, flags, quals)
 
       arg_types = hash_tree_chain (const_integer_type, void_list_node);
       /* Build the overload name.  It will look like e.g. 7Example.  */
-      dbuf = build_overload_name (IDENTIFIER_TYPE_VALUE (cname), 1, 1);
+      if (IDENTIFIER_TYPE_VALUE (cname))
+	dbuf = build_overload_name (IDENTIFIER_TYPE_VALUE (cname), 1, 1);
+      else if (IDENTIFIER_LOCAL_VALUE (cname))
+	dbuf = build_overload_name (TREE_TYPE (IDENTIFIER_LOCAL_VALUE (cname)), 1, 1);
+      else
+	my_friendly_abort (346);
       buf = (char *)alloca (strlen (dbuf) + sizeof (DESTRUCTOR_DECL_PREFIX));
       bcopy (DESTRUCTOR_DECL_PREFIX, buf, len);
       buf[len] = '\0';
@@ -639,29 +698,6 @@ grokclassfn (ctype, cname, function, flags, quals)
 
       TREE_TYPE (function) = build_cplus_method_type (ctype, void_type_node, arg_types);
       TYPE_HAS_DESTRUCTOR (ctype) = 1;
-    }
-  else if (flags == WRAPPER_FLAG || flags == ANTI_WRAPPER_FLAG)
-    {
-      name = (char *)alloca (sizeof (WRAPPER_DECL_FORMAT)
-			     + sizeof (ANTI_WRAPPER_DECL_FORMAT)
-			     + IDENTIFIER_LENGTH (cname) + 2);
-      sprintf (name,
-	       flags == WRAPPER_FLAG ? WRAPPER_DECL_FORMAT : ANTI_WRAPPER_DECL_FORMAT,
-	       IDENTIFIER_POINTER (cname));
-      DECL_ASSEMBLER_NAME (function) = build_decl_overload (get_identifier (name), arg_types, 1);
-      sprintf (name, flags == WRAPPER_FLAG ? WRAPPER_NAME_FORMAT : ANTI_WRAPPER_NAME_FORMAT,
-	       IDENTIFIER_POINTER (cname));
-      DECL_NAME (function) = fn_name = get_identifier (name);
-    }
-  else if (flags == WRAPPER_PRED_FLAG)
-    {
-      name = (char *)alloca (sizeof (WRAPPER_PRED_DECL_FORMAT)
-			     + sizeof (WRAPPER_PRED_NAME_FORMAT)
-			     + IDENTIFIER_LENGTH (cname) + 2);
-      sprintf (name, WRAPPER_PRED_DECL_FORMAT, IDENTIFIER_POINTER (cname));
-      DECL_ASSEMBLER_NAME (function) = build_decl_overload (get_identifier (name), arg_types, 1);
-      sprintf (name, WRAPPER_PRED_NAME_FORMAT, IDENTIFIER_POINTER (cname));
-      DECL_NAME (function) = fn_name = get_identifier (name);
     }
   else
     {
@@ -693,6 +729,15 @@ grokclassfn (ctype, cname, function, flags, quals)
       DECL_ASSEMBLER_NAME (function)
 	= build_decl_overload (fn_name, these_arg_types,
 			       1 + DECL_CONSTRUCTOR_P (function));
+
+#if 0
+      /* This code is going into the compiler, but currently, it makes
+	 libg++/src/Interger.cc not compile.  The problem is that the nice name
+	 winds up going into the symbol table, and conversion operations look
+	 for the manged name.  */
+      substitute_nice_name (function);
+#endif
+
 #if 0
       if (flags == TYPENAME_FLAG)
 	/* Not exactly an IDENTIFIER_TYPE_VALUE.  */
@@ -759,10 +804,6 @@ check_classfn (ctype, cname, function, flags)
       err_name = (char *)alloca (1024);
       sprintf (err_name, "`operator %s'", operator_name_string (fn_name));
     }
-  else if (flags == WRAPPER_FLAG)
-    err_name = "wrapper";
-  else if (flags == WRAPPER_PRED_FLAG)
-    err_name = "wrapper predicate";
   else
     {
       err_name = IDENTIFIER_POINTER (fn_name);
@@ -828,6 +869,12 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
       declarator = TREE_OPERAND (declarator, 0);
     }
 
+  if (init
+      && TREE_CODE (init) == TREE_LIST
+      && TREE_VALUE (init) == error_mark_node
+      && TREE_CHAIN (init) == NULL_TREE)
+	init = NULL_TREE;
+
   value = grokdeclarator (declarator, declspecs, FIELD, init != 0, raises);
   if (! value)
     return NULL_TREE; /* friends went bad.  */
@@ -844,7 +891,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
   /* Stash away type declarations.  */
   if (TREE_CODE (value) == TYPE_DECL)
     {
-      TREE_NONLOCAL (value) = 1;
+      DECL_NONLOCAL (value) = 1;
       CLASSTYPE_LOCAL_TYPEDECLS (current_class_type) = 1;
       pushdecl_class_level (value);
       return value;
@@ -852,7 +899,8 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 
   if (DECL_IN_AGGR_P (value))
     {
-      error_with_decl (value, "`%s' is already defined in aggregate scope");
+      error_with_decl (value, "`%s' is already defined in the class %s",
+		       TYPE_NAME_STRING (DECL_CONTEXT (value)));
       return void_type_node;
     }
 
@@ -892,7 +940,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 	    init = decl_constant_value (init);
 	  else if (TREE_CODE (init) == CONSTRUCTOR)
 	    init = digest_init (TREE_TYPE (value), init, 0);
-	  assert (TREE_PERMANENT (init));
+	  my_friendly_assert (TREE_PERMANENT (init), 192);
 	  if (init == error_mark_node)
 	    /* We must make this look different than `error_mark_node'
 	       because `decl_const_value' would mis-interpret it
@@ -905,7 +953,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 	      if (TREE_CODE (TREE_TYPE (value)) != REFERENCE_TYPE
 		  || (TREE_STATIC (init) == 0
 		      && (TREE_CODE_CLASS (TREE_CODE (init)) != 'd'
-			  || TREE_EXTERNAL (init) == 0)))
+			  || DECL_EXTERNAL (init) == 0)))
 		{
 		  error ("field initializer is not constant");
 		  init = error_mark_node;
@@ -925,7 +973,8 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 	 put this decl out straight away.  */
       if (TREE_STATIC (value))
 	{
-	  if (asmspec == 0)
+	  /* current_class_type can be NULL_TREE in case of error.  */
+	  if (asmspec == 0 && current_class_type)
 	    {
 	      tree name;
 	      char *buf, *buf2;
@@ -986,7 +1035,7 @@ grokfield (declarator, declspecs, raises, init, asmspec_tree)
 	     when we link these together.  */
 	  value = copy_node (value);
 	  /* When does this happen?  */
-	  assert (init == NULL_TREE);
+	  my_friendly_assert (init == NULL_TREE, 193);
 	}
       finish_decl (value, init, asmspec_tree, 1);
 
@@ -1025,7 +1074,8 @@ grokbitfield (declarator, declspecs, width)
 
   if (DECL_IN_AGGR_P (value))
     {
-      error_with_decl (value, "`%s' is already defined in aggregate scope");
+      error_with_decl (value, "`%s' is already defined in the class %s",
+		       TYPE_NAME_STRING (DECL_CONTEXT (value)));
       return void_type_node;
     }
 
@@ -1037,22 +1087,26 @@ grokbitfield (declarator, declspecs, width)
       return NULL_TREE;
     }
   finish_decl (value, NULL_TREE, NULL_TREE, 0);
-  /* detect invalid field size.  */
-  if (TREE_CODE (width) == CONST_DECL)
-    width = DECL_INITIAL (width);
-  else if (TREE_READONLY_DECL_P (width))
-    width = decl_constant_value (width);
 
-  if (TREE_CODE (width) != INTEGER_CST)
+  if (width != error_mark_node)
     {
-      error_with_decl (value, "structure field `%s' width not an integer constant");
-      DECL_INITIAL (value) = NULL;
+      /* detect invalid field size.  */
+      if (TREE_CODE (width) == CONST_DECL)
+	width = DECL_INITIAL (width);
+      else if (TREE_READONLY_DECL_P (width))
+	width = decl_constant_value (width);
+      if (TREE_CODE (width) != INTEGER_CST)
+	{
+	  error_with_decl (value, "structure field `%s' width not an integer constant");
+	  DECL_INITIAL (value) = NULL_TREE;
+	}
+      else
+	{
+	  DECL_INITIAL (value) = width;
+	  DECL_BIT_FIELD (value) = 1;
+	}
     }
-  else
-    {
-      DECL_INITIAL (value) = width;
-      DECL_BIT_FIELD (value) = 1;
-    }
+
   DECL_IN_AGGR_P (value) = 1;
   return value;
 }
@@ -1101,7 +1155,9 @@ groktypefield (declspecs, parmlist)
       spec = TREE_CHAIN (spec);
     }
 
-  /* Nope, we have a conversion operator to a scalar type.  */
+  /* Nope, we have a conversion operator to a scalar type or something
+     else, that includes things like constructor declarations for
+     templates.  */
   spec = declspecs;
   while (spec)
     {
@@ -1111,7 +1167,8 @@ groktypefield (declspecs, parmlist)
 	{
 	  if (id == ridpointers[(int)RID_INT]
 	      || id == ridpointers[(int)RID_DOUBLE]
-	      || id == ridpointers[(int)RID_FLOAT])
+	      || id == ridpointers[(int)RID_FLOAT]
+	      || id == ridpointers[(int)RID_WCHAR])
 	    {
 	      if (type_id)
 		error ("extra `%s' ignored",
@@ -1168,8 +1225,12 @@ groktypefield (declspecs, parmlist)
 	  if (type_id == NULL_TREE)
 	    error ("identifier for aggregate type conversion omitted");
 	}
+      else if (TREE_CODE_CLASS (TREE_CODE (id)) == 't')
+	{
+	  error ("`operator' missing on conversion operator or tag missing from type");
+	}
       else
-	assert (0);
+	my_friendly_assert (0, 194);
       spec = TREE_CHAIN (spec);
     }
 
@@ -1191,6 +1252,7 @@ groktypefield (declspecs, parmlist)
       declspecs = quals;
     }
   else return NULL_TREE;
+
  found:
   decl = grokdeclarator (build_parse_node (CALL_EXPR, type_id, parmlist, NULL_TREE),
 			 declspecs, FIELD, 0, NULL_TREE);
@@ -1212,7 +1274,7 @@ groktypefield (declspecs, parmlist)
 
   if (DECL_IN_AGGR_P (decl))
     {
-      error_with_decl (decl, "`%s' already defined in aggregate scope");
+      error_with_decl (decl, "`%s' already defined in the class ");
       return void_type_node;
     }
 
@@ -1223,7 +1285,8 @@ groktypefield (declspecs, parmlist)
      so that we don't build a circular list.  */
   if (DECL_CHAIN (decl))
     {
-      error_with_decl (decl, "function `%s' declared twice in aggregate");
+      error_with_decl (decl, "function `%s' declared twice in class %s",
+		       TYPE_NAME_STRING (DECL_CONTEXT (decl)));
       return NULL_TREE;
     }
   DECL_IN_AGGR_P (decl) = 1;
@@ -1246,7 +1309,7 @@ grokoptypename (decl, call_required)
 {
   tree tmp, last;
 
-  assert (TREE_CODE (decl) == TYPE_EXPR);
+  my_friendly_assert (TREE_CODE (decl) == TYPE_EXPR, 195);
 
   tmp = TREE_OPERAND (decl, 0);
   last = NULL_TREE;
@@ -1311,7 +1374,7 @@ grokoptypename (decl, call_required)
 	  break;
 
 	default:
-	  assert (0);
+	  my_friendly_assert (0, 196);
 	}
       last = tmp;
       tmp = TREE_OPERAND (tmp, 0);
@@ -1456,6 +1519,13 @@ build_push_scope (cname, name)
   TREE_COMPLEXITY (rval) = current_class_depth;
   return rval;
 }
+
+void cplus_decl_attributes (decl, attributes)
+     tree decl, attributes;
+{
+  if (decl)
+    decl_attributes (decl, attributes);
+}
 
 /* CONSTRUCTOR_NAME:
    Return the name for the constructor (or destructor) for the specified
@@ -1473,7 +1543,7 @@ constructor_name (thing)
       || (TREE_CODE (thing) == TEMPLATE_DECL
 	  && DECL_TEMPLATE_IS_CLASS (thing)))
     thing = DECL_NAME (thing);
-  assert (TREE_CODE (thing) == IDENTIFIER_NODE);
+  my_friendly_assert (TREE_CODE (thing) == IDENTIFIER_NODE, 197);
   t = IDENTIFIER_TEMPLATE (thing);
   if (!t)
     return thing;
@@ -1487,11 +1557,45 @@ constructor_name (thing)
 void
 setup_vtbl_ptr ()
 {
-  extern struct rtx_def *base_init_insns;
+  extern rtx base_init_insns;
 
   if (base_init_insns == 0
       && DECL_CONSTRUCTOR_P (current_function_decl))
     emit_base_init (current_class_type, 0);
+
+#if 0
+  /* This has something a little wrong with it.
+
+     On a sun4, code like:
+
+        be L6
+        ld [%i0],%o1
+
+     is generated, when the below is used when -O4 is given.  The delay
+     slot it filled with an instruction that is safe, when this isn't
+     used, like in:
+
+        be L6
+        sethi %hi(LC1),%o0
+        ld [%i0],%o1
+
+     on code like:
+
+        struct A {
+          virtual void print() { printf("xxx"); }
+          void f();
+        };
+
+        void A::f() {
+          if (this) {
+            print();
+          } else {
+            printf("0");
+          }
+        }
+
+     And that is why this is disabled for now. (mrs)
+  */
 
   if ((flag_this_is_variable & 1) == 0
       && optimize
@@ -1509,6 +1613,7 @@ setup_vtbl_ptr ()
       current_vtable_decl = build_indirect_ref (current_vtable_decl, 0);
     }
   else
+#endif
     current_vtable_decl = NULL_TREE;
 }
 
@@ -1521,7 +1626,7 @@ mark_inline_for_output (decl)
       && ! DECL_PENDING_INLINE_INFO (decl)->deja_vu)
     {
       struct pending_inline *t = pending_inlines;
-      assert (DECL_SAVED_INSNS (decl) == 0);
+      my_friendly_assert (DECL_SAVED_INSNS (decl) == 0, 198);
       while (t)
 	{
 	  if (t == DECL_PENDING_INLINE_INFO (decl))
@@ -1560,7 +1665,6 @@ get_temp_name (type, staticp)
 {
   char buf[sizeof (AUTO_TEMP_FORMAT) + 20];
   tree decl;
-  int temp = 0;
   int toplev = global_bindings_p ();
 
   push_obstacks_nochange ();
@@ -1605,7 +1709,7 @@ get_temp_regvar (type, init)
   sprintf (buf+1, AUTO_TEMP_FORMAT, temp_name_counter++);
   decl = build_decl (VAR_DECL, get_identifier (buf), type);
   TREE_USED (decl) = 1;
-  TREE_REGDECL (decl) = 1;
+  DECL_REGISTER (decl) = 1;
 
   if (init)
     store_init_value (decl, init);
@@ -1634,7 +1738,7 @@ temp_name_p (decl)
    If there are static members, then all members are
    static, and must be laid out together.  If the
    union is an anonymous union, we arrange for that
-   as well.  PUBLICP is nonzero if this union is
+   as well.  PUBLIC_P is nonzero if this union is
    not declared static.  */
 void
 finish_anon_union (anon_union_decl)
@@ -1645,7 +1749,7 @@ finish_anon_union (anon_union_decl)
   tree elems = NULL_TREE;
   int public_p = TREE_PUBLIC (anon_union_decl);
   int static_p = TREE_STATIC (anon_union_decl);
-  int external_p = TREE_EXTERNAL (anon_union_decl);
+  int external_p = DECL_EXTERNAL (anon_union_decl);
 
   if ((field = TYPE_FIELDS (type)) == NULL_TREE)
     return;
@@ -1660,7 +1764,7 @@ finish_anon_union (anon_union_decl)
       DECL_INITIAL (decl) = error_mark_node;
       TREE_PUBLIC (decl) = public_p;
       TREE_STATIC (decl) = static_p;
-      TREE_EXTERNAL (decl) = external_p;
+      DECL_EXTERNAL (decl) = external_p;
       decl = pushdecl (decl);
 
       /* Only write out one anon union element--choose the one that
@@ -1706,6 +1810,7 @@ finish_anon_union (anon_union_decl)
 tree
 finish_table (name, type, init, publicp)
      tree name, type, init;
+     int publicp;
 {
   tree itype, atype, decl;
   static tree empty_table;
@@ -1759,7 +1864,7 @@ finish_table (name, type, init, publicp)
   else
     {
       /* This will cause DECL to point to EMPTY_TABLE in rtl-land.  */
-      TREE_EXTERNAL (decl) = 1;
+      DECL_EXTERNAL (decl) = 1;
       TREE_STATIC (decl) = 0;
       init = 0;
       asmspec = build_string (IDENTIFIER_LENGTH (DECL_NAME (empty_table)),
@@ -1780,6 +1885,7 @@ finish_builtin_type (type, name, fields, len, align_type)
      tree type;
      char *name;
      tree fields[];
+     int len;
      tree align_type;
 {
   register int i;
@@ -1903,7 +2009,7 @@ write_vtable_entries (decl)
     {
       tree fnaddr = FNADDR_FROM_VTABLE_ENTRY (TREE_VALUE (entries));
       tree fn = TREE_OPERAND (fnaddr, 0);
-      if (! TREE_EXTERNAL (fn) && ! TREE_ASM_WRITTEN (fn)
+      if (! DECL_EXTERNAL (fn) && ! TREE_ASM_WRITTEN (fn)
 	  && DECL_SAVED_INSNS (fn))
 	{
 	  if (TREE_PUBLIC (DECL_CLASS_CONTEXT (fn)))
@@ -1934,7 +2040,7 @@ finish_vtable_typedecl (prev, vars)
   /* If this type has inline virtual functions, then
      write those functions out now.  */
   if (decl && write_virtuals >= 0
-      && ! TREE_EXTERNAL (decl) && (TREE_PUBLIC (decl) || TREE_USED (decl)))
+      && ! DECL_EXTERNAL (decl) && (TREE_PUBLIC (decl) || TREE_USED (decl)))
     write_vtable_entries (decl);
 }
 
@@ -1943,7 +2049,7 @@ finish_vtable_vardecl (prev, vars)
      tree prev, vars;
 {
   if (write_virtuals >= 0
-      && ! TREE_EXTERNAL (vars) && (TREE_PUBLIC (vars) || TREE_USED (vars)))
+      && ! DECL_EXTERNAL (vars) && (TREE_PUBLIC (vars) || TREE_USED (vars)))
     {
       extern tree the_null_vtable_entry;
 
@@ -2002,11 +2108,8 @@ do { int otime = get_run_time (); BODY; VAR += get_run_time () - otime; } while 
 void
 finish_file ()
 {
-  extern struct rtx_def *const0_rtx;
   extern int lineno;
-  extern struct _iob *asm_out_file;
   int start_time, this_time;
-  char *init_function_name;
 
   char *buf;
   char *p;
@@ -2121,7 +2224,7 @@ finish_file ()
     }
 
   expand_end_bindings (getdecls (), 1, 0);
-  poplevel (1, 0, 1);
+  poplevel (1, 0, 0);
   pop_momentary ();
 
   finish_function (lineno, 0);
@@ -2194,9 +2297,10 @@ finish_file ()
 			 the last of which defines it.  */
 		      if (DECL_RTL (init) == DECL_RTL (decl))
 			{
-			  assert (DECL_INITIAL (decl) == error_mark_node
+			  my_friendly_assert (DECL_INITIAL (decl) == error_mark_node
 				  || (TREE_CODE (DECL_INITIAL (decl)) == CONSTRUCTOR
-				      && CONSTRUCTOR_ELTS (DECL_INITIAL (decl)) == NULL_TREE));
+				      && CONSTRUCTOR_ELTS (DECL_INITIAL (decl)) == NULL_TREE),
+					      199);
 			  init = DECL_INITIAL (init);
 			  if (TREE_CODE (init) == CONSTRUCTOR
 			      && CONSTRUCTOR_ELTS (init) == NULL_TREE)
@@ -2206,11 +2310,12 @@ finish_file ()
 		      else if (TREE_TYPE (decl) == TREE_TYPE (init))
 			{
 #if 1
-			  assert (0);
+			  my_friendly_assert (0, 200);
 #else
 			  /* point to real decl's rtl anyway.  */
 			  DECL_RTL (init) = DECL_RTL (decl);
-			  assert (DECL_INITIAL (decl) == error_mark_node);
+			  my_friendly_assert (DECL_INITIAL (decl) == error_mark_node,
+					      201);
 			  init = DECL_INITIAL (init);
 #endif				/* 1 */
 			}
@@ -2220,7 +2325,14 @@ finish_file ()
 	      if (IS_AGGR_TYPE (TREE_TYPE (decl))
 		  || init == 0
 		  || TREE_CODE (TREE_TYPE (decl)) == ARRAY_TYPE)
-		expand_aggr_init (decl, init, 0);
+		{
+		  /* Set this up so is_friend() works properly on _GLOBAL_ fns.  */
+		  tree old_dcc = DECL_CLASS_CONTEXT (current_function_decl);
+		  if (old_dcc == NULL_TREE)
+		    DECL_CLASS_CONTEXT (current_function_decl) = TREE_TYPE (decl);
+		  expand_aggr_init (decl, init, 0);
+		  DECL_CLASS_CONTEXT (current_function_decl) = old_dcc;
+		}
 	      else if (TREE_CODE (init) == TREE_VEC)
 		{
 		  expand_expr (expand_vec_init (decl, TREE_VEC_ELT (init, 0),
@@ -2249,7 +2361,7 @@ finish_file ()
 	}
 
       expand_end_bindings (getdecls (), 1, 0);
-      poplevel (1, 0, 1);
+      poplevel (1, 0, 0);
       pop_momentary ();
 
       finish_function (lineno, 0);
@@ -2334,7 +2446,7 @@ finish_file ()
 	expand_expr_stmt (build_modify_expr (decl, NOP_EXPR, integer_one_node));
 	type = build_function_type (void_type_node, NULL_TREE);
 	decl = pushdecl (build_lang_decl (FUNCTION_DECL, get_identifier ("_Ztable_from_cfront"), type));
-	TREE_EXTERNAL (decl) = 1;
+	DECL_EXTERNAL (decl) = 1;
 	finish_decl (decl, NULL_TREE, NULL_TREE, 0);
 	expand_expr_stmt (build_function_call (decl, build_tree_list (NULL_TREE, zlink_table)));
 	expand_null_return ();
@@ -2440,7 +2552,7 @@ finish_file ()
     {
       tree decl = TREE_VALUE (pending_addressable_inlines);
       if (! TREE_ASM_WRITTEN (decl)
-	  && ! TREE_EXTERNAL (decl)
+	  && ! DECL_EXTERNAL (decl)
 	  && DECL_SAVED_INSNS (decl))
 	output_inline_function (decl);
       pending_addressable_inlines = TREE_CHAIN (pending_addressable_inlines);
@@ -2451,13 +2563,30 @@ finish_file ()
   /* Now delete from the chain of variables all virtual function tables.
      We output them all ourselves, because each will be treated specially.  */
 
+#if 1
+  /* The reason for pushing garbage onto the global_binding_level is to
+     ensure that we can slice out _DECLs which pertain to virtual function
+     tables.  If the last thing pushed onto the global_binding_level was a
+     virtual function table, then slicing it out would slice away all the
+     decls (i.e., we lose the head of the chain).
+
+     There are several ways of getting the same effect, from changing the
+     way that iterators over the chain treat the elements that pertain to
+     virtual function tables, moving the implementation of this code to
+     cp-decl.c (where we can manipulate global_binding_level directly),
+     popping the garbage after pushing it and slicing away the vtable
+     stuff, or just leaving it alone. */
+
   /* Make last thing in global scope not be a virtual function table.  */
 #if 0 /* not yet, should get fixed properly later */
   vars = make_type_decl (get_identifier (" @%$#@!"), integer_type_node);
 #else
   vars = build_decl (TYPE_DECL, get_identifier (" @%$#@!"), integer_type_node);
 #endif
+  DECL_IGNORED_P (vars) = 1;
+  DECL_SOURCE_LINE (vars) = 0;
   pushdecl (vars);
+#endif
 
   walk_vtables (finish_vtable_typedecl, finish_vtable_vardecl);
 

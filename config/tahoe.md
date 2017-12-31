@@ -460,7 +460,7 @@
 }")
 
 
-; Subtraction from the sp (needed by the built in alloc funtion) needs
+; Subtraction from the sp (needed by the built in alloc function) needs
 ; to be different since the sp cannot be directly read on the tahoe.
 ; If it's a simple constant, you just use displacement.  Otherwise, you
 ; push the sp, and then do the subtraction off the stack.
@@ -1635,7 +1635,7 @@
 ; for the call = number bytes for args + 4
 
 (define_insn "call_value"
-  [(set (match_operand 0 "" "g")
+  [(set (match_operand 0 "" "=g")
 	(call (match_operand:QI 1 "memory_operand" "m")
 	      (match_operand:QI 2 "general_operand" "g")))]
   ""

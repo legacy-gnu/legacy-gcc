@@ -1,5 +1,5 @@
 /* Configuration for GNU C-compiler.
-   Motorola m88100 running the AT&T/Unisoft/Motorla V.3 reference port.
+   Motorola m88100 running the AT&T/Unisoft/Motorola V.3 reference port.
    Copyright (C) 1990 Free Software Foundation, Inc.
 
 This file is part of GNU CC.

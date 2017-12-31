@@ -19,12 +19,10 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* This is the same as pa-hpux.h, except that we generate snake code by
-   default and we have to deal with assembler weirdness. */
+   default and have to deal with assembler weirdness. */
 
 #define HP_FP_ARG_DESCRIPTOR_REVERSED
 
+#define TARGET_DEFAULT 1	/* TARGET_SNAKE */
+
 #include "pa-hpux.h"
-
-#undef TARGET_DEFAULT
-#define TARGET_DEFAULT 1
-

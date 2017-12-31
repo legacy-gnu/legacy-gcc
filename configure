@@ -22,7 +22,17 @@
 # Shell script to create proper links to machine-dependent files in
 # preparation for compiling gcc.
 #
-# Usage: configure [--srcdir=DIR] [--host=HOST] [--gas] [--nfp] TARGET
+# Options: --srcdir=DIR		specifies directory where sources are.
+# 	   --host=HOST		specifies host configuration.
+#	   --target=TARGET	specifies target configuration.
+#	   --build=TARGET	specifies configuration of machine you are
+#				using to compile GCC.
+#	   --prefix=DIR		specifies directory to install in.
+#	   --exec-prefix=DIR	specifies directory to install executables in.
+#	   --with-gnu-ld	arrange to work with GNU ld.
+#	   --with-gnu-as	arrange to work with GAS.
+#	   --with-stabs		arrange to use stabs instead of host debug format.
+#	   --nfp		assume system has no FPU.
 #
 # If configure succeeds, it leaves its status in config.status.
 # If configure fails after disturbing the status quo, 
@@ -42,6 +52,11 @@ fi
 
 host=
 
+# Default prefix to /usr/local.
+prefix=/usr/local
+# Default is to let the Makefile set exec_prefix from $(prefix)
+exec_prefix='$(prefix)'
+
 remove=rm
 hard_link=ln
 symbolic_link='ln -s'
@@ -55,36 +70,78 @@ arguments=$*
 #hard_link="echo ln"
 #symbolic_link="echo ln -s"
 
+target=
+host=
+build=
+
 for arg in $*;
 do
-# Handle -srcdir, etc, with space between it and argument.
-  if [ x$next_srcdir = xyes ]
-  then srcdir=$arg; next_srcdir=;
-# Handle -host, etc, with space between it and argument.
-  else if [ x$next_host = xyes ]
-  then host=$arg; next_host=;
-  else if [ x$next_target = xyes ]
-  then target=$arg; next_target=;
-  else 
+  case $next_arg in
+  --srcdir)
+    srcdir=$arg
+    next_arg=
+    ;;
+  --host)
+    host=$arg
+    next_arg=
+    ;;
+  --target)
+    target=$arg
+    next_arg=
+    ;;
+  --build)
+    build=$arg
+    next_arg=
+    ;;
+  --prefix)
+    prefix=$arg
+    next_arg=
+    ;;
+  --exec-prefix)
+    exec_prefix=$arg
+    next_arg=
+    ;;
+  *)
     case $arg in
+     -srcdir | --srcdir | --srcdi | --srcd | --src | --sr | --s)
+	next_arg=--srcdir
+	;;
      -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=* | --s=*)
 	srcdir=`echo $arg | sed 's/-*s[a-z]*=//'`
 	;;
-     -srcdir | --srcdir | --srcdi | --srcd | --src | --sr | --s)
-	next_srcdir=yes
-	;;
      -host | --host | --hos | --ho | --h)
-	next_host=yes
+	next_arg=--host
 	;;
      -host=* | --host=* | --hos=* | --ho=* | --h=*)
 	host=`echo $arg | sed 's/-*h[a-z]*=//'`
 	;; 
      -target | --target | --targe | --targ | --tar | --ta | --t)
-	next_target=yes
+	next_arg=--target
 	;;
      -target=* | --target=* | --targe=* | --targ=* | --tar=* | --ta=* | --t=*)
 	target=`echo $arg | sed 's/-*t[a-z]*=//'`
 	;; 
+     -build | --build | --buil | --bui | --bu | --b)
+	next_arg=--build
+	;;
+     -build=* | --build=* | --buil=* | --bui=* | --bu=* | --b=*)
+	build=`echo $arg | sed 's/-*b[a-z]*=//'`
+	;; 
+     -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+	next_arg=--prefix
+	;;
+     -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+	prefix=`echo $arg | sed 's/-*p[a-z]*=//'`
+	;;
+     -exec-prefix | --exec-prefix | --exec-prefi | --exec-pref | --exec-pre \
+	| --exec-pr | --exec-p | --exec- | --exec | --exe | --ex | --e)
+	next_arg=--exec-prefix
+	;;
+     -exec-prefix=* | --exec-prefix=* | --exec-prefi=* | --exec-pref=* \
+	| --exec-pre=* | --exec-pr=* | --exec-p=* | --exec-=* | --exec=* \
+	| --exe=* | --ex=* | --e=*)
+	exec_prefix=`echo $arg | sed 's/-*e[-a-z]*=//'`
+	;;
      -with-gnu-ld | --with-gnu-ld | --with-gnu-l)
 	gnu_ld=yes
 	;;
@@ -93,6 +150,12 @@ do
 	;;
      -nfp | --nfp | --nf | --n)
 	nfp=yes
+	;;
+     -with-stabs | -with-stab | -with-sta | -with-st | -with-s \
+	| --with-stabs | --with-stab | --with-sta | --with-st | --with-s \
+	| -stabs | -stab | -sta | -st  \
+	| --stabs | --stab | --sta | --st)
+	stabs=yes
 	;;
      -with-* | --with-*) ;; #ignored
      -x | --x) ;; # ignored
@@ -109,7 +172,7 @@ do
 	target=$arg
 	;;
     esac
-  fi; fi; fi
+  esac
 done
 
 # Find the source files, if location was not specified.
@@ -144,12 +207,15 @@ fi
 if [ x$target = x ]
 then
 	echo "No target specified." 1>&2
-	echo "Usage: $progname [--srcdir=DIR] [--host=HOST] [--gas] [--nfp] TARGET" 1>&2
-	echo -n "Where HOST and TARGET are something like " 1>&2
-	echo "\`vax', \`sun3', \`encore', etc." 1>&2
+
+	echo "\
+Usage: `basename $progname` [--host=HOST] [--build=BUILD]
+       [--prefix=DIR] [--exec-pref=DIR]
+       [--with-gnu-as] [--with-gnu-ld] [--with-stabs] [--nfp] TARGET" 1>&2
+	echo "Where HOST, TARGET and BUILD are three-part configuration names " 1>&2
 	if [ -r config.status ]
 	then
-		cat config.status 1>&2
+		tail +2 config.status 1>&2
 	fi
 	exit 1
 fi
@@ -159,19 +225,27 @@ if [ x$host = x ]
 then
 	host=$target
 fi
+# If $build was not specified, use $host.
+if [ x$build = x ]
+then
+	build=$host
+fi
 
+build_xm_file=
 host_xm_file=
 host_xmake_file=
 host_broken_install=
+
+# Validate the specs, and canonicalize them.
+canon_build=`$srcdir/config.sub $build` || exit 1
+canon_host=`$srcdir/config.sub $host` || exit 1
+canon_target=`$srcdir/config.sub $target` || exit 1
 
 # Decode the host machine, then the target machine.
 # For the host machine, we save the xm_file variable as host_xm_file;
 # then we decode the target machine and forget everything else
 # that came from the host machine.
-for machine in $host $target; do
-
-	# Validate the spec, and canonicalize it.
-	machine=`$srcdir/config.sub $machine` || exit 1
+for machine in $canon_build $canon_host $canon_target; do
 
 	cpu_type=
 	xm_file=
@@ -182,8 +256,12 @@ for machine in $host $target; do
 	header_files=
 	# Set this to force installation and use of collect2.
 	use_collect2=
+	# Set this to override the default target model.
+	target_cpu_default=
 	# Set this to force use of install.sh.
 	broken_install=
+	# Set this to control which fixincludes program to use.
+	fixincludes=fixincludes
 
 	case $machine in
 	# Support site-specific machine types.
@@ -209,8 +287,8 @@ for machine in $host $target; do
 		use_collect2=yes
 		;;
 	vax-*-vms*)			# vaxen running VMS
-		xm_file=xm-vms.h
-		tm_file=vms.h
+		xm_file=xm-vax-vms.h
+		tm_file=vax-vms.h
 		;;
 	vax-*-sysv*)			# vaxen running system V
 		xm_file=xm-vaxv.h
@@ -224,13 +302,13 @@ for machine in $host $target; do
 #		xm_file=xm-tahoe.h
 #		tm_file=tahoe.h
 #		;;
-	i386-*-osfrose*)		# 386 using OSF/rose
+	i[34]86-*-osfrose*)		# 386 using OSF/rose
 		tm_file=i386rose.h
 		xmake_file=x-i386rose
 		tmake_file=t-i386rose
 		use_collect2=yes
 		;;
-	i386-sequent-bsd*) 		# 80386 from Sequent
+	i[34]86-sequent-bsd*) 		# 80386 from Sequent
 		xm_file=xm-i386.h
 		use_collect2=yes
 		if [ x$gas = xyes ]
@@ -240,38 +318,54 @@ for machine in $host $target; do
 			tm_file=seq386.h
 		fi
 		;;
-	i386-*-bsd*)
+	i[34]86-*-bsd*)
 		xm_file=xm-i386.h
 		tm_file=i386bsd.h
-		tmake_file=t-libc-ok
+#		tmake_file=t-libc-ok
 		use_collect2=yes
 		;;
-	i386-*-mach*)
+	i[34]86-*-mach*)
 		xm_file=xm-i386.h
 		tm_file=i386mach.h
-		tmake_file=t-libc-ok
+#		tmake_file=t-libc-ok
 		use_collect2=yes
 		;;
-	i386-*-sco3.2v4*)	 	# 80386 running SCO 3.2v4 system
+	i[34]86-*-sco3.2v4*)	 	# 80386 running SCO 3.2v4 system
 		xm_file=xm-i386sco.h
 		tm_file=i386sco4.h
-		xmake_file=x-i386sco
+		xmake_file=x-i386s4
 		tmake_file=t-i386sco
+		fixincludes=fixinc.sco
+		broken_install=yes
 		;;
-	i386-*-sco*)		 	# 80386 running SCO system
+	i[34]86-*-sco*)		 	# 80386 running SCO system
 		xm_file=xm-i386sco.h
 		tm_file=i386sco.h
 		xmake_file=x-i386sco
 		tmake_file=t-i386sco
+		broken_install=yes
 		;;
-	i386-*-isc*)			# 80386 running ISC system
+	i[34]86-*-isc*)			# 80386 running ISC system
 		xm_file=xm-i386isc.h
-		tm_file=i386isc.h
 		xmake_file=x-i386isc
-		tmake_file=t-i386isc
+                if [ x$gas = xyes ]
+		then
+			tm_file=i386iscgas.h
+			tmake_file=t-i386iscgas
+		else
+			tm_file=i386isc.h
+			tmake_file=t-i386isc
+		fi
+		broken_install=yes
 		;;
-	i386-ibm-aix*)			# IBM PS/2 running AIX
-		tm_file=aix386.h
+	i[34]86-ibm-aix*)		# IBM PS/2 running AIX
+                if [ x$gas = xyes ]
+		then
+			tm_file=aix386.h
+		else
+			tm_file=aix386ng.h
+			use_collect2=yes
+		fi
 		xm_file=xm-aix386.h
 		xmake_file=x-aix386
 		broken_install=yes
@@ -281,36 +375,47 @@ for machine in $host $target; do
 		tm_file=i386sun.h
 		use_collect2=yes
 		;;
-	i386-*-sysv4*)			# Intel 80386's running system V.4
-		xm_file=xm-i38v4.h
-		xmake_file=x-i386v4
-		tm_file=i386v4.h
-		tmake_file=t-svr4
-		;;
-	i386-*-sysv*)			# Intel 80386's running system V
-		xm_file=xm-i386v.h
-		xmake_file=x-i386v
-		tmake_file=t-svr3
-		if [ x$gas = xyes ]
-		then
-			tm_file=i386gas.h
-		else
-			tm_file=i386v.h
-		fi
+	i[34]86-*-linux*)               # Intel 80386's running Linux
+		cpu_type=i386
+		xm_file=xm-linux.h
+		xmake_file=x-linux
+		tm_file=i386linux.h
+		broken_install=yes
 		;;
 	i486-ncr-sysv4*)		# NCR 3000 - i486 running system V.4
 		cpu_type=i386
 		xm_file=xm-i38v4.h
 		xmake_file=x-ncr3000
-		tm_file=i486v4.h
+		tm_file=i386v4.h
 		tmake_file=t-svr4
 		;;
-	i486-*-sysv4*)			# Intel 80486's running system V.4
+	i[34]86-*-sysv4*)		# Intel 80386's running system V.4
 		cpu_type=i386
 		xm_file=xm-i38v4.h
-		xmake_file=x-i386v4
-		tm_file=i486v4.h
+		tm_file=i386v4.h
 		tmake_file=t-svr4
+		xmake_file=x-svr4
+		;;
+	i[34]86-*-sysv*)		# Intel 80386's running system V
+		xm_file=xm-i386v.h
+		xmake_file=x-i386v
+		tmake_file=t-svr3
+		if [ x$gas = xyes ]
+		then
+			if [ x$stabs = xyes ]
+			then
+				tm_file=i386gstabs.h
+			else
+				tm_file=i386gas.h
+			fi
+		else
+			tm_file=i386v.h
+		fi
+		;;
+	i860-*-mach*)
+		xm_file=xm-i860.h
+		tm_file=i860mach.h
+		tmake_file=t-libc-ok
 		;;
 	i860-*-sysv3*)
 		xm_file=xm-i86v3.h
@@ -344,6 +449,11 @@ for machine in $host $target; do
 		xm_file=xm-pbd.h
 		use_collect2=yes
 		;;
+	elxsi-elxsi-*)
+		tm_file=elxsi.h
+		xm_file=xm-elxsi.h
+		use_collect2=yes
+		;;
 	sparc-*-sunos4*)
 		tm_file=sparc.h
 		use_collect2=yes
@@ -358,13 +468,15 @@ for machine in $host $target; do
 		tmake_file=t-svr4
 		xmake_file=x-sparcv4
 		;;
-	sparc-*-solaris2*)
-		xm_file=xm-spcv4.h
+	sparc-*-solaris2* | sparc-*-sunos5*)
+		xm_file=xm-spc-sol2.h
 		tm_file=spc-sol2.h
-		tmake_file=t-svr4
+		tmake_file=t-sol2
 		xmake_file=x-sparcv4
+		fixincludes=fixinc.svr4
+		broken_install=yes
 		;;
-	m68k-*-amix*)		# Commodore variant of V.4.
+	m68k-cbm-sysv4*)		# Commodore variant of V.4.
 		tm_file=amix.h
 		xm_file=xm-amix.h
 		xmake_file=x-amix
@@ -373,8 +485,7 @@ for machine in $host $target; do
 		;;
 	m68k-*-sysv4*)			# Motorola m68k's running system V.4
 		tm_file=m68kv4.h
-		xm_file=xm-m68kv4.h
-		xmake_file=x-m68kv4
+		xm_file=xm-m68kv.h
 		tmake_file=t-svr4
 		header_files=math-68881.h
 		;;
@@ -383,16 +494,12 @@ for machine in $host $target; do
 		then
 			tm_file=dpx2g.h
 		else
+			echo dpx2 supported only with GAS 1>&2
+			exit 1
 			tm_file=dpx2.h
 		fi
 		xm_file=xm-m68kv.h
-		# is this cool ?
-		if [ -d /makesys/kernel/cf/ncl_mr ]; then
-			xmake_file=x-dpx2300
-		elif [ -d /makesys/kernel/cf/ncl_el ]; then
-			xmake_file=x-dpx2200
-		fi
-		xmake_file=${xmake_file:-x-dpx2300}
+		xmake_file=x-dpx2
 		use_collect2=yes
 		header_files=math-68881.h
 		;;
@@ -401,6 +508,7 @@ for machine in $host $target; do
 		out_file=next.c
 		xm_file=xm-next.h
 		tmake_file=t-next
+		xmake_file=x-next
 		use_collect2=yes
 		header_files=math-68881.h
 		;;
@@ -414,7 +522,7 @@ for machine in $host $target; do
 		use_collect2=yes
 		header_files=math-68881.h
 		;;
-	m68k-sun-sunos*)		# For Sunos 4 (the default).
+	m68k-sun-sunos*)		# For SunOS 4 (the default).
 		if [ x$nfp = xyes ]
 		then
 			tm_file=sun3n.h
@@ -440,6 +548,7 @@ for machine in $host $target; do
 		if [ x$gas = xyes ]
 		then
 			xmake_file=x-hp320g
+			tmake_file=t-hp320g
 			tm_file=hp320g.h
 		else
 			xmake_file=x-hp320
@@ -464,7 +573,18 @@ for machine in $host $target; do
 		use_collect2=yes
 		header_files=math-68881.h
 		;;
-	m68k-sony-bsd*)
+	m68k-sony-newsos3*)
+	        xm_file=xm-m68k.h
+		if [ x$gas = xyes ]
+		then
+			tm_file=news3gas.h
+		else
+			tm_file=news3.h
+		fi
+		use_collect2=yes
+		header_files=math-68881.h
+		;;
+	m68k-sony-bsd* | m68k-sony-newsos*)
 	        xm_file=xm-m68k.h
 		if [ x$gas = xyes ]
 		then
@@ -489,6 +609,7 @@ for machine in $host $target; do
 	m68k-motorola-sysv*)
 		tm_file=mot3300.h
 		xm_file=xm-mot3300.h
+		use_collect2=yes
 		header_files=math-68881.h
 		;;
 	m68k-crds-unos*)
@@ -503,6 +624,13 @@ for machine in $host $target; do
 		xmake_file=x-apollo68
 		tm_file=apollo68.h
 		use_collect2=yes
+		header_files=math-68881.h
+		;;
+        m68k-plexus-sysv*)
+	        cpu_type=m68k
+		tm_file=plexus.h
+		use_collect2=yes
+		xm_file=xm-plexus.h
 		header_files=math-68881.h
 		;;
 	m68k-ncr-sysv*)			# NCR Tower 32 SVR3
@@ -591,10 +719,21 @@ for machine in $host $target; do
 #		xm_file=xm-genix.h
 #		xmake_file=x-genix
 #		tm_file=genix.h
+#		broken_install=yes
 #		use_collect2=yes
 #		;;
 	ns32k-merlin-*)
 		tm_file=merlin.h
+		use_collect2=yes
+		;;
+	ns32k-tek6100-bsd*)
+		tm_file=tek6100.h
+		broken_install=yes
+		use_collect2=yes
+		;;
+	ns32k-tek6200-bsd*)
+		tm_file=tek6200.h
+		broken_install=yes
 		use_collect2=yes
 		;;
 	ns32k-pc532-mach*)
@@ -613,6 +752,7 @@ for machine in $host $target; do
 	m88k-dg-dgux*)
 		tm_file=m88kdgux.h
 		xmake_file=x-m88kdgux
+		broken_install=yes
 		;;
 	m88k-*-sysv4*)
 		tm_file=m88kv4.h
@@ -627,7 +767,6 @@ for machine in $host $target; do
 	m88k-*-sysv3*)
 		tm_file=m88kv3.h
 		xm_file=xm-m88kv3.h
-		xmake_file=x-m88kv3
 		;;
 # This hasn't been upgraded to GCC 2.
 #	fx80-alliant-*)			# Alliant FX/80
@@ -662,21 +801,33 @@ for machine in $host $target; do
 		use_collect2=yes
 		;;
 	mips-sgi-irix4*)		# Mostly like a MIPS.
-		tm_file=iris4.h
+		if [ x$stabs = xyes ]; then
+		    tm_file=iris4g.h
+		else
+		    tm_file=iris4.h
+		fi
 		xm_file=xm-irix4.h
 		broken_install=yes
 		xmake_file=x-iris
 		use_collect2=yes
 		;;
 	mips-sgi-*)			# Mostly like a MIPS.
-		tm_file=iris.h
+		if [ x$stabs = xyes ]; then
+		    tm_file=irisgdb.h
+		else
+		    tm_file=iris.h
+		fi
 		xm_file=xm-iris.h
 		broken_install=yes
 		xmake_file=x-iris
 		use_collect2=yes
 		;;
 	mips-dec-ultrix*)		# Decstation.
-		tm_file=decstatn.h
+		if [ x$stabs = xyes ]; then
+		    tm_file=decstabs.h
+		else
+		    tm_file=decstatn.h
+		fi
 		tmake_file=t-decstatn
 		xmake_file=x-decstatn
 		use_collect2=yes
@@ -688,41 +839,105 @@ for machine in $host $target; do
 		use_collect2=yes
 		;;
 	mips-dec-osf*)			# Decstation running OSF/1 as shipped by DIGITAL
-		tm_file=dec-osf1.h
-		xmake_file=x-mips
+		if [ x$stabs = xyes ]; then
+		    tm_file=dec-gosf1.h
+		else
+		    tm_file=dec-osf1.h
+		fi
+		xmake_file=x-dec-osf1
 		tmake_file=t-decstatn
 		use_collect2=yes
 		;;
-	mips-sony-bsd*)			# Sony NEWS 3600 or risc/news.
-		tm_file=mips-news.h
-		xm_file=xm-mipsbsdn.h
+	mips-sony-bsd* | mips-sony-newsos*)	# Sony NEWS 3600 or risc/news.
+		if [ x$stabs = xyes ]; then
+		    tm_file=mips-gnews.h
+		else
+		    tm_file=mips-news.h
+		fi
+		xm_file=xm-mips.h
 		use_collect2=yes
 		;;
 	mips-sony-sysv*)		# Sony NEWS 3800 with NEWSOS5.0.
 					# That is based on svr4.
 		# t-svr4 is not right because this system doesn't use ELF.
-		tm_file=mips-n5.h
+		if [ x$stabs = xyes ]; then
+		    tm_file=mips-gn5.h
+		else
+		    tm_file=mips-n5.h
+		fi
 		xm_file=xm-mipsnews.h
 		use_collect2=yes
 		;;
-	mips-*-bsd*)			# BSD 4.3 variant of MIPS system.
-		tm_file=mips-bsd.h
+	mips-*riscos[56789]bsd* | mips-*riscos[56789]-bsd*)
+		if [ x$stabs = xyes ]; then	# MIPS BSD 4.3, RISC-OS 5.0
+		    tm_file=mips-5gbsd.h
+		else
+		    tm_file=mips-5bsd.h
+		fi
 		use_collect2=yes
 	        ;;
-	mips-*-sysv4*)			# MIPS System V.4.
-		tm_file=mips-svr4.h
+	mips-*-bsd* | mips-*riscosbsd* | mips-*riscos[1234]bsd* \
+		| mips-*riscos-bsd* | mips-*riscos[1234]-bsd*)
+		if [ x$stabs = xyes ]; then	# MIPS BSD 4.3, RISC-OS 4.0
+		    tm_file=mips-gbsd.h
+		else
+		    tm_file=mips-bsd.h
+		fi
+		use_collect2=yes
+	        ;;
+	mips-*riscos[56789]sysv4* | mips-*riscos[56789]-sysv4*)
+		if [ x$stabs = xyes ]; then	# MIPS System V.4., RISC-OS 5.0
+		    tm_file=mips-5gsvr4.h
+		else
+		    tm_file=mips-5svr4.h
+		fi
+		xm_file=xm-umips.h
+		xmake_file=x-mipsv
+		;;
+	mips-*-sysv4* | mips-*riscos[1234]sysv4* | mips-*riscossysv4* \
+		| mips-*riscos[1234]-sysv4* | mips-*riscos-sysv4*)
+		if [ x$stabs = xyes ]; then	# MIPS System V.4. RISC-OS 4.0
+		    tm_file=mips-gsvr4.h
+		else
+		    tm_file=mips-svr4.h
+		fi
+		xm_file=xm-umips.h
+		xmake_file=x-mipsv
+		;;
+	mips-*riscos[56789]sysv* | mips-*-riscos[56788]-sysv*)
+		if [ x$stabs = xyes ]; then	# MIPS System V.3, RISC-OS 5.0
+		    tm_file=mips-5gsysv.h
+		else
+		    tm_file=mips-5sysv.h
+		fi
 		xm_file=xm-umips.h
 		xmake_file=x-mipsv
 		use_collect2=yes
 		;;
-	mips-*-sysv*)			# MIPS System V.
-		tm_file=mips-sysv.h
+	mips-*-sysv* | mips-*riscossysv* | mips-*riscos-sysv*)
+		if [ x$stabs = xyes ]; then	# MIPS System V.3, RISC-OS 4.0
+		    tm_file=mips-gsysv.h
+		else
+		    tm_file=mips-sysv.h
+		fi
 		xm_file=xm-umips.h
 		xmake_file=x-mipsv
 		use_collect2=yes
 		;;
-	mips-mips-*)			# Default MIPS environment.
-		tm_file=mips.h
+	mips-*riscos[56789]*)			# Default MIPS RISC-OS 5.0.
+		if [ x$stabs = xyes ]; then
+		    tm_file=mips-5gdb.h
+		else
+		    tm_file=mips-5.h
+		fi
+		use_collect2=yes
+		;;
+	mips-*-*)				# Default MIPS RISC-OS 4.0.
+		if [ x$stabs = xyes ]; then
+		    tm_file=mips-gdb.h
+		else
+		    tm_file=mips.h
+		fi
 		use_collect2=yes
 		;;
 	pyramid-*-*)
@@ -762,7 +977,12 @@ for machine in $host $target; do
 		xmake_file=x-rs6k-mach
 		use_collect2=yes
 		;;
-	rs6000-*)
+	rs6000-ibm-aix32)
+		xm_file=xm-rs6000.h
+		tm_file=rs6000-aix32.h
+		use_collect2=yes
+		;;
+	rs6000-ibm-aix*)
 		xm_file=xm-rs6000.h
 		tm_file=rs6000.h
 		use_collect2=yes
@@ -771,18 +991,37 @@ for machine in $host $target; do
 		cpu_type=pa
 		xm_file=xm-pa.h
 		tm_file=pa1.h
+		xmake_file=x-pa
+		tmake_file=t-pa
 		use_collect2=yes
 		;;
 	hppa1.0-*-bsd*)
 		cpu_type=pa
 		xm_file=xm-pa.h
 		tm_file=pa.h
+		xmake_file=x-pa
+		tmake_file=t-pa
+		use_collect2=yes
+		;;
+	hppa1.0-*-hpux7*)
+		cpu_type=pa
+		xm_file=xm-pahpux.h
+		xmake_file=x-pa-hpux
+		tmake_file=t-libc-ok
+		if [ x$gas = xyes ]
+		then
+			tm_file=pa-gux7.h
+		else
+			tm_file=pa-hpux7.h
+		fi
+		broken_install=yes
 		use_collect2=yes
 		;;
 	hppa1.1-*-hpux*)
 		cpu_type=pa
-		xm_file=xm-pa.h
+		xm_file=xm-pahpux.h
 		xmake_file=x-pa-hpux
+		tmake_file=t-libc-ok
 		if [ x$gas = xyes ]
 		then
 			tm_file=pa1-ghpux.h
@@ -794,8 +1033,9 @@ for machine in $host $target; do
 		;;
 	hppa1.0-*-hpux*)
 		cpu_type=pa
-		xm_file=xm-pa.h
+		xm_file=xm-pahpux.h
 		xmake_file=x-pa-hpux
+		tmake_file=t-libc-ok
 		if [ x$gas = xyes ]
 		then
 			tm_file=pa-ghpux.h
@@ -809,21 +1049,35 @@ for machine in $host $target; do
 		cpu_type=we32k
 		use_collect2=yes
 		;;
+	alpha-*-osf*)
+		cpu_type=alpha
+		broken_install=yes
+		use_collect2=yes
+		;;
 	i960-*-*)			# Default i960 environment.
 		use_collect2=yes
 		;;
 	*)
-		echo "Configuration $machine not recognized" 1>&2
+		echo "Configuration $machine not supported" 1>&2
 		exit 1
 		;;
 	esac
 
 	case $machine in
 	*-*-sysv4*)
+		fixincludes=fixinc.svr4
 		xmake_try_sysv=x-sysv
+		broken_install=yes
 		;;
 	*-*-sysv*)
 		broken_install=yes
+		;;
+	esac
+
+	# Distinguish i386 from i486.
+	case $machine in
+	i486-*-*)
+		target_cpu_default=2
 		;;
 	esac
 
@@ -839,18 +1093,27 @@ for machine in $host $target; do
 	then cpu_type=`echo $machine | sed 's/-.*$//'`
 	fi
 
+# Save data on machine being used to compile GCC in build_xm_file.
 # Save data on host machine in vars host_xm_file and host_xmake_file.
 	if [ x$pass1done = x ]
 	then
-		if [ x$xm_file = x ]; then host_xm_file=xm-$cpu_type.h
-		else host_xm_file=$xm_file
+		if [ x$xm_file = x ]; then build_xm_file=xm-$cpu_type.h
+		else build_xm_file=$xm_file
 		fi
-		if [ x$xmake_file = x ]
-		then xmake_file=x-$cpu_type
-		fi
-		host_xmake_file=$xmake_file
-		host_broken_install=$broken_install
 		pass1done=yes
+	else
+		if [ x$pass2done = x ]
+		then
+			if [ x$xm_file = x ]; then host_xm_file=xm-$cpu_type.h
+			else host_xm_file=$xm_file
+			fi
+			if [ x$xmake_file = x ]
+			then xmake_file=x-$cpu_type
+			fi
+			host_xmake_file=$xmake_file
+			host_broken_install=$broken_install
+			pass2done=yes
+		fi
 	fi
 done
 
@@ -876,8 +1139,8 @@ fi
 
 # Set up the list of links to be made.
 # $links is the list of link names, and $files is the list of names to link to.
-files="$host_xm_file $tm_file $md_file $out_file $xm_file"
-links="config.h tm.h md aux-output.c tconfig.h"
+files="$host_xm_file $tm_file $md_file $out_file $xm_file $build_xm_file"
+links="config.h tm.h md aux-output.c tconfig.h hconfig.h"
 
 # Make the links.
 while [ -n "$files" ]
@@ -933,7 +1196,7 @@ esac
 if [ -f ${srcdir}/config/${host_xmake_file} ]
 then
 	rm -f Makefile.xx
-	sed -e "/####/  r ${srcdir}/config/${host_xmake_file}" Makefile.tem > Makefile.xx
+	sed -e "/####host/  r ${srcdir}/config/${host_xmake_file}" Makefile.tem > Makefile.xx
 	echo "Merged ${host_xmake_file}."
 	rm -f Makefile.tem
 	mv Makefile.xx Makefile.tem
@@ -950,7 +1213,8 @@ if [ x$host_broken_install = x ]
 then true
 else
 	rm -f Makefile.xx
-	sed 's|^INSTALL = .*|INSTALL = $(srcdir)/install.sh -c|' Makefile.tem > Makefile.xx
+	abssrcdir=`cd ${srcdir}; pwd`
+	sed "s|^INSTALL = .*|INSTALL = ${abssrcdir}/install.sh -c|" Makefile.tem > Makefile.xx
 	rm -f Makefile.tem
 	mv Makefile.xx Makefile.tem
 fi
@@ -979,11 +1243,23 @@ else
 	mv Makefile.xx Makefile.tem
 fi
 
+# Add -DTARGET_CPU_DEFAULT for toplev.c if system wants one.
+# This substitutes for lots of *.h files.
+if [ x$target_cpu_default = x ]
+then true
+else
+	rm -f Makefile.xx
+	(echo "MAYBE_TARGET_DEFAULT = -DTARGET_CPU_DEFAULT=$target_cpu_default")\
+ 	   | cat - Makefile.tem > Makefile.xx
+	rm -f Makefile.tem
+	mv Makefile.xx Makefile.tem
+fi
+
 # Conditionalize the makefile for this target machine.
 if [ -f ${srcdir}/config/${tmake_file} ]
 then
 	rm -f Makefile.xx
-	sed -e "/####/  r ${srcdir}/config/${tmake_file}" Makefile.tem > Makefile.xx
+	sed -e "/####target/  r ${srcdir}/config/${tmake_file}" Makefile.tem > Makefile.xx
 	echo "Merged ${tmake_file}."
 	rm -f Makefile.tem
 	mv Makefile.xx Makefile.tem
@@ -995,13 +1271,16 @@ else
 fi
 
 # Remove all formfeeds, since some Makes get confused by them.
-# Also arrange to give the variables `target' and `host_xmake_file'
-# and `tmake_file' the same values in the Makefile
-# that they have in this script.
+# Also arrange to give the variables `target', `host_xmake_file',
+# `tmake_file', `prefix', `exec_prefix' and `FIXINCLUDES'
+# values in the Makefile from the values they have in this script.
 rm -f Makefile.xx
 sed -e "s///" -e "s/^target=.*$/target=${target}/" \
     -e "s|^xmake_file=.*$|xmake_file=${host_xmake_file}|" \
     -e "s|^tmake_file=.*$|tmake_file=${tmake_file}|" \
+    -e "s|^prefix[ 	]*=.*|prefix = $prefix|" \
+    -e "s|^exec_prefix[ 	]*=.*|exec_prefix = $exec_prefix|" \
+    -e "s|^FIXINCLUDES[ 	]*=.*|FIXINCLUDES = $fixincludes|" \
     Makefile.tem > Makefile.xx
 rm -f Makefile.tem
 mv Makefile.xx Makefile.tem
@@ -1012,11 +1291,20 @@ mv Makefile.xx Makefile.tem
 if [ x$host = x$target ]
 then
 	rm -f Makefile
-	mv Makefile.tem Makefile
+  	if [ x$host = x$build ]
+	then
+		mv Makefile.tem Makefile
+	else
+#		When build gcc with cross-compiler, we need to fix a
+#		few things.
+		echo "build= $build" > Makefile
+		sed -e "/####build/  r ${srcdir}/build-make" Makefile.tem >> Makefile
+		rm -f Makefile.tem Makefile.xx
+	fi
 else
 	rm -f Makefile
 	echo "CROSS=-DCROSS_COMPILE" > Makefile
-	sed -e "/####/  r ${srcdir}/cross-make" Makefile.tem >> Makefile
+	sed -e "/####cross/  r ${srcdir}/cross-make" Makefile.tem >> Makefile
 	rm -f Makefile.tem Makefile.xx
 fi
 
@@ -1024,7 +1312,7 @@ echo "Created \`Makefile'."
 
 if [ xx${vint} != xx ]
 then
-	vintmsg =" (vint)"
+	vintmsg=" (vint)"
 fi
 
 # Describe the chosen configuration in config.status.
@@ -1032,13 +1320,14 @@ fi
 echo "#!/bin/sh
 # GCC was configured as follows:
 ${srcdir}/configure" $arguments > config.status
+echo echo host=$canon_host target=$canon_target build=$canon_build >> config.status
 chmod a+x config.status
 
-if [ x$host = x$target ]
+if [ x$canon_host = x$canon_target ]
 then
-	echo "Links are now set up for target $target."
+	echo "Links are now set up for target $canon_target."
 else
-	echo "Links are now set up for host $host and target $target."
+	echo "Links are now set up for host $canon_host and target $canon_target."
 fi
 
 exit 0

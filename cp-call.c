@@ -26,15 +26,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include <stdio.h>
 #include "cp-tree.h"
 #include "flags.h"
-#include "assert.h"
 #include "cp-class.h"
 
 #include "obstack.h"
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
 
-extern int xmalloc ();
-extern void free ();
 extern void sorry ();
 
 extern tree build_function_call_maybe ();
@@ -42,9 +39,6 @@ extern tree build_function_call_maybe ();
 extern int inhibit_warnings;
 extern int flag_assume_nonnull_objects;
 extern tree ctor_label, dtor_label;
-
-/* See cp-decl.c for comment of this variable.  */
-extern int flag_int_enum_equivalence;
 
 /* From cp-typeck.c:  */
 extern tree unary_complex_lvalue ();
@@ -207,10 +201,10 @@ convert_harshness (type, parmtype, parm)
 
       if (TYPE_OFFSET_BASETYPE (type) == TYPE_OFFSET_BASETYPE (parmtype))
 	harshness = 0;
-      else if (DERIVED_FROM_P (TYPE_OFFSET_BASETYPE (type),
+      else if (UNIQUELY_DERIVED_FROM_P (TYPE_OFFSET_BASETYPE (type),
 			       TYPE_OFFSET_BASETYPE (parmtype)))
 	harshness = INT_TO_BD_HARSHNESS (1);
-      else if (DERIVED_FROM_P (TYPE_OFFSET_BASETYPE (parmtype),
+      else if (UNIQUELY_DERIVED_FROM_P (TYPE_OFFSET_BASETYPE (parmtype),
 			       TYPE_OFFSET_BASETYPE (type)))
 	harshness = CONTRAVARIANT_HARSHNESS (-1);
       else
@@ -355,7 +349,17 @@ convert_harshness (type, parmtype, parm)
 
 	if (codel == REFERENCE_TYPE)
 	  {
-	    ttl = TYPE_MAIN_VARIANT (TREE_TYPE (ttl));
+	    ttl = TREE_TYPE (ttl);
+
+	    /* When passing a non-const argument into a const reference,
+	       dig it a little, so a non-const reference is preferred over
+	       this one. (mrs) */
+	    if (TREE_READONLY (ttl) && ! TREE_READONLY (parm))
+	      penalty = 2;
+	    else
+	      penalty = 0;
+
+	    ttl = TYPE_MAIN_VARIANT (ttl);
 
 	    if (form == OFFSET_TYPE)
 	      {
@@ -374,8 +378,22 @@ convert_harshness (type, parmtype, parm)
 	    else
 	      {
 		/* Can reference be built up?  */
-		if (ttl == intype)
-		  return 0;
+		if (ttl == intype && penalty == 0) {
+		  /* Becuase the READONLY bits are not always in the type,
+		     this extra check is necessary.  The problem should
+		     be fixed someplace else, and this extra code removed.
+
+		     Also, if type if a reference, the readonly bits could
+		     either be in the outer type (with reference) or on the
+		     inner type (the thing being referenced).  (mrs)  */
+		  if (TREE_READONLY (parm)
+		      && ! (TYPE_READONLY (type)
+			    || (TREE_CODE (type) == REFERENCE_TYPE
+				&& TYPE_READONLY (TREE_TYPE (type)))))
+		    penalty = 2;
+		  else
+		    return 0;
+		}
 		else
 		  penalty = 2;
 	      }
@@ -730,6 +748,9 @@ compute_conversion_costs (function, tta_in, cp, arglen)
 
   /* Const member functions get a small penalty because defaulting
      to const is less useful than defaulting to non-const. */
+  /* This is bogus, it does not correspond to anything in the ARM.
+     This code will be fixed when this entire section is rewritten
+     to conform to the ARM.  (mrs)  */
   if (TREE_CODE (TREE_TYPE (function)) == METHOD_TYPE)
     {
       if (TYPE_READONLY (TREE_TYPE (TREE_VALUE (ttf_in))))
@@ -897,7 +918,6 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 		{
 		  /* Don't complain if next best is from base class.  */
 		  tree f2 = cp[i].function;
-		  tree p2 = TYPE_ARG_TYPES (TREE_TYPE (f2));
 
 		  if (TREE_CODE (TREE_TYPE (f1)) == METHOD_TYPE
 		      && TREE_CODE (TREE_TYPE (f2)) == METHOD_TYPE
@@ -905,6 +925,7 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 		      && cp[best].harshness[0] < cp[i].harshness[0])
 		    {
 #if 0
+		      tree p2 = TYPE_ARG_TYPES (TREE_TYPE (f2));
 		      /* For LUCID.  */
 		      if (! compparms (TREE_CHAIN (p1), TREE_CHAIN (p2), 1))
 			goto ret0;
@@ -916,6 +937,7 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 		    {
 		      /* Ensure that there's nothing ambiguous about these
 			 two fns.  */
+		      int identical = 1;
 		      for (index = 0; index < len; index++)
 			{
 			  /* Type conversions must be piecewise equivalent.  */
@@ -926,7 +948,17 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 			     other function, consider it ambiguous.  */
 			  if (cp[i].harshness[index] < cp[best].harshness[index])
 			    goto ret0;
+			  /* If any single one it diffent, then the whole is
+			     not identical.  */
+			  if (cp[i].harshness[index] != cp[best].harshness[index])
+			    identical = 0;
 			}
+
+		      /* If we can't tell the difference between the two, it
+			 is ambiguous.  */
+		      if (identical)
+			goto ret0;
+
 		      /* If we made it to here, it means we're satisfied that
 			 BEST is still best.  */
 		      continue;
@@ -1006,10 +1038,9 @@ ideal_candidate (basetype, candidates, n_candidates, parms, len)
 	      if (base1 != NULL_TREE)
 		{
 		  /* newbase could be a base or a parent of base1 */
-		  if (newbase != base1 && ! DERIVED_FROM_P (newbase, base1)
-		      && ! DERIVED_FROM_P (base1, newbase))
+		  if (newbase != base1 && ! UNIQUELY_DERIVED_FROM_P (newbase, base1)
+		      && ! UNIQUELY_DERIVED_FROM_P (base1, newbase))
 		    {
-		      char *buf = (char *)alloca (8192);
 		      error_with_aggr_type (basetype, "ambiguous request for function from distinct base classes of type `%s'");
 		      error ("first candidate is `%s'",
 			     fndecl_as_string (0, candidates[best].function, 1));
@@ -1080,7 +1111,7 @@ may_be_remote (parent)
   if (parent == current_class_type)
     return 0;
 
-  if (DERIVED_FROM_P (parent, current_class_type))
+  if (UNIQUELY_DERIVED_FROM_P (parent, current_class_type))
     return 0;
   return 1;
 }
@@ -1161,11 +1192,7 @@ build_field_call (basetype_path, instance_ptr, name, parms, err_name)
     {
       /* Check to see if we really have a reference to an instance variable
 	 with `operator()()' overloaded.  */
-#if 1
       field = IDENTIFIER_CLASS_VALUE (name);
-#else
-      field = identifier_class_value (name);
-#endif
 
       if (field == NULL_TREE)
 	{
@@ -1196,7 +1223,7 @@ build_field_call (basetype_path, instance_ptr, name, parms, err_name)
 
   /* Check to see if this is not really a reference to an instance variable
      with `operator()()' overloaded.  */
-  field = lookup_field (basetype_path, name, 1);
+  field = lookup_field (basetype_path, name, 1, 0);
 
   /* This can happen if the reference was ambiguous
      or for visibility violations.  */
@@ -1242,6 +1269,40 @@ build_field_call (basetype_path, instance_ptr, name, parms, err_name)
   return NULL_TREE;
 }
 
+tree
+find_scoped_type (type, inner_name, inner_types)
+     tree type, inner_name, inner_types;
+{
+  tree tags = CLASSTYPE_TAGS (type);
+
+  while (tags)
+    {
+      /* The TREE_PURPOSE of an enum tag (which becomes a member of the
+	 enclosing class) is set to the name for the enum type.  So, if
+	 inner_name is `bar', and we strike `baz' for `enum bar { baz }',
+	 then this test will be true.  */
+      if (TREE_PURPOSE (tags) == inner_name)
+	{
+	  if (inner_types == NULL_TREE)
+	    return DECL_NESTED_TYPENAME (TYPE_NAME (TREE_VALUE (tags)));
+	  return resolve_scope_to_name (TREE_VALUE (tags), inner_types);
+	}
+      tags = TREE_CHAIN (tags);
+    }
+
+  /* Look for a TYPE_DECL.  */
+  for (tags = TYPE_FIELDS (type); tags; tags = TREE_CHAIN (tags))
+    if (TREE_CODE (tags) == TYPE_DECL && DECL_NAME (tags) == inner_name)
+      {
+	/* Code by raeburn.  */
+	if (inner_types == NULL_TREE)
+	  return DECL_NESTED_TYPENAME (tags);
+	return resolve_scope_to_name (TREE_TYPE (tags), inner_types);
+      }
+
+  return NULL_TREE;
+}
+
 /* Resolve an expression NAME1::NAME2::...::NAMEn to
    the name that names the above nested type.  INNER_TYPES
    is a chain of nested type names (held together by SCOPE_REFs);
@@ -1251,8 +1312,8 @@ tree
 resolve_scope_to_name (outer_type, inner_types)
      tree outer_type, inner_types;
 {
-  tree tags;
-  tree inner_name;
+  register tree tmp;
+  tree tags, inner_name;
 
   if (outer_type == NULL_TREE && current_class_type != NULL_TREE)
     {
@@ -1290,41 +1351,28 @@ resolve_scope_to_name (outer_type, inner_types)
   if (! IS_AGGR_TYPE (outer_type))
     return NULL_TREE;
 
-  /* Look for member classes.  */
-  tags = CLASSTYPE_TAGS (outer_type);
+  /* Look for member classes or enums.  */
+  tmp = find_scoped_type (outer_type, inner_name, inner_types);
 
-  while (tags)
+  /* If it's not a type in this class, then go down into the
+     base classes and search there.  */
+  if (! tmp && TYPE_BINFO (outer_type))
     {
-      if (TREE_PURPOSE (tags) == inner_name)
+      tree binfos = TYPE_BINFO_BASETYPES (outer_type);
+      int i, n_baselinks = binfos ? TREE_VEC_LENGTH (binfos) : 0;
+
+      for (i = 0; i < n_baselinks; i++)
 	{
-	  if (inner_types == NULL_TREE)
-	    return DECL_NESTED_TYPENAME (TYPE_NAME (TREE_VALUE (tags)));
-	  return resolve_scope_to_name (TREE_VALUE (tags), inner_types);
+	  tree base_binfo = TREE_VEC_ELT (binfos, i);
+	  tmp = find_scoped_type (BINFO_TYPE (base_binfo),
+				  inner_name, inner_types);
+	  if (tmp)
+	    return tmp;
 	}
-      tags = TREE_CHAIN (tags);
+      tmp = NULL_TREE;
     }
 
-  /* Look for a TYPE_DECL.  */
-  for (tags = TYPE_FIELDS (outer_type); tags; tags = TREE_CHAIN (tags))
-    if (TREE_CODE (tags) == TYPE_DECL && DECL_NAME (tags) == inner_name)
-      {
-#if 0
-	/* Code by tiemann.  */
-	tree type = TREE_TYPE (tags);
-	/* With luck, this will name a visible type.  */
-	inner_name = TYPE_NAME (type);
-	if (TREE_CODE (inner_name) == TYPE_DECL)
-	  inner_name = DECL_NAME (inner_name);
-	return inner_name;
-#else
-	/* Code by raeburn.  */
-	if (inner_types == NULL_TREE)
-	  return DECL_NESTED_TYPENAME (tags);
-	return resolve_scope_to_name (TREE_TYPE (tags), inner_types);
-#endif
-      }
-
-  return NULL_TREE;
+  return tmp;
 }
 
 /* Build a method call of the form `EXP->SCOPES::NAME (PARMS)'.
@@ -1386,7 +1434,8 @@ build_scoped_method_call (exp, scopes, name, parms)
 	  if (! TYPE_HAS_DESTRUCTOR (TREE_TYPE (decl)))
 	    error_with_aggr_type (TREE_TYPE (decl), "type `%s' has no destructor");
 	  return build_delete (TREE_TYPE (decl), decl, integer_two_node,
-			       LOOKUP_NORMAL|LOOKUP_NONVIRTUAL|LOOKUP_DESTRUCTOR, 0, 1);
+			       LOOKUP_NORMAL|LOOKUP_NONVIRTUAL|LOOKUP_DESTRUCTOR,
+			       0, 0);
 	}
 
       /* Call to a method.  */
@@ -1450,8 +1499,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
   char *err_name;
   char *name_kind;
   int ever_seen = 0;
-  int wrap;
-  tree wrap_type;
   tree instance_ptr = NULL_TREE;
   int all_virtual = flag_all_virtual;
   int static_call_context = 0;
@@ -1480,9 +1527,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
   /* Keep track of `const' and `volatile' objects.  */
   int constp, volatilep;
 
-  /* Know if this is explicit destructor call.  */
-  int dtor_specd = 0;
-
 #ifdef GATHER_STATISTICS
   n_build_method_call++;
 #endif
@@ -1492,6 +1536,24 @@ build_method_call (instance, name, parms, basetype_path, flags)
       || parms == error_mark_node
       || (instance != 0 && TREE_TYPE (instance) == error_mark_node))
     return error_mark_node;
+
+  /* This is the logic that magically deletes the second argument to
+     operator delete, if it is not needed. */
+  if (name == ansi_opname[(int) DELETE_EXPR] && list_length (parms)==2)
+    {
+      tree save_last = TREE_CHAIN (parms);
+      tree result;
+      /* get rid of unneeded argument */
+      TREE_CHAIN (parms) = NULL_TREE;
+      result = build_method_call (instance, name, parms, basetype_path,
+				  (LOOKUP_SPECULATIVELY|flags)
+				  &~LOOKUP_COMPLAIN);
+      /* If it works, return it. */
+      if (result && result != error_mark_node)
+	return build_method_call (instance, name, parms, basetype_path, flags);
+      /* If it doesn't work, two argument delete must work */
+      TREE_CHAIN (parms) = save_last;
+    }
 
 #if 0
   /* C++ 2.1 does not allow this, but ANSI probably will.  */
@@ -1530,24 +1592,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
     }
 #endif
 
-  if (TREE_CODE (name) == WRAPPER_EXPR)
-    {
-      wrap_type = TREE_OPERAND (name, 0);
-      name = TREE_OPERAND (name, 1);
-      wrap = 1;
-    }
-  else if (TREE_CODE (name) == ANTI_WRAPPER_EXPR)
-    {
-      wrap_type = TREE_OPERAND (name, 0);
-      name = TREE_OPERAND (name, 1);
-      wrap = -1;
-    }
-  else
-    {
-      wrap_type = NULL_TREE;
-      wrap = 0;
-    }
-
   /* Initialize name for error reporting.  */
   if (IDENTIFIER_TYPENAME_P (name))
     err_name = "type conversion operator";
@@ -1557,8 +1601,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
       err_name = (char *)alloca (strlen (p) + 10);
       sprintf (err_name, "operator %s", p);
     }
-  else if (name == wrapper_name)
-    err_name = "wrapper";
   else if (TREE_CODE (name) == SCOPE_REF)
     err_name = IDENTIFIER_POINTER (TREE_OPERAND (name, 1));
   else
@@ -1568,13 +1610,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
     GNU_xref_call (current_function_decl,  IDENTIFIER_POINTER (name));
   else
     GNU_xref_call (current_function_decl, err_name);
-
-  if (wrap)
-    {
-      char *p = (char *)alloca (strlen (err_name) + 32);
-      sprintf (p, "%s for `%s'", wrap < 0 ? "anti-wrapper" : "wrapper", err_name);
-      err_name = p;
-    }
 
   if (instance == NULL_TREE)
     {
@@ -1622,16 +1657,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	      return error_mark_node;
 	    }
 	}
-      if (wrap_type && wrap_type != basetype)
-	{
-	  error_with_aggr_type (wrap_type, "invalid constructor `%s::%s'",
-				TYPE_NAME_STRING (basetype));
-	  return error_mark_node;
-	}
-      if (TYPE_VIRTUAL_P (basetype))
-	{
-	  wrap_type = basetype;
-	}
 
       if (! IS_AGGR_TYPE (basetype))
 	{
@@ -1651,8 +1676,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
       /* Anything manifestly `this' in constructors and destructors
 	 has a known type, so virtual function tables are not needed.  */
       if (TYPE_VIRTUAL_P (basetype)
-	  && !(flags & LOOKUP_NONVIRTUAL)
-	  && wrap_type == NULL_TREE)
+	  && !(flags & LOOKUP_NONVIRTUAL))
 	need_vtbl = (dtor_label || ctor_label)
 	  ? unneeded : maybe_needed;
 
@@ -1667,17 +1691,10 @@ build_method_call (instance, name, parms, basetype_path, flags)
   else if (TREE_CODE (instance) == RESULT_DECL)
     {
       basetype = TREE_TYPE (instance);
-      if (wrap_type)
-	{
-	  if (binfo_or_else (basetype, wrap_type))
-	    basetype = wrap_type;
-	  else
-	    return error_mark_node;
-	}
       /* Should we ever have to make a virtual function reference
 	 from a RESULT_DECL, know that it must be of fixed type
 	 within the scope of this function.  */
-      else if (!(flags & LOOKUP_NONVIRTUAL) && TYPE_VIRTUAL_P (basetype))
+      if (!(flags & LOOKUP_NONVIRTUAL) && TYPE_VIRTUAL_P (basetype))
 	need_vtbl = maybe_needed;
       instance_ptr = build1 (ADDR_EXPR, TYPE_POINTER_TO (basetype), instance);
     }
@@ -1755,7 +1772,8 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		}
 	      else
 		{
-		  assert (TREE_CODE (instance) == CALL_EXPR);
+		  if (TREE_CODE (instance) != CALL_EXPR)
+		    my_friendly_abort (125);
 		  if (TYPE_NEEDS_CONSTRUCTOR (basetype))
 		    instance = build_cplus_new (basetype, instance, 0);
 		  else
@@ -1787,14 +1805,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
       if (result)
 	return result;
 
-      if (wrap_type)
-	{
-	  if (binfo_or_else (basetype, wrap_type))
-	    basetype = wrap_type;
-	  else
-	    return error_mark_node;
-	}
-      else if (!(flags & LOOKUP_NONVIRTUAL) && TYPE_VIRTUAL_P (basetype))
+      if (!(flags & LOOKUP_NONVIRTUAL) && TYPE_VIRTUAL_P (basetype))
 	{
 	  if (TREE_SIDE_EFFECTS (instance_ptr))
 	    {
@@ -1823,15 +1834,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
       return error_mark_node;
     }
 
-  /* Are we building a non-virtual wrapper?  */
-  if (flags & LOOKUP_NONVIRTUAL)
-    {
-      if (all_virtual)
-	sorry ("non-virtual call with -fall-virtual");
-      if (wrap)
-	wrap_type = basetype;
-    }
-
   save_basetype = basetype;
 
 #if 0
@@ -1840,7 +1842,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		     OPERATOR_METHOD_LENGTH)
 	  || instance_ptr == NULL_TREE
 	  || (TYPE_OVERLOADS_METHOD_CALL_EXPR (basetype) == 0
-	      && TYPE_NEEDS_WRAPPER (basetype) == 0)))
+	      /*&& TYPE_NEEDS_WRAPPER (basetype) == 0*/ )))
     all_virtual = 0;
 #endif
 
@@ -1900,7 +1902,16 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	  instance_ptr = save_expr (instance_ptr);
 	  TREE_CALLS_NEW (instance_ptr) = 1;
 	  instance = build_indirect_ref (instance_ptr, 0);
-	  parms = tree_cons (NULL_TREE, instance_ptr, parms);
+
+	  /* If it's a default argument initialized from a ctor, what we get
+	     from instance_ptr will match the arglist for the FUNCTION_DECL
+	     of the constructor.  */
+	  if (parms && TREE_CODE (TREE_VALUE (parms)) == CALL_EXPR
+	      && TREE_OPERAND (TREE_VALUE (parms), 1)
+	      && TREE_CALLS_NEW (TREE_VALUE (TREE_OPERAND (TREE_VALUE (parms), 1))))
+	    parms = build_tree_list (NULL_TREE, instance_ptr);
+	  else
+	    parms = tree_cons (NULL_TREE, instance_ptr, parms);
 	}
     }
   parmtypes = tree_cons (NULL_TREE,
@@ -1911,81 +1922,71 @@ build_method_call (instance, name, parms, basetype_path, flags)
 
   /* Look up function name in the structure type definition.  */
 
-  if (wrap)
+  if ((IDENTIFIER_HAS_TYPE_VALUE (name)
+       && IS_AGGR_TYPE (IDENTIFIER_TYPE_VALUE (name)))
+      || name == constructor_name (basetype))
     {
-      if (wrap > 0)
-	name_kind = "wrapper";
-      else
-	name_kind = "anti-wrapper";
-      baselink = get_wrapper (basetype);
-    }
-  else
-    {
-      if ((IDENTIFIER_HAS_TYPE_VALUE (name)
-	   && IS_AGGR_TYPE (IDENTIFIER_TYPE_VALUE (name)))
+      tree tmp = NULL_TREE;
+      if (IDENTIFIER_TYPE_VALUE (name) == basetype
 	  || name == constructor_name (basetype))
+	tmp = TYPE_BINFO (basetype);
+      else
+	tmp = get_binfo (IDENTIFIER_TYPE_VALUE (name), basetype, 0);
+      
+      if (tmp != 0)
 	{
-	  tree tmp = NULL_TREE;
-	  if (IDENTIFIER_TYPE_VALUE (name) == basetype
-	      || name == constructor_name (basetype))
-	    tmp = TYPE_BINFO (basetype);
-	  else
-	    tmp = get_binfo (IDENTIFIER_TYPE_VALUE (name), basetype, 0);
-
-	  if (tmp != 0)
+	  name_kind = "constructor";
+	  
+	  if (TYPE_USES_VIRTUAL_BASECLASSES (basetype)
+	      && ! (flags & LOOKUP_HAS_IN_CHARGE))
 	    {
-	      name_kind = "constructor";
-
-	      if (TYPE_USES_VIRTUAL_BASECLASSES (basetype)
-	  	  && ! (flags & LOOKUP_HAS_IN_CHARGE))
-		{
-		  /* Constructors called for initialization
-		     only are never in charge.  */
-		  tree tmplist;
-
-		  flags |= LOOKUP_HAS_IN_CHARGE;
-		  tmplist = tree_cons (NULL_TREE, integer_zero_node,
-				       TREE_CHAIN (parms));
-		  TREE_CHAIN (parms) = tmplist;
-		  tmplist = tree_cons (NULL_TREE, integer_type_node, TREE_CHAIN (parmtypes));
-		  TREE_CHAIN (parmtypes) = tmplist;
-		}
-
-#ifdef SOS
-	      if (TYPE_DYNAMIC (basetype) && dtbl_inserted == 0)
-		{
-		  tree parm, parmtype;
-		  dtbl = get_sos_dtable (basetype);
-		  parm = tree_cons (NULL_TREE, dtbl, TREE_CHAIN (parms));
-		  parmtype = tree_cons (NULL_TREE, build_pointer_type (ptr_type_node), TREE_CHAIN (parmtypes));
-		  TREE_CHAIN (parms) = parm;
-		  TREE_CHAIN (parmtypes) = parmtype;
-		  dtbl_inserted = -1;
-		}
-#endif
-	      /* constructors are in very specific places.  */
-#ifdef SOS
-	      if (dtbl_inserted == -1)
-		{
-		  TREE_CHAIN (parmtypes) = TREE_CHAIN (TREE_CHAIN (parmtypes));
-		  TREE_CHAIN (parms) = TREE_CHAIN (TREE_CHAIN (parms));
-		  dtbl_inserted = 0;
-		}
-#endif
-	      basetype = BINFO_TYPE (tmp);
+	      /* Constructors called for initialization
+		 only are never in charge.  */
+	      tree tmplist;
+	      
+	      flags |= LOOKUP_HAS_IN_CHARGE;
+	      tmplist = tree_cons (NULL_TREE, integer_zero_node,
+				   TREE_CHAIN (parms));
+	      TREE_CHAIN (parms) = tmplist;
+	      tmplist = tree_cons (NULL_TREE, integer_type_node, TREE_CHAIN (parmtypes));
+	      TREE_CHAIN (parmtypes) = tmplist;
 	    }
-	  else
-	    name_kind = "method";
+	  
+#ifdef SOS
+	  if (TYPE_DYNAMIC (basetype) && dtbl_inserted == 0)
+	    {
+	      tree parm, parmtype;
+	      dtbl = get_sos_dtable (basetype);
+	      parm = tree_cons (NULL_TREE, dtbl, TREE_CHAIN (parms));
+	      parmtype = tree_cons (NULL_TREE, build_pointer_type (ptr_type_node), TREE_CHAIN (parmtypes));
+	      TREE_CHAIN (parms) = parm;
+	      TREE_CHAIN (parmtypes) = parmtype;
+	      dtbl_inserted = -1;
+	    }
+#endif
+	  /* constructors are in very specific places.  */
+#ifdef SOS
+	  if (dtbl_inserted == -1)
+	    {
+	      TREE_CHAIN (parmtypes) = TREE_CHAIN (TREE_CHAIN (parmtypes));
+	      TREE_CHAIN (parms) = TREE_CHAIN (TREE_CHAIN (parms));
+	      dtbl_inserted = 0;
+	    }
+#endif
+	  basetype = BINFO_TYPE (tmp);
 	}
-      else name_kind = "method";
-
-      if (basetype_path == NULL_TREE)
-	basetype_path = TYPE_BINFO (basetype);
-      result = lookup_fnfields (basetype_path, name,
-				(flags & LOOKUP_COMPLAIN));
-      if (result == error_mark_node)
-	return error_mark_node;
+      else
+	name_kind = "method";
     }
+  else name_kind = "method";
+  
+  if (basetype_path == NULL_TREE)
+    basetype_path = TYPE_BINFO (basetype);
+  result = lookup_fnfields (basetype_path, name,
+			    (flags & LOOKUP_COMPLAIN));
+  if (result == error_mark_node)
+    return error_mark_node;
+
 
   /* Now, go look for this method name.  We do not find destructors here.
 
@@ -2004,17 +2005,18 @@ build_method_call (instance, name, parms, basetype_path, flags)
       unsigned best = 2;
 
       /* This increments every time we go up the type hierarchy.
-	 The idea is to prefer a function of the derived class if possible.  */
-      int b_or_d;
+	 The idea is to prefer a function of the derived class if possible. */
+      int b_or_d = 0;
 
       baselink = result;
 
       if (pass > 0)
 	{
-	  candidates = (struct candidate *) alloca ((ever_seen+1) * sizeof (struct candidate));
+	  candidates
+	    = (struct candidate *) alloca ((ever_seen+1)
+					   * sizeof (struct candidate));
 	  cp = candidates;
 	  len = list_length (parms);
-	  b_or_d = 0;
 
 	  /* First see if a global function has a shot at it.  */
 	  if (flags & LOOKUP_GLOBAL)
@@ -2037,7 +2039,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		  friend_parms = tree_cons (NULL_TREE, parm, TREE_CHAIN (parms));
 		}
 	      else
-		assert (0);
+		my_friendly_assert (0, 167);
 
 	      cp->harshness
 		= (unsigned short *)alloca ((len+1) * sizeof (short));
@@ -2193,6 +2195,9 @@ build_method_call (instance, name, parms, basetype_path, flags)
 
 	  if (ever_seen == 0)
 	    {
+	      if ((flags & (LOOKUP_SPECULATIVELY|LOOKUP_COMPLAIN))
+		  == LOOKUP_SPECULATIVELY)
+		return NULL_TREE;
 	      if (flags & LOOKUP_GLOBAL)
 		error ("no global or member function `%s' defined", err_name);
 	      else
@@ -2260,7 +2265,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	    parms = TREE_CHAIN (parms);
 	  if (ever_seen)
 	    {
-	      if (((int)saw_protected|(int)saw_private) == 0)
+	      if (((HOST_WIDE_INT)saw_protected|(HOST_WIDE_INT)saw_private) == 0)
 		{
 		  if (flags & LOOKUP_SPECULATIVELY)
 		    return NULL_TREE;
@@ -2302,14 +2307,8 @@ build_method_call (instance, name, parms, basetype_path, flags)
 	      else
 		tag_name = "union";
 
-	      if (wrap)
-		buf = "%s has no appropriate wrapper function defined";
-	      else
-		{
-		  buf = (char *)alloca (30 + strlen (err_name));
-		  strcpy (buf, "%s has no method named `%s'");
-		}
-
+	      buf = (char *)alloca (30 + strlen (err_name));
+	      strcpy (buf, "%s has no method named `%s'");
 	      error (buf, tag_name, err_name);
 	      return error_mark_node;
 	    }
@@ -2337,21 +2336,25 @@ build_method_call (instance, name, parms, basetype_path, flags)
   if (visibility == visibility_private)
     {
       if (flags & LOOKUP_COMPLAIN)
-	error (TREE_PRIVATE (function)
-	       ? "%s `%s' is private"
-	       : "%s `%s' is from private base class",
-	       name_kind,
-	       lang_printable_name (function));
+	error_with_file_and_line (DECL_SOURCE_FILE (function),
+				  DECL_SOURCE_LINE (function),
+				  TREE_PRIVATE (function)
+				  ? "%s `%s' is private"
+				  : "%s `%s' is from private base class",
+				  name_kind,
+				  lang_printable_name (function));
       return error_mark_node;
     }
   else if (visibility == visibility_protected)
     {
       if (flags & LOOKUP_COMPLAIN)
-	error (TREE_PROTECTED (function)
-	       ? "%s `%s' is protected"
-	       : "%s `%s' has protected visibility from this point",
-	       name_kind,
-	       lang_printable_name (function));
+	error_with_file_and_line (DECL_SOURCE_FILE (function),
+				  DECL_SOURCE_LINE (function),
+				  TREE_PROTECTED (function)
+				  ? "%s `%s' is protected"
+				  : "%s `%s' has protected visibility from this point",
+				  name_kind,
+				  lang_printable_name (function));
       return error_mark_node;
     }
   my_friendly_abort (1);
@@ -2411,7 +2414,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		return error_mark_node;
 	    }
 	}
-      else
+      else if (! TREE_STATIC (function))
 	{
 	  error_with_aggr_type (basetype, "cannot call member function `%s::%s' without object",
 				err_name);
@@ -2467,6 +2470,9 @@ build_method_call (instance, name, parms, basetype_path, flags)
 		   && TREE_CODE (TREE_OPERAND (instance_ptr, 0)) == ADDR_EXPR
 		   && TREE_OPERAND (TREE_OPERAND (instance_ptr, 0), 0) == instance)
 	    ;
+	  /* The call to `convert_pointer_to' may return error_mark_node.  */
+	  else if (TREE_CODE (instance_ptr) == ERROR_MARK)
+	    return instance_ptr;
 	  else if (instance == NULL_TREE
 		   || TREE_CODE (instance) != INDIRECT_REF
 		   || TREE_OPERAND (instance, 0) != instance_ptr)
@@ -2476,82 +2482,6 @@ build_method_call (instance, name, parms, basetype_path, flags)
 			 convert_arguments (NULL_TREE, TREE_CHAIN (TYPE_ARG_TYPES (fntype)), TREE_CHAIN (parms), NULL_TREE, LOOKUP_NORMAL));
     }
 
-  /* See if there is a wrapper for this thing.  */
-  if (wrap < 0
-      || static_call_context
-      || name == wrapper_name
-      || name == TYPE_IDENTIFIER (basetype))
-    ;
-  else if (wrap > 0 || TYPE_NEEDS_WRAPPER (basetype))
-    {
-      flags &= ~LOOKUP_PROTECT;
-      if (wrap == 0)
-	{
-	  wrap = TYPE_NEEDS_WRAPPER (basetype);
-	  /* If no wrapper specified, wrapper may be virtual.  */
-	  flags &= ~LOOKUP_NONVIRTUAL;
-	}
-
-      if (wrap)
-	{
-	  tree wrapped_result, unwrapped_result;
-
-	  if (!all_virtual && TREE_CODE (function) == FUNCTION_DECL)
-	    parm = build_unary_op (ADDR_EXPR, function, 0);
-	  else
-	    {
-              fntype = build_cplus_method_type (basetype, TREE_TYPE (fntype), TYPE_ARG_TYPES (fntype));
-	      parm = build1 (NOP_EXPR, build_pointer_type (fntype), DECL_VINDEX (function));
-	    }
-
-	  if (TYPE_HAS_WRAPPER_PRED (basetype))
-	    {
-	      unwrapped_result = build_nt (CALL_EXPR, default_conversion (function), parms, NULL_TREE);
-
-	      assert (TREE_OPERAND (unwrapped_result, 1) != error_mark_node);
-
-	      TREE_TYPE (unwrapped_result) = value_type;
-	      TREE_SIDE_EFFECTS (unwrapped_result) = 1;
-	      TREE_RAISES (unwrapped_result) = !! TYPE_RAISES_EXCEPTIONS (fntype);
-	    }
-
-	  /* If this pointer walked as a result of multiple inheritance,
-	     keep its displaced value.  */
-	  parms = tree_cons (NULL_TREE, parm, TREE_CHAIN (parms));
-
-	  wrapped_result = get_wrapper (basetype);
-	  assert (wrapped_result != NULL_TREE);
-	  assert (wrapped_result != error_mark_node);
-
-	  /* @@ Should BASETYPE_PATH get TREE_PURPOSE (wrapped_result) here?  */
-	  wrapped_result
-	    = build_method_call (instance,
-				 DECL_NAME (TREE_VALUE (wrapped_result)),
-				 parms, basetype_path, flags);
-#if 0
-	  /* Do this if we want the result of operator->() to inherit
-	     the type of the function it is subbing for.  */
-	  if (wrapped_result != error_mark_node)
-	    TREE_TYPE (wrapped_result) = value_type;
-#endif
-
-	  if (TYPE_HAS_WRAPPER_PRED (basetype))
-	    {
-	      result = build_conditional_expr
-		(build_method_call (instance, wrapper_pred_name, build_tree_list (NULL_TREE, parm), basetype_path, LOOKUP_NORMAL),
-		 wrapped_result,
-		 unwrapped_result);
-
-	    }
-	  else
-	    {
-	      result = wrapped_result;
-	    }
-
-	  TREE_SIDE_EFFECTS (result) = 1;
-	  return result;
-	}
-    }
 #if 0
   /* Constructors do not overload method calls.  */
   else if (TYPE_OVERLOADS_METHOD_CALL_EXPR (basetype)
@@ -2648,7 +2578,7 @@ build_method_call (instance, name, parms, basetype_path, flags)
 
   if (TREE_CODE (function) == FUNCTION_DECL)
     {
-      if (TREE_INLINE (function))
+      if (DECL_INLINE (function))
 	function = build1 (ADDR_EXPR, build_pointer_type (fntype), function);
       else
 	{
@@ -2794,7 +2724,7 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
       length = 0;
 
       /* The list-of-lists should only occur for class things.  */
-      assert (functions == IDENTIFIER_CLASS_VALUE (fnname));
+      my_friendly_assert (functions == IDENTIFIER_CLASS_VALUE (fnname), 168);
 
       for (outer = functions; outer; outer = TREE_CHAIN (outer))
 	{
@@ -2816,7 +2746,7 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
 
   cp = candidates;
 
-  assert (TREE_CODE (TREE_VALUE (functions)) != TREE_LIST);
+  my_friendly_assert (TREE_CODE (TREE_VALUE (functions)) != TREE_LIST, 169);
   /* OUTER is the list of FUNCTION_DECLS, in a TREE_LIST.  */
 
   for (outer = functions; outer; outer = TREE_CHAIN (outer))
@@ -2928,9 +2858,16 @@ build_overload_call_real (fnname, parms, complain, final_cp, buildxxx)
     {
       tree name;
       char *err_name;
+
       /* Initialize name for error reporting.  */
       if (TREE_CODE (functions) == TREE_LIST)
 	name = TREE_PURPOSE (functions);
+      else if (TREE_CODE (functions) == ADDR_EXPR)
+      /* Since the implicit `operator new' and `operator delete' functions
+	 are set up to have IDENTIFIER_GLOBAL_VALUEs that are unary ADDR_EXPRs
+	 by default_conversion(), we must compensate for that here by
+	 using the name of the ADDR_EXPR's operand.  */
+	name = DECL_NAME (TREE_OPERAND (functions, 0));
       else
 	name = DECL_NAME (functions);
 

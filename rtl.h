@@ -1,5 +1,5 @@
 /* Register Transfer Language (RTL) definitions for GNU C-Compiler
-   Copyright (C) 1987, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1991, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -55,6 +55,7 @@ extern char rtx_class[];
 
 typedef union rtunion_def
 {
+  HOST_WIDE_INT rtwint;
   int rtint;
   char *rtstr;
   struct rtx_def *rtx;
@@ -67,7 +68,11 @@ typedef union rtunion_def
 typedef struct rtx_def
 {
 #ifdef ONLY_INT_FIELDS
+#ifdef CODE_FIELD_BUG
+  unsigned int code : 16;
+#else
   unsigned short code;
+#endif
 #else
   /* The kind of expression this is.  */
   enum rtx_code code : 16;
@@ -86,6 +91,7 @@ typedef struct rtx_def
   /* 1 in a MEM or REG if value of this expression will never change
      during the current function, even though it is not
      manifestly constant.
+     1 in a SUBREG if it is from a promoted variable that is unsigned.
      1 in a SYMBOL_REF if it addresses something in the per-function
      constants pool.
      1 in a CALL_INSN if it is a const call.
@@ -97,12 +103,15 @@ typedef struct rtx_def
      if it is deleted.
      1 in a REG expression if corresponds to a variable declared by the user.
      0 for an internally generated temporary.
-     In a SYMBOL_REF, this flag is used for machine-specific purposes.  */
+     In a SYMBOL_REF, this flag is used for machine-specific purposes.
+     In a LABEL_REF or in a REG_LABEL note, this is LABEL_REF_NONLOCAL_P.  */
   unsigned int volatil : 1;
   /* 1 in a MEM referring to a field of a structure (not a union!).
      0 if the MEM was a variable or the result of a * operator in C;
      1 if it was the result of a . or -> operator (on a struct) in C.
      1 in a REG if the register is used only in exit code a loop.
+     1 in a SUBREG expression if was generated from a variable with a 
+     promoted mode.
      1 in a CODE_LABEL if the label is used for nonlocal gotos
      and must not be deleted even if its count is zero.
      1 in a LABEL_REF if this is a reference to a label outside the
@@ -130,7 +139,34 @@ typedef struct rtx_def
   rtunion fld[1];
 } *rtx;
 
+/* Add prototype support.  */
+#ifndef PROTO
+#if defined (USE_PROTOTYPES) ? USE_PROTOTYPES : defined (__STDC__)
+#define PROTO(ARGS) ARGS
+#else
+#define PROTO(ARGS) ()
+#endif
+#endif
+
 #define NULL_RTX (rtx) 0
+
+/* Define a generic NULL if one hasn't already been defined.  */
+
+#ifndef NULL
+#define NULL 0
+#endif
+
+#ifndef GENERIC_PTR
+#if defined (USE_PROTOTYPES) ? USE_PROTOTYPES : defined (__STDC__)
+#define GENERIC_PTR void *
+#else
+#define GENERIC_PTR char *
+#endif
+#endif
+
+#ifndef NULL_PTR
+#define NULL_PTR ((GENERIC_PTR)0)
+#endif
 
 /* Define macros to access the `code' field of the rtx.  */
 
@@ -179,6 +215,7 @@ typedef struct rtvec_def{
 
 #define XEXP(RTX, N)	((RTX)->fld[N].rtx)
 #define XINT(RTX, N)	((RTX)->fld[N].rtint)
+#define XWINT(RTX, N)	((RTX)->fld[N].rtwint)
 #define XSTR(RTX, N)	((RTX)->fld[N].rtstr)
 #define XVEC(RTX, N)	((RTX)->fld[N].rtvec)
 #define XVECLEN(RTX, N)	((RTX)->fld[N].rtvec->num_elem)
@@ -302,9 +339,13 @@ extern char *reg_note_name[];
 #define LINE_NUMBER NOTE
 
 /* In a NOTE that is a line number, this is a string for the file name
-   that the line is in.  */
+   that the line is in.  We use the same field to record block numbers
+   temporarily in NOTE_INSN_BLOCK_BEG and NOTE_INSN_BLOCK_END notes.
+   (We avoid lots of casts between ints and pointers if we use a
+   different macro for the bock number.)  */
 
 #define NOTE_SOURCE_FILE(INSN)  ((INSN)->fld[3].rtstr)
+#define NOTE_BLOCK_NUMBER(INSN) ((INSN)->fld[3].rtint)
 
 /* In a NOTE that is a line number, this is the line number.
    Other kinds of NOTEs are identified by negative numbers here.  */
@@ -336,13 +377,22 @@ extern char *reg_note_name[];
 #define NOTE_INSN_LOOP_CONT -8
 /* Generated at the start of a duplicated exit test.  */
 #define NOTE_INSN_LOOP_VTOP -9
+/* This marks the point immediately after the last prologue insn.  */
+#define NOTE_INSN_PROLOGUE_END -10
+/* This marks the point immediately prior to the first epilogue insn.  */
+#define NOTE_INSN_EPILOGUE_BEG -11
+/* Generated in place of user-declared labels when they are deleted.  */
+#define NOTE_INSN_DELETED_LABEL -12
 /* Don't forget to change note_insn_name in rtl.c.  */
 
+
+#if 0 /* These are not used, and I don't know what they were for. --rms.  */
 #define NOTE_DECL_NAME(INSN) ((INSN)->fld[3].rtstr)
 #define NOTE_DECL_CODE(INSN) ((INSN)->fld[4].rtint)
 #define NOTE_DECL_RTL(INSN) ((INSN)->fld[5].rtx)
 #define NOTE_DECL_IDENTIFIER(INSN) ((INSN)->fld[6].rtint)
 #define NOTE_DECL_TYPE(INSN) ((INSN)->fld[7].rtint)
+#endif /* 0 */
 
 /* Names for NOTE insn's other than line numbers.  */
 
@@ -393,13 +443,24 @@ extern char *note_insn_name[];
 
 /* For a CONST_INT rtx, INTVAL extracts the integer.  */
 
-#define INTVAL(RTX) ((RTX)->fld[0].rtint)
+#define INTVAL(RTX) ((RTX)->fld[0].rtwint)
 
 /* For a SUBREG rtx, SUBREG_REG extracts the value we want a subreg of.
    SUBREG_WORD extracts the word-number.  */
 
 #define SUBREG_REG(RTX) ((RTX)->fld[0].rtx)
 #define SUBREG_WORD(RTX) ((RTX)->fld[1].rtint)
+
+/* 1 if the REG contained in SUBREG_REG is already known to be
+   sign- or zero-extended from the mode of the SUBREG to the mode of
+   the reg.  SUBREG_PROMOTED_UNSIGNED_P gives the signedness of the
+   extension.  
+
+   When used as a LHS, is means that this extension must be done
+   when assigning to SUBREG_REG.  */
+
+#define SUBREG_PROMOTED_VAR_P(RTX) ((RTX)->in_struct)
+#define SUBREG_PROMOTED_UNSIGNED_P(RTX) ((RTX)->unchanging)
 
 /* Access various components of an ASM_OPERANDS rtx.  */
 
@@ -426,6 +487,10 @@ extern char *note_insn_name[];
    loop containing the reference.  */
 #define LABEL_OUTSIDE_LOOP_P(RTX) ((RTX)->in_struct)
 
+/* For a LABEL_REF, 1 means it is for a nonlocal label.  */
+/* Likewise in an EXPR_LIST for a REG_LABEL note.  */
+#define LABEL_REF_NONLOCAL_P(RTX) ((RTX)->volatil)
+
 /* For a CODE_LABEL, 1 means always consider this label to be needed.  */
 #define LABEL_PRESERVE_P(RTX) ((RTX)->in_struct)
 
@@ -435,6 +500,16 @@ extern char *note_insn_name[];
 /* During sched, for an insn, 1 means that the insn must be scheduled together
    with the preceding insn.  */
 #define SCHED_GROUP_P(INSN) ((INSN)->in_struct)
+
+/* During sched, for the LOG_LINKS of an insn, these cache the adjusted
+   cost of the dependence link.  The cost of executing an instruction
+   may vary based on how the results are used.  LINK_COST_ZERO is 1 when
+   the cost through the link varies and is unchanged (i.e., the link has
+   zero additional cost).  LINK_COST_FREE is 1 when the cost through the
+   link is zero (i.e., the link makes the cost free).  In other cases,
+   the adjustment to the cost is recomputed each time it is needed.  */
+#define LINK_COST_ZERO(X) ((X)->jump)
+#define LINK_COST_FREE(X) ((X)->call)
 
 /* For a SET rtx, SET_DEST is the place that is set
    and SET_SRC is the value it is set to.  */
@@ -526,109 +601,165 @@ extern char *note_insn_name[];
 
 /* Generally useful functions.  */
 
-extern rtx rtx_alloc ();
-extern rtvec rtvec_alloc ();
-extern rtx find_reg_note ();
-extern rtx find_regno_note ();
-extern int get_integer_term ();
-extern rtx get_related_value ();
-extern rtx single_set ();
-extern rtx find_last_value ();
+/* The following functions accept a wide integer argument.  Rather than
+   having to cast on every function call, we use a macro instead, that is
+   defined here and in tree.h.  */
+
+#ifndef exact_log2
+#define exact_log2(N) exact_log2_wide ((HOST_WIDE_INT) (N))
+#define floor_log2(N) floor_log2_wide ((HOST_WIDE_INT) (N))
+#endif
+
+#define plus_constant(X,C) plus_constant_wide (X, (HOST_WIDE_INT) (C))
+
+#define plus_constant_for_output(X,C)  \
+  plus_constant_for_output_wide (X, (HOST_WIDE_INT) (C))
+
+extern rtx plus_constant_wide		 PROTO((rtx, HOST_WIDE_INT));
+extern rtx plus_constant_for_output_wide PROTO((rtx, HOST_WIDE_INT));
+
+#define GEN_INT(N) gen_rtx (CONST_INT, VOIDmode, (N))
+
+#if 0
+/* We cannot define prototypes for the variable argument functions,
+   since they have not been ANSI-fied, and an ANSI compiler would
+   complain when compiling the definition of these functions.  */
+
+extern rtx gen_rtx			PROTO((enum rtx_code, enum machine_mode, ...));
+extern rtvec gen_rtvec			PROTO((int, ...));
+
+#else
 extern rtx gen_rtx ();
-extern rtx copy_rtx ();
-extern rtx copy_rtx_if_shared ();
-extern rtx copy_most_rtx ();
-extern rtx replace_rtx ();
 extern rtvec gen_rtvec ();
-extern rtvec gen_rtvec_v ();
+#endif
+
+#ifdef BUFSIZ			/* stdio.h has been included */
+extern rtx read_rtx			PROTO((FILE *));
+#else
 extern rtx read_rtx ();
-extern rtx gen_reg_rtx ();
-extern rtx gen_label_rtx ();
-extern rtx gen_inline_header_rtx ();
-extern rtx gen_lowpart_common ();
-extern rtx gen_lowpart ();
-extern rtx gen_lowpart_if_possible ();
-extern rtx operand_subword ();
-extern rtx operand_subword_force ();
-extern int subreg_lowpart_p ();
-extern rtx make_safe_from ();
-extern rtx memory_address ();
-extern rtx get_insns ();
-extern rtx get_last_insn ();
-extern rtx get_last_insn_anywhere ();
-extern void start_sequence ();
-extern void push_to_sequence ();
-extern void end_sequence ();
-extern rtx gen_sequence ();
-extern rtx expand_expr ();
-extern rtx output_constant_def ();
-extern rtx immed_real_const ();
-extern rtx immed_real_const_1 ();
-extern rtx immed_double_const ();
-extern rtx force_const_mem ();
-extern rtx get_pool_constant ();
-extern enum machine_mode get_pool_mode ();
-extern int get_pool_offset ();
-extern rtx get_parm_real_loc ();
-extern rtx assign_stack_local ();
-extern rtx assign_stack_temp ();
-extern rtx protect_from_queue ();
-extern void emit_queue ();
-extern rtx emit_move_insn ();
-extern rtx emit_insn_before ();
-extern rtx emit_jump_insn_before ();
-extern rtx emit_call_insn_before ();
-extern rtx emit_barrier_before ();
-extern rtx emit_note_before ();
-extern rtx emit_insn_after ();
-extern rtx emit_jump_insn_after ();
-extern rtx emit_barrier_after ();
-extern rtx emit_label_after ();
-extern rtx emit_note_after ();
-extern rtx emit_line_note_after ();
-extern rtx emit_insn ();
-extern rtx emit_insns ();
-extern rtx emit_insns_before ();
-extern rtx emit_jump_insn ();
-extern rtx emit_call_insn ();
-extern rtx emit_label ();
-extern rtx emit_barrier ();
-extern rtx emit_line_note ();
-extern rtx emit_note ();
-extern rtx emit_line_note_force ();
-extern rtx make_insn_raw ();
-extern rtx previous_insn ();
-extern rtx next_insn ();
-extern rtx prev_nonnote_insn ();
-extern rtx next_nonnote_insn ();
-extern rtx prev_real_insn ();
-extern rtx next_real_insn ();
-extern rtx prev_active_insn ();
-extern rtx next_active_insn ();
-extern rtx prev_label ();
-extern rtx next_label ();
-extern rtx next_cc0_user ();
-extern rtx prev_cc0_setter ();
-extern rtx reg_set_last ();
-extern rtx next_nondeleted_insn ();
-extern enum rtx_code reverse_condition ();
-extern enum rtx_code swap_condition ();
-extern enum rtx_code unsigned_condition ();
-extern enum rtx_code signed_condition ();
-extern rtx plus_constant (), plus_constant_for_output ();
-extern rtx find_equiv_reg ();
-extern rtx squeeze_notes ();
-extern rtx delete_insn ();
-extern void delete_jump ();
-extern rtx get_label_before ();
-extern rtx get_label_after ();
-extern rtx follow_jumps ();
-extern rtx adj_offsettable_operand ();
-extern rtx try_split ();
-extern rtx split_insns ();
-extern rtx simplify_unary_operation (), simplify_binary_operation ();
-extern rtx simplify_ternary_operation (), simplify_relational_operation ();
-extern rtx nonlocal_label_rtx_list ();
+#endif
+
+#if 0
+/* At present, don't prototype xrealloc, since all of the callers don't
+   cast their pointers to char *, and all of the xrealloc's don't use
+   void * yet.  */
+extern char *xrealloc			PROTO((void *, unsigned));
+#else
+extern char *xrealloc ();
+#endif
+
+extern char *xmalloc			PROTO((unsigned));
+extern char *oballoc			PROTO((int));
+extern char *permalloc			PROTO((int));
+extern void free			PROTO((void *));
+extern rtx rtx_alloc			PROTO((RTX_CODE));
+extern rtvec rtvec_alloc		PROTO((int));
+extern rtx find_reg_note		PROTO((rtx, enum reg_note, rtx));
+extern rtx find_regno_note		PROTO((rtx, enum reg_note, int));
+extern HOST_WIDE_INT get_integer_term	PROTO((rtx));
+extern rtx get_related_value		PROTO((rtx));
+extern rtx single_set			PROTO((rtx));
+extern rtx find_last_value		PROTO((rtx, rtx *, rtx));
+extern rtx copy_rtx			PROTO((rtx));
+extern rtx copy_rtx_if_shared		PROTO((rtx));
+extern rtx copy_most_rtx		PROTO((rtx, rtx));
+extern rtx replace_rtx			PROTO((rtx, rtx, rtx));
+extern rtvec gen_rtvec_v		PROTO((int, rtx *));
+extern rtx gen_reg_rtx			PROTO((enum machine_mode));
+extern rtx gen_label_rtx		PROTO((void));
+extern rtx gen_inline_header_rtx	PROTO((rtx, rtx, int, int, int, int, int, int, rtx, int, int, rtvec, rtx));
+extern rtx gen_lowpart_common		PROTO((enum machine_mode, rtx));
+extern rtx gen_lowpart			PROTO((enum machine_mode, rtx));
+extern rtx gen_lowpart_if_possible	PROTO((enum machine_mode, rtx));
+extern rtx gen_highpart			PROTO((enum machine_mode, rtx));
+extern rtx gen_realpart			PROTO((enum machine_mode, rtx));
+extern rtx gen_imagpart			PROTO((enum machine_mode, rtx));
+extern rtx operand_subword		PROTO((rtx, int, int, enum machine_mode));
+extern rtx operand_subword_force	PROTO((rtx, int, enum machine_mode));
+extern int subreg_lowpart_p		PROTO((rtx));
+extern rtx make_safe_from		PROTO((rtx, rtx));
+extern rtx memory_address		PROTO((enum machine_mode, rtx));
+extern rtx get_insns			PROTO((void));
+extern rtx get_last_insn		PROTO((void));
+extern rtx get_last_insn_anywhere	PROTO((void));
+extern void start_sequence		PROTO((void));
+extern void push_to_sequence		PROTO((rtx));
+extern void end_sequence		PROTO((void));
+extern rtx gen_sequence			PROTO((void));
+extern rtx immed_double_const		PROTO((HOST_WIDE_INT, HOST_WIDE_INT, enum machine_mode));
+extern rtx force_const_mem		PROTO((enum machine_mode, rtx));
+extern rtx force_reg			PROTO((enum machine_mode, rtx));
+extern rtx get_pool_constant		PROTO((rtx));
+extern enum machine_mode get_pool_mode	PROTO((rtx));
+extern int get_pool_offset		PROTO((rtx));
+extern rtx simplify_subtraction		PROTO((rtx));
+extern rtx assign_stack_local		PROTO((enum machine_mode, int, int));
+extern rtx assign_stack_temp		PROTO((enum machine_mode, int, int));
+extern rtx protect_from_queue		PROTO((rtx, int));
+extern void emit_queue			PROTO((void));
+extern rtx emit_move_insn		PROTO((rtx, rtx));
+extern rtx emit_insn_before		PROTO((rtx, rtx));
+extern rtx emit_jump_insn_before	PROTO((rtx, rtx));
+extern rtx emit_call_insn_before	PROTO((rtx, rtx));
+extern rtx emit_barrier_before		PROTO((rtx));
+extern rtx emit_note_before		PROTO((int, rtx));
+extern rtx emit_insn_after		PROTO((rtx, rtx));
+extern rtx emit_jump_insn_after		PROTO((rtx, rtx));
+extern rtx emit_barrier_after		PROTO((rtx));
+extern rtx emit_label_after		PROTO((rtx, rtx));
+extern rtx emit_note_after		PROTO((int, rtx));
+extern rtx emit_line_note_after		PROTO((char *, int, rtx));
+extern rtx emit_insn			PROTO((rtx));
+extern rtx emit_insns			PROTO((rtx));
+extern rtx emit_insns_before		PROTO((rtx, rtx));
+extern rtx emit_jump_insn		PROTO((rtx));
+extern rtx emit_call_insn		PROTO((rtx));
+extern rtx emit_label			PROTO((rtx));
+extern rtx emit_barrier			PROTO((void));
+extern rtx emit_line_note		PROTO((char *, int));
+extern rtx emit_note			PROTO((char *, int));
+extern rtx emit_line_note_force		PROTO((char *, int));
+extern rtx make_insn_raw		PROTO((rtx));
+extern rtx previous_insn		PROTO((rtx));
+extern rtx next_insn			PROTO((rtx));
+extern rtx prev_nonnote_insn		PROTO((rtx));
+extern rtx next_nonnote_insn		PROTO((rtx));
+extern rtx prev_real_insn		PROTO((rtx));
+extern rtx next_real_insn		PROTO((rtx));
+extern rtx prev_active_insn		PROTO((rtx));
+extern rtx next_active_insn		PROTO((rtx));
+extern rtx prev_label			PROTO((rtx));
+extern rtx next_label			PROTO((rtx));
+extern rtx next_cc0_user		PROTO((rtx));
+extern rtx prev_cc0_setter		PROTO((rtx));
+extern rtx reg_set_last			PROTO((rtx, rtx));
+extern rtx next_nondeleted_insn		PROTO((rtx));
+extern enum rtx_code reverse_condition	PROTO((enum rtx_code));
+extern enum rtx_code swap_condition	PROTO((enum rtx_code));
+extern enum rtx_code unsigned_condition	PROTO((enum rtx_code));
+extern enum rtx_code signed_condition	PROTO((enum rtx_code));
+extern rtx find_equiv_reg		PROTO((rtx, rtx, enum reg_class, int, short *, int, enum machine_mode));
+extern rtx squeeze_notes		PROTO((rtx, rtx));
+extern rtx delete_insn			PROTO((rtx));
+extern void delete_jump			PROTO((rtx));
+extern rtx get_label_before		PROTO((rtx));
+extern rtx get_label_after		PROTO((rtx));
+extern rtx follow_jumps			PROTO((rtx));
+extern rtx adj_offsettable_operand	PROTO((rtx, int));
+extern rtx try_split			PROTO((rtx, rtx, int));
+extern rtx split_insns			PROTO((rtx, rtx));
+extern rtx simplify_unary_operation	PROTO((enum rtx_code, enum machine_mode, rtx, enum machine_mode));
+extern rtx simplify_binary_operation	PROTO((enum rtx_code, enum machine_mode, rtx, rtx));
+extern rtx simplify_ternary_operation	PROTO((enum rtx_code, enum machine_mode, enum machine_mode, rtx, rtx, rtx));
+extern rtx simplify_relational_operation PROTO((enum rtx_code, enum machine_mode, rtx, rtx));
+extern rtx nonlocal_label_rtx_list	PROTO((void));
+extern rtx gen_move_insn		PROTO((rtx, rtx));
+extern rtx gen_jump			PROTO((rtx));
+extern rtx gen_beq			PROTO((rtx));
+extern rtx gen_bge			PROTO((rtx));
+extern rtx gen_ble			PROTO((rtx));
+extern rtx eliminate_constant_term	PROTO((rtx, rtx *));
+extern rtx expand_complex_abs		PROTO((enum machine_mode, rtx, rtx, int));
 
 /* Maximum number of parallel sets and clobbers in any insn in this fn.
    Always at least 3, since the combiner could put that many togetherm
@@ -636,15 +767,13 @@ extern rtx nonlocal_label_rtx_list ();
 
 extern int max_parallel;
 
-extern int asm_noperands ();
-extern char *decode_asm_operands ();
+extern int asm_noperands		PROTO((rtx));
+extern char *decode_asm_operands	PROTO((rtx, rtx *, rtx **, char **, enum machine_mode *));
 
-#ifdef BITS_PER_WORD
-/* Conditional is to detect when config.h has been included.  */
-extern enum reg_class reg_preferred_class ();
-#endif
+extern enum reg_class reg_preferred_class PROTO((int));
+extern enum reg_class reg_alternate_class PROTO((int));
 
-extern rtx get_first_nonparm_insn ();
+extern rtx get_first_nonparm_insn	PROTO((void));
 
 /* Standard pieces of rtx, to be substituted directly into things.  */
 extern rtx pc_rtx;
@@ -721,8 +850,27 @@ extern rtx virtual_outgoing_args_rtx;
 
 #define LAST_VIRTUAL_REGISTER	((FIRST_VIRTUAL_REGISTER) + 3)
 
-extern rtx find_next_ref ();
-extern rtx *find_single_use ();
+extern rtx find_next_ref		PROTO((rtx, rtx));
+extern rtx *find_single_use		PROTO((rtx, rtx, rtx *));
+
+/* It is hard to write the prototype for expand_expr, since it needs
+   expr.h to be included for the enumeration.  */
+
+extern rtx expand_expr ();
+extern rtx immed_real_const_1();
+
+#ifdef TREE_CODE
+/* rtl.h and tree.h were included.  */
+extern rtx  output_constant_def PROTO((tree));
+extern rtx  immed_real_const	PROTO((tree));
+extern rtx  immed_real_const_1	PROTO((REAL_VALUE_TYPE, enum machine_mode));
+extern tree make_tree		PROTO((tree, rtx));
+
+#else
+extern rtx output_constant_def ();
+extern rtx immed_real_const ();
+extern rtx immed_real_const_1 ();
+#endif
 
 /* Define a default value for STORE_FLAG_VALUE.  */
 

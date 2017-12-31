@@ -456,7 +456,7 @@ gen_compare_reg (code, x, y)
      enum rtx_code code;
      rtx x, y;
 {
-  enum machine_mode mode = SELECT_CC_MODE (code, x);
+  enum machine_mode mode = SELECT_CC_MODE (code, x, y);
   rtx cc_reg = gen_rtx (REG, mode, 0);
 
   emit_insn (gen_rtx (SET, VOIDmode, cc_reg,
@@ -498,7 +498,7 @@ eligible_for_epilogue_delay (trial, slot)
   if (leaf_function)
     {
       if (leaf_return_peephole_ok ())
-	return (get_attr_in_branch_delay (trial) == IN_BRANCH_DELAY_TRUE);
+	return (get_attr_in_uncond_branch_delay (trial) == IN_BRANCH_DELAY_TRUE);
       return 0;
     }
 
@@ -749,7 +749,7 @@ finalize_pic ()
 
   /* Initialize every time through, since we can't easily
      know this to be permanent.  */
-  global_offset_table = gen_rtx (SYMBOL_REF, Pmode, "*__GLOBAL_OFFSET_TABLE_");
+  global_offset_table = gen_rtx (SYMBOL_REF, Pmode, "_GLOBAL_OFFSET_TABLE_");
   pic_pc_rtx = gen_rtx (CONST, Pmode,
 			gen_rtx (MINUS, Pmode,
 				 global_offset_table,
@@ -983,7 +983,7 @@ singlemove_string (operands)
    aligned at least to a 8-byte boundary.  This should only be called
    for memory accesses whose size is 8 bytes or larger.  */
 
-static int
+int
 mem_aligned_8 (mem)
      register rtx mem;
 {
@@ -992,7 +992,7 @@ mem_aligned_8 (mem)
   register rtx offset;
 
   if (GET_CODE (mem) != MEM)
-    abort ();	/* It's gotta be a MEM! */
+    return 0;	/* It's gotta be a MEM! */
 
   addr = XEXP (mem, 0);
 
@@ -1018,7 +1018,7 @@ mem_aligned_8 (mem)
     }
 
   /* If it's the stack or frame pointer, check offset alignment.
-     We can have improper aligment in the function entry code.  */
+     We can have improper alignment in the function entry code.  */
   if (base
       && (REGNO (base) == FRAME_POINTER_REGNUM
 	  || REGNO (base) == STACK_POINTER_REGNUM))
@@ -1217,7 +1217,7 @@ output_move_double (operands)
 }
 
 /* Output assembler code to perform a quadword move insn
-   with operands OPERANDS.  This is very similar to the preceeding
+   with operands OPERANDS.  This is very similar to the preceding
    output_move_double function.  */
 
 char *
@@ -1957,8 +1957,10 @@ output_scc_insn (operands, insn)
 /* Modes for quad-word quantities.  */
 #define T_MODES (~C_MODES)
 
-/* Modes for single-float quantities.  */
-#define SF_MODES ((1 << (int) SFmode))
+/* Modes for single-float quantities.  We must allow any single word or
+   smaller quantity.  This is because the fix/float conversion instructions
+   take integer inputs/outputs from the float registers.  */
+#define SF_MODES (S_MODES)
 
 /* Modes for double-float quantities.  */
 #define DF_MODES (SF_MODES | (1 << (int) DFmode) | (1 << (int) SCmode))
@@ -2474,45 +2476,6 @@ output_return (operands)
 	return "ret\n\trestore";
     }
 }
-
-/* Output assembler code for a SImode to SFmode conversion.  */
-
-char *
-output_floatsisf2 (operands)
-     rtx *operands;
-{
-  if (GET_CODE (operands[1]) == MEM)
-    return "ld %1,%0\n\tfitos %0,%0";
-  else if (FP_REG_P (operands[1]))
-    return "fitos %1,%0";
-  return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitos %0,%0";
-}
-
-/* Output assembler code for a SImode to DFmode conversion.  */
-
-char *
-output_floatsidf2 (operands)
-     rtx *operands;
-{
-  if (GET_CODE (operands[1]) == MEM)
-    return "ld %1,%0\n\tfitod %0,%0";
-  else if (FP_REG_P (operands[1]))
-    return "fitod %1,%0";
-  return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitod %0,%0";
-}
-
-/* Output assembler code for a SImode to TFmode conversion.  */
-
-char *
-output_floatsitf2 (operands)
-     rtx *operands;
-{
-  if (GET_CODE (operands[1]) == MEM)
-    return "ld %1,%0\n\tfitoq %0,%0";
-  else if (FP_REG_P (operands[1]))
-    return "fitoq %1,%0";
-  return "st %r1,[%%fp-4]\n\tld [%%fp-4],%0\n\tfitoq %0,%0";
-}
 
 /* Leaf functions and non-leaf functions have different needs.  */
 
@@ -2596,7 +2559,7 @@ output_arc_profiler (arcno, insert_after)
    abort if we are passed pseudo registers.  */
 
 int
-registers_ok_for_ldd (reg1, reg2)
+registers_ok_for_ldd_peep (reg1, reg2)
      rtx reg1, reg2;
 {
 
@@ -2631,7 +2594,7 @@ registers_ok_for_ldd (reg1, reg2)
    need only check that the offset for addr1 % 8 == 0.  */
 
 int
-memory_ok_for_ldd (addr1, addr2)
+addrs_ok_for_ldd_peep (addr1, addr2)
       rtx addr1, addr2;
 {
   int reg1, offset1;
@@ -2676,7 +2639,7 @@ memory_ok_for_ldd (addr1, addr2)
   if (reg1 != REGNO (XEXP (addr2, 0)))
     return 0;
 
-  /* The first offset must be evenly divisable by 8 to ensure the 
+  /* The first offset must be evenly divisible by 8 to ensure the 
      address is 64 bit aligned.  */
   if (offset1 % 8 != 0)
     return 0;
@@ -2688,6 +2651,26 @@ memory_ok_for_ldd (addr1, addr2)
   /* All the tests passed.  addr1 and addr2 are valid for ldd and std
      instructions.  */
   return 1;
+}
+
+/* Return 1 if reg is a pseudo, or is the first register in 
+   a hard register pair.  This makes it a candidate for use in
+   ldd and std insns.  */
+
+int
+register_ok_for_ldd (reg)
+     rtx reg;
+{
+
+  /* We might have been passed a SUBREG.  */
+  if (GET_CODE (reg) != REG) 
+    return 0;
+
+  if (REGNO (reg) < FIRST_PSEUDO_REGISTER)
+    return (REGNO (reg) % 2 == 0);
+  else 
+    return 1;
+
 }
 
 /* Print operand X (an rtx) in assembler syntax to file FILE.
@@ -2708,9 +2691,18 @@ print_operand (file, x, code)
 	fputs ("\n\tnop", file);
       return;
     case '*':
-      /* Output an annul flag if there's nothing for the delay slot.  */
-      if (dbr_sequence_length () == 0)
-        fputs (",a", file);
+      /* Output an annul flag if there's nothing for the delay slot and we
+	 are optimizing.  This is always used with '(' below.  */
+      /* Sun OS 4.1.1 dbx can't handle an annulled unconditional branch;
+	 this is a dbx bug.  So, we only do this when optimizing.  */
+      if (dbr_sequence_length () == 0 && optimize)
+	fputs (",a", file);
+      return;
+    case '(':
+      /* Output a 'nop' if there's nothing for the delay slot and we are
+	 not optimizing.  This is always used with '*' above.  */
+      if (dbr_sequence_length () == 0 && ! optimize)
+	fputs ("\n\tnop", file);
       return;
     case 'Y':
       /* Adjust the operand to take into account a RESTORE operation.  */
@@ -2795,7 +2787,7 @@ print_operand (file, x, code)
 
     default:
       /* Undocumented flag.  */
-      abort ();
+      output_operand_lossage ("invalid operand output code");
     }
 
   if (GET_CODE (x) == REG)
@@ -3028,6 +3020,11 @@ sparc_type_code (type)
 	  abort ();
   
 	case COMPLEX_TYPE:	/* GNU Fortran COMPLEX type.  */
+	  /* ??? We need to dinguish between double and float complex types,
+	     but I don't know how yet because I can't reach this code from
+	     existing front-ends.  */
+	  return (qualifiers | 7);	/* Who knows? */
+
 	case CHAR_TYPE:		/* GNU Pascal CHAR type.  Not used in C.  */
 	case BOOLEAN_TYPE:	/* GNU Fortran BOOLEAN type.  */
 	case FILE_TYPE:		/* GNU Pascal FILE type.  */
@@ -3041,111 +3038,490 @@ sparc_type_code (type)
     }
 }
 
-#ifdef HANDLE_PRAGMA
+/* Subroutines to support a flat (single) register window calling
+   convention.  */
 
-/* Handle a pragma directive.  HANDLE_PRAGMA conspires to parse the
-   input following #pragma into tokens based on yylex.  TOKEN is the
-   current token, and STRING is its printable form.  */
+/* Single-register window sparc stack frames look like:
+
+             Before call		        After call
+        +-----------------------+	+-----------------------+
+   high |			|       |      			|
+   mem. |		        |	|			|
+        |  caller's temps.    	|       |  caller's temps.    	|
+	|       		|       |       	        |
+        +-----------------------+	+-----------------------+
+ 	|       		|	|		        |
+        |  arguments on stack.  |	|  arguments on stack.  |
+	|       		|FP+92->|			|
+        +-----------------------+	+-----------------------+
+ 	|  6 words to save     	|	|  6 words to save	|
+	|  arguments passed	|	|  arguments passed	|
+	|  in registers, even	|	|  in registers, even	|
+ SP+68->|  if not passed.       |FP+68->|  if not passed.	|
+	+-----------------------+       +-----------------------+
+	| 1 word struct addr	|FP+64->| 1 word struct addr	|
+	+-----------------------+       +-----------------------+
+	|			|	|			|
+	| 16 word reg save area	|	| 16 word reg save area |
+    SP->|			|   FP->|			|
+	+-----------------------+	+-----------------------+
+					| 4 word area for	|
+				 FP-16->| fp/alu reg moves	|
+					+-----------------------+
+					|			|
+					|  local variables	|
+					|			|
+					+-----------------------+
+					|		        |
+                                        |  fp register save     |
+					|			|
+					+-----------------------+
+					|		        |
+                                        |  gp register save     |
+                                        |       		|
+					+-----------------------+
+					|			|
+                                        |  alloca allocations   |
+        				|			|
+					+-----------------------+
+					|			|
+                                        |  arguments on stack   |
+        			 SP+92->|		        |
+					+-----------------------+
+                                        |  6 words to save      |
+					|  arguments passed     |
+                                        |  in registers, even   |
+   low                           SP+68->|  if not passed.       |
+   memory        			+-----------------------+
+				 SP+64->| 1 word struct addr	|
+					+-----------------------+
+					|			|
+					I 16 word reg save area |
+				    SP->|			|
+					+-----------------------+  */
+
+/* Structure to be filled in by sparc_frw_compute_frame_size with register
+   save masks, and offsets for the current function.  */
+
+struct sparc_frame_info
+{
+  unsigned long total_size;	/* # bytes that the entire frame takes up.  */
+  unsigned long var_size;	/* # bytes that variables take up.  */
+  unsigned long args_size;	/* # bytes that outgoing arguments take up.  */
+  unsigned long extra_size;	/* # bytes of extra gunk.  */
+  unsigned int  gp_reg_size;	/* # bytes needed to store gp regs.  */
+  unsigned int  fp_reg_size;	/* # bytes needed to store fp regs.  */
+  unsigned long mask;		/* Mask of saved gp registers.  */
+  unsigned long fmask;		/* Mask of saved fp registers.  */
+  unsigned long gp_sp_offset;	/* Offset from new sp to store gp regs.  */
+  unsigned long fp_sp_offset;	/* Offset from new sp to store fp regs.  */
+  int		initialized;	/* Nonzero if frame size already calculated.  */
+};
+
+/* Current frame information calculated by sparc_frw_compute_frame_size.  */
+struct sparc_frame_info current_frame_info;
+
+/* Zero structure to initialize current_frame_info.  */
+struct sparc_frame_info zero_frame_info;
+
+/* Tell prologue and epilogue if register REGNO should be saved / restored.  */
+
+#define MUST_SAVE_REGISTER(regno) \
+ ((regs_ever_live[regno] && !call_used_regs[regno])		\
+  || (regno == FRAME_POINTER_REGNUM && frame_pointer_needed)	\
+  || (regno == 15 && regs_ever_live[15]))
+
+#ifndef SPARC_STACK_ALIGN
+#define STACK_BYTES (STACK_BOUNDARY / 8)
+#define SPARC_STACK_ALIGN(X) (((X) + STACK_BYTES -  1) & -STACK_BYTES)
+#endif
+
+/* Return the bytes needed to compute the frame pointer from the current
+   stack pointer.  */
+
+unsigned long
+sparc_frw_compute_frame_size (size)
+     int size;			/* # of var. bytes allocated.  */
+{
+  int regno;
+  unsigned long total_size;	/* # bytes that the entire frame takes up.  */
+  unsigned long var_size;	/* # bytes that variables take up.  */
+  unsigned long args_size;	/* # bytes that outgoing arguments take up.  */
+  unsigned long extra_size;	/* # extra bytes.  */
+  unsigned int  gp_reg_size;	/* # bytes needed to store gp regs.  */
+  unsigned int  fp_reg_size;	/* # bytes needed to store fp regs.  */
+  unsigned long mask;		/* Mask of saved gp registers.  */
+  unsigned long fmask;		/* Mask of saved fp registers.  */
+
+  /* This is the size of the 16 word reg save area, 1 word struct addr
+     area, and 4 word fp/alu register copy area.  */
+  extra_size	 = -STARTING_FRAME_OFFSET + FIRST_PARM_OFFSET(0);
+  var_size	 = size;
+  /* Also include the size needed for the 6 parameter registers.  */
+  args_size	 = current_function_outgoing_args_size + 24;
+  total_size	 = var_size + args_size + extra_size;
+  gp_reg_size	 = 0;
+  fp_reg_size	 = 0;
+  mask		 = 0;
+  fmask		 = 0;
+
+  /* Calculate space needed for gp registers.  */
+  for (regno = 1; regno <= 31; regno++)
+    {
+      if (MUST_SAVE_REGISTER (regno))
+	{
+	  if ((regno & 0x1) == 0 && MUST_SAVE_REGISTER (regno+1))
+	    {
+	      if (gp_reg_size % 8 != 0)
+		gp_reg_size += UNITS_PER_WORD;
+	      gp_reg_size += 2 * UNITS_PER_WORD;
+	      mask |= 3 << regno;
+	      regno++;
+	    }
+	  else
+	    {
+	      gp_reg_size += UNITS_PER_WORD;
+	      mask |= 1 << regno;
+	    }
+	}
+    }
+  /* Add extra word in case we have to align the space to a double word
+     boundary.  */
+  if (gp_reg_size != 0)
+    gp_reg_size += UNITS_PER_WORD;
+
+  /* Calculate space needed for fp registers.  */
+  for (regno = 32; regno <= 63; regno++)
+    {
+      if (regs_ever_live[regno] && !call_used_regs[regno])
+	{
+	  fp_reg_size += UNITS_PER_WORD;
+	  fmask |= 1 << (regno - 32);
+	}
+    }
+
+  total_size += gp_reg_size + fp_reg_size;
+
+  if (total_size == extra_size)
+    total_size = extra_size = 0;
+
+  total_size = SPARC_STACK_ALIGN (total_size);
+
+  /* Save other computed information.  */
+  current_frame_info.total_size  = total_size;
+  current_frame_info.var_size    = var_size;
+  current_frame_info.args_size   = args_size;
+  current_frame_info.extra_size  = extra_size;
+  current_frame_info.gp_reg_size = gp_reg_size;
+  current_frame_info.fp_reg_size = fp_reg_size;
+  current_frame_info.mask	 = mask;
+  current_frame_info.fmask	 = fmask;
+  current_frame_info.initialized = reload_completed;
+
+  if (mask)
+    {
+      unsigned long offset = args_size;
+      if (extra_size)
+	offset += FIRST_PARM_OFFSET(0);
+      current_frame_info.gp_sp_offset = offset;
+    }
+
+  if (fmask)
+    {
+      unsigned long offset = args_size + gp_reg_size;
+      if (extra_size)
+	offset += FIRST_PARM_OFFSET(0);
+      current_frame_info.fp_sp_offset = offset;
+    }
+
+  /* Ok, we're done.  */
+  return total_size;
+}
+
+/* Common code to save/restore registers.  */
 
 void
-handle_pragma_token (string, token)
-     char *string;
-     tree token;
+sparc_frw_save_restore (file, word_op, doubleword_op)
+     FILE *file;		/* Stream to write to.  */
+     char *word_op;		/* Operation to do for one word.  */
+     char *doubleword_op;	/* Operation to do for doubleword.  */
 {
-  static enum pragma_state
-    {
-      ps_start,
-      ps_done,
-      ps_bad,
-      ps_weak,
-      ps_name,
-      ps_equals,
-      ps_value,
-      } state = ps_start, type;
-  static char *name;
-  static char *value;
-  static int align;
+  int regno;
+  unsigned long mask	  = current_frame_info.mask;
+  unsigned long fmask	  = current_frame_info.fmask;
+  unsigned long gp_offset;
+  unsigned long fp_offset;
+  unsigned long max_offset;
+  char *base_reg;
 
-  if (string == 0)
+  if (mask == 0 && fmask == 0)
+    return;
+
+  base_reg   = reg_names[STACK_POINTER_REGNUM];
+  gp_offset  = current_frame_info.gp_sp_offset;
+  fp_offset  = current_frame_info.fp_sp_offset;
+  max_offset = (gp_offset > fp_offset) ? gp_offset : fp_offset;
+
+  /* Deal with calling functions with a large structure.  */
+  if (max_offset >= 4096)
     {
-#ifdef WEAK_ASM_OP
-      if (type == ps_weak)
+      char *temp = "%g2";
+      fprintf (file, "\tset %ld,%s\n", max_offset, temp);
+      fprintf (file, "\tadd %s,%s,%s\n", temp, base_reg, temp);
+      base_reg = temp;
+      gp_offset = max_offset - gp_offset;
+      fp_offset = max_offset - fp_offset;
+    }
+
+  /* Save registers starting from high to low.  The debuggers prefer
+     at least the return register be stored at func+4, and also it
+     allows us not to need a nop in the epilog if at least one
+     register is reloaded in addition to return address.  */
+
+  if (mask || frame_pointer_needed)
+    {
+      for (regno = 1; regno <= 31; regno++)
 	{
-	  if (state == ps_name || state == ps_value)
+	  if ((mask & (1L << regno)) != 0
+	      || (regno == FRAME_POINTER_REGNUM && frame_pointer_needed))
 	    {
-	      fprintf (asm_out_file, "\t%s\t", WEAK_ASM_OP);
-	      ASM_OUTPUT_LABELREF (asm_out_file, name);
-	      fputc ('\n', asm_out_file);
-	      if (state == ps_value)
+	      if ((regno & 0x1) == 0 && ((mask & (1L << regno+1)) != 0))
 		{
-		  fputc ('\t', asm_out_file);
-		  ASM_OUTPUT_LABELREF (asm_out_file, name);
-		  fputs (" = ", asm_out_file);
-		  ASM_OUTPUT_LABELREF (asm_out_file, value);
-		  fputc ('\n', asm_out_file);
+		  if (gp_offset % 8 != 0)
+		    gp_offset += UNITS_PER_WORD;
+		  
+		  if (word_op[0] == 's')
+		    fprintf (file, "\t%s %s,[%s+%d]\n",
+			     doubleword_op, reg_names[regno],
+			     base_reg, gp_offset);
+		  else
+		    fprintf (file, "\t%s [%s+%d],%s\n",
+			     doubleword_op, base_reg, gp_offset,
+			     reg_names[regno]);
+
+		  gp_offset += 2 * UNITS_PER_WORD;
+		  regno++;
+		}
+	      else
+		{
+		  if (word_op[0] == 's')
+		    fprintf (file, "\t%s %s,[%s+%d]\n",
+			     word_op, reg_names[regno],
+			     base_reg, gp_offset);
+		  else
+		    fprintf (file, "\t%s [%s+%d],%s\n",
+			     word_op, base_reg, gp_offset, reg_names[regno]);
+
+		  gp_offset += UNITS_PER_WORD;
 		}
 	    }
-	  else if (! (state == ps_done || state == ps_start))
-	    warning ("ignoring malformed #pragma weak symbol [=value]");
 	}
-#endif /* WEAK_ASM_OP */
-
-      type = state = ps_start;
-      return;
     }
 
-  switch (state)
+  if (fmask)
     {
-    case ps_start:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
+      for (regno = 32; regno <= 63; regno++)
 	{
-#ifdef WEAK_ASM_OP
-	  if (strcmp (IDENTIFIER_POINTER (token), "weak") == 0)
-	    type = state = ps_weak;
-	  else
-#endif
-	    type = state = ps_done;
+	  if ((fmask & (1L << (regno - 32))) != 0)
+	    {
+	      if (word_op[0] == 's')
+		fprintf (file, "\t%s %s,[%s+%d]\n",
+			 word_op, reg_names[regno],
+			 base_reg, gp_offset);
+	      else
+		fprintf (file, "\t%s [%s+%d],%s\n",
+			 word_op, base_reg, gp_offset, reg_names[regno]);
+
+	      fp_offset += UNITS_PER_WORD;
+	    }
 	}
-      else
-	type = state = ps_done;
-      break;
-
-#ifdef WEAK_ASM_OP
-    case ps_weak:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
-	{
-	  name = IDENTIFIER_POINTER (token);
-	  state = ps_name;
-	}
-      else
-	state = ps_bad;
-      break;
-
-    case ps_name:
-      state = (strcmp (string, "=") ? ps_bad : ps_equals);
-      break;
-
-    case ps_equals:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
-	{
-	  value = IDENTIFIER_POINTER (token);
-	  state = ps_value;
-	}
-      else
-	state = ps_bad;
-      break;
-
-    case ps_value:
-      state = ps_bad;
-      break;
-#endif /* WEAK_ASM_OP */
-
-    case ps_bad:
-    case ps_done:
-      break;
-
-    default:
-      abort ();
     }
 }
-#endif /* HANDLE_PRAGMA */
+
+/* Set up the stack and frame (if desired) for the function.  */
+
+void
+sparc_frw_output_function_prologue (file, size, ignored)
+     FILE *file;
+     int size;
+{
+  extern char call_used_regs[];
+  int regno;
+  int tsize;
+  char *sp_str = reg_names[STACK_POINTER_REGNUM];
+  frame_base_name
+    = (!frame_pointer_needed) ? "%sp+80" : reg_names[FRAME_POINTER_REGNUM];
+
+  fprintf (file, "\t!#PROLOGUE# 0\n");
+
+  size = SPARC_STACK_ALIGN (size);
+  tsize = (! current_frame_info.initialized
+	   ? sparc_frw_compute_frame_size (size)
+	   : current_frame_info.total_size);
+
+  if (tsize > 0)
+    {
+      if (tsize <= 4095)
+	fprintf (file,
+		 "\tsub %s,%d,%s\t\t!# vars= %d, regs= %d/%d, args = %d, extra= %d\n",
+		 sp_str, tsize, sp_str, current_frame_info.var_size,
+		 current_frame_info.gp_reg_size / 4,
+		 current_frame_info.fp_reg_size / 8,
+		 current_function_outgoing_args_size,
+		 current_frame_info.extra_size);
+      else
+	fprintf (file,
+		 "\tset %d,%s\n\tsub\t%s,%s,%s\t\t!# vars= %d, regs= %d/%d, args = %d, sfo= %d\n",
+		 tsize, "%g1", sp_str, "%g1",
+		 sp_str, current_frame_info.var_size,
+		 current_frame_info.gp_reg_size / 4,
+		 current_frame_info.fp_reg_size / 8,
+		 current_function_outgoing_args_size,
+		 current_frame_info.extra_size);
+    }
+
+  sparc_frw_save_restore (file, "st", "std");
+
+  if (frame_pointer_needed)
+    {
+      if (tsize <= 4095)
+	fprintf (file, "\tadd %s,%d,%s\t!# set up frame pointer\n", sp_str,
+		 tsize, frame_base_name);
+      else
+	fprintf (file, "\tadd %s,%s,%s\t!# set up frame pointer\n", sp_str,
+		 "%g1", frame_base_name);
+    }
+}
+
+/* Do any necessary cleanup after a function to restore stack, frame,
+   and regs. */
+
+void
+sparc_frw_output_function_epilogue (file, size, ignored1, ignored2)
+     FILE *file;
+     int size;
+{
+  extern FILE *asm_out_data_file, *asm_out_file;
+  extern char call_used_regs[];
+  extern int frame_pointer_needed;
+  int tsize;
+  char *sp_str = reg_names[STACK_POINTER_REGNUM];
+  char *t1_str = "%g1";
+  rtx epilogue_delay = current_function_epilogue_delay_list;
+  int noepilogue = FALSE;
+  int load_nop = FALSE;
+  int load_only_r15;
+
+  /* The epilogue does not depend on any registers, but the stack
+     registers, so we assume that if we have 1 pending nop, it can be
+     ignored, and 2 it must be filled (2 nops occur for integer
+     multiply and divide).  */
+
+  size = SPARC_STACK_ALIGN (size);
+  tsize = (!current_frame_info.initialized
+	   ? sparc_frw_compute_frame_size (size)
+	   : current_frame_info.total_size);
+
+  if (tsize == 0 && epilogue_delay == 0)
+    {
+      rtx insn = get_last_insn ();
+
+      /* If the last insn was a BARRIER, we don't have to write any code
+	 because a jump (aka return) was put there.  */
+      if (GET_CODE (insn) == NOTE)
+	insn = prev_nonnote_insn (insn);
+      if (insn && GET_CODE (insn) == BARRIER)
+	noepilogue = TRUE;
+    }
+
+  if (!noepilogue)
+    {
+      /* In the reload sequence, we don't need to fill the load delay
+	 slots for most of the loads, also see if we can fill the final
+	 delay slot if not otherwise filled by the reload sequence.  */
+
+      if (tsize > 4095)
+	fprintf (file, "\tset %d,%s\n", tsize, t1_str);
+
+      if (frame_pointer_needed)
+	{
+	  char *fp_str = reg_names[FRAME_POINTER_REGNUM];
+	  if (tsize > 4095)
+	    fprintf (file,"\tsub %s,%s,%s\t\t!# sp not trusted  here\n",
+		     fp_str, t1_str, sp_str);
+	  else
+	    fprintf (file,"\tsub %s,%d,%s\t\t!# sp not trusted  here\n",
+		     fp_str, tsize, sp_str);
+	}
+
+      sparc_frw_save_restore (file, "ld", "ldd");
+
+      load_only_r15 = (current_frame_info.mask == (1 << 15)
+		       && current_frame_info.fmask == 0);
+
+      if (current_function_returns_struct)
+	fprintf (file, "\tjmp %%o7+12\n");
+      else
+	fprintf (file, "\tretl\n");
+
+      /* If the only register saved is the return address, we need a
+	 nop, unless we have an instruction to put into it.  Otherwise
+	 we don't since reloading multiple registers doesn't reference
+	 the register being loaded.  */
+
+      if (epilogue_delay)
+	{
+	  if (tsize)
+	    abort ();
+	  final_scan_insn (XEXP (epilogue_delay, 0), file, 1, -2, 1);
+	}
+
+      else if (tsize > 4095)
+	fprintf (file, "\tadd %s,%s,%s\n", sp_str, t1_str, sp_str);
+
+      else if (tsize > 0)
+	fprintf (file, "\tadd %s,%d,%s\n", sp_str, tsize, sp_str);
+
+      else
+	fprintf (file, "\tnop\n");
+    }
+
+  /* Reset state info for each function.  */
+  current_frame_info = zero_frame_info;
+}
+
+/* Define the number of delay slots needed for the function epilogue.
+
+   On the sparc, we need a slot if either no stack has been allocated,
+   or the only register saved is the return register.  */
+
+int
+sparc_frw_epilogue_delay_slots ()
+{
+  if (!current_frame_info.initialized)
+    (void) sparc_frw_compute_frame_size (get_frame_size ());
+
+  if (current_frame_info.total_size == 0)
+    return 1;
+
+  if (current_frame_info.mask == (1 << 15) && current_frame_info.fmask == 0)
+    return 1;
+
+  return 0;
+}
+
+/* Return true is TRIAL is a valid insn for the epilogue delay slot.
+   Any single length instruction which doesn't reference the stack or frame
+   pointer is OK.  */
+
+int
+sparc_frw_eligible_for_epilogue_delay (trial, slot)
+     rtx trial;
+     int slot;
+{
+  if (get_attr_length (trial) == 1
+      && ! reg_mentioned_p (stack_pointer_rtx, PATTERN (trial))
+      && ! reg_mentioned_p (frame_pointer_rtx, PATTERN (trial)))
+    return 1;
+  return 0;
+}

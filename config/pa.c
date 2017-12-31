@@ -33,6 +33,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "c-tree.h"
 #include "expr.h"
+#include "obstack.h"
 
 /* Save the operands last given to a compare for use when we
    generate a scc or bcc insn.  */
@@ -42,13 +43,6 @@ enum cmp_type hppa_branch_type;
 
 /* Set by the FUNCTION_PROFILER macro. */
 int hp_profile_labelno;
-
-/* Global variables set by FUNCTION_PROLOGUE.  */
-/* Size of frame.  Need to know this to emit return insns from
-   leaf procedures.  */
-int apparent_fsize;
-int actual_fsize;
-int local_fsize, save_fregs;
 
 /* Name of where we pretend to think the frame pointer points.
    Normally, this is "4", but if we are in a leaf procedure,
@@ -72,7 +66,8 @@ call_operand_address (op, mode)
      rtx op;
      enum machine_mode mode;
 {
-  return (REG_P (op) || CONSTANT_P (op));
+  return (REG_P (op) 
+	  || (CONSTANT_P (op) && ! TARGET_LONG_CALLS));
 }
 
 int
@@ -204,6 +199,22 @@ fp_reg_operand (op, mode)
 {
   return reg_renumber && FP_REG_P (op);
 }
+
+int
+check_fp_mov (operands)
+     rtx *operands;
+{
+  enum machine_mode mode = GET_MODE (operands[0]);
+
+  if (fp_reg_operand (operands[0], mode))
+    return (register_operand (operands[1], mode)
+	    || short_memory_operand (operands[1], mode));
+  else if (fp_reg_operand (operands[1], mode))
+    return (register_operand (operands[0], mode)
+	    || short_memory_operand (operands[0], mode));
+  else
+    return 1;
+}
 
 extern int current_function_uses_pic_offset_table;
 extern rtx force_reg (), validize_mem ();
@@ -315,13 +326,71 @@ arith5_operand (op, mode)
   return register_operand (op, mode) || int5_operand (op, mode);
 }
 
-/* Return truth value of statement that OP is a call-clobbered register.  */
+/* True iff zdepi can be used to generate this CONST_INT.  */
 int
-clobbered_register (op, mode)
+depi_cint_operand (op, mode)
      rtx op;
      enum machine_mode mode;
 {
-  return (GET_CODE (op) == REG && call_used_regs[REGNO (op)]);
+  unsigned x;
+  unsigned lbmask, t;
+
+  if (GET_CODE (op) != CONST_INT)
+    return 0;
+
+  /* This might not be obvious, but it's at least fast.
+     This function is critcal; we don't have the time loops would take.  */
+  x = INTVAL (op);
+  lbmask = x & -x;
+  t = ((x >> 4) + lbmask) & ~(lbmask - 1);
+  return ((t & (t - 1)) == 0);
+}
+
+/* True iff depi or extru can be used to compute (reg & mask).  */
+int
+consec_zeros_p (mask)
+     unsigned mask;
+{
+  mask = ~mask;
+  mask += mask & -mask;
+  return (mask & (mask - 1)) == 0;
+}
+
+/* True iff depi or extru can be used to compute (reg & OP).  */
+int
+and_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return (register_operand (op, mode)
+	  || (GET_CODE (op) == CONST_INT && consec_zeros_p (INTVAL (op))));
+}
+
+/* True iff depi can be used to compute (reg | MASK).  */
+int
+ior_mask_p (mask)
+     unsigned mask;
+{
+  mask += mask & -mask;
+  return (mask & (mask - 1)) == 0;
+}
+
+/* True iff depi can be used to compute (reg | OP).  */
+int
+ior_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return (register_operand (op, mode)
+	  || (GET_CODE (op) == CONST_INT && ior_mask_p (INTVAL (op))));
+}
+
+int
+arith32_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return register_operand (op, mode) || GET_CODE (op) == CONST_INT;
 }
 
 /* True iff OP can be the source of a move to a general register.  */
@@ -336,6 +405,9 @@ srcsi_operand (op, mode)
 
   /* Accept any register or memory reference.  */
   if (nonimmediate_operand (op, mode))
+    return 1;
+
+  if (depi_cint_operand (op, mode))
     return 1;
 
   /* OK if ldo or ldil can be used.  */
@@ -420,63 +492,6 @@ initialize_pic ()
 void
 finalize_pic ()
 {
-  /* The table we use to reference PIC data.  */
-  rtx global_offset_table;
-  /* Labels to get the PC in the prologue of this function.  */
-  rtx l1, l2;
-  rtx seq;
-  int orig_flag_pic = flag_pic;
-
-  if (current_function_uses_pic_offset_table == 0)
-    return;
-
-  if (! flag_pic)
-    abort ();
-
-  flag_pic = 0;
-  l1 = gen_label_rtx ();
-  l2 = gen_label_rtx ();
-
-  start_sequence ();
-
-  emit_label (l1);
-  /* Note that we pun calls and jumps here!  */
-  emit_jump_insn (gen_rtx (PARALLEL, VOIDmode,
-                         gen_rtvec (2,
-                                    gen_rtx (SET, VOIDmode, pc_rtx, gen_rtx (LABEL_REF, VOIDmode, l2)),
-                                    gen_rtx (SET, VOIDmode, gen_rtx (REG, SImode, 15), gen_rtx (LABEL_REF, VOIDmode, l2)))));
-  emit_label (l2);
-
-  /* Initialize every time through, since we can't easily
-     know this to be permanent.  */
-  global_offset_table = gen_rtx (SYMBOL_REF, Pmode, "*__GLOBAL_OFFSET_TABLE_");
-  pic_pc_rtx = gen_rtx (CONST, Pmode,
-			gen_rtx (MINUS, Pmode,
-				 global_offset_table,
-				 gen_rtx (CONST, Pmode,
-					  gen_rtx (MINUS, Pmode,
-						   gen_rtx (LABEL_REF, VOIDmode, l1),
-						   pc_rtx))));
-
-  emit_insn (gen_rtx (SET, VOIDmode, pic_offset_table_rtx,
-		      gen_rtx (HIGH, Pmode, pic_pc_rtx)));
-  emit_insn (gen_rtx (SET, VOIDmode,
-		      pic_offset_table_rtx,
-		      gen_rtx (LO_SUM, Pmode,
-			       pic_offset_table_rtx, pic_pc_rtx)));
-  emit_insn (gen_rtx (SET, VOIDmode,
-		      pic_offset_table_rtx,
-		      gen_rtx (PLUS, SImode,
-			       pic_offset_table_rtx, gen_rtx (REG, SImode, 15))));
-  /* emit_insn (gen_rtx (ASM_INPUT, VOIDmode, "!#PROLOGUE# 1")); */
-  LABEL_PRESERVE_P (l1) = 1;
-  LABEL_PRESERVE_P (l2) = 1;
-  flag_pic = orig_flag_pic;
-
-  seq = gen_sequence ();
-  end_sequence ();
-  emit_insn_after (seq, get_insns ());
-
   /* Need to emit this whether or not we obey regdecls,
      since setjmp/longjmp can cause life info to screw up.  */
   emit_insn (gen_rtx (USE, VOIDmode, pic_offset_table_rtx));
@@ -509,15 +524,36 @@ hppa_address_cost (X)
    normally.  */
 
 int
-emit_move_sequence (operands, mode)
+emit_move_sequence (operands, mode, scratch_reg)
      rtx *operands;
      enum machine_mode mode;
+     rtx scratch_reg;
 {
   register rtx operand0 = operands[0];
   register rtx operand1 = operands[1];
 
-  /* Handle most common case first: storing into a register.  */
-  if (register_operand (operand0, mode))
+  if (fp_reg_operand (operand0, mode)
+      && GET_CODE (operand1) == MEM
+      && !short_memory_operand  (operand1, mode)
+      && scratch_reg)
+    {
+      emit_move_insn (scratch_reg, XEXP (operand1 , 0));
+      emit_insn (gen_rtx (SET, VOIDmode, operand0, gen_rtx (MEM, mode,
+							    scratch_reg)));
+      return 1;
+    }
+  else if (fp_reg_operand (operand1, mode)
+	   && GET_CODE (operand0) == MEM
+	   && !short_memory_operand  (operand0, mode)
+	   && scratch_reg)
+    {
+      emit_move_insn (scratch_reg, XEXP (operand0 , 0));
+      emit_insn (gen_rtx (SET, VOIDmode, gen_rtx (MEM, mode,  scratch_reg),
+			  operand1));
+      return 1;
+    }
+  /* Handle most common case: storing into a register.  */
+  else if (register_operand (operand0, mode))
     {
       if (register_operand (operand1, mode)
 	  || (GET_CODE (operand1) == CONST_INT && SMALL_INT (operand1))
@@ -547,21 +583,6 @@ emit_move_sequence (operands, mode)
     }
 
   /* Simplify the source if we need to.  */
-#if 0
-  if (GET_CODE (operand1) == HIGH
-      && symbolic_operand (XEXP (operand1, 0), mode)
-      && !read_only_operand (XEXP (operand1, 0)))
-    {
-      rtx temp = reload_in_progress ? operand0 : gen_reg_rtx (mode);
-      
-      emit_insn (gen_rtx (SET, VOIDmode, temp, operand1));
-      emit_insn (gen_rtx (SET, VOIDmode,
-			  operand0,
-			  gen_rtx (PLUS, mode,
-				   temp, gen_rtx (REG, mode, 27))));
-      return 1;
-    }
-#endif
   if (GET_CODE (operand1) != HIGH && immediate_operand (operand1, mode))
     {
       if (symbolic_operand (operand1, mode))
@@ -575,12 +596,28 @@ emit_move_sequence (operands, mode)
 	  /* use dp, register 27. */
 	  else if (read_only_operand (operand1))
 	    {
+	      rtx set = gen_rtx (SET, VOIDmode,
+				  operand0,
+				  gen_rtx (LO_SUM, mode, operand0, operand1));
+				 
 	      emit_insn (gen_rtx (SET, VOIDmode,
 				  operand0,
 				  gen_rtx (HIGH, mode, operand1)));
-	      emit_insn (gen_rtx (SET, VOIDmode,
-				  operand0,
-				  gen_rtx (LO_SUM, mode, operand0, operand1)));
+	      if (TARGET_SHARED_LIBS
+		  && function_label_operand (operand1, mode))
+		{
+		  rtx temp = reload_in_progress ? scratch_reg
+		    : gen_reg_rtx (mode);
+		  if (!temp)
+		    abort ();
+		  emit_insn (gen_rtx (PARALLEL, VOIDmode,
+				      gen_rtvec (2,
+						 set,
+						 gen_rtx (CLOBBER, VOIDmode,
+							  temp))));
+		}
+	      else
+		emit_insn (set);
 	      return 1;
 	    }
 	  else
@@ -604,10 +641,12 @@ emit_move_sequence (operands, mode)
 		}
 	      else
 		{
-		  rtx temp1 = gen_reg_rtx (mode), temp2 = gen_reg_rtx (mode);
+		  rtx temp1, temp2 = gen_reg_rtx (mode);
 
-		  emit_insn (gen_rtx (SET, VOIDmode,
-				      temp1, gen_rtx (HIGH, mode, operand1)));
+		  /* For 2.4 we could set RTX_UNCHANGING and add a 
+		     REG_EQUAL note for the first insn.  This would 
+		     allow the first insn to be moved out of loops.  */
+		  temp1 = gen_rtx (HIGH, mode, operand1);
 		  emit_insn (gen_rtx (SET, VOIDmode,
 				      temp2,
 				      gen_rtx (PLUS, mode,
@@ -621,6 +660,8 @@ emit_move_sequence (operands, mode)
 	      return 1;
 	    }
 	}
+      else if (depi_cint_operand (operand1, VOIDmode))
+	return 0;
       else if (GET_CODE (operand1) == CONST_INT
 	       ? (! SMALL_INT (operand1)
 		  && (INTVAL (operand1) & 0x7ff) != 0) : 1)
@@ -670,6 +711,45 @@ singlemove_string (operands)
 }
 
 
+/* Compute position (in OPERANDS[2]) and width (in OPERANDS[3])
+   useful for copying or or'ing IMM to a register using bit field
+   instructions.  Store the immediate value to insert in OPERANDS[1].  */
+void
+compute_xdepi_operands_from_integer (imm, operands)
+     unsigned imm;
+     rtx *operands;
+{
+  int lsb, len;
+
+  /* Find the least significant set bit in IMM.  */
+  for (lsb = 0; lsb < 32; lsb++)
+    {
+      if ((imm & 1) != 0)
+        break;
+      imm >>= 1;
+    }
+
+  /* Choose variants based on *sign* of the 5-bit field.  */
+  if ((imm & 0x10) == 0)
+    len = (lsb <= 28) ? 4 : 32 - lsb;
+  else
+    {
+      /* Find the width of the bitstring in IMM.  */
+      for (len = 5; len < 32; len++)
+	{
+	  if ((imm & (1 << len)) == 0)
+	    break;
+	}
+
+      /* Sign extend IMM as a 5-bit value.  */
+      imm = (imm & 0xf) - 0x10;
+    }
+
+  operands[1] = gen_rtx (CONST_INT, VOIDmode, imm);
+  operands[2] = gen_rtx (CONST_INT, VOIDmode, 31 - lsb);
+  operands[3] = gen_rtx (CONST_INT, VOIDmode, len);
+}
+
 /* Output assembler code to perform a doubleword move insn
    with operands OPERANDS.  */
 
@@ -718,12 +798,49 @@ output_move_double (operands)
 
   if (optype0 == MEMOP)
     {
+      /* We have to output the address syntax ourselves, since print_operand
+	 doesn't deal with the addresses we want to use.  Fix this later.  */
+
       rtx addr = XEXP (operands[0], 0);
-      if (GET_CODE (addr) == POST_INC || GET_CODE (addr) == POST_DEC
-	  || GET_CODE (addr) == PRE_INC || GET_CODE (addr) == PRE_DEC)
+      if (GET_CODE (addr) == POST_INC || GET_CODE (addr) == POST_DEC)
 	{
-	  operands[0] = gen_rtx (MEM, SImode, addr);
-	  return "stw%M0 %1,%0\n\tstw%M0 %1,%0";
+	  rtx high_reg = gen_rtx (SUBREG, SImode, operands[1], 0);
+
+	  operands[0] = XEXP (addr, 0);
+	  if (GET_CODE (operands[1]) != REG || GET_CODE (operands[0]) != REG)
+	    abort ();
+
+	  if (!reg_overlap_mentioned_p (high_reg, addr))
+	    {
+	      /* No overlap between high target register and address
+		 register.  (We do this in a non-obvious way to
+		 save a register file writeback)  */
+	      if (GET_CODE (addr) == POST_INC)
+		return "stws,ma %1,8(0,%0)\n\tstw %R1,-4(0,%0)";
+	      return "stws,ma %1,-8(0,%0)\n\tstw %R1,12(0,%0)";
+	    }
+	  else
+	    abort();
+	}
+      else if (GET_CODE (addr) == PRE_INC || GET_CODE (addr) == PRE_DEC)
+	{
+	  rtx high_reg = gen_rtx (SUBREG, SImode, operands[1], 0);
+
+	  operands[0] = XEXP (addr, 0);
+	  if (GET_CODE (operands[1]) != REG || GET_CODE (operands[0]) != REG)
+	    abort ();
+
+	  if (!reg_overlap_mentioned_p (high_reg, addr))
+	    {
+	      /* No overlap between high target register and address
+		 register.  (We do this in a non-obvious way to
+		 save a register file writeback)  */
+	      if (GET_CODE (addr) == PRE_INC)
+		return "stws,mb %1,8(0,%0)\n\tstw %R1,4(0,%0)";
+	      return "stws,mb %1,-8(0,%0)\n\tstw %R1,4(0,%0)";
+	    }
+	  else
+	    abort();
 	}
     }
   if (optype1 == MEMOP)
@@ -743,7 +860,7 @@ output_move_double (operands)
 	  if (!reg_overlap_mentioned_p (high_reg, addr))
 	    {
 	      /* No overlap between high target register and address
-		 register.  (We do this in an non-obious way to
+		 register.  (We do this in a non-obvious way to
 		 save a register file writeback)  */
 	      if (GET_CODE (addr) == POST_INC)
 		return "ldws,ma 8(0,%1),%0\n\tldw -4(0,%1),%R0";
@@ -770,7 +887,7 @@ output_move_double (operands)
 	  if (!reg_overlap_mentioned_p (high_reg, addr))
 	    {
 	      /* No overlap between high target register and address
-		 register.  (We do this in an non-obious way to
+		 register.  (We do this in a non-obvious way to
 		 save a register file writeback)  */
 	      if (GET_CODE (addr) == PRE_INC)
 		return "ldws,mb 8(0,%1),%0\n\tldw 4(0,%1),%R0";
@@ -837,10 +954,10 @@ output_move_double (operands)
       /* XXX THIS PROBABLY DOESN'T WORK.  */
       /* Do the late half first.  */
       if (addreg1)
-	output_asm_insn ("addi 4,%0", &addreg1);
+	output_asm_insn ("ldo 4(%0),%0", &addreg1);
       output_asm_insn (singlemove_string (latehalf), latehalf);
       if (addreg1)
-	output_asm_insn ("addi -4,%0", &addreg1);
+	output_asm_insn ("ldo -4(%0),%0", &addreg1);
       /* Then clobber.  */
       return singlemove_string (operands);
     }
@@ -858,18 +975,18 @@ output_move_double (operands)
 
   /* Make any unoffsettable addresses point at high-numbered word.  */
   if (addreg0)
-    output_asm_insn ("addi 4,%0", &addreg0);
+    output_asm_insn ("ldo 4(%0),%0", &addreg0);
   if (addreg1)
-    output_asm_insn ("addi 4,%0", &addreg1);
+    output_asm_insn ("ldo 4(%0),%0", &addreg1);
 
   /* Do that word.  */
   output_asm_insn (singlemove_string (latehalf), latehalf);
 
   /* Undo the adds we just did.  */
   if (addreg0)
-    output_asm_insn ("addi -4,%0", &addreg0);
+    output_asm_insn ("ldo -4(%0),%0", &addreg0);
   if (addreg1)
-    output_asm_insn ("addi -4,%0", &addreg1);
+    output_asm_insn ("ldo -4(%0),%0", &addreg1);
 
   return "";
 }
@@ -937,85 +1054,6 @@ find_addr_reg (addr)
   if (GET_CODE (addr) == REG)
     return addr;
   abort ();
-}
-
-/* Load the address specified by OPERANDS[3] into the register
-   specified by OPERANDS[0].
-
-   OPERANDS[3] may be the result of a sum, hence it could either be:
-
-   (1) CONST
-   (2) REG
-   (2) REG + CONST_INT
-   (3) REG + REG + CONST_INT
-   (4) REG + REG  (special case of 3).
-
-   Note that (3) is not a legitimate address.
-   All cases are handled here.  */
-
-void
-output_load_address (operands)
-     rtx *operands;
-{
-  rtx base, offset;
-
-  if (CONSTANT_P (operands[3]))
-    {
-      output_asm_insn ("ldi %3,%0", operands);
-      return;
-    }
-
-  if (REG_P (operands[3]))
-    {
-      if (REGNO (operands[0]) != REGNO (operands[3]))
-	output_asm_insn ("copy %3,%0", operands);
-      return;
-    }
-
-  if (GET_CODE (operands[3]) != PLUS)
-    abort ();
-
-  base = XEXP (operands[3], 0);
-  offset = XEXP (operands[3], 1);
-
-  if (GET_CODE (base) == CONST_INT)
-    {
-      rtx tmp = base;
-      base = offset;
-      offset = tmp;
-    }
-
-  if (GET_CODE (offset) != CONST_INT)
-    {
-      /* Operand is (PLUS (REG) (REG)).  */
-      base = operands[3];
-      offset = const0_rtx;
-    }
-
-  if (REG_P (base))
-    {
-      operands[6] = base;
-      operands[7] = offset;
-      if (INT_14_BITS (offset))
-	output_asm_insn ("ldo %7(%6),%0", operands);
-      else
-	output_asm_insn ("addil L'%7,%6\n\tldo R'%7(1),%0", operands);
-    }
-  else if (GET_CODE (base) == PLUS)
-    {
-      operands[6] = XEXP (base, 0);
-      operands[7] = XEXP (base, 1);
-      operands[8] = offset;
-
-      if (offset == const0_rtx)
-	output_asm_insn ("add %6,%7,%0", operands);
-      else if (INT_14_BITS (offset))
-	output_asm_insn ("add %6,%7,%0\n\taddi %8,%0", operands);
-      else
-	output_asm_insn ("addil L'%8,%6\n\tldo R'%8(1),%0\n\tadd %0,%7,%0", operands);
-    }
-  else
-    abort ();
 }
 
 /* Emit code to perform a block move.
@@ -1139,7 +1177,7 @@ output_block_move (operands, size_is_constant)
 
   if (size_is_constant)
     {
-      /* Size is an compile-time determined, and also not
+      /* Size is compile-time determined, and also not
 	 very small (such small cases are handled above).  */
       operands[4] = gen_rtx (CONST_INT, VOIDmode, n_bytes - 4);
       output_asm_insn ("ldo %4(0),%2", operands);
@@ -1190,6 +1228,91 @@ output_block_move (operands, size_is_constant)
 }
 
 
+char *
+output_and (operands)
+     rtx *operands;
+{
+  if (GET_CODE (operands[2]) == CONST_INT && INTVAL (operands[2]) != 0)
+    {
+      unsigned mask = INTVAL (operands[2]);
+      int ls0, ls1, ms0, p, len;
+
+      for (ls0 = 0; ls0 < 32; ls0++)
+	if ((mask & (1 << ls0)) == 0)
+	  break;
+
+      for (ls1 = ls0; ls1 < 32; ls1++)
+	if ((mask & (1 << ls1)) != 0)
+	  break;
+
+      for (ms0 = ls1; ms0 < 32; ms0++)
+	if ((mask & (1 << ms0)) == 0)
+	  break;
+
+      if (ms0 != 32)
+	abort();
+
+      if (ls1 == 32)
+	{
+	  len = ls0;
+
+	  if (len == 0)
+	    abort ();
+
+	  operands[2] = gen_rtx (CONST_INT, VOIDmode, len);
+	  return "extru %1,31,%2,%0";
+	}
+      else
+	{
+	  /* We could use this `depi' for the case above as well, but `depi'
+	     requires one more register file access than an `extru'.  */
+
+	  p = 31 - ls0;
+	  len = ls1 - ls0;
+
+	  operands[2] = gen_rtx (CONST_INT, VOIDmode, p);
+	  operands[3] = gen_rtx (CONST_INT, VOIDmode, len);
+	  return "depi 0,%2,%3,%0";
+	}
+    }
+  else
+    return "and %1,%2,%0";
+}
+
+char *
+output_ior (operands)
+     rtx *operands;
+{
+  if (GET_CODE (operands[2]) == CONST_INT)
+    {
+      unsigned mask = INTVAL (operands[2]);
+      int bs0, bs1, bs2, p, len;
+ 
+      if (INTVAL (operands[2]) == 0)
+	return "copy %1,%0";
+
+      for (bs0 = 0; bs0 < 32; bs0++)
+	if ((mask & (1 << bs0)) != 0)
+	  break;
+
+      for (bs1 = bs0; bs1 < 32; bs1++)
+	if ((mask & (1 << bs1)) == 0)
+	  break;
+
+      if (bs1 != 32 && ((unsigned) 1 << bs1) <= mask)
+	abort();
+
+      p = 31 - bs0;
+      len = bs1 - bs0;
+
+      operands[2] = gen_rtx (CONST_INT, VOIDmode, p);
+      operands[3] = gen_rtx (CONST_INT, VOIDmode, len);
+      return "depi -1,%2,%3,%0";
+    }
+  else
+    return "or %1,%2,%0";
+}
+
 /* Output an ascii string.  */
 output_ascii (file, p, size)
      FILE *file;
@@ -1336,10 +1459,18 @@ print_ldw (file, r, disp, base)
 	     disp, r);
 }
 
+/* Global variables set by FUNCTION_PROLOGUE.  */
+/* Size of frame.  Need to know this to emit return insns from
+   leaf procedures.  */
+int apparent_fsize;
+int actual_fsize;
+int local_fsize, save_fregs;
+
 int
-compute_frame_size (size, leaf_function)
+compute_frame_size (size, leaf_function, fregs_live)
      int size;
      int leaf_function;
+     int *fregs_live;
 {
   extern int current_function_outgoing_args_size;
   int i;
@@ -1361,7 +1492,9 @@ compute_frame_size (size, leaf_function)
       for (i = 47; i >= 44; i--)
 	if (regs_ever_live[i])
 	  {
-	    actual_fsize += 8;  save_fregs++;
+	    actual_fsize += 8;
+	    if (fregs_live)
+	      *fregs_live = 1;
 	  }
     }
   else
@@ -1369,7 +1502,9 @@ compute_frame_size (size, leaf_function)
       for (i = 90; i >= 72; i -= 2)
 	if (regs_ever_live[i] || regs_ever_live[i + 1])
 	  {
-	    actual_fsize += 8;  save_fregs++;
+	    actual_fsize += 8;
+	    if (fregs_live)
+	      *fregs_live = 1;
 	  }
     }
   return actual_fsize + current_function_outgoing_args_size;
@@ -1383,16 +1518,18 @@ output_function_prologue (file, size, leaf_function)
 {
   extern char call_used_regs[];
   extern int frame_pointer_needed;
+  extern int current_function_returns_struct;
   int i, offset;
 
-  actual_fsize = compute_frame_size (size, leaf_function) + 32;
+  save_fregs = 0;
+  actual_fsize = compute_frame_size (size, leaf_function, &save_fregs) + 32;
   if (TARGET_SNAKE)
     actual_fsize = (actual_fsize + 63) & ~63;
 
   /* Let's not try to bullshit more than we need to here. */
   /* This might be right a lot of the time */
   fprintf (file, "\t.PROC\n\t.CALLINFO FRAME=%d", actual_fsize);
-    if (regs_ever_live[2])
+    if (regs_ever_live[2] || profile_flag)
       fprintf (file, ",CALLS,SAVE_RP\n");
     else
       fprintf (file, ",NO_CALLS\n");
@@ -1426,6 +1563,12 @@ output_function_prologue (file, size, leaf_function)
 	fprintf (file, "\taddil L'%d,30\n\tldo R'%d(1),30\n",
 		 actual_fsize, actual_fsize);
     }
+  /* The hppa calling conventions say that that %r19, the pic offset 
+     register, is saved at sp - 32 (in this function's frame) */
+  if (flag_pic)
+    {
+      fprintf (file, "\tstw %%r19,-32(%%r30)\n");
+    }
   /* Instead of taking one argument, the counter label, as most normal
      mcounts do, _mcount appears to behave differently on the HPPA. It
      takes the return address of the caller, the address of this
@@ -1439,21 +1582,38 @@ output_function_prologue (file, size, leaf_function)
 	      ? (VAL_14_BITS_P (actual_fsize) ? 12 : 20)
 	      : (VAL_14_BITS_P (actual_fsize) ? 4 : 8)));
       int i, arg_offset;
+      int basereg, offsetadj;
 
-      for (i = 26, arg_offset = -36; i >= 23; i--, arg_offset -= 4)
+      /* When the function has a frame pointer, use that as the base 
+	 register for saving/restoring registers.  Else use the stack
+	 pointer.  Adjust the offset according to the frame size if this
+	 function does not have a frame pointer.  */
+
+      basereg = frame_pointer_needed ? FRAME_POINTER_REGNUM
+				     : STACK_POINTER_REGNUM;
+      offsetadj = frame_pointer_needed ? 0 : actual_fsize;
+
+      if (current_function_returns_struct)
+	print_stw (file, STRUCT_VALUE_REGNUM, - 12 - offsetadj, basereg);
+      for (i = 26, arg_offset = -36 - offsetadj; i >= 23; i--, arg_offset -= 4)
 	if (regs_ever_live[i])
 	  {
-	    print_stw (file, i, arg_offset, 4);
-	    pc_offset += 4;
+	    print_stw (file, i, arg_offset, basereg);
+	    /* It is possible for the arg_offset not to fit in 14 bits 
+               when profiling a function without a frame pointer.  Deal
+	       with such cases.  */
+	    pc_offset += VAL_14_BITS_P (arg_offset) ? 4 : 8;
 	  }
       fprintf (file,
 	       "\tcopy %%r2,%%r26\n\taddil L'LP$%04d-$global$,%%r27\n\
 \tldo R'LP$%04d-$global$(%%r1),%%r24\n\tbl _mcount,%%r2\n\
 \tldo %d(%%r2),%%r25\n",
 	       hp_profile_labelno, hp_profile_labelno, -pc_offset - 12 - 8);
-      for (i = 26, arg_offset = -36; i >= 23; i--, arg_offset -= 4)
+      for (i = 26, arg_offset = -36 - offsetadj; i >= 23; i--, arg_offset -= 4)
 	if (regs_ever_live[i])
-	  print_ldw (file, i, arg_offset, 4);
+	  print_ldw (file, i, arg_offset, basereg);
+      if (current_function_returns_struct)
+	print_ldw (file, STRUCT_VALUE_REGNUM, - 12 - offsetadj, basereg);
     }
 
   /* Normal register save. */
@@ -1594,16 +1754,17 @@ output_function_epilogue (file, size, leaf_function)
   if (frame_pointer_needed)
     {
       fprintf (file, "\tldo 8(4),30\n");
-      if (regs_ever_live[2])
+      if (regs_ever_live[2] || profile_flag)
 	fprintf (file, "\tldw -28(0,30),2\n");
       fprintf (file, "\tbv 0(2)\n\tldwm -8(30),4\n");
     }
   else if (actual_fsize)
     {
-      if (regs_ever_live[2] && VAL_14_BITS_P (actual_fsize + 20))
+      if ((regs_ever_live[2] || profile_flag)
+          && VAL_14_BITS_P (actual_fsize + 20))
 	fprintf (file, "\tldw %d(30),2\n\tbv 0(2)\n\tldo %d(30),30\n",
 		 -(actual_fsize + 20), -actual_fsize);
-      else if (regs_ever_live[2])
+      else if (regs_ever_live[2] || profile_flag)
 	fprintf (file,
 		 "\taddil L'%d,30\n\tldw %d(1),2\n\tbv 0(2)\n\tldo R'%d(1),30\n",
 		 - actual_fsize,
@@ -1631,7 +1792,7 @@ gen_compare_reg (code, x, y)
      enum rtx_code code;
      rtx x, y;
 {
-  enum machine_mode mode = SELECT_CC_MODE (code, x);
+  enum machine_mode mode = SELECT_CC_MODE (code, x, y);
   rtx cc_reg = gen_rtx (REG, mode, 0);
 
   emit_insn (gen_rtx (SET, VOIDmode, cc_reg,
@@ -2053,12 +2214,12 @@ output_mul_insn (unsignedp)
   if (unsignedp)
     {
       import_milli (mulU);
-      return "bl $$mulU,31\n\tnop";
+      return "bl $$mulU,31%#";
     }
   else
     {
       import_milli (mulI);
-      return "bl $$mulI,31\n\tnop";
+      return "bl $$mulI,31%#";
     }
 }
 
@@ -2249,8 +2410,8 @@ output_arg_descriptor (insn)
   fputc ('\n', asm_out_file);
 }
 
-/* Memory loads/stores to/from fp registers may need a scratch
-   register in which to reload the address. */
+/* Memory loads/stores to/from the shift need to go through
+   the general registers.  */
 
 enum reg_class
 secondary_reload_class (class, mode, in)
@@ -2260,14 +2421,15 @@ secondary_reload_class (class, mode, in)
 {
   int regno = true_regnum (in);
 
-  if (regno >= FIRST_PSEUDO_REGISTER)
-    regno = -1;
+  if ((TARGET_SHARED_LIBS && function_label_operand (in, mode))
+      || ((regno >= FIRST_PSEUDO_REGISTER || regno == -1)
+	  && ((mode == QImode || mode == HImode || mode == SImode
+	       || mode == DImode) 
+	      && (class == FP_REGS || class == SNAKE_FP_REGS
+		  || class == HI_SNAKE_FP_REGS)))
+      || (class == SHIFT_REGS && (regno <= 0 || regno >= 32)))
+    return GENERAL_REGS;
 
-  if (class == FP_REGS || class == SNAKE_FP_REGS || class == HI_SNAKE_FP_REGS)
-    {
-      if (regno == -1 || !REGNO_OK_FOR_FP_P (regno))
-	return GENERAL_REGS;
-    }
   return NO_REGS;
 }
 
@@ -2296,16 +2458,6 @@ function_arg_padding (mode, type)
     return none;
 }
 
-int
-use_milli_regs (insn)
-     rtx insn;
-{
-  return (reg_mentioned_p (gen_rtx (REG, SImode, 1), insn) ||
-	  reg_mentioned_p (gen_rtx (REG, SImode, 25), insn) ||
-	  reg_mentioned_p (gen_rtx (REG, SImode, 26), insn) ||
-	  reg_mentioned_p (gen_rtx (REG, SImode, 29), insn) ||
-	  reg_mentioned_p (gen_rtx (REG, SImode, 31), insn));
-}
 
 /* Do what is necessary for `va_start'.  The argument is ignored;
    We look at the current function to determine if stdargs or varargs
@@ -2327,92 +2479,59 @@ hppa_builtin_saveregs (arglist)
     offset = plus_constant (current_function_arg_offset_rtx, argadj);
   else
     offset = current_function_arg_offset_rtx;
-  /* Allocate the va_list structure. */
-  block = assign_stack_local (BLKmode, 4 * UNITS_PER_WORD, BITS_PER_UNIT);
-  RTX_UNCHANGING_P (block) = 1;
-  RTX_UNCHANGING_P (XEXP (block, 0)) = 1;
-  /* 
-   * Store a pointer to where arguments should begin on the stack in 
-   * __va_stack_start. 
-   */
-  emit_move_insn (change_address (block, Pmode, XEXP (block, 0)),
-		  copy_to_reg
-		  (plus_constant (current_function_internal_arg_pointer,
-				  -16)));
-  /* Store where to start getting args from in the __va_int member. */
-  emit_move_insn (change_address (block, Pmode,
-				  plus_constant (XEXP (block, 0),
-						 UNITS_PER_WORD)),
-		  copy_to_reg (expand_binop (Pmode, add_optab,
-					     current_function_internal_arg_pointer,
-					     offset,
-					     0, 0, OPTAB_LIB_WIDEN)));
+
   /* Store general registers on the stack. */
   move_block_from_reg (23,
 		       gen_rtx (MEM, BLKmode,
 				plus_constant
 				(current_function_internal_arg_pointer, -16)),
 		       4); 
-  /* 
-   * Allocate space for the float args, and store it in the 
-   * __va_float member.
-   */
-  float_addr = copy_to_reg (XEXP (float_mem =
-				  assign_stack_local (BLKmode,
-						      4 * UNITS_PER_WORD, -1),
-				  0));
-  MEM_IN_STRUCT_P (float_mem) = 1;
-  RTX_UNCHANGING_P (float_mem) = 1;
-  RTX_UNCHANGING_P (XEXP (float_mem, 0)) = 1;
-  emit_move_insn (change_address (block, Pmode,
-				  plus_constant (XEXP (block, 0),
-						 2 * UNITS_PER_WORD)),
-		  copy_to_reg (expand_binop (Pmode, add_optab,
-					     float_addr,
-					     plus_constant (offset, 4 *
-							    UNITS_PER_WORD),
-					     0, 0, OPTAB_LIB_WIDEN)));
-  /* Store fp registers. */
-  emit_move_insn (gen_rtx (MEM, SFmode, float_addr),
-		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 60 : 39));
-  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
-						 gen_rtx (CONST_INT,
-							  Pmode, 4))),
-		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 58 : 38));
-  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
-						 gen_rtx (CONST_INT,
-							  Pmode, 8))),
-		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 56 : 37));
-  emit_move_insn (gen_rtx (MEM, SFmode, gen_rtx (PLUS, Pmode, float_addr,
-						 gen_rtx (CONST_INT,
-							  Pmode, 12))),
-		  gen_rtx (REG, SFmode, TARGET_SNAKE ? 54 : 36));
-  /* 
-   * Allocate space for the double args, and store it in the 
-   * __va_double member.
-   */
-  float_addr = copy_to_reg (XEXP (float_mem =
-				  assign_stack_local (BLKmode,
-						      4 * UNITS_PER_WORD, -1),
-				  0));
-  MEM_IN_STRUCT_P (float_mem) = 1;
-  RTX_UNCHANGING_P (float_mem) = 1;
-  RTX_UNCHANGING_P (XEXP (float_mem, 0)) = 1;
-  emit_move_insn (change_address (block, Pmode,
-				  plus_constant (XEXP (block, 0),
-						 3 * UNITS_PER_WORD)),
-		  copy_to_reg (expand_binop (Pmode, add_optab,
-					     float_addr,
-					     plus_constant (offset, 4 *
-							    UNITS_PER_WORD),
-					     0, 0, OPTAB_LIB_WIDEN)));
-  /* Store fp registers as doubles. */
+  return copy_to_reg (expand_binop (Pmode, add_optab,
+				    current_function_internal_arg_pointer,
+				    offset, 0, 0, OPTAB_LIB_WIDEN));
+}
 
-  emit_move_insn (gen_rtx (MEM, DFmode, float_addr),
-		  (gen_rtx (REG, DFmode, TARGET_SNAKE ? 60 : 39)));
-  emit_move_insn (gen_rtx (MEM, DFmode, gen_rtx (PLUS, Pmode, float_addr,
-						 gen_rtx (CONST_INT,
-							  Pmode, 8))),
-		  gen_rtx (REG, DFmode, TARGET_SNAKE ? 56 : 37));
-  return copy_to_reg (XEXP (block, 0));
+extern struct obstack *saveable_obstack;
+
+/* In HPUX 8.0's shared library scheme, special relocations are needed
+   for function labels if they might be passed to a function 
+   in a shared library (because shared libraries don't live in code
+   space), and special magic is needed to construct their address. */
+
+void
+hppa_encode_label (sym)
+     rtx sym;
+{
+  char *str = XSTR (sym, 0);
+  int len = strlen (str);
+  char *newstr = obstack_alloc (saveable_obstack, len + 2) ;
+
+  if (str[0] == '*')
+    *newstr++ = *str++;
+  strcpy (newstr + 1, str);
+  *newstr = '@';
+  XSTR (sym,0) = newstr;
+}
+  
+int
+function_label_operand  (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  return GET_CODE (op) == SYMBOL_REF && FUNCTION_NAME_P (XSTR (op, 0));
+}
+
+/* Return 1 if OP is suitable for the second add operand (the unshifed 
+   operand) in an shadd instruction.   Allow CONST_INT to work around
+   a reload bug.  */
+int
+shadd_operand (op, mode)
+     rtx op;
+     enum machine_mode mode;
+{
+  if (GET_CODE (op) == REG)
+    return 1;
+  if (GET_CODE (op) == CONST_INT)
+    return 1;
+  return 0;
 }

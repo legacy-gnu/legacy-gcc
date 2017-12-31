@@ -23,9 +23,13 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "bsd386.h"
 
-/* By default, target has a 80387.  */
+/* By default, don't use IEEE compatible arithmetic comparisons
+   because the assembler can't handle the fucom insn.
+   Return float values in the 387.
+   (TARGET_80387 | TARGET_FLOAT_RETURNS_IN_80387) */
 
-#define TARGET_DEFAULT 1
+#undef TARGET_DEFAULT
+#define TARGET_DEFAULT 0201
 
 /* Specify predefined symbols in preprocessor.  */
 
@@ -46,6 +50,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* We want to output DBX debugging information.  */
 
 #define DBX_DEBUGGING_INFO
+
+/* Sequent Symmetry has size_t defined as int in /usr/include/sys/types.h */
+#define SIZE_TYPE "int"
 
 /* gcc order is ax, dx, cx, bx, si, di, bp, sp, st, st.
  * dbx order is ax, dx, cx, st(0), st(1), bx, si, di, st(2), st(3),
@@ -72,21 +79,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
     : (MODE) != QImode)							\
    && ! (REGNO == 2 && GET_MODE_UNIT_SIZE (MODE) > 4))
 
-/* Floating-point return values come in the FP register.  */
-
-#define VALUE_REGNO(MODE) \
-  (((MODE)==SFmode || (MODE)==DFmode) ? FIRST_FLOAT_REG : 0)
-
-/* 1 if N is a possible register number for a function value. */
-
-#define FUNCTION_VALUE_REGNO_P(N) ((N) == 0 || (N)== FIRST_FLOAT_REG)
-
 /* Output assembler code to FILE to increment profiler label # LABELNO
    for profiling a function entry. */
 
 #undef FUNCTION_PROFILER
 #define FUNCTION_PROFILER(FILE, LABELNO)  \
-   fprintf (FILE, "\tmovl $LP%d,%%eax\n\tcall mcount\n", (LABELNO));
+   fprintf (FILE, "\tmovl $.LP%d,%%eax\n\tcall mcount\n", (LABELNO));
 
 /* Assembler pseudo-op for shared data segment. */
 #define SHARED_SECTION_ASM_OP ".shdata"
@@ -114,3 +112,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
       (PTR) += 4;							\
     }									\
 }
+
+/* 10-Aug-92 pes  Local labels are prefixed with ".L" */
+#undef LPREFIX
+#define LPREFIX ".L"
+
+#undef ASM_GENERATE_INTERNAL_LABEL
+#define ASM_GENERATE_INTERNAL_LABEL(BUF,PREFIX,NUMBER)\
+  sprintf ((BUF), "*.%s%d", (PREFIX), (NUMBER))
+
+#undef ASM_OUTPUT_INTERNAL_LABEL
+#define ASM_OUTPUT_INTERNAL_LABEL(FILE,PREFIX,NUM)\
+  fprintf (FILE, ".%s%d:\n", PREFIX, NUM)

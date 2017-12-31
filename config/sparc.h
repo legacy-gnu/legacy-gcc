@@ -26,14 +26,14 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* Provide required defaults for linker -e and -d switches.  */
 
 #define LINK_SPEC \
- "%{!nostdlib:%{!e*:-e start}} -dc -dp %{static:-Bstatic} %{assert*}"
+ "%{!nostdlib:%{!r*:%{!e*:-e start}}} -dc -dp %{static:-Bstatic} %{assert*}"
 
 /* Special flags to the Sun-4 assembler when using pipe for input.  */
 
 #define ASM_SPEC " %{pipe:-} %{fpic:-k} %{fPIC:-k}"
 
 /* Define macros to distinguish architectures.  */
-#define CPP_SPEC "%{msparclite:-D__sparclite__} %{mv8:-D__sparcv8__}"
+#define CPP_SPEC "%{msparclite:-D__sparclite__} %{mv8:-D__sparc_v8__}"
 
 /* Prevent error on `-sun4' and `-target sun4' options.  */
 /* This used to translate -dalign to -malign, but that is no good
@@ -65,7 +65,8 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* These compiler options take an argument.  We ignore -target for now.  */
 
 #define WORD_SWITCH_TAKES_ARG(STR)				\
- (!strcmp (STR, "Tdata") || !strcmp (STR, "include")		\
+ (!strcmp (STR, "Tdata") || !strcmp (STR, "Ttext")		\
+  || !strcmp (STR, "Tbss") || !strcmp (STR, "include")		\
   || !strcmp (STR, "imacros") || !strcmp (STR, "target")	\
   || !strcmp (STR, "assert") || !strcmp (STR, "aux-info"))
 
@@ -170,6 +171,10 @@ extern int target_flags;
 /* Boundary (in *bits*) on which stack pointer should be aligned.  */
 #define STACK_BOUNDARY 64
 
+/* ALIGN FRAMES on double word boundaries */
+
+#define SPARC_STACK_ALIGN(LOC) (((LOC)+7) & 0xfffffff8)
+
 /* Allocation boundary (in *bits*) for the code of a function.  */
 #define FUNCTION_BOUNDARY 32
 
@@ -190,8 +195,9 @@ extern int target_flags;
 
 /* Make strings word-aligned so strcpy from constants will be faster.  */
 #define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
-  (TREE_CODE (EXP) == STRING_CST	\
-   && (ALIGN) < FASTEST_ALIGNMENT ? FASTEST_ALIGNMENT : (ALIGN))
+  ((TREE_CODE (EXP) == STRING_CST	\
+    && (ALIGN) < FASTEST_ALIGNMENT)	\
+   ? FASTEST_ALIGNMENT : (ALIGN))
 
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN)		\
@@ -352,7 +358,7 @@ extern int hard_regno_mode_ok[FIRST_PSEUDO_REGISTER];
    may be accessed via the stack pointer) in functions that seem suitable.
    This is computed in `reload', in reload1.c.
 
-   Used in flow.c, global-alloc.c, and reload1.c.  */
+   Used in flow.c, global.c, and reload1.c.  */
 extern int leaf_function;
 
 #define FRAME_POINTER_REQUIRED \
@@ -559,10 +565,30 @@ extern char leaf_reg_backmap[];
    a register of class CLASS in MODE.
 
    On the SPARC, when PIC, we need a temporary when loading some addresses
-   into a register.  */
+   into a register.
 
-#define SECONDARY_INPUT_RELOAD_CLASS(CLASS, MODE, IN) \
-  (flag_pic && pic_address_needs_scratch (IN) ? GENERAL_REGS : NO_REGS)
+   Also, we need a temporary when loading/storing a HImode/QImode value
+   between memory and the FPU registers.  This can happen when combine puts
+   a paradoxical subreg in a float/fix conversion insn.  */
+
+#define SECONDARY_INPUT_RELOAD_CLASS(CLASS, MODE, IN)		\
+  (flag_pic && pic_address_needs_scratch (IN) ? GENERAL_REGS	\
+   : ((CLASS) == FP_REGS && ((MODE) == HImode || (MODE) == QImode)\
+      && (GET_CODE (IN) == MEM					\
+	  || ((GET_CODE (IN) == REG || GET_CODE (IN) == SUBREG)	\
+	      && true_regnum (IN) == -1))) ? GENERAL_REGS : NO_REGS)
+
+#define SECONDARY_OUTPUT_RELOAD_CLASS(CLASS, MODE, IN)		\
+  ((CLASS) == FP_REGS && ((MODE) == HImode || (MODE) == QImode)	\
+   && (GET_CODE (IN) == MEM					\
+       || ((GET_CODE (IN) == REG || GET_CODE (IN) == SUBREG)	\
+	   && true_regnum (IN) == -1)) ? GENERAL_REGS : NO_REGS)
+
+/* On SPARC it is not possible to directly move data between 
+   GENERAL_REGS and FP_REGS.  */
+#define SECONDARY_MEMORY_NEEDED(CLASS1, CLASS2, MODE)  \
+  (((CLASS1) == FP_REGS && (CLASS2) == GENERAL_REGS)	\
+   || ((CLASS1) == GENERAL_REGS && (CLASS2) == FP_REGS))
 
 /* Return the maximum number of consecutive registers
    needed to represent mode MODE in a register of class CLASS.  */
@@ -841,12 +867,19 @@ extern int apparent_fsize;
 /* Output assembler code to FILE to increment profiler label # LABELNO
    for profiling a function entry.  */
 
-#define FUNCTION_PROFILER(FILE, LABELNO)  \
-  fprintf (FILE, "\tsethi %%hi(LP%d),%%o0\n\tcall mcount\n\tor %%lo(LP%d),%%o0,%%o0\n", \
-	   (LABELNO), (LABELNO))
+#define FUNCTION_PROFILER(FILE, LABELNO)  			\
+  do {								\
+    fputs ("\tsethi %hi(", (FILE));				\
+    ASM_OUTPUT_INTERNAL_LABELREF (FILE, "LP", LABELNO);		\
+    fputs ("),%o0\n\tcall mcount\n\tor %lo(", (FILE));		\
+    ASM_OUTPUT_INTERNAL_LABELREF (FILE, "LP", LABELNO);		\
+    fputs ("),%o0,%o0\n", (FILE));				\
+  } while (0)
 
 /* Output assembler code to FILE to initialize this source file's
    basic block profiling info, if that has not already been done.  */
+/* FIXME -- this does not parameterize how it generates labels (like the
+   above FUNCTION_PROFILER).  Broken on Solaris-2.   --gnu@cygnus.com */
 
 #define FUNCTION_BLOCK_PROFILER(FILE, LABELNO)  \
   fprintf (FILE, "\tsethi %%hi(LPBX0),%%o0\n\tld [%%lo(LPBX0)+%%o0],%%o1\n\ttst %%o1\n\tbne LPY%d\n\tadd %%o0,%%lo(LPBX0),%%o0\n\tcall ___bb_init_func\n\tnop\nLPY%d:\n",  \
@@ -1071,8 +1104,12 @@ extern union tree_node *current_function_decl;
       && REG_OK_FOR_BASE_P (XEXP (OP, 0)))		\
    : (C) == 'S'						\
    ? (CONSTANT_P (OP) || memory_address_p (Pmode, OP))	\
+   : (C) == 'T'						\
+   ? (mem_aligned_8 (OP))				\
+   : (C) == 'U'						\
+   ? (register_ok_for_ldd (OP))				\
    : 0)
-
+ 
 #else
 
 /* Nonzero if X is a hard reg that can be used as an index.  */
@@ -1093,7 +1130,11 @@ extern union tree_node *current_function_decl;
       : ((C) == 'S'					\
 	 ? (CONSTANT_P (OP)				\
 	    || (GET_CODE (OP) == REG && reg_renumber[REGNO (OP)] > 0)\
-	    || strict_memory_address_p (Pmode, OP)) : 0)))
+	    || strict_memory_address_p (Pmode, OP)) 	\
+	 : ((C) == 'T' ?				\
+	    mem_aligned_8 (OP) && strict_memory_address_p (Pmode, OP) \
+	    : ((C) == 'U' ?				\
+	       register_ok_for_ldd (OP) : 0)))))
 #endif
 
 /* GO_IF_LEGITIMATE_ADDRESS recognizes an RTL expression
@@ -1236,6 +1277,16 @@ extern struct rtx_def *legitimize_pic_address ();
    in one reasonably fast instruction.  */
 #define MOVE_MAX 8
 
+#if 0 /* Sun 4 has matherr, so this is no good.  */
+/* This is the value of the error code EDOM for this machine,
+   used by the sqrt instruction.  */
+#define TARGET_EDOM 33
+
+/* This is how to refer to the variable errno.  */
+#define GEN_ERRNO_RTX \
+  gen_rtx (MEM, SImode, gen_rtx (SYMBOL_REF, Pmode, "errno"))
+#endif /* 0 */
+
 /* Define if normal loads of shorter-than-word items from memory clears
    the rest of the bigs in the register.  */
 #define BYTE_LOADS_ZERO_EXTEND
@@ -1292,7 +1343,7 @@ extern struct rtx_def *legitimize_pic_address ();
    CCFP[E]mode is used.  CC_NOOVmode should be used when the first operand is a
    PLUS, MINUS, or NEG.  CCmode should be used when no special processing is
    needed.  */
-#define SELECT_CC_MODE(OP,X) \
+#define SELECT_CC_MODE(OP,X,Y) \
   (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT				\
    ? ((OP == EQ || OP == NE) ? CCFPmode : CCFPEmode)		\
    : ((GET_CODE (X) == PLUS || GET_CODE (X) == MINUS || GET_CODE (X) == NEG) \
@@ -1404,6 +1455,10 @@ extern struct rtx_def *legitimize_pic_address ();
 
 #define ASM_APP_OFF ""
 
+#define ASM_LONG	".word"
+#define ASM_SHORT	".half"
+#define ASM_BYTE_OP	".byte"
+
 /* Output before read-only data.  */
 
 #define TEXT_SECTION_ASM_OP ".text"
@@ -1471,11 +1526,20 @@ extern struct rtx_def *legitimize_pic_address ();
 #define ASM_OUTPUT_LABELREF(FILE,NAME)	\
   fprintf (FILE, "_%s", NAME)
 
-/* This is how to output an internal numbered label where
+/* This is how to output a definition of an internal numbered label where
    PREFIX is the class of label and NUM is the number within the class.  */
 
 #define ASM_OUTPUT_INTERNAL_LABEL(FILE,PREFIX,NUM)	\
   fprintf (FILE, "%s%d:\n", PREFIX, NUM)
+
+/* This is how to output a reference to an internal numbered label where
+   PREFIX is the class of label and NUM is the number within the class.  */
+/* FIXME:  This should be used throughout gcc, and documented in the texinfo
+   files.  There is no reason you should have to allocate a buffer and
+   `sprintf' to reference an internal label (as opposed to defining it).  */
+
+#define ASM_OUTPUT_INTERNAL_LABELREF(FILE,PREFIX,NUM)	\
+  fprintf (FILE, "%s%d", PREFIX, NUM)
 
 /* This is how to store into the string LABEL
    the symbol_ref name of an internal numbered label where
@@ -1492,14 +1556,14 @@ extern struct rtx_def *legitimize_pic_address ();
    They reject 99e9999, but accept inf.  */
 #define ASM_OUTPUT_DOUBLE(FILE,VALUE)					\
   {									\
-    if (REAL_VALUE_ISINF (VALUE))					\
-      fprintf (FILE, "\t.double 0r%sinf\n", (VALUE) > 0 ? "" : "-");	\
-    else if (REAL_VALUE_ISNAN (VALUE)					\
-	     || REAL_VALUE_MINUS_ZERO (VALUE))				\
+    if (REAL_VALUE_ISINF (VALUE)					\
+        || REAL_VALUE_ISNAN (VALUE)					\
+	|| REAL_VALUE_MINUS_ZERO (VALUE))				\
       {									\
-	union { double d; long l[2];} t;				\
-	t.d = (VALUE);							\
-	fprintf (FILE, "\t.word 0x%lx\n\t.word 0x%lx\n", t.l[0], t.l[1]); \
+	long t[2];							\
+	REAL_VALUE_TO_TARGET_DOUBLE ((VALUE), t);			\
+	fprintf (FILE, "\t%s\t0x%lx\n\t%s\t0x%lx\n",			\
+		 ASM_LONG, t[0], ASM_LONG, t[1]);			\
       }									\
     else								\
       fprintf (FILE, "\t.double 0r%.17g\n", VALUE);			\
@@ -1509,14 +1573,13 @@ extern struct rtx_def *legitimize_pic_address ();
 
 #define ASM_OUTPUT_FLOAT(FILE,VALUE)					\
   {									\
-    if (REAL_VALUE_ISINF (VALUE))					\
-      fprintf (FILE, "\t.single 0r%sinf\n", (VALUE) > 0 ? "" : "-");	\
-    else if (REAL_VALUE_ISNAN (VALUE)					\
-	     || REAL_VALUE_MINUS_ZERO (VALUE))				\
+    if (REAL_VALUE_ISINF (VALUE)					\
+        || REAL_VALUE_ISNAN (VALUE)					\
+	|| REAL_VALUE_MINUS_ZERO (VALUE))				\
       {									\
-	union { float f; long l;} t;					\
-	t.f = (VALUE);							\
-	fprintf (FILE, "\t.word 0x%lx\n", t.l);				\
+	long t;								\
+	REAL_VALUE_TO_TARGET_SINGLE ((VALUE), t);			\
+	fprintf (FILE, "\t%s\t0x%lx\n", ASM_LONG, t);			\
       }									\
     else								\
       fprintf (FILE, "\t.single 0r%.9g\n", VALUE);			\
@@ -1525,7 +1588,7 @@ extern struct rtx_def *legitimize_pic_address ();
 /* This is how to output an assembler line defining an `int' constant.  */
 
 #define ASM_OUTPUT_INT(FILE,VALUE)  \
-( fprintf (FILE, "\t.word "),			\
+( fprintf (FILE, "\t%s\t", ASM_LONG),		\
   output_addr_const (FILE, (VALUE)),		\
   fprintf (FILE, "\n"))
 
@@ -1536,19 +1599,19 @@ extern struct rtx_def *legitimize_pic_address ();
 /* Likewise for `char' and `short' constants.  */
 
 #define ASM_OUTPUT_SHORT(FILE,VALUE)  \
-( fprintf (FILE, "\t.half "),			\
+( fprintf (FILE, "\t%s\t", ASM_SHORT),		\
   output_addr_const (FILE, (VALUE)),		\
   fprintf (FILE, "\n"))
 
 #define ASM_OUTPUT_CHAR(FILE,VALUE)  \
-( fprintf (FILE, "\t.byte "),			\
+( fprintf (FILE, "\t%s\t", ASM_BYTE_OP),	\
   output_addr_const (FILE, (VALUE)),		\
   fprintf (FILE, "\n"))
 
 /* This is how to output an assembler line for a numeric constant byte.  */
 
 #define ASM_OUTPUT_BYTE(FILE,VALUE)  \
-  fprintf (FILE, "\t.byte 0x%x\n", (VALUE))
+  fprintf (FILE, "\t%s\t0x%x\n", ASM_BYTE_OP, (VALUE))
 
 /* This is how to output an element of a case-vector that is absolute.  */
 
@@ -1626,7 +1689,8 @@ do {									\
 #define TARGET_CR 015
 
 #define PRINT_OPERAND_PUNCT_VALID_P(CHAR) \
-  ((CHAR) == '@' || (CHAR) == '#' || (CHAR) == '*' || (CHAR) == '^')
+  ((CHAR) == '@' || (CHAR) == '#' || (CHAR) == '*' || (CHAR) == '^' \
+   || (CHAR) == '(')
 
 /* Print operand X (an rtx) in assembler syntax to file FILE.
    CODE is a letter or dot (`z' in `%z0') or 0 if no letter was specified.
@@ -1706,9 +1770,6 @@ extern char *output_block_move ();
 extern char *output_scc_insn ();
 extern char *output_cbranch ();
 extern char *output_return ();
-extern char *output_floatsisf2 ();
-extern char *output_floatsidf2 ();
-extern char *output_floatsitf2 ();
 
 /* Defined in flags.h, but insn-emit.c does not include flags.h.  */
 

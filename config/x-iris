@@ -23,6 +23,3 @@ CLIB		= -lmld -lmalloc
 
 # Show we need to use the C version of ALLOCA
 ALLOCA		= alloca.o
-
-# Iris install isn't BSD
-INSTALL		= cp

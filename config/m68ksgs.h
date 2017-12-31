@@ -200,13 +200,24 @@ do { union { float f; long l;} tem;			\
 #undef TARGET_VERSION
 #define TARGET_VERSION fprintf (stderr, " (68k, SGS/AT&T syntax)");
 
+/* Use proper assembler syntax for these macros.  */
+#undef ASM_OUTPUT_REG_PUSH
+#define ASM_OUTPUT_REG_PUSH(FILE,REGNO)  \
+  asm_fprintf (FILE, "\t%Omove.l %s,-(%Rsp)\n", reg_names[REGNO])
+
+#undef ASM_OUTPUT_REG_POP
+#define ASM_OUTPUT_REG_POP(FILE,REGNO)  \
+  asm_fprintf (FILE, "\t%Omove.l (%Rsp)+,%s\n", reg_names[REGNO])
+
 #undef PRINT_OPERAND_PRINT_FLOAT
 #define PRINT_OPERAND_PRINT_FLOAT(CODE,FILE)			\
 	asm_fprintf ((FILE), "%I0x%x", u1.i);
 
 #undef ASM_OUTPUT_DOUBLE_OPERAND
 #define ASM_OUTPUT_DOUBLE_OPERAND(FILE,VALUE)			\
-	asm_fprintf ((FILE),"%I0x%x%08x", u.i[0], u.i[1]);
+  do {  union real_extract u;					\
+	u.d = (VALUE);						\
+	asm_fprintf ((FILE),"%I0x%x%08x", u.i[0], u.i[1]); } while (0)
 
 /* How to output a block of SIZE zero bytes.  Note that the `space' pseudo,
    when used in the text segment, causes SGS assemblers to output nop insns
@@ -376,9 +387,14 @@ do { union { float f; long l;} tem;			\
    size to be inserted into the object code so that disassemblers, for
    example, can identify that it is the start of a switch table. */
 
+#define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE)		\
+  fprintf ((FILE), "\t%s &%d\n", SWBEG_ASM_OP, XVECLEN (PATTERN (TABLE), 1));
+
 #define ASM_OUTPUT_CASE_LABEL(FILE,PREFIX,NUM,TABLE)			\
-    fprintf ((FILE), "\t%s &%d\n", SWBEG_ASM_OP, XVECLEN (PATTERN (TABLE), 1)); \
-    ASM_OUTPUT_INTERNAL_LABEL((FILE),(PREFIX),(NUM));
+  do {									\
+    ASM_OUTPUT_BEFORE_CASE_LABEL((FILE),(PREFIX),(NUM),(TABLE));	\
+    ASM_OUTPUT_INTERNAL_LABEL((FILE),(PREFIX),(NUM));			\
+  } while (0)
 
 /* At end of a switch table, define LDnnn iff the symbol LInnn was defined.
    Some SGS assemblers have a bug such that "Lnnn-LInnn-2.b(pc,d0.l*2)"

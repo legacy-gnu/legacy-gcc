@@ -54,13 +54,9 @@
 
 #ifdef USG
 #include <memory.h>
-#include <string.h>
 #else
-#include <strings.h>
 #define memcpy(s1, s2, n) bcopy ((s2), (s1), (n))
 #define memcmp(s1, s2, n) bcmp ((s2), (s1), (n))
-#define strchr index 
-#define strrchr rindex
 #endif
 
 /* This is '$' on systems where the assembler can deal with that.
@@ -276,7 +272,7 @@ cplus_demangle (type)
 	  p = type;
 	}
       /* static data member */
-      else if (*type != '_' && (strchr (type, CPLUS_MARKER) != NULL))
+      else if (*type != '_' && (index (type, CPLUS_MARKER) != NULL))
 	{
 	  static_type = 1;
 	  p = type;
@@ -419,7 +415,6 @@ cplus_demangle (type)
       p += 1;
       {
 	int r, i;
-	int non_empty = 0;
 	string tname;
 	string trawname;
 	
@@ -505,6 +500,7 @@ cplus_demangle (type)
 		      case 'i':	/* int */
 		      case 's':	/* short */
 		      case 'c':	/* char */
+		      case 'w': /* wchar_t */
 			done = is_integral = 1;
 			break;
 		      case 'r':	/* long double */
@@ -936,6 +932,12 @@ do_builtin_type (type, result, non_empty)
       if (*non_empty)
 	string_append (result, " ");
       string_append (result, "char");
+      break;
+    case 'w':
+      *type += 1;
+      if (*non_empty)
+	string_append (result, " ");
+      string_append (result, "wchar_t");
       break;
     case 'r':
       *type += 1;

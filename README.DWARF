@@ -1,24 +1,25 @@
 Notes on the GNU Implementation of DWARF Debugging Information
 --------------------------------------------------------------
-Last Updated: Sun Jun 3 09:56:42 1992 by rfg@ncd.com
+Last Updated: Sun Oct  4 10:04:13 PDT 1992 by rfg@netcom.com
 -----------------------------------------------------
 
 This file describes special and unique aspects of the GNU implementation
-of the DWARF debugging information language, as provided in the GCC Version
-2 compiler.
+of the DWARF debugging information language, as provided in the GNU version
+2.x compiler(s).
 
 For general information about the DWARF debugging information language,
-you should obtain the latest DWARF draft specification document developed
-by the UNIX International Programming Languages Special Interest Group.
-A copy of the this document (in PostScript form) may be obtained either
-from me <rfg@ncd.com> or from UNIX International.  (See below.) The file
-you are looking at now only describes known deviations from the current
-UI/PLSIG DWARF specification document (1.0.1) together with those things
-which are allowed by the current DWARF specification but which are known
-to cause interoperability problems (e.g. with svr4 SDB).
+you should obtain the DWARF version 1 specification document (and perhaps
+also the DWARF version 2 draft specification document) developed by the
+UNIX International Programming Languages Special Interest Group.  A copy
+of the the DWARF version 1 specification (in PostScript form) may be
+obtained either from me <rfg@netcom.com> or from UNIX International.  (See
+below.)  The file you are looking at now only describes known deviations
+from the UI/PLSIG DWARF version 1 specification, together with those
+things which are allowed by the DWARF version 1 specification but which
+are known to cause interoperability problems (e.g. with SVR4 SDB).
 
-To obtain a copy of the latest DWARF specification document from UNIX
-International, use the following procedure:
+To obtain a copy of the DWARF version 1 specification from UNIX International,
+use the following procedure:
 
 ---------------------------------------------------------------------------
 	Send mail to archive@ui.org containing the following:
@@ -38,23 +39,42 @@ International, use the following procedure:
 	Shane P. McCarron, UI Project Manager, <s.mccarron@ui.org>.
 ---------------------------------------------------------------------------
 
-The generation of DWARF debugging information in GCC v2.x has now been
-tested rather extensively (in conjunction with the C language front end
-only) for m88k, i386, i860, and Sparc targets.  GCC's DWARF output (for C) 
-appears to interoperate well with the standard svr4 SDB debugger on these
-kinds of target systems (but of course, there are no guarrantees).
+The generation of DWARF debugging information by the GNU version 2.x C
+compiler has now been tested rather extensively for m88k, i386, i860, and
+Sparc targets.  The DWARF output of the GNU C compiler appears to inter-
+operate well with the standard SVR4 SDB debugger on these kinds of target
+systems (but of course, there are no guarantees).
 
-The DWARF generation enhancement for GCC was initially donated to the
-Free Software Foundation by Network Computing Devices.  (Thanks NCD!)
-Additional development and maintenance of dwarfout.c has been largely
-supported (i.e. funded) by Intel Corporation.  (Thanks Intel!)  The code
-in dwarfout.c is (of course) covered under the GNU General Public
-License (aka `copyleft') just as the rest of GCC is.
+DWARF generation for the GNU g++ compiler is still not operable.  This is
+due primarily to the many remaining cases where the g++ front end does not
+conform to the conventions used in the GNU C front end for representing
+various kinds of declarations in the TREE data structure.  It is not clear
+at this time how these problems will be addressed.
 
-If you have questions or comments about the DWARF generation feature
-of GCC, please send mail to me <rfg@ncd.com>.  I will be happy to
-investigate any bugs reported and I may even provide fixes (but of
-course, I can make no promises).
+Future plans for the dwarfout.c module of the GNU compiler(s) includes the
+addition of full support for GNU FORTRAN.  (This should, in theory, be a
+lot simpler to add than adding support for g++... but we'll see.)
+
+Many features from the evolving DWARF version 2 (draft) specification have
+been adapted to, and used in the GNU implementation of DWARF (version 1).
+In most of these cases, a DWARF version 2 (draft) approach is used in place
+of (or in addition to) DWARF version 1 stuff simply because it is apparent
+that DWARF version 1 is not sufficiently expressive to provide the kinds of
+information which may be necessary to support really robust debugging.
+In *all* of these cases however, the use of DWARF version 2 (draft) features
+should not interfere in any way with the interoperability (of GNU compilers)
+with generally available "classic" (pre version 1) DWARF consumer tools
+(e.g. SVR4 SDB). Full support for DWARF version 2 should be available
+sometime after the DWARF version 2 specification has been finalized.
+
+The DWARF generation enhancement for the GNU compiler(s) was initially
+donated to the Free Software Foundation by Network Computing Devices.
+(Thanks NCD!) Additional development and maintenance of dwarfout.c has
+been largely supported (i.e. funded) by Intel Corporation.  (Thanks Intel!)
+
+If you have questions or comments about the DWARF generation feature, please
+send mail to me <rfg@netcom.com>.  I will be happy to investigate any bugs
+reported and I may even provide fixes (but of course, I can make no promises).
 
 The DWARF debugging information produced by GCC may deviate in a few minor
 (but perhaps significant) respects from the DWARF debugging information
@@ -71,8 +91,24 @@ issues in general, and DWARF in particular.  There are no dues and you
 DO NOT have to be a UI member in order to join the UI/PLSIG.  The UI/PLSIG
 operates an E-mail mailing list and holds regular meeting in various cities.
 If you don't have time to participate actively, but would like to be kept
-abrest of recent developments, you con join the UI/PLSIG mailing list and
+abreast of recent developments, you con join the UI/PLSIG mailing list and
 just listen in on our lively discussions.
+
+    ** IMPORTANT NOTE **    ** IMPORTANT NOTE **    ** IMPORTANT NOTE **
+
+Under normal circumstances, the DWARF information generated by the GNU
+compilers (in an assembly language file) is essentially impossible for
+a human being to read.  This fact can make it very difficult to debug
+certain DWARF-related problems.  In order to overcome this difficulty,
+a feature has been added to dwarfout.c (enabled by the -fverbose-asm
+option) which causes additional comments to be placed into the assembly
+language output file, out to the right-hand side of most bits of DWARF
+material.  The comments indicate (far more clearly that the obscure
+DWARF hex codes do) what is actually being encoded in DWARF.  Thus, the
+-fverbose-asm option can be highly useful for those who must study the
+DWARF output from the GNU compilers in detail.
+
+---------
 
 (Footnote: Within this file, the term `Debugging Information Entry' will
 be abbreviated as `DIE'.)
@@ -81,20 +117,43 @@ be abbreviated as `DIE'.)
 Release Notes  (aka known bugs)
 -------------------------------
 
-The AT_bit_offset value for bit-fields whose high-order bit lies smack up
-against an "alignment unit" boundary will probably be incorrect.  For
-example, compiling:
+In one very obscure case involving dynamically sized arrays, the DWARF
+"location information" for such an array may make it appear that the
+array has been totally optimized out of existence, when in fact it
+*must* actually exist.  (This only happens when you are using *both* -g
+*and* -O.)  This is due to aggressive dead store elimination in the
+compiler, and to the fact that the DECL_RTL expressions associated with
+variables are not always updated to correctly reflect the effects of
+GCC's aggressive dead store elimination.
 
-	struct S {
-		int	foo:9;
-		short	bar:7;
-		int	last:16;
-	};
+-------------------------------
 
-... for an x86 target yields a situation where `bar' lies smack up against
-the high-order end of the hypothetical type `short' object which contains it.
-In such cases, the AT_bit_offset should be zero, but it may instead be equal
-to the size of the containing object (which, for this example, is 16 bits).
+When attempting to set a breakpoint at the "start" of a function compiled
+with -g1, the debugger currently has no way of knowing exactly where the
+end of the prologue code for the function is.  Thus, for most targets,
+all the debugger can do is to set the breakpoint at the AT_low_pc address
+for the function.  But if you stop there and then try to look at one or
+more of the formal parameter values, they may not have been "homed" yet,
+so you may get inaccurate answers (or perhaps even addressing errors).
+
+Some people may consider this simply a non-feature, but I consider it a
+bug, and I hope to provide some some GNU-specific attributes (on function
+DIEs) which will specify the address of the end of the prologue and the
+address of the beginning of the epilogue in a future release.
+
+-------------------------------
+
+It is believed at this time that old bugs relating to the AT_bit_offset
+values for bit-fields have been fixed.
+
+There may still be some very obscure bugs relating to the DWARF description
+of type `long long' bit-fields for target machines (e.g. 80x86 machines)
+where the alignment of type `long long' data objects is different from
+(and less than) the size of a type `long long' data object.
+
+Please report any problems with the DWARF description of bit-fields as you
+would any other GCC bug.  (Procedures for bug reporting are given in the
+GNU C compiler manual.)
 
 --------------------------------
 
@@ -103,16 +162,13 @@ extension.  (See the GCC manual for more info on this extension to ANSI C.)
 
 --------------------------------
 
-At this time, GCC does not represent inlined instances of inline functions
-as called for by the current DWARF draft specification.  Support for inlined
-instances of inline functions is still "under construction".
-
-Recently, a new approach to the representation of inlined functions (within
-DWARF) has been proposed (by me) to the UI/PLSIG.  This proposal was well
-received, but has not yet been formally approved.  It is hoped that this
-proposal will be approved by the UI/PLSIG sometime in the future.  A future
-release of GCC may incorporate the new approach for representing inlined
-functions (which I have already implemented).  Contact me for further details.
+The GNU compilers now represent inline functions (and inlined instances
+thereof) in exactly the manner described by the current DWARF version 2
+(draft) specification.  The version 1 specification for handling inline
+functions (and inlined instances) was known to be brain-damaged (by the
+PLSIG) when the version 1 spec was finalized, but it was simply too late
+in the cycle to get it removed before the version 1 spec was formally
+released to the public (by UI).
 
 --------------------------------
 
@@ -139,31 +195,28 @@ such distinctions.
 
 --------------------------------
 
-Full DWARF support for the GNU C++ language/front-end (aka g++) is not
-implemented at this time.
-
---------------------------------
-
 
 Known Interoperability Problems
 -------------------------------
 
 Although the GNU implementation of DWARF conforms (for the most part) with
-the current UI/PLSIG DWARF draft specification, there are a few known cases
-where GCC's DWARF output causes confusion in System V Release 4 SDB debuggers
-anyway.  There cases are described in this section.
+the current UI/PLSIG DWARF version 1 specification (with many compatible
+version 2 features added in as "vendor specific extensions" just for good
+measure) there are a few known cases where GCC's DWARF output can cause
+some confusion for "classic" (pre version 1) DWARF consumers such as the
+System V Release 4 SDB debugger.  These cases are described in this section.
 
 --------------------------------
 
-The current DWARF draft specification includes the fundamental type codes
+The DWARF version 1 specification includes the fundamental type codes
 FT_ext_prec_float, FT_complex, FT_dbl_prec_complex, and FT_ext_prec_complex.
 Since GNU C is only a C compiler (and since C doesn't provide any "complex"
 data types) the only one of these fundamental type codes which GCC ever
 generates is FT_ext_prec_float.  This fundamental type code is generated
 by GCC for the `long double' data type.  Unfortunately, due to an apparent
-bug, SVR4 SDB can become very confused wherever any attempt is made to
-print a variable, parameter, or field whose type was given in terms of
-FT_ext_prec_float.
+bug in the SVR4 SDB debugger, SDB can become very confused wherever any
+attempt is made to print a variable, parameter, or field whose type was
+given in terms of FT_ext_prec_float.
 
 (Actually, SVR4 SDB fails to understand *any* of the four fundamental type
 codes mentioned here.  This will fact will cause additional problems when
@@ -184,14 +237,23 @@ type codes (from the implementation-defined range) to represent these types.
 General GNU DWARF extensions
 ----------------------------
 
-In the current DWARF draft specification, no provision is made for providing
-accurate information about executable lines which came into the current
-compilation unit by way of an include file.
+In the current DWARF version 1 specification, no mechanism is specified by
+which accurate information about executable code from include files can be
+properly (and fully) described.  (The DWARF version 2 specification *does*
+specify such a mechanism, but it is about 10 times more complicated than
+it needs to be so I'm not terribly anxious to try to implement it right
+away.)
 
-Recently, a scheme for providing accurate information about code in include
-files was proposed (by me) to the UI/PLSIG.  This scheme was rejected by the
-UI/PLSIG for inclusion into the DWARF Version 1 specification, but GNU DWARF
-implements this extension anyway.
+In the GNU implementation of DWARF version 1, a fully downward-compatible
+extension has been implemented which permits the GNU compilers to specify
+which executable lines come from which files.  This extension places
+additional information (about source file names) in GNU-specific sections
+(which should be totally ignored by all non-GNU DWARF consumers) so that
+this extended information can be provided (to GNU DWARF consumers) in a way
+which is totally transparent (and invisible) to non-GNU DWARF consumers
+(e.g. the SVR4 SDB debugger).  The additional information is placed *only*
+in specialized GNU-specific sections, where it should never even be seen
+by non-GNU DWARF consumers.
 
 To understand this GNU DWARF extension, imagine that the sequence of entries
 in the .lines section is broken up into several subsections.  Each contiguous
@@ -291,23 +353,30 @@ should be interpreted (by debuggers) as follows:
 		might be configured to generate a default value of 0xffffffff
 		in this field (in cases where it is desired to have object
 		files created at different times from identical source files
-		be byte-for-byte identical).
+		be byte-for-byte identical).  By default, these timestamps
+		are *not* generated by dwarfout.c (so that object files
+		compiled at different times will be byte-for-byte identical).
+		If you wish to enable this "timestamp" feature however, you
+		can simply place a #define for the symbol `DWARF_TIMESTAMPS'
+		in your target configuration file and then rebuild the GNU
+		compiler(s).
 
 Note that the first string placed into the .debug_sfnames section for each
 compilation unit is the name of the directory in which compilation occurred.
 This string ends with a `/' (to help indicate that it is the pathname of a
 directory).  Thus, the second word of each specialized initial .debug_srcinfo
 entry for each compilation unit may be used as a pointer to the (string)
-name of the compilation directory, and that string may in trun be used to
+name of the compilation directory, and that string may in turn be used to
 "absolutize" any relative pathnames which may appear later on in the
 .debug_sfnames section entries for the same compilation unit.
 
 The fifth and last word of each specialized starting entry for a compilation
-unit in the .debug_srcinfo section indicates the date/time of compilation,
-and this may be used (by the debugger) to determine if any of the source
-files which contributed code to this compilation unit are newer than the
-object code for the compilation unit itself.  If so, the debugger may wish
-to print an "out-of-date" warning about the compilation unit.
+unit in the .debug_srcinfo section may (depending upon your configuration)
+indicate the date/time of compilation, and this may be used (by a debugger)
+to determine if any of the source files which contributed code to this
+compilation unit are newer than the object code for the compilation unit
+itself.  If so, the debugger may wish to print an "out-of-date" warning
+about the compilation unit.
 
 The .debug_srcinfo section associated with each compilation will also have
 a specialized terminating entry.  This terminating .debug_srcinfo section
@@ -320,13 +389,22 @@ entry will consist of the following two 4-byte words of data:
 
 --------------------------------
 
-In the current DWARF draft specification, no provision is made for recording
-any information about macro definitions and un-definitions.
+In the current DWARF version 1 specification, no mechanism is specified by
+which information about macro definitions and un-definitions may be provided
+to the DWARF consumer.
 
-Recently, a scheme for providing accurate information about macro definitions
-an un-definitions was proposed (by me) to the UI/PLSIG.  This scheme was
-rejected by the UI/PLSIG for inclusion into the DWARF Version 1 specification,
-but GNU DWARF implements this extension anyway (when the -g3 option is used).
+The DWARF version 2 (draft) specification does specify such a mechanism.
+That specification was based on the GNU ("vendor specific extension")
+which provided some support for macro definitions and un-definitions,
+but the "official" DWARF version 2 (draft) specification mechanism for
+handling macros and the GNU implementation have diverged somewhat.  I
+plan to update the GNU implementation to conform to the "official"
+DWARF version 2 (draft) specification as soon as I get time to do that.
+
+Note that in the GNU implementation, additional information about macro
+definitions and un-definitions is *only* provided when the -g3 level of
+debug-info production is selected.  (The default level is -g2 and the
+plain old -g option is considered to be identical to -g2.)
 
 GCC records information about macro definitions and undefinitions primarily
 in a section called the .debug_macinfo section.  Normal entries in the
@@ -386,12 +464,29 @@ In the current DWARF draft specification, no provision is made for providing
 a separate level of (limited) debugging information necessary to support
 tracebacks (only) through fully-debugged code (e.g. code in system libraries).
 
-Recently, a proposal to define such a level was submitted (by me) to the
-UI/PLSIG.  This proposal was rejected by the UI/PLSIG for inclusion into
-the DWARF Version 1 specification because it was felt that the issues
-involved in supporting a "traceback only" subset of dwarf were not yet
-well understood.  Nonetheless, the GNU implementation of DWARF provides
-this extension anyway (when the -g1 option is used).
+A proposal to define such a level was submitted (by me) to the UI/PLSIG.
+This proposal was rejected by the UI/PLSIG for inclusion into the DWARF
+version 1 specification for two reasons.  First, it was felt (by the PLSIG)
+that the issues involved in supporting a "traceback only" subset of DWARF
+were not well understood.  Second, and perhaps more importantly, the PLSIG
+is already having enough trouble agreeing on what it means to be "conformant"
+to the DWARF specification, and it was felt that trying to specify multiple
+different *levels* of conformance would only complicate our discussions of
+this already divisive issue.  Nonetheless, the GNU implementation of DWARF
+provides an abbreviated "traceback only" level of debug-info production for
+use with fully-debugged "system library" code.  This level should only be
+used for fully debugged system library code, and even then, it should only
+be used where there is a very strong need to conserve disk space.  This
+abbreviated level of debug-info production can be used by specifying the
+-g1 option on the compilation command line.
+
+--------------------------------
+
+As mentioned above, the GNU implementation of DWARF currently uses the DWARF
+version 2 (draft) approach for inline functions (and inlined instances
+thereof).  This is used in preference to the version 1 approach because
+(quite simply) the version 1 approach is highly brain-damaged and probably
+unworkable.
 
 --------------------------------
 
@@ -415,15 +510,15 @@ used, these GNU C extensions are represented (in the generated DWARF
 output of GCC) in the most natural and intuitively obvious ways.
 
 In the case of inline functions, the DWARF representation is exactly as
-called for (in the current UI/PLSIG DWARF draft specification) for an
-identical function written in C++; i.e. we "reuse" the representation
-of inline functions defined for C++ to support this GNU C extension.
+called for in the DWARF version 2 (draft) specification for an identical
+function written in C++; i.e. we "reuse" the representation of inline
+functions which has been defined for C++ to support this GNU C extension.
 
 In the case of dynamic arrays, we use the most obvious representational
 mechanism available; i.e. an array type in which the upper bound of
 some dimension (usually the first and only dimension) is a variable
-rather than a constant.  See the UI/PLSIG DWARF draft specification
-for more details.
+rather than a constant.  (See the DWARF version 1 specification for more
+details.)
 
 In the case of incomplete enum types, such types are represented simply
 as TAG_enumeration_type DIEs which DO NOT contain either AT_byte_size
@@ -436,24 +531,41 @@ Future Directions
 -----------------
 
 The codes, formats, and other paraphernalia necessary to provide proper
-support for symbolic debugging for the C++ language have now been defined
-and accepted by the UI/PLSIG.  Support for C++ (i.e. the g++ front-end)
-in dwarfout.c has not been fully implemented yet however.
+support for symbolic debugging for the C++ language are still being worked
+on by the UI/PLSIG.  The vast majority of the additions to DWARF which will
+be needed to completely support C++ have already been hashed out and agreed
+upon, but a few small issues (e.g. anonymous unions, access declarations)
+are still being discussed.  Also, we in the PLSIG are still discussing
+whether or not we need to do anything special for C++ templates.  (At this
+time it is not yet clear whether we even need to do anything special for
+these.) 
 
-Likewise, the UI/PLSIG has defined what is believed to be a complete and
-sufficient set of codes and rules for adequately representing all of
-FORTRAN 77, and most of Fortran 90 in DWARF.  While some support for
-this has been implemented in dwarfout.c, further implementation and
-testing will have to await the arrival of the GNU Fortran front-end.
+Unfortunately, as mentioned above, there are quite a few problems in the
+g++ front end itself, and these are currently responsible for severly
+restricting the progress which can be made on adding DWARF support
+specifically for the g++ front-end.  Furthermore, Richard Stallman has
+expressed the view that C++ friendships might not be important enough to
+describe (in DWARF).  This view directly conflicts with both the DWARF
+version 1 and version 2 (draft) specifications, so until this small
+misunderstanding is cleared up, DWARF support for g++ is unlikely.
 
-DWARF support for other languages (i.e. Pascal and Modula) currently has
-a number of known problems as far as the current UI/PLSIG DWARF draft
-specification is concerned.  Hopefully, A more complete form of DWARF
-which can handle *all* of the symbolic debugging requirements for Pascal,
-Modula, and Ada will evolve in the future.  Efforts are currently underway
-to develop DWARF more fully for these and other languages under the auspices
-of the UI/PLSIG.  Contact the Chairman, Dan Oldman <oldman@dg-rtp.dg.com>
-for further information.
+With regard to FORTRAN, the UI/PLSIG has defined what is believed to be a
+complete and sufficient set of codes and rules for adequately representing
+all of FORTRAN 77, and most of Fortran 90 in DWARF.  While some support for
+this has been implemented in dwarfout.c, further implementation and testing
+will have to await the arrival of the GNU Fortran front-end (which is
+currently in early alpha test as of this writing).
+
+GNU DWARF support for other languages (i.e. Pascal and Modula) is a moot
+issue until there are GNU front-ends for these other languages.
+
+GNU DWARF support for DWARF version 2 will probably not be attempted until
+such time as the version 2 specification is finalized.  (More work needs
+to be done on the version 2 specification to make the new "abbreviations"
+feature of version 2 more easily implementable.  Until then, it will be
+a royal pain the ass to implement version 2 "abbreviations".)  For the
+time being, version 2 features will be added (in a version 1 compatible
+manner) when and where these features seem necessary or extremely desirable.
 
 As currently defined, DWARF only describes a (binary) language which can
 be used to communicate symbolic debugging information from a compiler

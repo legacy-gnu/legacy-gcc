@@ -289,6 +289,11 @@ containing function (@code{hack}, in this example) does not exit.  If
 you try to call the nested function through its address after the
 containing function has exited, all hell will break loose.
 
+GNU CC implements taking the address of a nested function using a
+technique called @dfn{trampolines}.  A paper describing them is
+available from @samp{maya.idiap.ch} in the file
+@file{pub/tmb/usenix88-lexic.ps.Z}.
+
 A nested function can jump to a label inherited from a containing
 function, provided the label was explicitly declared in the containing
 function (@pxref{Local Labels}).  Such a jump returns instantly to the
@@ -1144,6 +1149,55 @@ These two reasons apply to almost any application that might be proposed
 for @code{#pragma}.  It is basically a mistake to use @code{#pragma} for
 @emph{anything}.
 
+The keyword @code{__attribute__} allows you to specify special
+attributes when making a declaration.  This keyword is followed by an
+attribute specification inside double parentheses.  One attribute,
+@code{format}, is currently defined for functions.  Others are
+implemented for variables and structure fields (@pxref{Function
+Attributes}).
+
+@table @code
+@item format (@var{archetype}, @var{string-index}, @var{first-to-check})
+@cindex @code{format} attribute
+The @code{format} attribute specifies that a function takes @code{printf}
+or @code{scanf} style arguments which should be type-checked against a
+format string.  For example, the declaration:
+
+@example
+extern int
+my_printf (void *my_object, const char *my_format, ...)
+      __attribute__ ((format (printf, 2, 3)));
+@end example
+
+@noindent
+causes the compiler to check the arguments in calls to @code{my_printf}
+for consistency with the @code{printf} style format string argument
+@code{my_format}.
+
+The parameter @var{archetype} determines how the format string is
+interpreted, and should be either @code{printf} or @code{scanf}.  The
+parameter @var{string-index} specifies which argument is the format
+string argument (starting from 1), while @var{first-to-check} is the
+number of the first argument to check against the format string.  For
+functions where the arguments are not available to be checked (such as
+@code{vprintf}), specify the third parameter as zero.  In this case the
+compiler only checks the format string for consistency.
+
+In the example above, the format string (@code{my_format}) is the second
+argument of the function @code{my_print}, and the arguments to check
+start with the third argument, so the correct parameters for the format
+attribute are 2 and 3.
+
+The @code{format} attribute allows you to identify your own functions
+which take format strings as arguments, so that GNU CC can check the
+calls to these functions for errors.  The compiler always checks formats
+for the ANSI library functions @code{printf}, @code{fprintf},
+@code{sprintf}, @code{scanf}, @code{fscanf}, @code{sscanf},
+@code{vprintf}, @code{vfprintf} and @code{vsprintf} whenever such
+warnings are requested (using @samp{-Wformat}), so there is no need to
+modify the header file @file{stdio.h}.
+@end table
+
 @node Function Prototypes
 @section Prototypes and Old-Style Function Definitions
 @cindex function prototype declarations
@@ -1156,9 +1210,9 @@ old-style non-prototype definition.  Consider the following example:
 @example
 /* @r{Use prototypes unless the compiler is old-fashioned.}  */
 #if __STDC__
-#define P((x)) (x)
+#define P(x) (x)
 #else
-#define P((x)) ()
+#define P(x) ()
 #endif
 
 /* @r{Prototype function declaration.}  */
@@ -1208,10 +1262,10 @@ isroot (uid_t x)
 In GNU C, you may use dollar signs in identifier names.  This is because
 many traditional C implementations allow such identifiers.
 
-Dollar signs are allowed on certain machines if you specify
-@samp{-traditional}.  On a few systems they are allowed by default, even
-if @samp{-traditional} is not used.  But they are never allowed if you
-specify @samp{-ansi}.
+On some machines, dollar signs are allowed in identifiers if you specify
+@w{@samp{-traditional}}.  On a few systems they are allowed by default,
+even if you do not use @w{@samp{-traditional}}.  But they are never
+allowed if you specify @w{@samp{-ansi}}.
 
 There are certain ANSI C programs (obscure, to be sure) that would
 compile incorrectly if dollar signs were permitted in identifiers.  For
@@ -1264,17 +1318,27 @@ the value of @code{__alignof__ (foo1.y)} is probably 2 or 4, the same as
 @code{__alignof__ (int)}, even though the data type of @code{foo1.y}
 does not itself demand any alignment.@refill
 
+A related feature which lets you specify the alignment of an object is
+@code{__attribute__ ((aligned (@var{alignment})))}; see the following
+section.
+
 @node Variable Attributes
 @section Specifying Attributes of Variables
 @cindex attribute of variables
 @cindex variable attributes
 
 The keyword @code{__attribute__} allows you to specify special
-attributes of variables or structure fields.  The only attributes
-currently defined are the @code{aligned} and @code{format} attributes.
+attributes of variables or structure fields.  This keyword is followed
+by an attribute specification inside double parentheses.  Four
+attributes are currently defined: @code{aligned}, @code{format},
+@code{mode} and @code{packed}.  @code{format} is used for functions,
+and thus not documented here; see @ref{Function Attributes}.
 
-The @code{aligned} attribute specifies the alignment of the variable or
-structure field.  For example, the declaration:
+@table @code
+@cindex @code{aligned} attribute
+@item aligned (@var{alignment})
+This attribute specifies the alignment of the variable or structure
+field, measured in bytes.  For example, the declaration:
 
 @example
 int x __attribute__ ((aligned (16))) = 0;
@@ -1282,7 +1346,7 @@ int x __attribute__ ((aligned (16))) = 0;
 
 @noindent
 causes the compiler to allocate the global variable @code{x} on a
-16-byte boundary.  On a 68000, this could be used in conjunction with
+16-byte boundary.  On a 68040, this could be used in conjunction with
 an @code{asm} expression to access the @code{move16} instruction which
 requires 16-byte aligned operands.
 
@@ -1302,44 +1366,27 @@ of functions is determined by the machine's requirements and cannot be
 changed.  You cannot specify alignment for a typedef name because such a
 name is just an alias, not a distinct type.
 
-The @code{format} attribute specifies that a function takes @code{printf}
-or @code{scanf} style arguments which should be type-checked against a
-format string.  For example, the declaration:
+The linker of your operating system imposes a maximum alignment.  If the
+linker aligns each object file on a four byte boundary, then it is
+beyond the compiler's power to cause anything to be aligned to a larger
+boundary than that.  For example, if  the linker happens to put this object
+file at address 136 (eight more than a multiple of 64), then the compiler
+cannot guarantee an alignment of more than 8 just by aligning variables in
+the object file.
 
-@example
-extern int
-my_printf (void *my_object, const char *my_format, ...)
-      __attribute__ ((format (printf, 2, 3)));
-@end example
+@item mode (@var{mode})
+@cindex @code{mode} attribute
+This attribute specifies the data type for the declaration---whichever
+type corresponds to the mode @var{mode}.  This in effect lets you
+request an integer or floating point type according to its width.
 
-@noindent
-causes the compiler to check the arguments in calls to @code{my_printf}
-for consistency with the @code{printf} style format string argument
-@code{my_format}.
-
-The first parameter of the @code{format} attribute determines how the
-format string is interpreted, and should be either @code{printf} or
-@code{scanf}.  The second parameter specifies the number of the
-format string argument (starting from 1).  The third parameter
-specifies the number of the first argument which should be
-checked against the format string.  For functions where the
-arguments are not available to be checked (such as @code{vprintf}),
-specify the third parameter as zero.  In this case the compiler only checks
-the format string for consistency.
-
-In the example above, the format string (@code{my_format}) is the second
-argument to @code{my_print} and the arguments to check start with the third
-argument, so the correct parameters for the format attribute are 2 and 3.
-
-The @code{format} attribute allows you to identify your own functions 
-which take format strings as arguments, so that GNU CC can check the
-calls to these functions for errors.  The compiler always
-checks formats for the ANSI library functions
-@code{printf}, @code{fprintf}, @code{sprintf},
-@code{scanf}, @code{fscanf}, @code{sscanf},
-@code{vprintf}, @code{vfprintf} and @code{vsprintf}
-whenever such warnings are requested (using @samp{-Wformat}), so there is no
-need to modify the header file @file{stdio.h}.
+@item packed
+@cindex @code{packed} attribute
+The @code{packed} attribute specifies that a variable or structure field
+should have the smallest possible alignment---one byte for a variable,
+and one bit for a field, unless you specify a larger value with the
+@code{aligned} attribute.
+@end table
 
 @node Inline
 @section An Inline Function is As Fast As a Macro
@@ -1348,12 +1395,14 @@ need to modify the header file @file{stdio.h}.
 @cindex open coding
 @cindex macros, inline alternative
 
-By declaring a function @code{inline}, you can direct GNU CC to integrate
-that function's code into the code for its callers.  This makes execution
-faster by eliminating the function-call overhead; in addition, if any of
-the actual argument values are constant, their known values may permit
-simplifications at compile time so that not all of the inline function's
-code needs to be included.
+By declaring a function @code{inline}, you can direct GNU CC to
+integrate that function's code into the code for its callers.  This
+makes execution faster by eliminating the function-call overhead; in
+addition, if any of the actual argument values are constant, their known
+values may permit simplifications at compile time so that not all of the
+inline function's code needs to be included.  Inlining of functions is
+an optimization and it really ``works'' only in optimizing compilation.
+If you don't use @samp{-O}, no function is really inline.
 
 To declare a function inline, use the @code{inline} keyword in its
 declaration, like this:
@@ -1407,6 +1456,11 @@ definition (lacking @code{inline} and @code{extern}) in a library file.
 The definition in the header file will cause most calls to the function
 to be inlined.  If any uses of the function remain, they will refer to
 the single copy in the library.
+
+GNU C does not inline any functions when not optimizing.  It is not
+clear whether it is better to inline or not, in this case, but we found
+that a correct implementation when not optimizing was difficult.  So we
+did the easy thing, and turned it off.
 
 @node Extended Asm
 @section Assembler Instructions with C Expression Operands
@@ -1535,6 +1589,11 @@ machines represents the condition codes as a specific hardware
 register; @samp{cc} serves to name this register.  On other machines,
 the condition code is handled differently, and specifying @samp{cc}
 has no effect.  But it is valid no matter what the machine.
+
+If your assembler instruction modifies memory in an unpredicable
+fashion, add @samp{memory} to the list of clobbered registers.
+This will cause GNU CC to not keep memory values cached in
+registers across the assembler instruction.
 
 You can put multiple assembler instructions together in a single @code{asm}
 template, separated either with newlines (written as @samp{\n}) or with

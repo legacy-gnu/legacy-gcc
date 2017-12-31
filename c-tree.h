@@ -19,23 +19,42 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Language-dependent contents of an identifier.  */
 
+/* The limbo_value is used for block level extern declarations, which need
+   to be type checked against subsequent extern declarations.  They can't
+   be referenced after they fall out of scope, so they can't be global.  */
+
 struct lang_identifier
 {
   struct tree_identifier ignore;
   tree global_value, local_value, label_value, implicit_decl;
-  tree error_locus;
+  tree error_locus, limbo_value;
 };
 
 /* Macros for access to language-specific slots in an identifier.  */
+/* Each of these slots contains a DECL node or null.  */
 
+/* This represents the value which the identifier has in the
+   file-scope namespace.  */
 #define IDENTIFIER_GLOBAL_VALUE(NODE)	\
   (((struct lang_identifier *)(NODE))->global_value)
+/* This represents the value which the identifier has in the current
+   scope.  */
 #define IDENTIFIER_LOCAL_VALUE(NODE)	\
   (((struct lang_identifier *)(NODE))->local_value)
+/* This represents the value which the identifier has as a label in
+   the current label scope.  */
 #define IDENTIFIER_LABEL_VALUE(NODE)	\
   (((struct lang_identifier *)(NODE))->label_value)
+/* This records the extern decl of this identifier, if it has had one
+   at any point in this compilation.  */
+#define IDENTIFIER_LIMBO_VALUE(NODE)	\
+  (((struct lang_identifier *)(NODE))->limbo_value)
+/* This records the implicit function decl of this identifier, if it
+   has had one at any point in this compilation.  */
 #define IDENTIFIER_IMPLICIT_DECL(NODE)	\
   (((struct lang_identifier *)(NODE))->implicit_decl)
+/* This is the last function in which we printed an "undefined variable"
+   message for this identifier.  Value is a FUNCTION_DECL or null.  */
 #define IDENTIFIER_ERROR_LOCUS(NODE)	\
   (((struct lang_identifier *)(NODE))->error_locus)
 
@@ -91,10 +110,26 @@ struct lang_type
 /* Record whether a typedef for type `int' was actually `signed int'.  */
 #define C_TYPEDEF_EXPLICITLY_SIGNED(exp) DECL_LANG_FLAG_1 ((exp))
 
+/* Nonzero for a declaration of a built in function if there has been no
+   occasion that would declare the function in ordinary C.
+   Using the function draws a pedantic warning in this case.  */
+#define C_DECL_ANTICIPATED(exp) DECL_LANG_FLAG_3 ((exp))
+
 /* For FUNCTION_TYPE, a hidden list of types of arguments.  The same as
    TYPE_ARG_TYPES for functions with prototypes, but created for functions
    without prototypes.  */
 #define TYPE_ACTUAL_ARG_TYPES(NODE) TYPE_NONCOPIED_PARTS (NODE)
+
+/* Nonzero if the type T promotes to itself.
+   ANSI C states explicitly the list of types that promote;
+   in particular, short promotes to int even if they have the same width.  */
+#define C_PROMOTING_INTEGER_TYPE_P(t)				\
+  (TREE_CODE ((t)) == INTEGER_TYPE				\
+   && (TYPE_MAIN_VARIANT (t) == char_type_node			\
+       || TYPE_MAIN_VARIANT (t) == signed_char_type_node	\
+       || TYPE_MAIN_VARIANT (t) == unsigned_char_type_node	\
+       || TYPE_MAIN_VARIANT (t) == short_integer_type_node	\
+       || TYPE_MAIN_VARIANT (t) == short_unsigned_type_node))
 
 /* in c-typecheck.c */
 extern tree build_component_ref (), build_conditional_expr (), build_compound_expr ();
@@ -170,6 +205,10 @@ extern tree shorten_compare ();
 /* Read the rest of the current #-directive line.  */
 extern char *get_directive_line ();
 
+/* Prepare expr to be an argument of a TRUTH_NOT_EXPR,
+   or validate its data type for an `if' or `while' statement or ?..: exp. */
+extern tree truthvalue_conversion ();
+
 extern int maybe_objc_comptypes ();
 extern tree maybe_building_objc_message_expr ();
 
@@ -183,6 +222,10 @@ extern tree ptrdiff_type_node;
 extern tree unsigned_char_type_node, signed_char_type_node, char_type_node;
 extern tree wchar_type_node, signed_wchar_type_node, unsigned_wchar_type_node;
 extern tree float_type_node, double_type_node, long_double_type_node;
+extern tree intQI_type_node, unsigned_intQI_type_node;
+extern tree intHI_type_node, unsigned_intHI_type_node;
+extern tree intSI_type_node, unsigned_intSI_type_node;
+extern tree intDI_type_node, unsigned_intDI_type_node;
 extern tree void_type_node, ptr_type_node, const_ptr_type_node;
 extern tree string_type_node, const_string_type_node;
 extern tree char_array_type_node, int_array_type_node, wchar_array_type_node;

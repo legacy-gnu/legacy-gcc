@@ -175,7 +175,7 @@
   ""
   "@
    clrq %0
-   movq %1,%0")
+   movq %D1,%0")
 
 ;; The VAX move instructions have space-time tradeoffs.  On a microVAX
 ;; register-register mov instructions take 3 bytes and 2 CPU cycles.  clrl
@@ -333,11 +333,24 @@
   return \"movb %1,%0\";
 }")
 
+;; This is here to accept 4 arguments and pass the first 3 along
+;; to the movstrhi1 pattern that really does the work.
+(define_expand "movstrhi"
+  [(set (match_operand:BLK 0 "general_operand" "=g")
+	(match_operand:BLK 1 "general_operand" "g"))
+   (use (match_operand:HI 2 "general_operand" "g"))
+   (match_operand 3 "" "")]
+  ""
+  "
+  emit_insn (gen_movstrhi1 (operands[0], operands[1], operands[2]));
+  DONE;
+")
+
 ;; The definition of this insn does not really explain what it does,
 ;; but it should suffice
 ;; that anything generated as this insn will be recognized as one
 ;; and that it won't successfully combine with anything.
-(define_insn "movstrhi"
+(define_insn "movstrhi1"
   [(set (match_operand:BLK 0 "general_operand" "=g")
 	(match_operand:BLK 1 "general_operand" "g"))
    (use (match_operand:HI 2 "general_operand" "g"))
@@ -516,6 +529,19 @@
    addf2 %1,%0
    addf3 %1,%2,%0")
 
+/* The space-time-opcode tradeoffs for addition vary by model of VAX.
+
+   On a VAX 3 "movab (r1)[r2],r3" is faster than "addl3 r1,r2,r3",
+   but it not faster on other models.
+
+   "movab #(r1),r2" is usually shorter than "addl3 #,r1,r2", and is
+   faster on a VAX 3, but some VAXes (e.g. VAX 9000) will stall if
+   a register is used in an address too soon after it is set.
+   Compromise by using movab only when it is shorter than the add
+   or the base register in the address is one of sp, ap, and fp,
+   which are not modified very often.  */
+
+
 (define_insn "addsi3"
   [(set (match_operand:SI 0 "general_operand" "=g")
 	(plus:SI (match_operand:SI 1 "general_operand" "g")
@@ -534,23 +560,37 @@
 	return \"subl2 $%n2,%0\";
       if (GET_CODE (operands[2]) == CONST_INT
 	  && (unsigned) INTVAL (operands[2]) >= 64
-	  && GET_CODE (operands[1]) == REG)
+	  && GET_CODE (operands[1]) == REG
+	  && ((INTVAL (operands[2]) < 32767 && INTVAL (operands[2]) > -32768)
+	      || REGNO (operands[1]) > 11))
 	return \"movab %c2(%1),%0\";
       return \"addl2 %2,%0\";
     }
   if (rtx_equal_p (operands[0], operands[2]))
     return \"addl2 %1,%0\";
+
+  if (GET_CODE (operands[2]) == CONST_INT
+      && INTVAL (operands[2]) < 32767
+      && INTVAL (operands[2]) > -32768
+      && GET_CODE (operands[1]) == REG
+      && push_operand (operands[0], SImode))
+    return \"pushab %c2(%1)\";
+
   if (GET_CODE (operands[2]) == CONST_INT
       && (unsigned) (- INTVAL (operands[2])) < 64)
     return \"subl3 $%n2,%1,%0\";
+
   if (GET_CODE (operands[2]) == CONST_INT
       && (unsigned) INTVAL (operands[2]) >= 64
-      && GET_CODE (operands[1]) == REG)
-    {
-      if (push_operand (operands[0], SImode))
-	return \"pushab %c2(%1)\";
-      return \"movab %c2(%1),%0\";
-    }
+      && GET_CODE (operands[1]) == REG
+      && ((INTVAL (operands[2]) < 32767 && INTVAL (operands[2]) > -32768)
+	  || REGNO (operands[1]) > 11))
+    return \"movab %c2(%1),%0\";
+
+  /* Add this if using gcc on a VAX 3xxx:
+  if (REG_P (operands[1]) && REG_P (operands[2]))
+    return \"movab (%1)[%2],%0\";
+  */
   return \"addl3 %1,%2,%0\";
 }")
 
@@ -898,10 +938,20 @@
   ""
   "
 {
-  if (GET_CODE (operands[1]) == CONST_INT)
-    operands[1] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (operands[1]));
+  rtx op1 = operands[1];
+
+  /* If there is a constant argument, complement that one.  */
+  if (GET_CODE (operands[2]) == CONST_INT && GET_CODE (op1) != CONST_INT)
+    {
+      operands[1] = operands[2];
+      operands[2] = op1;
+      op1 = operands[1];
+    }
+
+  if (GET_CODE (op1) == CONST_INT)
+    operands[1] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (op1));
   else
-    operands[1] = expand_unop (SImode, one_cmpl_optab, operands[1], 0, 1);
+    operands[1] = expand_unop (SImode, one_cmpl_optab, op1, 0, 1);
 }")
 
 (define_expand "andhi3"
@@ -911,12 +961,19 @@
   ""
   "
 {
-  rtx op = operands[1];
-  if (GET_CODE (op) == CONST_INT)
-    operands[1] = gen_rtx (CONST_INT, VOIDmode,
-			   ((1 << 16) - 1) & ~INTVAL (op));
+  rtx op1 = operands[1];
+
+  if (GET_CODE (operands[2]) == CONST_INT && GET_CODE (op1) != CONST_INT)
+    {
+      operands[1] = operands[2];
+      operands[2] = op1;
+      op1 = operands[1];
+    }
+
+  if (GET_CODE (op1) == CONST_INT)
+    operands[1] = gen_rtx (CONST_INT, VOIDmode, 65535 & ~INTVAL (op1));
   else
-    operands[1] = expand_unop (HImode, one_cmpl_optab, op, 0, 1);
+    operands[1] = expand_unop (HImode, one_cmpl_optab, op1, 0, 1);
 }")
 
 (define_expand "andqi3"
@@ -926,12 +983,19 @@
   ""
   "
 {
-  rtx op = operands[1];
-  if (GET_CODE (op) == CONST_INT)
-    operands[1] = gen_rtx (CONST_INT, VOIDmode,
-			   ((1 << 8) - 1) & ~INTVAL (op));
+  rtx op1 = operands[1];
+
+  if (GET_CODE (operands[2]) == CONST_INT && GET_CODE (op1) != CONST_INT)
+    {
+     operands[1] = operands[2];
+     operands[2] = op1;
+     op1 = operands[1];
+   }
+
+  if (GET_CODE (op1) == CONST_INT)
+    operands[1] = gen_rtx (CONST_INT, VOIDmode, 255 & ~INTVAL (op1));
   else
-    operands[1] = expand_unop (QImode, one_cmpl_optab, op, 0, 1);
+    operands[1] = expand_unop (QImode, one_cmpl_optab, op1, 0, 1);
 }")
 
 (define_insn ""
@@ -1802,7 +1866,29 @@
   ""
   "jmp (%0)")
 
-(define_insn "casesi"
+;; This is here to accept 5 arguments (as passed by expand_end_case)
+;; and pass the first 4 along to the casesi1 pattern that really does the work.
+(define_expand "casesi"
+  [(set (pc)
+	(if_then_else (leu (minus:SI (match_operand:SI 0 "general_operand" "g")
+				     (match_operand:SI 1 "general_operand" "g"))
+			   (match_operand:SI 2 "general_operand" "g"))
+		      (plus:SI (sign_extend:SI
+				(mem:HI
+				 (plus:SI (pc)
+					  (mult:SI (minus:SI (match_dup 0)
+							     (match_dup 1))
+						   (const_int 2)))))
+			       (label_ref:SI (match_operand 3 "" "")))
+		      (pc)))
+   (match_operand 4 "" "")]
+  ""
+  "
+  emit_insn (gen_casesi1 (operands[0], operands[1], operands[2], operands[3]));
+  DONE;
+")
+
+(define_insn "casesi1"
   [(set (pc)
 	(if_then_else (leu (minus:SI (match_operand:SI 0 "general_operand" "g")
 				     (match_operand:SI 1 "general_operand" "g"))

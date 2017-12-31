@@ -25,6 +25,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include <time.h>
 #include <ctype.h>
 
+#include "assert.h"
 #include "config.h"
 #include "rtl.h"
 #include "regs.h"
@@ -46,11 +47,13 @@ extern char *ctime ();
 extern int flag_traditional;
 extern FILE *asm_out_file;
 
-static char out_sccs_id[] = "@(#)m88k.c	2.1.11.11 29 May 1992 11:12:23";
+static char out_sccs_id[] = "@(#)m88k.c	2.2.14.4 10/29/92 05:37:46";
 static char tm_sccs_id [] = TM_SCCS_ID;
 
 char *m88k_pound_sign = "";	/* Either # for SVR4 or empty for SVR3 */
 char *m88k_short_data;
+char *m88k_version;
+char m88k_volatile_code;
 
 int m88k_gp_threshold;
 int m88k_prologue_done	= 0;	/* Ln directives can now be emitted */
@@ -58,6 +61,7 @@ int m88k_function_number = 0;	/* Counter unique to each function */
 int m88k_fp_offset	= 0;	/* offset of frame pointer if used */
 int m88k_stack_size	= 0;	/* size of allocated stack (including frame) */
 int m88k_case_index;
+int m88k_version_0300;		/* Version is at least 03.00 */
 
 rtx m88k_compare_reg;		/* cmp output pseudo register */
 rtx m88k_compare_op0;		/* cmpsi operand 0 */
@@ -91,6 +95,28 @@ classify_integer (mode, value)
     return m88k_set;
   else
     return m88k_oru_or;
+}
+
+/* Return the bit number in a compare word corresponding to CONDITION.  */
+
+int
+condition_value (condition)
+     rtx condition;
+{
+  switch (GET_CODE (condition))
+    {
+    case EQ: return 2;
+    case NE: return 3;
+    case GT: return 4;
+    case LE: return 5;
+    case LT: return 6;
+    case GE: return 7;
+    case GTU: return 8;
+    case LEU: return 9;
+    case LTU: return 10;
+    case GEU: return 11;
+    default: abort ();
+    }
 }
 
 int
@@ -185,12 +211,16 @@ output_load_const_dimode (operands)
 
    Return 1 if we have written out everything that needs to be done to
    do the move.  Otherwise, return 0 and the caller will emit the move
-   normally.  */
+   normally.
+
+   SCRATCH if non zero can be used as a scratch register for the move
+   operation.  It is provided by a SECONDARY_RELOAD_* macro if needed.  */
 
 int
-emit_move_sequence (operands, mode)
+emit_move_sequence (operands, mode, scratch)
      rtx *operands;
      enum machine_mode mode;
+     rtx scratch;
 {
   register rtx operand0 = operands[0];
   register rtx operand1 = operands[1];
@@ -232,10 +262,10 @@ emit_move_sequence (operands, mode)
 	    && GET_CODE (operand1) != CONST_DOUBLE)
 	  {
 	    rtx temp = ((reload_in_progress || reload_completed)
-			? operand0 : gen_reg_rtx (Pmode));
+			? operand0 : 0);
 	    operands[1] = legitimize_address (flag_pic
 					      && symbolic_address_p (operand1),
-					      operand1, temp);
+					      operand1, temp, scratch);
 	    if (mode != SImode)
 	      operands[1] = gen_rtx (SUBREG, mode, operands[1], 0);
 	  }
@@ -245,47 +275,61 @@ emit_move_sequence (operands, mode)
   return 0;
 }
 
-/* Return a legitimate reference for ORIG (either an address or a MEM) using
-   the register REG.  If PIC and the address is already position-independent,
-   use ORIG.  */
+/* Return a legitimate reference for ORIG (either an address or a MEM)
+   using the register REG.  If PIC and the address is already
+   position-independent, use ORIG.  Newly generated position-independent
+   addresses go into a reg.  This is REG if non zero, otherwise we
+   allocate register(s) as necessary.  If this is called during reload,
+   and we need a second temp register, then we use SCRATCH, which is
+   provided via the SECONDARY_INPUT_RELOAD_CLASS mechanism.  */
 
 struct rtx_def *
-legitimize_address (pic, orig, reg)
+legitimize_address (pic, orig, reg, scratch)
      int pic;
      rtx orig;
      rtx reg;
+     rtx scratch;
 {
   rtx addr = (GET_CODE (orig) == MEM ? XEXP (orig, 0) : orig);
   rtx new = orig;
-  rtx temp;
+  rtx temp, insn;
 
   if (pic)
     {
-      if (GET_CODE (addr) == SYMBOL_REF
-	  || GET_CODE (addr) == LABEL_REF)
+      if (GET_CODE (addr) == SYMBOL_REF || GET_CODE (addr) == LABEL_REF)
 	{
-	  if (reg == 0) abort ();
+	  if (reg == 0)
+	    {
+	      if (reload_in_progress || reload_completed)
+		abort ();
+	      else
+		reg = gen_reg_rtx (Pmode);
+	    }
 
 	  if (flag_pic == 2)
 	    {
+	      /* If not during reload, allocate another temp reg here for
+		 loading in the address, so that these instructions can be
+		 optimized properly.  */
+	      temp = ((reload_in_progress || reload_completed)
+		      ? reg : gen_reg_rtx (Pmode));
+
 	      emit_insn (gen_rtx (SET, VOIDmode,
-				  reg, gen_rtx (HIGH, SImode, addr)));
+				  temp, gen_rtx (HIGH, SImode, addr)));
 	      emit_insn (gen_rtx (SET, VOIDmode,
-				  reg, gen_rtx (LO_SUM, SImode, reg, addr)));
-	      addr = reg;
+				  temp, gen_rtx (LO_SUM, SImode, temp, addr)));
+	      addr = temp;
 	    }
 	  new = gen_rtx (MEM, Pmode,
 			 gen_rtx (PLUS, SImode,
 				  pic_offset_table_rtx, addr));
 	  current_function_uses_pic_offset_table = 1;
 	  RTX_UNCHANGING_P (new) = 1;
-	  {
-	    rtx insn = emit_move_insn (reg, new);
-	    /* Put a REG_EQUAL note on this insn, so that it can be optimized
-	       by loop.  */
-	    REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_EQUAL, orig,
-					REG_NOTES (insn));
-	  }
+	  insn = emit_move_insn (reg, new);
+	  /* Put a REG_EQUAL note on this insn, so that it can be optimized
+	     by loop.  */
+	  REG_NOTES (insn) = gen_rtx (EXPR_LIST, REG_EQUAL, orig,
+				      REG_NOTES (insn));
 	  new = reg;
 	}
       else if (GET_CODE (addr) == CONST)
@@ -297,23 +341,52 @@ legitimize_address (pic, orig, reg)
 	    return orig;
 
 	  if (reg == 0)
-	    abort ();
+	    {
+	      if (reload_in_progress || reload_completed)
+		abort ();
+	      else
+		reg = gen_reg_rtx (Pmode);
+	    }
 
 	  if (GET_CODE (XEXP (addr, 0)) != PLUS) abort ();
 
-	  base = legitimize_address (1, XEXP (XEXP (addr, 0), 0), reg);
+	  base = legitimize_address (1, XEXP (XEXP (addr, 0), 0), reg, 0);
 	  addr = legitimize_address (1, XEXP (XEXP (addr, 0), 1),
-				     base == reg ? 0 : reg);
+				     base == reg ? 0 : reg, 0);
 
 	  if (GET_CODE (addr) == CONST_INT)
-	    new = plus_constant_for_output (base, INTVAL (addr));
-	  else
-	    new = gen_rtx (PLUS, SImode, base, addr);
+	    {
+	      if (SMALL_INT (addr))
+		return plus_constant_for_output (base, INTVAL (addr));
+	      else if (! reload_in_progress && ! reload_completed)
+		addr = force_reg (Pmode, addr);
+	      /* We can't create any new registers during reload, so use the
+		 SCRATCH reg provided by the reload_insi pattern.  */
+	      else if (scratch)
+		{
+		  emit_move_insn (scratch, addr);
+		  addr = scratch;
+		}
+	      else
+		/* If we reach here, then the SECONDARY_INPUT_RELOAD_CLASS
+		   macro needs to be adjusted so that a scratch reg is provided
+		   for this address.  */
+		abort ();
+	    }
+	  new = gen_rtx (PLUS, SImode, base, addr);
 	  /* Should we set special REG_NOTEs here?  */
 	}
     }
   else if (! SHORT_ADDRESS_P (addr, temp))
     {
+      if (reg == 0)
+	{
+	  if (reload_in_progress || reload_completed)
+	    abort ();
+	  else
+	    reg = gen_reg_rtx (Pmode);
+	}
+
       emit_insn (gen_rtx (SET, VOIDmode,
 			  reg, gen_rtx (HIGH, SImode, addr)));
       new = gen_rtx (LO_SUM, SImode, reg, addr);
@@ -344,22 +417,57 @@ legitimize_address (pic, orig, reg)
 #define MOVSTR_QI	16 /* __movstrQI16x16 .. __movstrQI16x2 */
 #define MOVSTR_HI	48 /* __movstrHI48x48 .. __movstrHI48x4 */
 #define MOVSTR_SI	96 /* __movstrSI96x96 .. __movstrSI96x8 */
+#define MOVSTR_DI	96 /* __movstrDI96x96 .. __movstrDI96x16 */
+#define MOVSTR_ODD_HI	16 /* __movstrHI15x15 .. __movstrHI15x5 */
 #define MOVSTR_ODD_SI	48 /* __movstrSI47x47 .. __movstrSI47x11,
 			      __movstrSI46x46 .. __movstrSI46x10,
 			      __movstrSI45x45 .. __movstrSI45x9 */
-#define MOVSTR_ODD_HI	16 /* __movstrHI15x15 .. __movstrHI15x5 */
+#define MOVSTR_ODD_DI	48 /* __movstrDI47x47 .. __movstrDI47x23,
+			      __movstrDI46x46 .. __movstrDI46x22,
+			      __movstrDI45x45 .. __movstrDI45x21,
+			      __movstrDI44x44 .. __movstrDI44x20,
+			      __movstrDI43x43 .. __movstrDI43x19,
+			      __movstrDI42x42 .. __movstrDI42x18,
+			      __movstrDI41x41 .. __movstrDI41x17 */
 
-/* Break even points where memcpy will do just as well.  */
-#define MOVSTR_QI_LIMIT	13
-#define MOVSTR_HI_LIMIT	38
-#define MOVSTR_SI_LIMIT	MOVSTR_SI
+/* Limits for using the non-looping movstr functions.  For the m88100
+   processor, we assume the source and destination are word aligned.
+   The QImode and HImode limits are the break even points where memcpy
+   does just as well and beyond which memcpy does better.  For the
+   m88110, we tend to assume double word alignment, but also analyze
+   the word aligned cases.  The analysis is complicated because memcpy
+   may use the cache control instructions for better performance.  */
 
-static enum machine_mode mode_from_bytes[] =
-			      {VOIDmode, QImode, HImode, VOIDmode, SImode};
-static int max_from_bytes[] = {0, MOVSTR_QI, MOVSTR_HI, 0, MOVSTR_SI};
-static int all_from_bytes[] = {0, MOVSTR_QI, MOVSTR_ODD_HI, 0, MOVSTR_ODD_SI};
-static int best_from_bytes[] =
-		{0, MOVSTR_QI_LIMIT, MOVSTR_HI_LIMIT, 0, MOVSTR_SI_LIMIT};
+#define MOVSTR_QI_LIMIT_88100   13
+#define MOVSTR_HI_LIMIT_88100   38
+#define MOVSTR_SI_LIMIT_88100   MOVSTR_SI
+#define MOVSTR_DI_LIMIT_88100   MOVSTR_SI
+  
+#define MOVSTR_QI_LIMIT_88000   16
+#define MOVSTR_HI_LIMIT_88000   38
+#define MOVSTR_SI_LIMIT_88000   72
+#define MOVSTR_DI_LIMIT_88000   72
+
+#define MOVSTR_QI_LIMIT_88110   16
+#define MOVSTR_HI_LIMIT_88110   38
+#define MOVSTR_SI_LIMIT_88110   72
+#define MOVSTR_DI_LIMIT_88110   72
+
+static enum machine_mode mode_from_align[] =
+			      {VOIDmode, QImode, HImode, VOIDmode, SImode,
+			       VOIDmode, VOIDmode, VOIDmode, DImode};
+static int max_from_align[] = {0, MOVSTR_QI, MOVSTR_HI, 0, MOVSTR_SI,
+			       0, 0, 0, MOVSTR_DI};
+static int all_from_align[] = {0, MOVSTR_QI, MOVSTR_ODD_HI, 0, MOVSTR_ODD_SI,
+			       0, 0, 0, MOVSTR_ODD_DI};
+
+static int best_from_align[3][9] =
+  {0, MOVSTR_QI_LIMIT_88100, MOVSTR_HI_LIMIT_88100, 0, MOVSTR_SI_LIMIT_88100, 
+   0, 0, 0, MOVSTR_DI_LIMIT_88100,
+   0, MOVSTR_QI_LIMIT_88110, MOVSTR_HI_LIMIT_88110, 0, MOVSTR_SI_LIMIT_88110, 
+   0, 0, 0, MOVSTR_DI_LIMIT_88110,  
+   0, MOVSTR_QI_LIMIT_88000, MOVSTR_HI_LIMIT_88000, 0, MOVSTR_SI_LIMIT_88000,
+   0, 0, 0, MOVSTR_DI_LIMIT_88000};
 
 static void block_move_loop ();
 static void block_move_no_loop ();
@@ -381,12 +489,17 @@ expand_block_move (dest_mem, src_mem, operands)
   int align = INTVAL (operands[3]);
   int constp = (GET_CODE (operands[2]) == CONST_INT);
   int bytes = (constp ? INTVAL (operands[2]) : 0);
+  int target = (int) m88k_cpu;
+
+  assert (CPU_M88100 == 0);
+  assert (CPU_M88110 == 1);
+  assert (CPU_M88000 == 2);
 
   if (constp && bytes <= 0)
     return;
 
   /* Determine machine mode to do move with.  */
-  if (align > 4)
+  if (align > 4 && !TARGET_88110)
     align = 4;
   else if (align <= 0 || align == 3)
     abort ();	/* block move invalid alignment.  */
@@ -395,11 +508,11 @@ expand_block_move (dest_mem, src_mem, operands)
     block_move_sequence (operands[0], dest_mem, operands[1], src_mem,
 			 bytes, align, 0);
 
-  else if (constp && bytes <= best_from_bytes[align])
+  else if (constp && bytes <= best_from_align[target][align])
     block_move_no_loop (operands[0], dest_mem, operands[1], src_mem,
 			bytes, align);
 
-  else if (constp && align == 4)
+  else if (constp && align == 4 && TARGET_88100)
     block_move_loop (operands[0], dest_mem, operands[1], src_mem,
 		     bytes, align);
 
@@ -463,7 +576,7 @@ block_move_loop (dest, dest_mem, src, src_mem, size, align)
 
   remainder = size - count * MOVSTR_LOOP - units * align;
 
-  mode = mode_from_bytes[align];
+  mode = mode_from_align[align];
   sprintf (entry, "__movstr%s%dn%d",
 	   GET_MODE_NAME (mode), MOVSTR_LOOP, units * align);
   entry_name = get_identifier (entry);
@@ -479,7 +592,7 @@ block_move_loop (dest, dest_mem, src, src_mem, size, align)
   MEM_VOLATILE_P (value_rtx) = MEM_VOLATILE_P (src_mem);
   MEM_IN_STRUCT_P (value_rtx) = MEM_IN_STRUCT_P (src_mem);
 
-  emit_insn (gen_call_block_move_loop
+  emit_insn (gen_call_movstrsi_loop
 	     (gen_rtx (SYMBOL_REF, Pmode, IDENTIFIER_POINTER (entry_name)),
 	      dest, src, offset_rtx, value_rtx,
 	      gen_rtx (REG, GET_MODE (value_rtx), ((units & 1) ? 4 : 5)),
@@ -502,24 +615,24 @@ block_move_no_loop (dest, dest_mem, src, src_mem, size, align)
      int size;
      int align;
 {
-  enum machine_mode mode = mode_from_bytes[align];
+  enum machine_mode mode = mode_from_align[align];
   int units = size / align;
   int remainder = size - units * align;
   int most;
-  int evenp;
+  int value_reg;
   rtx offset_rtx;
   rtx value_rtx;
   char entry[30];
   tree entry_name;
 
-  if (remainder && size <= all_from_bytes[align])
+  if (remainder && size <= all_from_align[align])
     {
-      most = all_from_bytes[align] - (align - remainder);
+      most = all_from_align[align] - (align - remainder);
       remainder = 0;
     }
   else
     {
-      most = max_from_bytes[align];
+      most = max_from_align[align];
     }
 
   sprintf (entry, "__movstr%s%dx%d",
@@ -536,12 +649,13 @@ block_move_no_loop (dest, dest_mem, src, src_mem, size, align)
   MEM_VOLATILE_P (value_rtx) = MEM_VOLATILE_P (src_mem);
   MEM_IN_STRUCT_P (value_rtx) = MEM_IN_STRUCT_P (src_mem);
 
-  evenp = ((most - (size - remainder)) / align) & 1;
+  value_reg = ((((most - (size - remainder)) / align) & 1) == 0
+	       ? (align == 8 ? 6 : 5) : 4);
 
   emit_insn (gen_call_block_move
 	     (gen_rtx (SYMBOL_REF, Pmode, IDENTIFIER_POINTER (entry_name)),
 	      dest, src, offset_rtx, value_rtx,
-	      gen_rtx (REG, GET_MODE (value_rtx), (evenp ? 4 : 5))));
+	      gen_rtx (REG, GET_MODE (value_rtx), value_reg)));
 
   if (remainder)
     block_move_sequence (gen_rtx (REG, Pmode, 2), dest_mem,
@@ -576,7 +690,7 @@ block_move_sequence (dest, dest_mem, src, src_mem, size, align, offset)
   /* Establish parameters for the first load and for the second load if
      it is known to be the same mode as the first.  */
   amount[0] = amount[1] = align;
-  mode[0] = mode_from_bytes[align];
+  mode[0] = mode_from_align[align];
   temp[0] = gen_reg_rtx (mode[0]);
   if (size >= 2 * align)
     {
@@ -595,8 +709,8 @@ block_move_sequence (dest, dest_mem, src, src_mem, size, align, offset)
 	  /* Change modes as the sequence tails off.  */
 	  if (size < amount[next])
 	    {
-	      amount[next] = (size >= 2 ? 2 : 1);
-	      mode[next] = mode_from_bytes[amount[next]];
+	      amount[next] = (size >= 4 ? 4 : (size >= 2 ? 2 : 1));
+	      mode[next] = mode_from_align[amount[next]];
 	      temp[next] = gen_reg_rtx (mode[next]);
 	    }
 	  size -= amount[next];
@@ -769,6 +883,12 @@ output_call (operands, addr)
 			    : (flag_pic ? "bsr.n %0#plt" : "bsr.n %0")),
 			   operands);
 
+#ifdef USE_GAS
+	  last = (delta < 0
+		  ? "subu %#r1,%#r1,.-%l0+4"
+		  : "addu %#r1,%#r1,%l0-.-4");
+	  operands[0] = dest;
+#else
 	  operands[0] = gen_label_rtx ();
 	  operands[1] = gen_label_rtx ();
 	  if (delta < 0)
@@ -788,6 +908,7 @@ output_call (operands, addr)
 	  sb_name = gen_rtx (EXPR_LIST, VOIDmode, operands[0], sb_name);
 	  sb_high = gen_rtx (EXPR_LIST, VOIDmode, high, sb_high);
 	  sb_low = gen_rtx (EXPR_LIST, VOIDmode, low, sb_low);
+#endif /* Don't USE_GAS */
 
 	  return last;
 	}
@@ -843,10 +964,11 @@ mostly_false_jump (jump_insn, condition)
     {
       if (GET_CODE (insnt) == JUMP_INSN)
 	break;
-      else if (GET_CODE (insnt) == SEQUENCE
-	       && GET_CODE (XVECEXP (insnt, 0, 0)) == JUMP_INSN)
+      else if (GET_CODE (insnt) == INSN
+	       && GET_CODE (PATTERN (insnt)) == SEQUENCE
+	       && GET_CODE (XVECEXP (PATTERN (insnt), 0, 0)) == JUMP_INSN)
 	{
-	  insnt = XVECEXP (insnt, 0, 0);
+	  insnt = XVECEXP (PATTERN (insnt), 0, 0);
 	  break;
 	}
     }
@@ -863,10 +985,11 @@ mostly_false_jump (jump_insn, condition)
     {
       if (GET_CODE (insnj) == JUMP_INSN)
 	break;
-      else if (GET_CODE (insnj) == SEQUENCE
-	       && GET_CODE (XVECEXP (insnj, 0, 0)) == JUMP_INSN)
+      else if (GET_CODE (insnj) == INSN
+	       && GET_CODE (PATTERN (insnj)) == SEQUENCE
+	       && GET_CODE (XVECEXP (PATTERN (insnj), 0, 0)) == JUMP_INSN)
 	{
-	  insnj = XVECEXP (insnj, 0, 0);
+	  insnj = XVECEXP (PATTERN (insnj), 0, 0);
 	  break;
 	}
     }
@@ -875,7 +998,7 @@ mostly_false_jump (jump_insn, condition)
 	  || (GET_CODE (PATTERN (insnj)) == SET
 	      && GET_CODE (SET_SRC (PATTERN (insnj))) == REG
 	      && REGNO (SET_SRC (PATTERN (insnj))) == 1)))
-    insnt = 0;
+    insnj = 0;
 
   /* Predict to not return.  */
   if ((insnt == 0) != (insnj == 0))
@@ -903,7 +1026,7 @@ mostly_false_jump (jump_insn, condition)
 
   /* EQ tests are usually false and NE tests are usually true.  Also,
      most quantities are positive, so we can make the appropriate guesses
-     about signed comparisons against zero.  Consider unsigned comparsions
+     about signed comparisons against zero.  Consider unsigned comparisons
      to be a range check and assume quantities to be in range.  */
   switch (GET_CODE (condition))
     {
@@ -1402,6 +1525,7 @@ output_ascii (file, opcode, max, p, size)
      int size;
 {
   int i;
+  int in_escape = 0;
 
   register int num = 0;
 
@@ -1415,29 +1539,45 @@ output_ascii (file, opcode, max, p, size)
 	  fprintf (file, "\"\n\t%s\t \"", opcode);
 	  num = 0;
 	}
-
+	  
       if (c == '\"' || c == '\\')
 	{
+	escape:
 	  putc ('\\', file);
-	  num++;
+	  putc (c, file);
+	  num += 2;
+	  in_escape = 0;
 	}
-
-      if (c >= ' ' && c < 0177)
+      else if (in_escape && c >= '0' && c <= '9')
+	{
+	  /* If a digit follows an octal-escape, the Vax assembler fails
+	     to stop reading the escape after three digits.  Continue to
+	     output the values as an octal-escape until a non-digit is
+	     found.  */
+	  fprintf (file, "\\%03o", c);
+	  num += 4;
+	}
+      else if (c >= ' ' && c < 0177)
 	{
 	  putc (c, file);
 	  num++;
+	  in_escape = 0;
 	}
       else
 	{
+	  switch (c)
+	    {
+	      /* Some assemblers can't handle \a, \v, or \?.  */
+	    case '\t': c = 't'; goto escape;
+	    case '\f': c = 'f'; goto escape;
+	    case '\b': c = 'b'; goto escape;
+	    case '\r': c = 'r'; goto escape;
+	    case '\n': c = 'n'; goto escape;
+	    }
+
 	  fprintf (file, "\\%03o", c);
 	  num += 4;
-	  /* After an octal-escape, if a digit follows,
-	     terminate one string constant and start another.
-	     The Vax assembler fails to stop reading the escape
-	     after three digits, so this is the only way we
-	     can get it to parse the data properly.  */
-	  if (i < size - 1 && p[i + 1] >= '0' && p[i + 1] <= '9')
-	    num = max + 1;	/* next pass will start a new string */
+	  in_escape = 1;
 	}
     }
   fprintf (file, "\"\n");
@@ -1451,99 +1591,6 @@ output_label (label_number)
      int label_number;
 {
   ASM_OUTPUT_INTERNAL_LABEL (asm_out_file, "L", label_number);
-}
-
-/* Handle a pragma directive.  HANDLE_PRAGMA conspires to parse the input
-   following #pragma into tokens based on yylex.  */
-
-void
-m88k_handle_pragma_token (string, token)
-     char *string;
-     tree token;
-{
-  static enum pragma_state
-    {
-      ps_start,
-      ps_done,
-      ps_bad,
-      ps_weak,
-      ps_name,
-      ps_equals,
-      ps_value
-    } state;
-  static char *name;
-  static char *value;
-
-  if (HANDLE_PRAGMA_WEAK)
-    {
-      if (string == 0)
-	{
-	  if (state == ps_name || state == ps_value)
-	    {
-	      fprintf (asm_out_file, "\t%s\t ", WEAK_ASM_OP);
-	      ASM_OUTPUT_LABELREF (asm_out_file, name);
-	      fputc ('\n', asm_out_file);
-	      if (state == ps_value)
-		{
-		  fprintf (asm_out_file, "\t%s\t ", SET_ASM_OP);
-		  ASM_OUTPUT_LABELREF (asm_out_file, name);
-		  fputc (',', asm_out_file);
-		  ASM_OUTPUT_LABELREF (asm_out_file, value);
-		  fputc ('\n', asm_out_file);
-		}
-	    }
-	  else if (! (state == ps_done || state == ps_start))
-	    warning ("ignoring malformed #pragma weak symbol [=value]");
-	  state = ps_start;
-	}
-      else
-	switch (state)
-	  {
-	  case ps_start:
-	    if (token
-		&& TREE_CODE (token) == IDENTIFIER_NODE
-		&& !strcmp (IDENTIFIER_POINTER (token), "weak"))
-	      state = ps_weak;
-	    else
-	      state = ps_done;
-	    break;
-
-	  case ps_weak:
-	    if (token
-		&& TREE_CODE (token) == IDENTIFIER_NODE)
-	      {
-		name = IDENTIFIER_POINTER (token);
-		state = ps_name;
-	      }
-	    else
-	      state = ps_bad;
-	    break;
-
-	  case ps_name:
-	    state = (strcmp (string, "=") ? ps_bad : ps_equals);
-	    break;
-
-	  case ps_equals:
-	    if (token
-		&& TREE_CODE (token) == IDENTIFIER_NODE)
-	      {
-		value = IDENTIFIER_POINTER (token);
-		state = ps_value;
-	      }
-	    else
-	      state = ps_bad;
-	    break;
-
-	  case ps_value:
-	    state = ps_bad;
-	  case ps_bad:
-	  case ps_done:
-	    break;
-
-	  default:
-	    abort ();
-	  }
-    }
 }
 
 /* Generate the assembly code for function entry.
@@ -1619,8 +1666,9 @@ m88k_handle_pragma_token (string, token)
   variable space.
   */
 
-static void output_reg_adjust ();
+static void emit_add ();
 static void preserve_registers ();
+static void emit_ldst ();
 static void output_tdesc ();
 
 static int  nregs;
@@ -1629,6 +1677,8 @@ static char save_regs[FIRST_PSEUDO_REGISTER];
 static int  frame_laid_out;
 static int  frame_size;
 static int  variable_args_p;
+static int  epilogue_marked;
+static int  prologue_marked;
 
 extern char call_used_regs[];
 extern int  current_function_pretend_args_size;
@@ -1755,10 +1805,10 @@ m88k_layout_frame ()
   }
 }
 
-/* Return true if this function is known to have a null epilogue.  */
+/* Return true if this function is known to have a null prologue.  */
 
 int
-null_epilogue ()
+null_prologue ()
 {
   if (! reload_completed)
     return 0;
@@ -1768,97 +1818,6 @@ null_epilogue ()
 	  && nregs == 0
 	  && nxregs == 0
 	  && m88k_stack_size == 0);
-}
-
-/* Determine the number of instructions needed for the function epilogue.  */
-
-#define MAX_EPILOGUE_DELAY_INSNS 4
-
-static char epilogue_dead_regs[FIRST_PSEUDO_REGISTER];
-
-delay_slots_for_epilogue ()
-{
-  register int insns = save_regs[1] + save_regs[FRAME_POINTER_REGNUM];
-  register int regs = nregs - insns;
-
-  if (regs > 3)
-    insns += 1 + (regs & 1);
-  else if (nregs == 4)
-    /* This is a special cases of ld/ld/ld.d which has no start-up delay.  */
-    return 0;
-
-  if (insns)
-    {
-      bzero ((char *) &epilogue_dead_regs[0], sizeof (epilogue_dead_regs));
-      epilogue_dead_regs[1] = save_regs[1];
-      epilogue_dead_regs[STACK_POINTER_REGNUM] = frame_pointer_needed;
-      epilogue_dead_regs[TEMP_REGNUM] = ! ADD_INTVAL (m88k_fp_offset);
-    }
-
-  return insns;
-}
-
-/* Return 1 if X is safe to use as an epilogue insn.  */
-
-int
-ok_for_epilogue_p (x)
-     rtx x;
-{
-  register char *fmt;
-  register int i, j;
-
-  switch (GET_CODE (x))
-    {
-    case REG:
-      for (i = REGNO (x), j = i + HARD_REGNO_NREGS (i, GET_MODE (x));
-	   i < j;
-	   i++)
-	if (epilogue_dead_regs[i])
-	  return 0;
-
-    case CONST_INT:
-    case CONST_DOUBLE:
-    case CONST:
-    case PC:
-    case CC0:
-    case LABEL_REF:
-    case SYMBOL_REF:
-    case CODE_LABEL:
-      return 1;
-    }
-
-  fmt = GET_RTX_FORMAT (GET_CODE (x));
-  for (i = GET_RTX_LENGTH (GET_CODE (x)) - 1; i >= 0; i--)
-    {
-      if (fmt[i] == 'e')
-	{
-	  if (!ok_for_epilogue_p (XEXP (x, i)))
-	    return 0;
-	}
-      else if (fmt[i] == 'E')
-	{
-	  for (j = XVECLEN (x, i) - 1; j >= 0; j--)
-	    if (!ok_for_epilogue_p (XVECEXP (x, i, j)))
-	      return 0;
-	}
-    }
-  return 1;
-}
-
-int
-eligible_for_epilogue_delay (insn)
-     rtx insn;
-{
-  switch (get_attr_type (insn))
-    {
-    case TYPE_STORE:
-    case TYPE_LOADA:
-    case TYPE_ARITH:
-    case TYPE_MARITH:
-      return ok_for_epilogue_p (PATTERN (insn));
-    default:
-      return 0;
-    }
 }
 
 /* Determine if the current function has any references to the arg pointer.
@@ -1892,75 +1851,80 @@ uses_arg_area_p ()
 }
 
 void
-m88k_output_prologue (stream, size)
+m88k_begin_prologue (stream, size)
      FILE *stream;
      int size;
 {
-  int old_fp_offset = m88k_fp_offset;
-  int old_stack_size = m88k_stack_size;
+  m88k_prologue_done = 1;	/* it's ok now to put out ln directives */
+}
 
-  m88k_layout_frame ();
-#if (MONITOR_GCC & 0x8) /* Watch for suspicious register elimination changes.  */
-  if (frame_laid_out > 1)
+void
+m88k_end_prologue (stream)
+     FILE *stream;
+{
+  if (TARGET_OCS_DEBUG_INFO && !prologue_marked)
     {
-      if (old_fp_offset != m88k_fp_offset)
-	warning ("Internal gcc error: FP offset has changed by %d bytes",
-		 m88k_fp_offset - old_fp_offset);
-      if (old_stack_size != m88k_stack_size)
-	warning ("Internal gcc error: stack size has changed by %d bytes",
-		 m88k_stack_size - old_stack_size);
+      PUT_OCS_FUNCTION_START (stream);
+      prologue_marked = 1;
+
+      /* If we've already passed the start of the epilogue, say that
+	 it starts here.  This marks the function as having a null body,
+	 but at a point where the return address is in a known location.
+
+	 Originally, I thought this couldn't happen, but the pic prologue
+	 for leaf functions ends with the instruction that restores the
+	 return address from the temporary register.  If the temporary
+	 register is never used, that instruction can float all the way
+	 to the end of the function.  */
+      if (epilogue_marked)
+	PUT_OCS_FUNCTION_END (stream);
     }
-#endif
-  frame_laid_out = 0;
+}
+
+void
+m88k_expand_prologue ()
+{
+  m88k_layout_frame ();
 
   if (TARGET_OPTIMIZE_ARG_AREA
       && m88k_stack_size
       && ! uses_arg_area_p ())
     {
       /* The incoming argument area is used for stack space if it is not
-	 used (or if -mno-use-arg-area is given).  */
+	 used (or if -mno-optimize-arg-area is given).  */
       if ((m88k_stack_size -= REG_PARM_STACK_SPACE (0)) < 0)
 	m88k_stack_size = 0;
     }
 
   if (m88k_stack_size)
-    output_reg_adjust (stream, 31, 31, -m88k_stack_size, 0);
+    emit_add (stack_pointer_rtx, stack_pointer_rtx, -m88k_stack_size);
 
   if (nregs || nxregs)
-    preserve_registers (stream, m88k_fp_offset + 4, 1);
+    preserve_registers (m88k_fp_offset + 4, 1);
 
   if (frame_pointer_needed)
-    output_reg_adjust (stream, 30, 31, m88k_fp_offset, 0);
-
-  if (TARGET_OCS_DEBUG_INFO)
-    PUT_OCS_FUNCTION_START (stream);
+    emit_add (frame_pointer_rtx, stack_pointer_rtx, m88k_fp_offset);
 
   if (flag_pic && save_regs[PIC_OFFSET_TABLE_REGNUM])
     {
-      char label[256];
+      rtx return_reg = gen_rtx (REG, SImode, 1);
+      rtx label = gen_label_rtx ();
+      rtx temp_reg;
 
       if (! save_regs[1])
-	fprintf (stream, "\tor\t %s,%s,0\n",
-		 reg_names[TEMP_REGNUM], reg_names[1]);
-      ASM_GENERATE_INTERNAL_LABEL (label, "Lab", m88k_function_number);
-      fprintf (stream, "\tbsr.n\t %s\n", &label[1]);
-      fprintf (stream, "\tor.u\t %s,%s,%shi16(%s#abdiff)\n",
-	       reg_names[PIC_OFFSET_TABLE_REGNUM], reg_names[0],
-	       m88k_pound_sign, &label[1]);
-      ASM_OUTPUT_INTERNAL_LABEL (stream, "Lab", m88k_function_number);
-      fprintf (stream, "\tor\t %s,%s,%slo16(%s#abdiff)\n",
-	       reg_names[PIC_OFFSET_TABLE_REGNUM],
-	       reg_names[PIC_OFFSET_TABLE_REGNUM],
-	       m88k_pound_sign, &label[1]);
-      fprintf (stream, "\taddu\t %s,%s,%s\n",
-	       reg_names[PIC_OFFSET_TABLE_REGNUM],
-	       reg_names[PIC_OFFSET_TABLE_REGNUM], reg_names[1]);
+	{
+	  temp_reg = gen_rtx (REG, SImode, TEMP_REGNUM);
+	  emit_move_insn (temp_reg, return_reg);
+	}
+      emit_insn (gen_locate1 (pic_offset_table_rtx, label));
+      emit_insn (gen_locate2 (pic_offset_table_rtx, label));
+      emit_insn (gen_addsi3 (pic_offset_table_rtx,
+			     pic_offset_table_rtx, return_reg));
       if (! save_regs[1])
-	fprintf (stream, "\tor\t %s,%s,0\n",
-		 reg_names[1], reg_names[TEMP_REGNUM]);
+	emit_move_insn (return_reg, temp_reg);
     }
-
-  m88k_prologue_done = 1;	/* it's ok now to put out ln directives */
+  if (profile_flag || profile_block_flag)
+    emit_insn (gen_blockage ());
 }
 
 /* This function generates the assembly code for function exit,
@@ -1972,39 +1936,34 @@ m88k_output_prologue (stream, size)
    omit stack adjustments before returning.  */
 
 void
-m88k_output_epilogue (stream, size)
+m88k_begin_epilogue (stream)
+     FILE *stream;
+{
+  if (TARGET_OCS_DEBUG_INFO && !epilogue_marked && prologue_marked)
+    {
+      PUT_OCS_FUNCTION_END (stream);
+    }
+  epilogue_marked = 1;
+}
+
+void
+m88k_end_epilogue (stream, size)
      FILE *stream;
      int size;
 {
   rtx insn = get_last_insn ();
-#if (MONITOR_GCC & 0x4) /* What are interesting prologue/epilogue values?  */
-  fprintf (stream, "; size = %d, m88k_fp_offset = %d, m88k_stack_size = %d\n",
-	   size, m88k_fp_offset, m88k_stack_size);
-#endif
 
-  output_short_branch_defs (stream);
-
-  if (TARGET_OCS_DEBUG_INFO)
+  if (TARGET_OCS_DEBUG_INFO && !epilogue_marked)
     PUT_OCS_FUNCTION_END (stream);
 
-  /* If the last insn was a BARRIER, we don't have to write any code.  */
+  /* If the last insn isn't a BARRIER, we must write a return insn.  This
+     should only happen if the function has no prologe and no body.  */
   if (GET_CODE (insn) == NOTE)
     insn = prev_nonnote_insn (insn);
-  if (insn && GET_CODE (insn) == BARRIER)
-    {
-      if (current_function_epilogue_delay_list)
-	abort ();
-    }
-  else
-    {
-      if (frame_pointer_needed)
-	output_reg_adjust (stream, 31, 30, -m88k_fp_offset, 0);
+  if (insn == 0 || GET_CODE (insn) != BARRIER)
+    fprintf (stream, "\tjmp\t %s\n", reg_names[1]);
 
-      if (nregs || nxregs)
-	preserve_registers (stream, m88k_fp_offset + 4, 0);
-
-      output_reg_adjust (stream, 31, 31, m88k_stack_size, 1);
-    }
+  output_short_branch_defs (stream);
 
   fprintf (stream, "\n");
 
@@ -2014,69 +1973,58 @@ m88k_output_epilogue (stream, size)
   m88k_function_number++;
   m88k_prologue_done	= 0;		/* don't put out ln directives */
   variable_args_p	= 0;		/* has variable args */
+  frame_laid_out	= 0;
+  epilogue_marked	= 0;
+  prologue_marked	= 0;
+}
+
+void
+m88k_expand_epilogue ()
+{
+#if (MONITOR_GCC & 0x4) /* What are interesting prologue/epilogue values?  */
+  fprintf (stream, "; size = %d, m88k_fp_offset = %d, m88k_stack_size = %d\n",
+	   size, m88k_fp_offset, m88k_stack_size);
+#endif
+
+  if (frame_pointer_needed)
+    emit_add (stack_pointer_rtx, frame_pointer_rtx, -m88k_fp_offset);
+
+  if (nregs || nxregs)
+    preserve_registers (m88k_fp_offset + 4, 0);
+
+  if (m88k_stack_size)
+    emit_add (stack_pointer_rtx, stack_pointer_rtx, m88k_stack_size);
 }
 
-/* Output code to STREAM to set DSTREG to SRCREG + AMOUNT.  Issue
-   a return instruction and use it's delay slot based on RETURN_P.  */
+/* Emit insns to set DSTREG to SRCREG + AMOUNT during the prologue or
+   epilogue.  */
 
 static void
-output_reg_adjust (stream, dstreg, srcreg, amount, return_p)
-     FILE *stream;
-     int dstreg, srcreg, amount, return_p;
+emit_add (dstreg, srcreg, amount)
+     rtx dstreg;
+     rtx srcreg;
+     int amount;
 {
-  char *opname;
-  char incr[256];
-
-  if (amount < 0)
+  rtx incr = gen_rtx (CONST_INT, VOIDmode, abs (amount));
+  if (! ADD_INTVAL (amount))
     {
-      opname = "subu";
-      amount = -amount;
+      rtx temp = gen_rtx (REG, SImode, TEMP_REGNUM);
+      emit_move_insn (temp, incr);
+      incr = temp;
     }
-  else
-    opname = "addu";
-
-  if (amount == 0 && dstreg == srcreg)
-    {
-      if (return_p)
-	fprintf (stream, "\tjmp\t %s\n", reg_names[1]);
-      return;
-    }
-  else if (SMALL_INTVAL (amount))
-    sprintf (incr, "\t%s\t %s,%s,%d", opname,
-	     reg_names[dstreg], reg_names[srcreg], amount);
-  else
-    {
-      rtx operands[2];
-
-      operands[0] = gen_rtx (REG, SImode, TEMP_REGNUM);
-      operands[1] = gen_rtx (CONST_INT, VOIDmode, amount);
-      output_asm_insn (output_load_const_int (SImode, operands),
-		       operands);
-      sprintf (incr, "\t%s\t %s,%s,%s", opname,
-	       reg_names[dstreg], reg_names[srcreg], reg_names[TEMP_REGNUM]);
-    }
-
-  if (!return_p)
-    fprintf (stream, "%s\n", incr);
-  else if (flag_delayed_branch)
-    fprintf (stream, "\tjmp.n\t %s\n%s\n", reg_names[1], incr);
-  else
-    fprintf (stream, "%s\n\tjmp\t %s\n", incr, reg_names[1]);
+  emit_insn ((amount < 0 ? gen_subsi3 : gen_addsi3) (dstreg, srcreg, incr));
 }
 
 /* Save/restore the preserve registers.  base is the highest offset from
    r31 at which a register is stored.  store_p is true if stores are to
-   be done; otherwise loads.  When loading, output the epilogue delay
-   insns.  */
+   be done; otherwise loads.  */
 
 static void
-preserve_registers (stream, base, store_p)
-     FILE *stream;
+preserve_registers (base, store_p)
      int base;
      int store_p;
 {
   int regno, offset;
-  char *fmt = (store_p ? "\tst%s\t %s,%s,%d\n" : "\tld%s\t %s,%s,%d\n");
   struct mem_op {
     int regno;
     int nregs;
@@ -2095,7 +2043,7 @@ preserve_registers (stream, base, store_p)
 	 memory ops.  */
       if (nregs > 2 && !save_regs[FRAME_POINTER_REGNUM])
 	offset -= 4;
-      fprintf (stream, fmt, "", reg_names[1], reg_names[31], offset);
+      emit_ldst (store_p, 1, SImode, offset);
       offset -= 4;
       base = offset;
     }
@@ -2156,69 +2104,30 @@ preserve_registers (stream, base, store_p)
 
   mo_ptr->regno = 0;
 
-  /* Output the delay insns interleaved with the memory operations.  */
-  if (! store_p && current_function_epilogue_delay_list)
-    {
-      rtx delay_insns = current_function_epilogue_delay_list;
-      rtx insn;
-
-      /* The first delay insn goes after the restore of r1.  */
-      if (save_regs[1])
-	{
-	  final_scan_insn (XEXP (delay_insns, 0), stream, 1, 0, 1);
-	  delay_insns = XEXP (delay_insns, 1);
-	}
-
-      while (delay_insns)
-	{
-	  /* Find a memory operation that doesn't conflict with this insn.  */
-	  for (mo_ptr = mem_op; mo_ptr->regno != 0; mo_ptr++)
-	    {
-	      if (mo_ptr->nregs)
-		{
-		  int nregs = (mo_ptr->regno < FIRST_EXTENDED_REGISTER
-			       ? mo_ptr->nregs : 1);
-		  rtx ok_insns = delay_insns;
-		  int i;
-
-		  for (i = 0; i < nregs; i++)
-		    epilogue_dead_regs[mo_ptr->regno + i] = 1;
-
-		  while (ok_insns)
-		    {
-		      insn = XEXP (ok_insns, 0);
-		      ok_insns = XEXP (ok_insns, 1);
-
-		      if (! ok_for_epilogue_p (PATTERN (insn)))
-			{
-			  for (i = 0; i < nregs; i++)
-			    epilogue_dead_regs[mo_ptr->regno + i] = 0;
-			  insn = 0;
-			  break; /* foreach delay insn */
-			}
-		    }
-		  if (insn)
-		    {
-		      fprintf (stream, fmt, mo_ptr->nregs > 1 ? ".d" : "",
-			       reg_names[mo_ptr->regno], reg_names[31],
-			       mo_ptr->offset);
-		      mo_ptr->nregs = 0;
-		      break; /* foreach memory operation */
-		    }
-		}
-	    }
-	  final_scan_insn (XEXP (delay_insns, 0), stream, 1, 0, 1);
-	  delay_insns = XEXP (delay_insns, 1);
-	}
-    }
-
   /* Output the memory operations.  */
   for (mo_ptr = mem_op; mo_ptr->regno; mo_ptr++)
     {
       if (mo_ptr->nregs)
-	fprintf (stream, fmt, mo_ptr->nregs > 1 ? ".d" : "",
-		 reg_names[mo_ptr->regno], reg_names[31], mo_ptr->offset);
+	emit_ldst (store_p, mo_ptr->regno,
+		   (mo_ptr->nregs > 1 ? DImode : SImode),
+		   mo_ptr->offset);
     }
+}
+
+static void
+emit_ldst (store_p, regno, mode, offset)
+     int store_p;
+     int regno;
+     enum machine_mode mode;
+     int offset;
+{
+  rtx reg = gen_rtx (REG, mode, regno);
+  rtx mem = gen_rtx (MEM, mode, plus_constant (stack_pointer_rtx, offset));
+
+  if (store_p)
+    emit_move_insn (mem, reg);
+  else
+    emit_move_insn (reg, mem);
 }
 
 /* Convert the address expression REG to a CFA offset.  */
@@ -2348,7 +2257,7 @@ output_tdesc (file, offset)
 
   text_section ();
 }
-
+
 /* Output assembler code to FILE to increment profiler label # LABELNO
    for profiling a function entry.  NAME is the mcount function name
    (varies), SAVEP indicates whether the parameter registers need to
@@ -2364,6 +2273,8 @@ output_function_profiler (file, labelno, name, savep)
   char label[256];
   char dbi[256];
   char *temp = (savep ? reg_names[2] : reg_names[10]);
+
+  /* Remember to update FUNCTION_PROFILER_LENGTH.  */
 
   if (savep)
     {
@@ -2424,6 +2335,8 @@ output_function_block_profiler (file, labelno)
   char block[256];
   char label[256];
 
+  /* Remember to update FUNCTION_BLOCK_PROFILER_LENGTH.  */
+
   ASM_GENERATE_INTERNAL_LABEL (block, "LPBX", 0);
   ASM_GENERATE_INTERNAL_LABEL (label, "LPY", labelno);
 
@@ -2462,6 +2375,8 @@ output_block_profiler (file, blockno)
      int blockno;
 {
   char block[256];
+
+  /* Remember to update BLOCK_PROFILER_LENGTH.  */
 
   ASM_GENERATE_INTERNAL_LABEL (block, "LPBX", 2);
 
@@ -2725,6 +2640,45 @@ print_operand (file, x, code)
 
     case '#': /* SVR4 pound-sign syntax character (empty if SVR3) */
       fputs (m88k_pound_sign, file); return;
+
+    case 'V': /* Output a serializing instruction as needed if the operand
+		 (assumed to be a MEM) is a volatile load.  */
+    case 'v': /* ditto for a volatile store.  */
+      if (MEM_VOLATILE_P (x) && TARGET_SERIALIZE_VOLATILE)
+	{
+	  /* The m88110 implements two FIFO queues, one for loads and
+	     one for stores.  These queues mean that loads complete in
+	     their issue order as do stores.  An interaction between the
+	     history buffer and the store reservation station ensures
+	     that a store will not bypass load.  Finally, a load will not
+	     bypass store, but only when they reference the same address.
+
+	     To avoid this reordering (a load bypassing a store) for
+	     volatile references, a serializing instruction is output.
+	     We choose the fldcr instruction as it does not serialize on
+	     the m88100 so that -m88000 code will not be degraded.
+
+	     The mechanism below is completed by having CC_STATUS_INIT set
+	     the code to the unknown value.  */
+
+	  static rtx last_addr = 0;
+	  if (code == 'V' /* Only need to serialize before a load.  */
+	      && m88k_volatile_code != 'V' /* Loads complete in FIFO order.  */
+	      && !(m88k_volatile_code == 'v'
+		   && GET_CODE (XEXP (x, 0)) == LO_SUM
+		   && rtx_equal_p (XEXP (XEXP (x, 0), 1), last_addr)))
+	    fprintf (file,
+#ifdef AS_BUG_FLDCR
+		     "fldcr\t %s,%scr63\n\t",
+#else
+		     "fldcr\t %s,%sfcr63\n\t",
+#endif
+		     reg_names[0], m88k_pound_sign);
+	  m88k_volatile_code = code;
+	  last_addr = (GET_CODE (XEXP (x, 0)) == LO_SUM
+		       ? XEXP (XEXP (x, 0), 1) : 0);
+	}
+      return;
 
     case 'X': /* print the upper 16 bits... */
       value >>= 16;

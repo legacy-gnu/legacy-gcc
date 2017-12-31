@@ -47,6 +47,14 @@ typedef unsigned char U_CHAR;
 #define LOCAL_INCLUDE_DIR "/usr/local/include"
 #endif
 
+#if 0 /* We can't get ptrdiff_t, so I arranged not to need PTR_INT_TYPE.  */
+#ifdef __STDC__
+#define PTR_INT_TYPE ptrdiff_t
+#else
+#define PTR_INT_TYPE long
+#endif
+#endif /* 0 */
+
 #include "pcp.h"
 
 #ifndef STDC_VALUE
@@ -67,22 +75,16 @@ typedef unsigned char U_CHAR;
 #include <sys/stat.h>
 #include <ctype.h>
 #include <stdio.h>
-#include <signal.h>
 
 #ifndef VMS
 #ifndef USG
 #include <sys/time.h>		/* for __DATE__ and __TIME__ */
 #include <sys/resource.h>
 #else
-#define index strchr
-#define rindex strrchr
 #include <time.h>
 #include <fcntl.h>
 #endif /* USG */
 #endif /* not VMS */
-  
-extern char *index ();
-extern char *rindex ();
 
 /* VMS-specific definitions */
 #ifdef VMS
@@ -97,6 +99,8 @@ extern char *rindex ();
 #define open(fname,mode,prot)	VMS_open(fname,mode,prot)
 #define fopen(fname,mode)	VMS_fopen(fname,mode)
 #define freopen(fname,mode,ofile) VMS_freopen(fname,mode,ofile)
+#define strncat(dst,src,cnt) VMS_strncat(dst,src,cnt)
+static char * VMS_strncat ();
 static int VMS_read ();
 static int VMS_write ();
 static int VMS_open ();
@@ -105,10 +109,14 @@ static FILE * VMS_freopen ();
 static void hack_vms_include_specification ();
 typedef struct { unsigned :16, :16, :16; } vms_ino_t;
 #define ino_t vms_ino_t
+#define INCLUDE_LEN_FUDGE 10	/* leave room for VMS syntax conversion */
 #ifdef __GNUC__
 #define BSTRING			/* VMS/GCC supplies the bstring routines */
 #endif /* __GNUC__ */
 #endif /* VMS */
+  
+extern char *index ();
+extern char *rindex ();
 
 #ifndef O_RDONLY
 #define O_RDONLY 0
@@ -119,11 +127,47 @@ typedef struct { unsigned :16, :16, :16; } vms_ino_t;
 #define MIN(X,Y) ((X) < (Y) ? (X) : (Y))
 #define MAX(X,Y) ((X) > (Y) ? (X) : (Y))
 
+/* Find the largest host integer type and set its size and type.  */
+
+#ifndef HOST_BITS_PER_WIDE_INT
+
+#if HOST_BITS_PER_LONG > HOST_BITS_PER_INT
+#define HOST_BITS_PER_WIDE_INT HOST_BITS_PER_LONG
+#define HOST_WIDE_INT long
+#else
+#define HOST_BITS_PER_WIDE_INT HOST_BITS_PER_INT
+#define HOST_WIDE_INT int
+#endif
+
+#endif
+
 #ifndef S_ISREG
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
 #endif
 
-/* Exported declarations.  */
+/* Define a generic NULL if one hasn't already been defined.  */
+
+#ifndef NULL
+#define NULL 0
+#endif
+
+#ifndef GENERIC_PTR
+#if defined (USE_PROTOTYPES) ? USE_PROTOTYPES : defined (__STDC__)
+#define GENERIC_PTR void *
+#else
+#define GENERIC_PTR char *
+#endif
+#endif
+
+#ifndef NULL_PTR
+#define NULL_PTR ((GENERIC_PTR)0)
+#endif
+
+#ifndef INCLUDE_LEN_FUDGE
+#define INCLUDE_LEN_FUDGE 0
+#endif
+
+/* Forward declarations.  */
 
 char *xmalloc ();
 void error ();
@@ -180,6 +224,7 @@ static int do_unassert ();
 static int do_warning ();
 
 static void add_import ();
+static void append_include_chain ();
 static void deps_output ();
 static void make_undef ();
 static void make_definition ();
@@ -205,7 +250,8 @@ static void pfatal_with_name ();
 static void perror_with_name ();
 static void print_containing_files ();
 static int lookup_import ();
-static int lookup_include ();
+static int redundant_include_p ();
+static is_system_include ();
 static int check_preconditions ();
 static void pcfinclude ();
 static void pcstring_used ();
@@ -255,7 +301,7 @@ static U_CHAR *skip_quoted_string ();
 static U_CHAR *skip_paren_group ();
 
 static char *check_precompiled ();
-static struct macrodef create_definition ();
+/* static struct macrodef create_definition ();	[moved below] */
 static void dump_single_macro ();
 
 #ifndef FAILURE_EXIT_CODE
@@ -270,10 +316,13 @@ static void dump_single_macro ();
 
 static char *progname;
 
-/* Nonzero means handle C++ comment syntax and use
-   extra default include directories for C++.  */
+/* Nonzero means use extra default include directories for C++.  */
 
 static int cplusplus;
+
+/* Nonzero means handle cplusplus style comments */
+
+static int cplusplus_comments;
 
 /* Nonzero means handle #import, for objective C.  */
 
@@ -509,7 +558,12 @@ static struct default_include *include_defaults = include_defaults_array;
 
 static struct file_name_list *include = 0;	/* First dir to search */
 	/* First dir to search for <file> */
+/* This is the first element to use for #include <...>.
+   If it is 0, use the entire chain for such includes.  */
 static struct file_name_list *first_bracket_include = 0;
+/* This is the first element in the chain that corresponds to
+   a directory of system header files.  */
+static struct file_name_list *first_system_include = 0;
 static struct file_name_list *last_include = 0;	/* Last in chain */
 
 /* Chain of include directories to put at the end of the other chain.  */
@@ -545,6 +599,8 @@ struct macrodef
   U_CHAR *symnam;
   int symlen;
 };
+
+static struct macrodef create_definition ();
 
 
 /* Structure allocated for every #define.  For a simple replacement
@@ -614,7 +670,7 @@ union hashval {
  *		{ wow(1, 2, 3); }	->	{ process( 2, 3, 1,  2, 3); }
  *		{ wow(one, two); }	->	{ process( two, one,  two); }
  * if this "rest_arg" is used with the concat token '##' and if it is not
- * supplied then the token attached to with ## will not be outputed.  Ex:
+ * supplied then the token attached to with ## will not be outputted.  Ex:
  * 		#define wow(a, b...)		process(b ## , a, ## b)
  *		{ wow(1, 2); }		->	{ process( 2, 1,2); }
  *		{ wow(one); }		->	{ process( one); {
@@ -752,10 +808,10 @@ struct assertion_hashnode {
 typedef struct assertion_hashnode ASSERTION_HASHNODE;
 
 /* Some definitions for the hash table.  The hash function MUST be
-   computed as shown in hashf () below.  That is because the rescan
+   computed as shown in hashf below.  That is because the rescan
    loop computes the hash value `on the fly' for most tokens,
    in order to avoid the overhead of a lot of procedure calls to
-   the hashf () function.  Hashf () only exists for the sake of
+   the hashf function.  hashf only exists for the sake of
    politeness, for use when speed isn't so important. */
 
 #define ASSERTION_HASHSIZE 37
@@ -866,24 +922,10 @@ static int deps_size;
 /* Number of bytes since the last newline.  */
 static int deps_column;
 
-/* File name which deps are being written to.
-   This is 0 if deps are being written to stdout.  */
-static char *deps_file = 0;
-
 /* Nonzero means -I- has been seen,
    so don't look for #include "foo" the source-file directory.  */
 static int ignore_srcdir;
 
-/* Handler for SIGPIPE.  */
-
-static void
-pipe_closed (signo)
-     /* If this is missing, some compilers complain.  */
-     int signo;
-{
-  fatal ("output pipe has been closed");
-}
-
 int
 main (argc, argv)
      int argc;
@@ -913,6 +955,9 @@ main (argc, argv)
   /* Non-0 means don't output the preprocessed program.  */
   int inhibit_output = 0;
 
+  /* File name which deps are being written to.
+     This is 0 if deps are being written to stdout.  */
+  char *deps_file = 0;
   /* Stream on which to print the dependency information.  */
   FILE *deps_stream = 0;
   /* Target-name to write with the dependency information.  */
@@ -961,18 +1006,7 @@ main (argc, argv)
   dump_macros = dump_none;
   no_output = 0;
   cplusplus = 0;
-
-#ifdef SIGPIPE
-  signal (SIGPIPE, pipe_closed);
-#endif
-
-  for (i = 0; include_defaults[i].fname; i++)
-    max_include_len = MAX (max_include_len,
-			   strlen (include_defaults[i].fname));
-  /* Leave room for making file name longer when converting to VMS syntax.  */
-#ifdef VMS
-  max_include_len += 10;
-#endif
+  cplusplus_comments = 0;
 
   bzero (pend_files, argc * sizeof (char *));
   bzero (pend_defs, argc * sizeof (char *));
@@ -1020,19 +1054,16 @@ main (argc, argv)
 	    xmalloc (sizeof (struct file_name_list));
 	  dirtmp->next = 0;	/* New one goes on the end */
 	  dirtmp->control_macro = 0;
-	  if (after_include == 0)
-	    after_include = dirtmp;
-	  else
-	    last_after_include->next = dirtmp;
-	  last_after_include = dirtmp; /* Tail follows the last one */
-
 	  if (i + 1 == argc)
 	    fatal ("Directory name missing after -idirafter option");
 	  else
 	    dirtmp->fname = argv[++i];
 
-	  if (strlen (dirtmp->fname) > max_include_len)
-	    max_include_len = strlen (dirtmp->fname);
+	  if (after_include == 0)
+	    after_include = dirtmp;
+	  else
+	    last_after_include->next = dirtmp;
+	  last_after_include = dirtmp; /* Tail follows the last one */
 	}
 	break;
 
@@ -1076,13 +1107,13 @@ main (argc, argv)
 
       case 'l':
 	if (! strcmp (argv[i], "-lang-c"))
-	  cplusplus = 0, objc = 0;
+	  cplusplus = 0, cplusplus_comments = 0, objc = 0;
 	if (! strcmp (argv[i], "-lang-c++"))
-	  cplusplus = 1, objc = 0;
+	  cplusplus = 1, cplusplus_comments = 1, objc = 0;
 	if (! strcmp (argv[i], "-lang-objc"))
-	  objc = 1, cplusplus = 0;
+	  objc = 1, cplusplus = 0, cplusplus_comments = 1;
 	if (! strcmp (argv[i], "-lang-objc++"))
-	  objc = 1, cplusplus = 1;
+	  objc = 1, cplusplus = 1, cplusplus_comments = 1;
  	if (! strcmp (argv[i], "-lang-asm"))
  	  lang_asm = 1;
  	if (! strcmp (argv[i], "-lint"))
@@ -1090,7 +1121,7 @@ main (argc, argv)
 	break;
 
       case '+':
-	cplusplus = 1;
+	cplusplus = 1, cplusplus_comments = 1;
 	break;
 
       case 'w':
@@ -1143,9 +1174,6 @@ main (argc, argv)
 	    || !strcmp (argv[i], "-MMD")) {
 	  i++;
 	  deps_file = argv[i];
-	  deps_stream = fopen (argv[i], "a");
-	  if (deps_stream == 0)
-	    pfatal_with_name (argv[i]);
 	} else {
 	  /* For -M and -MM, write deps on standard output
 	     and suppress the usual output.  */
@@ -1263,29 +1291,24 @@ main (argc, argv)
 	{
 	  struct file_name_list *dirtmp;
 
-	  if (! ignore_srcdir && !strcmp (argv[i] + 2, "-"))
+	  if (! ignore_srcdir && !strcmp (argv[i] + 2, "-")) {
 	    ignore_srcdir = 1;
+	    /* Don't use any preceding -I directories for #include <...>.  */
+	    first_bracket_include = 0;
+	  }
 	  else {
 	    dirtmp = (struct file_name_list *)
 	      xmalloc (sizeof (struct file_name_list));
 	    dirtmp->next = 0;		/* New one goes on the end */
 	    dirtmp->control_macro = 0;
-	    if (include == 0)
-	      include = dirtmp;
-	    else
-	      last_include->next = dirtmp;
-	    last_include = dirtmp;	/* Tail follows the last one */
 	    if (argv[i][2] != 0)
 	      dirtmp->fname = argv[i] + 2;
 	    else if (i + 1 == argc)
 	      fatal ("Directory name missing after -I option");
 	    else
 	      dirtmp->fname = argv[++i];
-	    if (strlen (dirtmp->fname) > max_include_len)
-	      max_include_len = strlen (dirtmp->fname);
-	    if (ignore_srcdir && first_bracket_include == 0)
-	      first_bracket_include = dirtmp;
-	    }
+	    append_include_chain (dirtmp, dirtmp);
+	  }
 	}
 	break;
 
@@ -1428,26 +1451,21 @@ main (argc, argv)
 
   /* Now handle the command line options.  */
 
-  /* Do assertions specified with -A.  */
-  for (i = 1; i < argc; i++)
-    if (pend_assertions[i])
-      make_assertion (pend_assertion_options[i], pend_assertions[i]);
-
-  /* Do defines specified with -D.  */
-  for (i = 1; i < argc; i++)
-    if (pend_defs[i]) {
-      if (debug_output)
-        output_line_command (fp, &outbuf, 0, same_file);
-      make_definition (pend_defs[i], &outbuf);
-    }
-
-  /* Do undefines specified with -U.  */
-  for (i = 1; i < argc; i++)
+  /* Do -U's, -D's and -A's in the order they were seen.  */
+  for (i = 1; i < argc; i++) {
     if (pend_undefs[i]) {
       if (debug_output)
         output_line_command (fp, &outbuf, 0, same_file);
       make_undef (pend_undefs[i], &outbuf);
     }
+    if (pend_defs[i]) {
+      if (debug_output)
+        output_line_command (fp, &outbuf, 0, same_file);
+      make_definition (pend_defs[i], &outbuf);
+    }
+    if (pend_assertions[i])
+      make_assertion (pend_assertion_options[i], pend_assertions[i]);
+  }
 
   done_initializing = 1;
 
@@ -1490,7 +1508,7 @@ main (argc, argv)
         if ((*endp == PATH_SEPARATOR
 #if 0 /* Obsolete, now that we use semicolons as the path separator.  */
 #ifdef __MSDOS__
-	     && (endp-startp != 1 || !isalpha (*startp)))
+	     && (endp-startp != 1 || !isalpha (*startp))
 #endif
 #endif
 	     )
@@ -1501,7 +1519,6 @@ main (argc, argv)
 	  else
 	    nstore[endp-startp] = '\0';
 
-	  max_include_len = MAX (max_include_len, endp-startp+2);
 	  include_defaults[num_dirs].fname = savestring (nstore);
 	  include_defaults[num_dirs].cplusplus = cplusplus;
 	  num_dirs++;
@@ -1517,6 +1534,7 @@ main (argc, argv)
     }
   }
 
+  first_system_include = 0;
   /* Unless -fnostdinc,
      tack on the standard include file dirs to the specified list */
   if (!no_standard_includes) {
@@ -1546,20 +1564,9 @@ main (argc, argv)
 	    strcat (str, p->fname + default_len);
 	    new->fname = str;
 	    new->control_macro = 0;
-
-	    /* Add elt to tail of list.  */
-	    if (include == 0)
-	      include = new;
-	    else
-	      last_include->next = new;
-	    /* Make sure list for #include <...> also has the standard dirs.  */
-	    if (ignore_srcdir && first_bracket_include == 0)
-	      first_bracket_include = new;
-	    /* Record new tail.  */
-	    last_include = new;
-	    /* Update max_include_len if necessary.  */
-	    if (this_len > max_include_len)
-	      max_include_len = this_len;
+	    append_include_chain (new, new);
+	    if (first_system_include == 0)
+	      first_system_include = new;
 	  }
 	}
       }
@@ -1570,32 +1577,18 @@ main (argc, argv)
 	struct file_name_list *new
 	  = (struct file_name_list *) xmalloc (sizeof (struct file_name_list));
 	new->control_macro = 0;
-	/* Add elt to tail of list.  */
-	if (include == 0)
-	  include = new;
-	else
-	  last_include->next = new;
-	/* Make sure list for #include <...> also has the standard dirs.  */
-	if (ignore_srcdir && first_bracket_include == 0)
-	  first_bracket_include = new;
-	/* Record new tail.  */
-	last_include = new;
 	new->fname = p->fname;
+	append_include_chain (new, new);
+	if (first_system_include == 0)
+	  first_system_include = new;
       }
     }
   }
 
   /* Tack the after_include chain at the end of the include chain.  */
-  if (last_include)
-    last_include->next = after_include;
-  else
-    include = after_include;
-  if (ignore_srcdir && first_bracket_include == 0)
-    first_bracket_include = after_include;
-
-  /* Terminate the after_include chain.  */
-  if (last_after_include)
-    last_after_include->next = 0;
+  append_include_chain (after_include, last_after_include);
+  if (first_system_include == 0)
+    first_system_include = after_include;
 
   /* Scan the -imacros files before the main input.
      Much like #including them, but with no_output set
@@ -1609,7 +1602,7 @@ main (argc, argv)
 	perror_with_name (pend_files[i]);
 	return FAILURE_EXIT_CODE;
       }
-      finclude (fd, pend_files[i], &outbuf, 0, 0);
+      finclude (fd, pend_files[i], &outbuf, 0, NULL_PTR);
     }
   no_output--;
 
@@ -1644,7 +1637,7 @@ main (argc, argv)
 
     s = spec;
     /* Find the space before the DEPS_TARGET, if there is one.  */
-    /* Don't use `index'; that causes trouble on USG.  */
+    /* This should use index.  (mrs) */
     while (*s != 0 && *s != ' ') s++;
     if (*s != 0) {
       deps_target = s + 1;
@@ -1658,9 +1651,6 @@ main (argc, argv)
     }
       
     deps_file = output_file;
-    deps_stream = fopen (output_file, "a");
-    if (deps_stream == 0)
-      pfatal_with_name (output_file);
   }
 
   /* For -M, print the expected object file name
@@ -1706,7 +1696,11 @@ main (argc, argv)
       else
 	deps_output (p, 0);
       /* Supply our own suffix.  */
+#ifndef VMS
       deps_output (".o : ", 0);
+#else
+      deps_output (".obj : ", 0);
+#endif
       deps_output (in_fname, 0);
       deps_output (" ", 0);
     }
@@ -1796,7 +1790,7 @@ main (argc, argv)
 	perror_with_name (pend_includes[i]);
 	return FAILURE_EXIT_CODE;
       }
-      finclude (fd, pend_includes[i], &outbuf, 0, 0);
+      finclude (fd, pend_includes[i], &outbuf, 0, NULL_PTR);
     }
 
   /* Scan the input, processing macros and directives.  */
@@ -1816,22 +1810,20 @@ main (argc, argv)
   }
 
   if (print_deps) {
-    /* Don't actually write the deps file if compilation has failed.
-       Delete it instead.  */
-    if (errors > 0 && deps_file != 0)
-      unlink (deps_file);
-    else {
+    /* Don't actually write the deps file if compilation has failed.  */
+    if (errors == 0) {
+      if (deps_file && ! (deps_stream = fopen (deps_file, "a")))
+	pfatal_with_name (deps_file);
       fputs (deps_buffer, deps_stream);
       putc ('\n', deps_stream);
-      if (deps_stream != stdout) {
-	fclose (deps_stream);
-	if (ferror (deps_stream))
+      if (deps_file) {
+	if (ferror (deps_stream) || fclose (deps_stream) != 0)
 	  fatal ("I/O error on output");
       }
     }
   }
 
-  if (ferror (stdout))
+  if (ferror (stdout) || fclose (stdout) != 0)
     fatal ("I/O error on output");
 
   if (errors)
@@ -1878,16 +1870,8 @@ path_include (path)
 	xmalloc (sizeof (struct file_name_list));
       dirtmp->next = 0;		/* New one goes on the end */
       dirtmp->control_macro = 0;
-      if (include == 0)
-	include = dirtmp;
-      else
-	last_include->next = dirtmp;
-      last_include = dirtmp;	/* Tail follows the last one */
       dirtmp->fname = name;
-      if (strlen (dirtmp->fname) > max_include_len)
-	max_include_len = strlen (dirtmp->fname);
-      if (ignore_srcdir && first_bracket_include == 0)
-	first_bracket_include = dirtmp;
+      append_include_chain (dirtmp, dirtmp);
 
       /* Advance past this name.  */
       p = q;
@@ -2097,8 +2081,8 @@ get_lintcmd (ibp, limit, argstart, arglen, cmdlen)
     *cmdlen = 8;
     return "ARGSUSED";
   }
-  if ((linsize >= 11) && !strncmp (ibp, "LINTLIBRARY", 8)) {
-    *cmdlen = 8;
+  if ((linsize >= 11) && !strncmp (ibp, "LINTLIBRARY", 11)) {
+    *cmdlen = 11;
     return "LINTLIBRARY";
   }
   if ((linsize >= 7) && !strncmp (ibp, "VARARGS", 7)) {
@@ -2223,6 +2207,7 @@ do { ip = &instack[indepth];		\
 
   obp = op->bufp;
   RECACHE;
+
   beg_of_line = ibp;
 
   /* Our caller must always put a null after the end of
@@ -2274,9 +2259,15 @@ do { ip = &instack[indepth];		\
 	 preprocessor directives.  */
       if (ip->macro != 0)
 	goto randomchar;
+      /* If this is expand_into_temp_buffer, recognize them
+	 only after an actual newline at this level,
+	 not at the beginning of the input level.  */
+      if (ip->fname == 0 && beg_of_line == ip->buf)
+	goto randomchar;
       if (ident_length)
 	goto specialchar;
 
+      
       /* # keyword: a # must be first nonblank char on the line */
       if (beg_of_line == 0)
 	goto randomchar;
@@ -2287,23 +2278,25 @@ do { ip = &instack[indepth];		\
 	   and backslash-newlines, and see if we reach this #.
 	   If not, this # is not special.  */
 	bp = beg_of_line;
-	while (1) {
-	  if (is_hor_space[*bp])
-	    bp++;
-	  else if (*bp == '\\' && bp[1] == '\n')
-	    bp += 2;
-	  else if (*bp == '/' && bp[1] == '*') {
-	    bp += 2;
-	    while (!(*bp == '*' && bp[1] == '/'))
+	/* If -traditional, require # to be at beginning of line.  */
+	if (!traditional)
+	  while (1) {
+	    if (is_hor_space[*bp])
 	      bp++;
-	    bp += 2;
+	    else if (*bp == '\\' && bp[1] == '\n')
+	      bp += 2;
+	    else if (*bp == '/' && bp[1] == '*') {
+	      bp += 2;
+	      while (!(*bp == '*' && bp[1] == '/'))
+		bp++;
+	      bp += 2;
+	    }
+	    else if (cplusplus_comments && *bp == '/' && bp[1] == '/') {
+	      bp += 2;
+	      while (*bp++ != '\n') ;
+	    }
+	    else break;
 	  }
-	  else if ((cplusplus || objc) && *bp == '/' && bp[1] == '/') {
-	    bp += 2;
-	    while (*bp++ != '\n') ;
-	  }
-	  else break;
-	}
 	if (bp + 1 != ibp)
 	  goto randomchar;
       }
@@ -2359,14 +2352,15 @@ do { ip = &instack[indepth];		\
 
       while (1) {
 	if (ibp >= limit) {
-	  if (traditional) {
-	    if (ip->macro != 0) {
-	      /* try harder: this string crosses a macro expansion boundary */
-	      POPMACRO;
-	      RECACHE;
-	      continue;
-	    }
-	  } else {
+	  if (ip->macro != 0) {
+	    /* try harder: this string crosses a macro expansion boundary.
+	       This can happen naturally if -traditional.
+	       Otherwise, only -D can make a macro with an unmatched quote.  */
+	    POPMACRO;
+	    RECACHE;
+	    continue;
+	  }
+	  if (!traditional) {
 	    error_with_line (line_for_error (start_line),
 			     "unterminated string or character constant");
 	    error_with_line (multiline_string_line,
@@ -2430,7 +2424,7 @@ do { ip = &instack[indepth];		\
 	newline_fix (ibp);
 
       if (*ibp != '*'
-	  && !((cplusplus || objc) && *ibp == '/'))
+	  && !(cplusplus_comments && *ibp == '/'))
 	goto randomchar;
       if (ip->macro != 0)
 	goto randomchar;
@@ -3231,7 +3225,7 @@ handle_directive (ip, op)
 	  if (*bp == '\\' && bp[1] == '\n')
 	    newline_fix (bp);
 	  if (*bp == '*'
-	      || ((cplusplus || objc) && *bp == '/')) {
+	      || (cplusplus_comments && *bp == '/')) {
 	    U_CHAR *obp = bp - 1;
 	    ip->bufp = bp + 1;
 	    skip_to_end_of_comment (ip, &ip->lineno, 0);
@@ -3352,7 +3346,8 @@ handle_directive (ip, op)
 	  case '\"':
 	    {
 	      register U_CHAR *bp1
-		= skip_quoted_string (xp - 1, bp, ip->lineno, 0, 0, 0);
+		= skip_quoted_string (xp - 1, bp, ip->lineno,
+				      NULL_PTR, NULL_PTR, NULL_PTR);
 	      while (xp != bp1)
 		if (*xp == '\\') {
 		  if (*++xp != '\n')
@@ -3366,7 +3361,7 @@ handle_directive (ip, op)
 
 	  case '/':
 	    if (*xp == '*'
-		|| ((cplusplus || objc) && *xp == '/')) {
+		|| (cplusplus_comments && *xp == '/')) {
 	      ip->bufp = xp + 1;
 	      /* If we already copied the command through,
 		 already_output != 0 prevents outputting comment now.  */
@@ -3414,6 +3409,17 @@ handle_directive (ip, op)
 	  len = (cp - buf);
 	  check_expand (op, len);
 	  bcopy (buf, op->bufp, len);
+	  op->bufp += len;
+	} else if (kt->type == T_DEFINE && dump_macros == dump_names) {
+	  U_CHAR *xp = buf;
+	  U_CHAR *yp;
+	  SKIP_WHITE_SPACE (xp);
+	  yp = xp;
+	  while (is_idchar[*xp]) xp++;
+	  len = (xp - yp);
+	  check_expand (op, len + 1);
+	  *op->bufp++ = ' ';
+	  bcopy (yp, op->bufp, len);
 	  op->bufp += len;
 	}
       }				/* Don't we need a newline or #line? */
@@ -3636,7 +3642,7 @@ do_include (buf, limit, op, keyword)
 
   struct file_name_list *search_start = include; /* Chain of dirs to search */
   struct file_name_list dsp[1];	/* First in chain, if #include "..." */
-  struct file_name_list *searchptr;
+  struct file_name_list *searchptr = 0;
   int flen;
 
   int f;			/* file number */
@@ -3644,14 +3650,14 @@ do_include (buf, limit, op, keyword)
   int retried = 0;		/* Have already tried macro
 				   expanding the include line*/
   FILE_BUF trybuf;		/* It got expanded into here */
-  int system_header_p = 0;	/* 0 for "...", 1 for <...> */
+  int angle_brackets = 0;	/* 0 for "...", 1 for <...> */
   int pcf = -1;
   char *pcfbuf;
   int pcfbuflimit;
   int pcfnum;
   f= -1;			/* JF we iz paranoid! */
 
-  if (importing && warn_import
+  if (importing && warn_import && !inhibit_warnings
       && !instack[indepth].system_header_p && !import_warning) {
     import_warning = 1;
     warning ("using `#import' is not recommended");
@@ -3677,11 +3683,29 @@ get_filename:
 
   switch (*fbeg++) {
   case '\"':
-    fend = fbeg;
-    while (fend != limit && *fend != '\"')
-      fend++;
-    if (*fend == '\"' && fend + 1 == limit) {
+    {
       FILE_BUF *fp;
+      /* Copy the operand text, concatenating the strings.  */
+      {
+	U_CHAR *fin = fbeg;
+	fbeg = (U_CHAR *) alloca (limit - fbeg + 1);
+	fend = fbeg;
+	while (fin != limit) {
+	  while (fin != limit && *fin != '\"')
+	    *fend++ = *fin++;
+	  fin++;
+	  if (fin == limit)
+	    break;
+	  /* If not at the end, there had better be another string.  */
+	  /* Skip just horiz space, and don't go past limit.  */
+	  while (fin != limit && is_hor_space[*fin]) fin++;
+	  if (fin != limit && *fin == '\"')
+	    fin++;
+	  else
+	    goto fail;
+	}
+      }
+      *fend++ = 0;
 
       /* We have "filename".  Figure out directory this source
 	 file is coming from and put it on the front of the list. */
@@ -3712,7 +3736,8 @@ get_filename:
 	      dsp[0].fname = (char *) alloca (n + 1);
 	      strncpy (dsp[0].fname, nam, n);
 	      dsp[0].fname[n] = '\0';
-	      if (n > max_include_len) max_include_len = n;
+	      if (n + INCLUDE_LEN_FUDGE > max_include_len)
+		max_include_len = n + INCLUDE_LEN_FUDGE;
 	    } else {
 	      dsp[0].fname = 0; /* Current directory */
 	    }
@@ -3721,13 +3746,12 @@ get_filename:
 	}
       break;
     }
-    goto fail;
 
   case '<':
     fend = fbeg;
     while (fend != limit && *fend != '>') fend++;
     if (*fend == '>' && fend + 1 == limit) {
-      system_header_p = 1;
+      angle_brackets = 1;
       /* If -I-, start with the first -I dir after the -I-.  */
       if (first_bracket_include)
 	search_start = first_bracket_include;
@@ -3779,7 +3803,7 @@ get_filename:
   if (*fbeg == '/') {
     strncpy (fname, fbeg, flen);
     fname[flen] = 0;
-    if (lookup_include (fname))
+    if (redundant_include_p (fname))
       return 0;
     if (importing)
       f = lookup_import (fname);
@@ -3823,7 +3847,7 @@ get_filename:
 	f = open (fname, O_RDONLY, 0666);
       if (f == -2)
 	return 0;			/* Already included this file */
-      if (lookup_include (fname)) {
+      if (redundant_include_p (fname)) {
 	close (f);
 	return 0;
       }
@@ -3837,16 +3861,19 @@ get_filename:
 
     strncpy (fname, fbeg, flen);
     fname[flen] = 0;
-    error_from_errno (fname);
-
+    if (search_start)
+      error_from_errno (fname);
+    else
+      error ("No include path in which to find %s", fname);
+    
     /* For -M, add this file to the dependencies.  */
-    if (print_deps > (system_header_p || (system_include_depth > 0))) {
+    if (print_deps > (angle_brackets || (system_include_depth > 0))) {
       /* Break the line before this.  */
       deps_output ("", 0);
 
       /* If it was requested as a system header file,
 	 then assume it belongs in the first place to look for such.  */
-      if (system_header_p) {
+      if (angle_brackets) {
 	for (searchptr = search_start; searchptr; searchptr = searchptr->next) {
 	  if (searchptr->fname) {
 	    if (searchptr->fname[0] == 0)
@@ -3893,7 +3920,7 @@ get_filename:
       ptr->fname = savestring (fname);
 
       /* For -M, add this file to the dependencies.  */
-      if (print_deps > (system_header_p || (system_include_depth > 0))) {
+      if (print_deps > (angle_brackets || (system_include_depth > 0))) {
 	deps_output ("", 0);
 	deps_output (fname, 0);
 	deps_output (" ", 0);
@@ -3904,7 +3931,7 @@ get_filename:
     if (print_include_names)
       fprintf (stderr, "%s\n", fname);
 
-    if (system_header_p)
+    if (angle_brackets)
       system_include_depth++;
 
     /* Actually process the file.  */
@@ -3949,9 +3976,9 @@ get_filename:
       pcfinclude (pcfbuf, pcfbuflimit, fname, op);
     }
     else
-      finclude (f, fname, op, system_header_p, searchptr);
+      finclude (f, fname, op, is_system_include (fname), searchptr);
 
-    if (system_header_p)
+    if (angle_brackets)
       system_include_depth--;
   }
   return 0;
@@ -3962,7 +3989,7 @@ get_filename:
    to make a repeated include do nothing.  */
 
 static int
-lookup_include (name)
+redundant_include_p (name)
      char *name;
 {
   struct file_name_list *l = all_include_files;
@@ -3974,6 +4001,32 @@ lookup_include (name)
   return 0;
 }
 
+/* Return nonzero if the given FILENAME is an absolute pathname which
+   designates a file within one of the known "system" include file
+   directories.  We assume here that if the given FILENAME looks like
+   it is the name of a file which resides either directly in a "system"
+   include file directory, or within any subdirectory thereof, then the
+   given file must be a "system" include file.  This function tells us
+   if we should suppress pedantic errors/warnings for the given FILENAME.  */
+
+static int
+is_system_include (filename)
+    register char *filename;
+{
+  struct file_name_list *searchptr;
+
+  for (searchptr = first_system_include; searchptr;
+       searchptr = searchptr->next)
+    if (searchptr->fname) {
+      register char *sys_dir = searchptr->fname;
+      register unsigned length = strlen (sys_dir);
+
+      if (! strncmp (sys_dir, filename, length) && filename[length] == '/')
+	return 1;
+    }
+  return 0;
+}
+
 /* Process the contents of include file FNAME, already open on descriptor F,
    with output to OP.
    SYSTEM_HEADER_P is 1 if this file was specified using <...>.
@@ -3997,7 +4050,11 @@ finclude (f, fname, op, system_header_p, dirptr)
   CHECK_DEPTH (return;);
 
   if (file_size_and_mode (f, &st_mode, &st_size) < 0)
-    goto nope;		/* Impossible? */
+    {
+      perror_with_name (fname);
+      close (f);
+      return;
+    }
 
   fp = &instack[indepth + 1];
   bzero (fp, sizeof (FILE_BUF));
@@ -4035,6 +4092,7 @@ finclude (f, fname, op, system_header_p, dirptr)
 
     st_size = 0;
     basep = (U_CHAR *) xmalloc (bsize + 2);
+    fp->buf = basep; /* So it will get freed, on error.  */
     bufp = basep;
 
     for (;;) {
@@ -4048,18 +4106,22 @@ finclude (f, fname, op, system_header_p, dirptr)
       if (bsize == st_size) {	/* Buffer is full! */
 	  bsize *= 2;
 	  basep = (U_CHAR *) xrealloc (basep, bsize + 2);
+	  fp->buf = basep;
 	  bufp = basep + st_size;	/* May have moved */
 	}
     }
-    fp->buf = (U_CHAR *) alloca (st_size + 2);
     fp->bufp = fp->buf;
-    bcopy (basep, fp->buf, st_size);
     fp->length = st_size;
-    free (basep);
   }
 
   /* Close descriptor now, so nesting does not use lots of descriptors.  */
   close (f);
+
+  /* Must do this before calling trigraph_pcp, so that the correct file name
+     will be printed in warning messages.  */
+
+  indepth++;
+  input_file_stack_tick++;
 
   if (!no_trigraphs)
     trigraph_pcp (fp);
@@ -4071,9 +4133,6 @@ finclude (f, fname, op, system_header_p, dirptr)
     missing_newline = 1;
   }
   fp->buf[fp->length] = '\0';
-
-  indepth++;
-  input_file_stack_tick++;
 
   output_line_command (fp, op, 0, enter_file);
   rescan (op, 0);
@@ -4306,8 +4365,8 @@ check_preconditions (prec)
       HASHNODE *hp;
       
       prec += 6;
-      mdef = create_definition (prec, lineend, 0);
-      
+      mdef = create_definition (prec, lineend, NULL_PTR);
+
       if (mdef.defn == 0)
 	abort();
       
@@ -4374,8 +4433,13 @@ pcfinclude (buf, limit, name, op)
     /* by the text of the string (string_start) */
 
     /* First skip to a longword boundary */
-    if ((int)cp & 3)
-      cp += 4 - ((int)cp & 3);
+    /* ??? Why a 4-byte boundary?  On all machines? */
+    /* NOTE: This works correctly even if HOST_WIDE_INT
+       is narrower than a pointer.
+       Do not try risky measures here to get another type to use!
+       Do not include gstddef.h or stddef.h--either one will fail!  */
+    if ((HOST_WIDE_INT) cp & 3)
+      cp += 4 - ((HOST_WIDE_INT) cp & 3);
     
     /* Now get the string. */
     str = (STRINGDEF *) cp;
@@ -4439,7 +4503,7 @@ pcfinclude (buf, limit, name, op)
 	hp = lookup (tmpbuf.bufp, -1, -1);
 	if (hp == NULL) {
 	  kp->chain = 0;
-	  install (tmpbuf.bufp, -1, T_PCSTRING, (int) kp, -1);
+	  install (tmpbuf.bufp, -1, T_PCSTRING, 0, (char *) kp, -1);
 	}
 	else if (hp->type == T_PCSTRING) {
 	  kp->chain = hp->value.keydef;
@@ -4694,7 +4758,7 @@ create_definition (buf, limit, op)
     if (is_hor_space[*bp])
       ++bp;		/* skip exactly one blank/tab char */
     /* now everything from bp before limit is the definition. */
-    defn = collect_expansion (bp, limit, -1, 0);
+    defn = collect_expansion (bp, limit, -1, NULL_PTR);
     defn->args.argnames = (U_CHAR *) "";
   }
 
@@ -4777,7 +4841,8 @@ do_define (buf, limit, op, keyword)
 	 that for this new definition now.  */
       if (debug_output && op)
 	pass_thru_directive (buf, limit, op, keyword);
-      install (mdef.symnam, mdef.symlen, T_MACRO, mdef.defn, hashcode);
+      install (mdef.symnam, mdef.symlen, T_MACRO, 0,
+	       (char *) mdef.defn, hashcode);
     }
   }
 
@@ -5156,8 +5221,10 @@ collect_expansion (buf, end, nargs, arglist)
       *exp_p++ = '\n';
       *exp_p++ = *limit++;
     }
-  } else if (!traditional) {
-    /* There is no trailing whitespace, so invent some.  */
+  } else if (!traditional && expected_delimiter == 0) {
+    /* There is no trailing whitespace, so invent some in ANSI mode.
+       But not if "inside a string" (which in ANSI mode
+       happens only for -D option).  */
     *exp_p++ = '\n';
     *exp_p++ = ' ';
   }
@@ -5450,7 +5517,7 @@ read_token_list (bpp, limit, error_flag)
 	break;
       bp++;
     } else if (*bp == '"' || *bp == '\'')
-      bp = skip_quoted_string (bp, limit, 0, 0, 0, &eofp);
+      bp = skip_quoted_string (bp, limit, 0, NULL_PTR, NULL_PTR, &eofp);
     else
       while (! is_hor_space[*bp] && *bp != '(' && *bp != ')'
 	     && *bp != '"' && *bp != '\'' && bp != limit)
@@ -5831,7 +5898,7 @@ do_ident (buf, limit)
 }
 
 /* #pragma and its argument line have already been copied to the output file.
-   Here just check for recognized pragmas.  */
+   Just check for some recognized pragmas that need validation here.  */
 
 static int
 do_pragma (buf, limit)
@@ -5846,6 +5913,29 @@ do_pragma (buf, limit)
       warning ("`#pragma once' is obsolete");
     do_once ();
   }
+
+  if (!strncmp (buf, "implementation", 14)) {
+    /* Be quiet about `#pragma implementation' for a file only if it hasn't
+       been included yet.  */
+    struct file_name_list *ptr;
+    U_CHAR *p = buf + 14, *fname, *inc_fname;
+    SKIP_WHITE_SPACE (p);
+    if (*p == '\n' || *p != '\"')
+      return 0;
+
+    fname = p + 1;
+    if (p = (U_CHAR *) index (fname, '\"'))
+      *p = '\0';
+    
+    for (ptr = all_include_files; ptr; ptr = ptr->next) {
+      inc_fname = (U_CHAR *) rindex (ptr->fname, '/');
+      inc_fname = inc_fname ? inc_fname + 1 : (U_CHAR *) ptr->fname;
+      if (inc_fname && !strcmp (inc_fname, fname))
+	warning ("`#pragma implementation' for `%s' appears after file is included",
+		 fname);
+    }
+  }
+
   return 0;
 }
 
@@ -5909,7 +5999,7 @@ do_if (buf, limit, op, keyword)
   FILE_BUF *ip = &instack[indepth];
 
   value = eval_if_expression (buf, limit - buf);
-  conditional_skip (ip, value == 0, T_IF, 0);
+  conditional_skip (ip, value == 0, T_IF, NULL_PTR);
   return 0;
 }
 
@@ -5969,7 +6059,7 @@ eval_if_expression (buf, length)
   HASHNODE *save_defined;
   int value;
 
-  save_defined = install ("defined", -1, T_SPEC_DEFINED, 0, -1);
+  save_defined = install ("defined", -1, T_SPEC_DEFINED, 0, 0, -1);
   pcp_inside_if = 1;
   temp_obuf = expand_to_temp_buffer (buf, buf + length, 0, 1);
   pcp_inside_if = 0;
@@ -6005,22 +6095,16 @@ do_xifdef (buf, limit, op, keyword)
     U_CHAR *p = ip->buf;
     while (p != directive_start) {
       char c = *p++;
-      switch (c) {
-      case ' ':
-      case '\t':
-      case '\n':
-	break;
-      case '/':
-	if (p != ip->bufp && *p == '*') {
-	  /* Skip this comment.  */
-	  int junk;
-	  U_CHAR *save_bufp = ip->bufp;
-	  ip->bufp = p + 1;
-	  p = skip_to_end_of_comment (ip, &junk, 1);
-	  ip->bufp = save_bufp;
-	}
-	break;
-      default:
+      if (is_space[c])
+	;
+      else if (c == '/' && p != ip->bufp && *p == '*') {
+	/* Skip this comment.  */
+	int junk;
+	U_CHAR *save_bufp = ip->bufp;
+	ip->bufp = p + 1;
+	p = skip_to_end_of_comment (ip, &junk, 1);
+	ip->bufp = save_bufp;
+      } else {
 	goto fail;
       }
     }
@@ -6133,14 +6217,15 @@ skip_if_group (ip, any)
       if (*bp == '\\' && bp[1] == '\n')
 	newline_fix (bp);
       if (*bp == '*'
-	  || ((cplusplus || objc) && *bp == '/')) {
+	  || (cplusplus_comments && *bp == '/')) {
 	ip->bufp = ++bp;
 	bp = skip_to_end_of_comment (ip, &ip->lineno, 0);
       }
       break;
     case '\"':
     case '\'':
-      bp = skip_quoted_string (bp - 1, endb, ip->lineno, &ip->lineno, 0, 0);
+      bp = skip_quoted_string (bp - 1, endb, ip->lineno, &ip->lineno,
+			       NULL_PTR, NULL_PTR);
       break;
     case '\\':
       /* Char after backslash loses its special meaning.  */
@@ -6174,7 +6259,7 @@ skip_if_group (ip, any)
 	  while (!(*bp == '*' && bp[1] == '/'))
 	    bp++;
 	  bp += 2;
-	} else if ((cplusplus || objc) && *bp == '/' && bp[1] == '/') {
+	} else if (cplusplus_comments && *bp == '/' && bp[1] == '/') {
 	  bp += 2;
 	  while (*bp++ != '\n') ;
         }
@@ -6201,7 +6286,7 @@ skip_if_group (ip, any)
 	    bp++;
 	  }
 	  bp += 2;
-	} else if ((cplusplus || objc) && *bp == '/' && bp[1] == '/') {
+	} else if (cplusplus_comments && *bp == '/' && bp[1] == '/') {
 	  bp += 2;
 	  while (*bp++ != '\n') ;
         }
@@ -6463,7 +6548,7 @@ validate_else (p)
 	  p++;
 	}
       }
-      else if ((cplusplus || objc) && p[1] == '/') {
+      else if (cplusplus_comments && p[1] == '/') {
 	p += 2;
 	while (*p && *p++ != '\n') ;
       }
@@ -6501,7 +6586,7 @@ skip_to_end_of_comment (ip, line_counter, nowarn)
     *op->bufp++ = '/';
     *op->bufp++ = '*';
   }
-  if ((cplusplus || objc) && bp[-1] == '/') {
+  if (cplusplus_comments && bp[-1] == '/') {
     if (output) {
       while (bp < limit)
 	if ((*op->bufp++ = *bp++) == '\n') {
@@ -6672,7 +6757,7 @@ skip_paren_group (ip)
     case '\'':
       {
 	int eofp = 0;
-	p = skip_quoted_string (p - 1, limit, 0, 0, 0, &eofp);
+	p = skip_quoted_string (p - 1, limit, 0, NULL_PTR, NULL_PTR, &eofp);
 	if (eofp)
 	  return ip->bufp = p;
       }
@@ -6699,7 +6784,7 @@ output_line_command (ip, op, conditional, file_change)
      enum file_change_code file_change;
 {
   int len;
-  char line_cmd_buf[500];
+  char *line_cmd_buf;
 
   if (no_line_commands
       || ip->fname == NULL
@@ -6731,6 +6816,7 @@ output_line_command (ip, op, conditional, file_change)
     ip->bufp++;
   }
 
+  line_cmd_buf = (char *) alloca (strlen (ip->nominal_fname) + 100);
 #ifdef OUTPUT_LINE_COMMANDS
   sprintf (line_cmd_buf, "#line %d \"%s\"", ip->lineno, ip->nominal_fname);
 #else
@@ -6836,13 +6922,13 @@ macroexpand (hp, op)
       if (rest_args)
 	continue;
       if (i < nargs || (nargs == 0 && i == 0)) {
-	/* if we are working on last arg which absorbes rest of args... */
+	/* if we are working on last arg which absorbs rest of args... */
 	if (i == nargs - 1 && defn->rest_args)
 	  rest_args = 1;
 	parse_error = macarg (&args[i], rest_args);
       }
       else
-	parse_error = macarg (0, 0);
+	parse_error = macarg (NULL_PTR, 0);
       if (parse_error) {
 	error_with_line (line_for_error (start_line), parse_error);
 	break;
@@ -6859,24 +6945,31 @@ macroexpand (hp, op)
 	i = 0;
     }
 
+    /* Don't output an error message if we have already output one for
+       a parse error above.  */
     rest_zero = 0;
-    if (nargs == 0 && i > 0)
-      error ("arguments given to macro `%s'", hp->name);
-    else if (i < nargs) {
+    if (nargs == 0 && i > 0) {
+      if (! parse_error)
+	error ("arguments given to macro `%s'", hp->name);
+    } else if (i < nargs) {
       /* traditional C allows foo() if foo wants one argument.  */
       if (nargs == 1 && i == 0 && traditional)
 	;
       /* the rest args token is allowed to absorb 0 tokens */
       else if (i == nargs - 1 && defn->rest_args)
 	rest_zero = 1;
+      else if (parse_error)
+	;
       else if (i == 0)
 	error ("macro `%s' used without args", hp->name);
       else if (i == 1)
 	error ("macro `%s' used with just one arg", hp->name);
       else
 	error ("macro `%s' used with only %d args", hp->name, i);
-    } else if (i > nargs)
-      error ("macro `%s' used with too many (%d) args", hp->name, i);
+    } else if (i > nargs) {
+      if (! parse_error)
+	error ("macro `%s' used with too many (%d) args", hp->name, i);
+    }
 
     /* Swallow the closeparen.  */
     ++instack[indepth].bufp;
@@ -7286,7 +7379,7 @@ macarg1 (start, limit, depthptr, newlines, comments, rest_args)
     case '/':
       if (bp[1] == '\\' && bp[2] == '\n')
 	newline_fix (bp + 1);
-      if ((cplusplus || objc) && bp[1] == '/') {
+      if (cplusplus_comments && bp[1] == '/') {
 	*comments = 1;
 	bp += 2;
 	while (bp < limit && *bp++ != '\n') ;
@@ -7397,7 +7490,7 @@ discard_comments (start, length, newlines)
       if (*ibp == '\\' && ibp[1] == '\n')
 	newline_fix (ibp);
       /* Delete any comment.  */
-      if ((cplusplus || objc) && ibp[0] == '/') {
+      if (cplusplus_comments && ibp[0] == '/') {
 	obp--;
 	ibp++;
 	while (ibp < limit && *ibp++ != '\n') ;
@@ -7503,6 +7596,7 @@ delete_newlines (start, length)
 void
 error (msg, arg1, arg2, arg3)
      char *msg;
+     char *arg1, *arg2, *arg3;
 {
   int i;
   FILE_BUF *ip = NULL;
@@ -7555,6 +7649,7 @@ error_from_errno (name)
 void
 warning (msg, arg1, arg2, arg3)
      char *msg;
+     char *arg1, *arg2, *arg3;
 {
   int i;
   FILE_BUF *ip = NULL;
@@ -7584,6 +7679,7 @@ static void
 error_with_line (line, msg, arg1, arg2, arg3)
      int line;
      char *msg;
+     char *arg1, *arg2, *arg3;
 {
   int i;
   FILE_BUF *ip = NULL;
@@ -7608,6 +7704,7 @@ error_with_line (line, msg, arg1, arg2, arg3)
 void
 pedwarn (msg, arg1, arg2, arg3)
      char *msg;
+     char *arg1, *arg2, *arg3;
 {
   if (pedantic_errors)
     error (msg, arg1, arg2, arg3);
@@ -7623,6 +7720,7 @@ pedwarn_with_file_and_line (file, line, msg, arg1, arg2, arg3)
      char *file;
      int line;
      char *msg;
+     char *arg1, *arg2, *arg3;
 {
   int i;
   if (!pedantic_errors && inhibit_warnings)
@@ -7765,13 +7863,13 @@ grow_outbuf (obuf, needed)
  * Otherwise, compute the hash code.
  */
 static HASHNODE *
-install (name, len, type, value, hash)
+install (name, len, type, ivalue, value, hash)
      U_CHAR *name;
      int len;
      enum node_type type;
-     int value;
+     int ivalue;
+     char *value;
      int hash;
-        /* watch out here if sizeof (U_CHAR *) != sizeof (int) */
 {
   register HASHNODE *hp;
   register int i, bucket;
@@ -7798,7 +7896,10 @@ install (name, len, type, value, hash)
     hp->next->prev = hp;
   hp->type = type;
   hp->length = len;
-  hp->value.ival = value;
+  if (hp->type == T_CONST)
+    hp->value.ival = ivalue;
+  else
+    hp->value.cpval = value;
   hp->name = ((U_CHAR *) hp) + sizeof (HASHNODE);
   p = hp->name;
   q = name;
@@ -7996,7 +8097,8 @@ dump_defn_1 (base, start, length, of)
     if (*p != '\n')
       putc (*p, of);
     else if (*p == '\"' || *p =='\'') {
-      U_CHAR *p1 = skip_quoted_string (p, limit, 0, 0, 0, 0);
+      U_CHAR *p1 = skip_quoted_string (p, limit, 0, NULL_PTR,
+				       NULL_PTR, NULL_PTR);
       fwrite (p, p1 - p, 1, of);
       p = p1 - 1;
     }
@@ -8075,23 +8177,23 @@ initialize_builtins (inp, outp)
      FILE_BUF *inp;
      FILE_BUF *outp;
 {
-  install ("__LINE__", -1, T_SPECLINE, 0, -1);
-  install ("__DATE__", -1, T_DATE, 0, -1);
-  install ("__FILE__", -1, T_FILE, 0, -1);
-  install ("__BASE_FILE__", -1, T_BASE_FILE, 0, -1);
-  install ("__INCLUDE_LEVEL__", -1, T_INCLUDE_LEVEL, 0, -1);
-  install ("__VERSION__", -1, T_VERSION, 0, -1);
-  install ("__SIZE_TYPE__", -1, T_SIZE_TYPE, 0, -1);
-  install ("__PTRDIFF_TYPE__ ", -1, T_PTRDIFF_TYPE, 0, -1);
-  install ("__WCHAR_TYPE__", -1, T_WCHAR_TYPE, 0, -1);
-  install ("__TIME__", -1, T_TIME, 0, -1);
+  install ("__LINE__", -1, T_SPECLINE, 0, 0, -1);
+  install ("__DATE__", -1, T_DATE, 0, 0, -1);
+  install ("__FILE__", -1, T_FILE, 0, 0, -1);
+  install ("__BASE_FILE__", -1, T_BASE_FILE, 0, 0, -1);
+  install ("__INCLUDE_LEVEL__", -1, T_INCLUDE_LEVEL, 0, 0, -1);
+  install ("__VERSION__", -1, T_VERSION, 0, 0, -1);
+  install ("__SIZE_TYPE__", -1, T_SIZE_TYPE, 0, 0, -1);
+  install ("__PTRDIFF_TYPE__ ", -1, T_PTRDIFF_TYPE, 0, 0, -1);
+  install ("__WCHAR_TYPE__", -1, T_WCHAR_TYPE, 0, 0, -1);
+  install ("__TIME__", -1, T_TIME, 0, 0, -1);
   if (!traditional)
-    install ("__STDC__", -1, T_CONST, STDC_VALUE, -1);
+    install ("__STDC__", -1, T_CONST, STDC_VALUE, 0, -1);
   if (objc)
-    install ("__OBJC__", -1, T_CONST, 1, -1);
+    install ("__OBJC__", -1, T_CONST, 1, 0, -1);
 /*  This is supplied using a -D by the compiler driver
     so that it is present only when truly compiling with GNU C.  */
-/*  install ("__GNUC__", -1, T_CONST, 2, -1);  */
+/*  install ("__GNUC__", -1, T_CONST, 2, 0, -1);  */
 
   if (debug_output)
     {
@@ -8113,10 +8215,6 @@ initialize_builtins (inp, outp)
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
       sprintf (directive, " __PTRDIFF_TYPE__ %s\n", PTRDIFF_TYPE);
-      output_line_command (inp, outp, 0, same_file);
-      pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
-
-      sprintf (directive, " __WCHAR_TYPE__ %s\n", WCHAR_TYPE);
       output_line_command (inp, outp, 0, same_file);
       pass_thru_directive (directive, &directive[strlen (directive)], outp, dp);
 
@@ -8309,8 +8407,41 @@ make_assertion (option, str)
 
   /* pass NULL as output ptr to do_define since we KNOW it never
      does any output.... */
-  do_assert (buf, buf + strlen (buf) , NULL, kt);
+  do_assert (buf, buf + strlen (buf) , NULL_PTR, kt);
   --indepth;
+}
+
+/* Append a chain of `struct file_name_list's
+   to the end of the main include chain.
+   FIRST is the beginning of the chain to append, and LAST is the end.  */
+
+static void
+append_include_chain (first, last)
+     struct file_name_list *first, *last;
+{
+  struct file_name_list *dir;
+
+  if (!first || !last)
+    return;
+
+  if (include == 0)
+    include = first;
+  else
+    last_include->next = first;
+
+  if (first_bracket_include == 0)
+    first_bracket_include = first;
+
+  for (dir = first; ; dir = dir->next) {
+    int len = strlen (dir->fname) + INCLUDE_LEN_FUDGE;
+    if (len > max_include_len)
+      max_include_len = len;
+    if (dir == last)
+      break;
+  }
+
+  last->next = NULL;
+  last_include = last;
 }
 
 /* Add output to `deps_buffer' for the -M switch.
@@ -8354,20 +8485,8 @@ bzero (b, length)
      register char *b;
      register unsigned length;
 {
-#ifdef VMS
-  short zero = 0;
-  long max_str = 65535;
-
-  while (length > max_str) {
-    (void) LIB$MOVC5 (&zero, &zero, &zero, &max_str, b);
-    length -= max_str;
-    b += max_str;
-  }
-  (void) LIB$MOVC5 (&zero, &zero, &zero, &length, b);
-#else
   while (length-- > 0)
     *b++ = 0;
-#endif /* not VMS */
 }
 
 void
@@ -8376,20 +8495,8 @@ bcopy (b1, b2, length)
      register char *b2;
      register unsigned length;
 {
-#ifdef VMS
-  long max_str = 65535;
-
-  while (length > max_str) {
-    (void) LIB$MOVC3 (&max_str, b1, b2);
-    length -= max_str;
-    b1 += max_str;
-    b2 += max_str;
-  }
-  (void) LIB$MOVC3 (&length, b1, b2);
-#else
   while (length-- > 0)
     *b2++ = *b1++;
-#endif /* not VMS */
 }
 
 int
@@ -8398,18 +8505,11 @@ bcmp (b1, b2, length)	/* This could be a macro! */
      register char *b2;
      register unsigned length;
 {
-#ifdef VMS
-   struct dsc$descriptor_s src1 = {length, DSC$K_DTYPE_T, DSC$K_CLASS_S, b1};
-   struct dsc$descriptor_s src2 = {length, DSC$K_DTYPE_T, DSC$K_CLASS_S, b2};
-
-   return STR$COMPARE (&src1, &src2);
-#else
    while (length-- > 0)
      if (*b1++ != *b2++)
        return 1;
 
    return 0;
-#endif /* not VMS */
 }
 #endif /* not BSTRING */
 #endif /* USG or VMS */
@@ -8419,8 +8519,6 @@ static void
 fatal (str, arg)
      char *str, *arg;
 {
-  if (deps_file)
-    unlink (deps_file);
   fprintf (stderr, "%s: ", progname);
   fprintf (stderr, str, arg);
   fprintf (stderr, "\n");
@@ -8798,4 +8896,23 @@ open (fname, flags, prot)
   return open (fname, flags, prot, "mbc=16", "deq=64", "fop=tef");
 }
 
+/* Avoid run-time library bug, where copying M out of N+M characters with
+   N >= 65535 results in VAXCRTL's strncat falling into an infinite loop.
+   gcc-cpp exercises this particular bug.  */
+
+static char *
+strncat (dst, src, cnt)
+     char *dst;
+     const char *src;
+     unsigned cnt;
+{
+  register char *d = dst, *s = (char *) src;
+  register int n = cnt;	/* convert to _signed_ type */
+
+  while (*d) d++;	/* advance to end */
+  while (--n >= 0)
+    if (!(*d++ = *s++)) break;
+  if (n < 0) *d = '\0';
+  return dst;
+}
 #endif /* VMS */

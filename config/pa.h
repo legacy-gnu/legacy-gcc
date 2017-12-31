@@ -28,13 +28,74 @@ enum cmp_type				/* comparison type */
   CMP_MAX				/* max comparison type */
 };
 
+/* Print subsidiary information on the compiler version in use.  */
+
+#define TARGET_VERSION fprintf (stderr, " (hppa)");
+
+/* Run-time compilation parameters selecting different hardware subsets.  */
+
+extern int target_flags;
+
+/* compile code for HP-PA 1.1 ("Snake") */
+
+#define TARGET_SNAKE (target_flags & 1)
+
+/* Force gcc not to use the bss segment.  This is (temporarily) provided 
+   for sites which are using pa-gas-1.36 versions prior to Aug 7, 1992.  */
+
+#define TARGET_NO_BSS (target_flags & 2)
+
+/* Force gcc to only use instructions which are safe when compiling kernels.
+   Specifically, avoid using add instructions with dp (r27) as an argument.
+   Use addil instructions instead.  Doing so avoids a nasty bug in the 
+   HPUX linker.  When HP fixes their linker take this option out.  */
+
+#define TARGET_KERNEL (target_flags & 4)
+
+/* Generate code that will link against HPUX 8.0 shared libraries.
+   Older linkers and assemblers might not support this. */
+
+#define TARGET_SHARED_LIBS (target_flags & 8)
+
+/* Force all function calls to indirect addressing via a register.  This
+   avoids lossage when the function is very far away from the current PC.
+
+   ??? What about simple jumps, they can suffer from the same problem.  
+   Would require significant surgery in pa.md.  */
+
+#define TARGET_LONG_CALLS (target_flags & 16)
+
+/* Macro to define tables used to set the flags.
+   This is a list in braces of pairs in braces,
+   each pair being { "NAME", VALUE }
+   where VALUE is the bits to set or minus the bits to clear.
+   An empty string NAME is used to identify the default VALUE.  */
+
+#define TARGET_SWITCHES \
+  {{"snake", 1},	\
+   {"nosnake", -1},	\
+   {"pa-risc-1-0", -1},	\
+   {"pa-risc-1-1", 1},	\
+   {"no-bss", 2},	\
+   {"kernel", 4},	\
+   {"shared-libs", 8},	\
+   {"no-shared-libs", -8},\
+   {"long-calls", 16},	\
+   { "", TARGET_DEFAULT}}
+
+#ifndef TARGET_DEFAULT
+#define TARGET_DEFAULT 0
+#endif
+
 #define DBX_DEBUGGING_INFO
 #define DEFAULT_GDB_EXTENSIONS 0
 
 #if (TARGET_DEFAULT & 1) == 0
-#define CPP_SPEC "%{msnake:-D__hp9000s700 -D_PA_RISC1_1}"
+#define CPP_SPEC "%{msnake:-D__hp9000s700 -D_PA_RISC1_1}\
+ %{mpa-risc-1-1:-D__hp9000s700 -D_PA_RISC1_1}"
 #else
-#define CPP_SPEC "-D__hp9000s700 -D_PA_RISC1_1"
+#define CPP_SPEC "%{!mpa-risc-1-0:-D__hp9000s700 -D_PA_RISC1_1}\
+ %{!mnosnake:-D__hp9000s700 -D_PA_RISC1_1}"
 #endif
 
 /* Defines for a K&R CC */
@@ -48,12 +109,14 @@ enum cmp_type				/* comparison type */
 #define CC1_SPEC "%{pg:} %{p:}"
 #endif
   
-/* Brain-dead loader */
-#ifdef hpux8
-#define LINK_SPEC "-u main -a archive"
-#else
 #define LINK_SPEC "-u main"
-#endif
+
+/* Make gcc agree with <machine/ansi.h> */
+
+#define SIZE_TYPE "unsigned int"
+#define PTRDIFF_TYPE "int"
+#define WCHAR_TYPE "short unsigned int"
+#define WCHAR_TYPE_SIZE 16
 
 /* Omit frame pointer at high optimization levels.  */
   
@@ -63,42 +126,9 @@ enum cmp_type				/* comparison type */
     flag_omit_frame_pointer = 1;				\
 }
 
-/* These compiler options take an argument.  We ignore -target for now.  */
-
-#define WORD_SWITCH_TAKES_ARG(STR)			\
- (!strcmp (STR, "Tdata") || !strcmp (STR, "include")	\
-  || !strcmp (STR, "imacros") || !strcmp (STR, "target")\
-  || !strcmp (STR, "aux-info"))
-
 /* Names to predefine in the preprocessor for this target machine.  */
 
 #define CPP_PREDEFINES "-Dhppa -Dhp9000s800 -D__hp9000s800 -Dhp9k8 -Dunix -D_HPUX_SOURCE -Dhp9000 -Dhp800 -Dspectrum -DREVARGV"
-
-/* Print subsidiary information on the compiler version in use.  */
-
-#define TARGET_VERSION fprintf (stderr, " (hp9000s800)");
-
-/* Run-time compilation parameters selecting different hardware subsets.
-
-   On the the hp9k800, we don't yet need any. But ... */
-
-extern int target_flags;
-
-/* compile code for PA-RISC 1.1 ("Snake") */
-
-#define TARGET_SNAKE (target_flags & 1)
-
-/* Macro to define tables used to set the flags.
-   This is a list in braces of pairs in braces,
-   each pair being { "NAME", VALUE }
-   where VALUE is the bits to set or minus the bits to clear.
-   An empty string NAME is used to identify the default VALUE.  */
-
-#define TARGET_SWITCHES \
-  {{"snake", 1},	\
-   { "", TARGET_DEFAULT}}
-
-#define TARGET_DEFAULT 0
 
 /* target machine storage layout */
 
@@ -107,12 +137,12 @@ extern int target_flags;
 #define BITS_BIG_ENDIAN 1
 
 /* Define this if most significant byte of a word is the lowest numbered.  */
-/* That is true on the hp9k8.  */
+/* That is true on the HP-PA.  */
 #define BYTES_BIG_ENDIAN 1
 
 /* Define this if most significant word of a multiword number is lowest
    numbered.  */
-/* For the hp9k800 we can decide arbitrarily
+/* For the HP-PA we can decide arbitrarily
    since there are no machine instructions for them.  */
 #define WORDS_BIG_ENDIAN 1
 
@@ -183,13 +213,13 @@ extern int target_flags;
    All registers that the compiler knows about must be given numbers,
    even those that are not normally considered general registers.
 
-   The hp9k800 has 32 fullword registers and 16 floating point
+   HP-PA 1.0 has 32 fullword registers and 16 floating point
    registers. The floating point registers hold either word or double
    word values.
    
    16 additional registers are reserved.
    
-   PA-RISC 1.1 has 32 fullword registers and 32 floating point
+   HP-PA 1.1 has 32 fullword registers and 32 floating point
    registers. However, the floating point registers behave
    differently: the left and right halves of registers are addressable
    as 32 bit registers. So, we will set things up like the 68k which
@@ -202,7 +232,7 @@ extern int target_flags;
 /* 1 for registers that have pervasive standard uses
    and are not available for the register allocator.
 
-   On the hp9k800, these are:
+   On the HP-PA, these are:
    Reg 0	= 0 (hardware). However, 0 is used for condition code,
                   so is not fixed.
    Reg 1	= ADDIL target/Temporary (hardware).
@@ -210,7 +240,8 @@ extern int target_flags;
    Reg 3	= Unused
    Reg 4	= Frame Pointer (Gnu)
    Reg 5-18	= Preserved Registers
-   Reg 19-22	= Temporary Registers
+   Reg 19	= Linkage Table Register in HPUX 8.0 shared library scheme.
+   Reg 20-22	= Temporary Registers
    Reg 23-26	= Temporary/Parameter Registers
    Reg 27	= Global Data Pointer (hp)
    Reg 28	= Temporary/???/Return Value register
@@ -343,7 +374,7 @@ extern int target_flags;
    This is ordinarily the length in words of a value of mode MODE
    but can be less for certain modes in special long registers.
 
-   On the hp9k800, ordinary registers hold 32 bits worth;
+   On the HP-PA, ordinary registers hold 32 bits worth;
    The floating point registers are 64 bits wide. Snake fp regs are 32
    bits wide */
 #define HARD_REGNO_NREGS(REGNO, MODE)   \
@@ -351,14 +382,22 @@ extern int target_flags;
    ? ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD) : 1)
 
 /* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.
-   On the hp9k800, the cpu registers can hold any mode.  We
+   On the HP-PA, the cpu registers can hold any mode.  We
    force this to be an even register is it cannot hold the full mode.  */
+#if 0
 #define HARD_REGNO_MODE_OK(REGNO, MODE) \
   ((REGNO) == 0 ? (MODE) == CCmode || (MODE) == CCFPmode		\
    : (REGNO) < 32 ? ((GET_MODE_SIZE (MODE) <= 4) ? 1 : ((REGNO) & 1) == 0)\
    : (REGNO) < 48 ? (GET_MODE_SIZE (MODE) >= 4)				\
    : (GET_MODE_SIZE (MODE) > 4 ? ((REGNO) & 1) == 0			\
       : GET_MODE_SIZE (MODE) == 4))
+#endif
+#define HARD_REGNO_MODE_OK(REGNO, MODE) \
+  ((REGNO) == 0 ? (MODE) == CCmode || (MODE) == CCFPmode		\
+   : (REGNO) < 32 ? ((GET_MODE_SIZE (MODE) <= 4) ? 1 : ((REGNO) & 1) == 0)\
+   : (REGNO) < 48 ? (GET_MODE_SIZE (MODE) >= 4)				\
+   : (GET_MODE_SIZE (MODE) > 4 ? ((REGNO) & 1) == 0			\
+      : 1))
 
 /* Value is 1 if it is a good idea to tie two pseudo registers
    when one has mode MODE1 and one has mode MODE2.
@@ -370,7 +409,7 @@ extern int target_flags;
 /* Specify the registers used for certain standard purposes.
    The values of these macros are register numbers.  */
 
-/* the hp9k800 pc isn't overloaded on a register that the compiler knows about.  */
+/* The HP-PA pc isn't overloaded on a register that the compiler knows about.  */
 /* #define PC_REGNUM  */
 
 /* Register to use for pushing function arguments.  */
@@ -395,7 +434,7 @@ extern int leaf_function;
    it's not, there's no point in trying to eliminate the
    frame pointer.  If it is a leaf function, we guessed right!  */
 #define INITIAL_FRAME_POINTER_OFFSET(VAR) \
-  do { int __fsize = compute_frame_size (get_frame_size (), 1) + 32;	\
+  do { int __fsize = compute_frame_size (get_frame_size (), 1, 0) + 32;	\
        (VAR) = -(TARGET_SNAKE ? (__fsize + 63) & ~63 : __fsize); } while (0)
 
 /* Base register for access to arguments of the function.  */
@@ -408,7 +447,7 @@ extern int leaf_function;
 /* Register which holds offset table for position-independent
    data references.  */
 
-#define PIC_OFFSET_TABLE_REGNUM 18
+#define PIC_OFFSET_TABLE_REGNUM 19
 
 #define INITIALIZE_PIC initialize_pic ()
 #define FINALIZE_PIC finalize_pic ()
@@ -437,13 +476,16 @@ extern int leaf_function;
    For any two classes, it is very desirable that there be another
    class that represents their union.  */
 
-  /* The hp9k800 has four kinds of registers: general regs, 1.0 fp regs,
+  /* The HP-PA has four kinds of registers: general regs, 1.0 fp regs,
      1.1 fp regs, and the high 1.1 fp regs, to which the operands of
-     fmpyadd and fmpysub are restricted. */
+     fmpyadd and fmpysub are restricted.
+
+     FP_OR_SNAKE_FP_REGS is for reload_{in,out}di only and isn't used
+     anywhere else.*/
 
 enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
   HI_SNAKE_FP_REGS, SNAKE_FP_REGS, GENERAL_OR_SNAKE_FP_REGS,
-  SHIFT_REGS, ALL_REGS, LIM_REG_CLASSES}; 
+  FP_OR_SNAKE_FP_REGS, SHIFT_REGS, ALL_REGS, LIM_REG_CLASSES}; 
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
 
@@ -452,7 +494,7 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
 #define REG_CLASS_NAMES \
   { "NO_REGS", "R1_REGS", "GENERAL_REGS", "FP_REGS", "GENERAL_OR_FP_REGS",\
     "HI_SNAKE_FP_REGS", "SNAKE_FP_REGS", "GENERAL_OR_SNAKE_FP_REGS",\
-    "SHIFT_REGS", "ALL_REGS"}
+    "FP_OR_SNAKE_FP_REGS","SHIFT_REGS", "ALL_REGS"}
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
@@ -468,6 +510,7 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
   {0, 0, 0xffff0000, 0xffff},	/* HI_SNAKE_FP_REGS */	\
   {0, 0xffff0000, ~0, 0xffff},	/* SNAKE_FP_REGS */	\
   {-2, 0xffff0000, ~0, 0xffff},	/* GENERAL_OR_SNAKE_FP_REGS */\
+  {0, ~0, ~0, 0xffff},		/* FP_OR_SNAKE_FP_REGS */\
   {0, 0, 0, 0x10000},		/* SHIFT_REGS */	\
   {-2, ~0, ~0, 0x1ffff}}	/* ALL_REGS */
 
@@ -492,12 +535,12 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
 /* Get reg_class from a letter such as appears in the machine description.  */
 
 #define REG_CLASS_FROM_LETTER(C) \
-  ((C) == 'r' ? GENERAL_REGS :					\
-   ((C) == 'f' ? (!TARGET_SNAKE ? FP_REGS : NO_REGS) :		\
-    ((C) == 'x' ? (TARGET_SNAKE ? SNAKE_FP_REGS : NO_REGS) :	\
-     ((C) == 'y' ? (TARGET_SNAKE ? HI_SNAKE_FP_REGS : NO_REGS) :\
-      ((C) == 'q' ? SHIFT_REGS :				\
-       ((C) == 'a' ? R1_REGS : NO_REGS))))))
+  ((C) == 'f' ? (!TARGET_SNAKE ? FP_REGS : NO_REGS) :		\
+   ((C) == 'x' ? (TARGET_SNAKE ? SNAKE_FP_REGS : NO_REGS) :	\
+    ((C) == 'y' ? (TARGET_SNAKE ? HI_SNAKE_FP_REGS : NO_REGS) :	\
+     ((C) == 'q' ? SHIFT_REGS :					\
+      ((C) == 'a' ? R1_REGS :					\
+       ((C) == 'z' ? FP_OR_SNAKE_FP_REGS : NO_REGS))))))
 
 /* The letters I, J, K, L and M in a register constraint string
    can be used to stand for particular ranges of immediate operands.
@@ -505,7 +548,7 @@ enum reg_class { NO_REGS, R1_REGS, GENERAL_REGS, FP_REGS, GENERAL_OR_FP_REGS,
    C is the letter, and VALUE is a constant value.
    Return 1 if VALUE is in the range specified by C.
 
-HP9000/800 immediate field sizes:
+HP-PA immediate field sizes:
   5 bits: scalar/floating short loads + stores; deposit; conditional branch
   11 bits: arithmetic immediate, compare immediate
   14 bits: loads and stores; load offset
@@ -524,6 +567,8 @@ HP9000/800 immediate field sizes:
    : (C) == 'K' ? (unsigned) (VALUE) < 0x20			\
    : (C) == 'L' ? (unsigned) ((VALUE) + 0x10) < 0x20		\
    : (C) == 'M' ? (VALUE) == 0					\
+   : (C) == 'O' ? (((VALUE) & ((VALUE) + 1)) == 0)		\
+   : (C) == 'P' ? consec_zeros_p (VALUE)			\
    : 0)
 
 /* Similar, but for floating constants, and defining letters G and H.
@@ -573,7 +618,7 @@ HP9000/800 immediate field sizes:
 
 /* If we generate an insn to push BYTES bytes,
    this says how many the stack pointer really advances by.
-   On the hp9k800, don't define this because there are no push insns.  */
+   On the HP-PA, don't define this because there are no push insns.  */
 /*  #define PUSH_ROUNDING(BYTES) */
 
 /* Offset of first parameter from the argument pointer register value.
@@ -630,7 +675,7 @@ HP9000/800 immediate field sizes:
    If the precise function being called is known, FUNC is its FUNCTION_DECL;
    otherwise, FUNC is 0.  */
 
-/* On the hp9k800 the value is found in register(s) 28(-29), unless
+/* On the HP-PA the value is found in register(s) 28(-29), unless
    the mode is SF or DF. Then the value is returned in fr4 (36, ) */
 
 
@@ -666,7 +711,7 @@ HP9000/800 immediate field sizes:
    and about the args processed so far, enough to enable macros
    such as FUNCTION_ARG to determine where the next arg should go.
 
-   On the hp9k800, this is a single integer, which is a number of words
+   On the HP-PA, this is a single integer, which is a number of words
    of arguments scanned so far (including the invisible argument,
    if any, which holds the structure-value-address).
    Thus 4 or more means all following args should go on the stack.  */
@@ -690,7 +735,7 @@ HP9000/800 immediate field sizes:
    (TYPE is null for libcalls where that information may not be available.)  */
 
 #define FUNCTION_ARG_ADVANCE(CUM, MODE, TYPE, NAMED)			\
-    (((((CUM) & 01) && (TYPE) != 0 && TYPE_ALIGN (TYPE) > BITS_PER_WORD)\
+    (((((CUM) & 01) && (TYPE) != 0 && FUNCTION_ARG_SIZE(MODE, TYPE) > 1)\
       && (CUM)++), (CUM) += FUNCTION_ARG_SIZE(MODE, TYPE))
 
 /* Determine where to put an argument to a function.
@@ -706,22 +751,25 @@ HP9000/800 immediate field sizes:
    NAMED is nonzero if this argument is a named parameter
     (otherwise it is an extra parameter matching an ellipsis).  */
 
-/* On the hp9k800 the first four words of args are normally in registers
+/* On the HP-PA the first four words of args are normally in registers
    and the rest are pushed.  But any arg that won't entirely fit in regs
-   is pushed.  */
+   is pushed.
+
+   Arguments passed in registers are either 1 or 2 words long. */
 
 #define FUNCTION_ARG_PADDING(MODE, TYPE) function_arg_padding ((MODE), (TYPE))
 
 #define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)		      		\
   (4 >= ((CUM) + FUNCTION_ARG_SIZE ((MODE), (TYPE)))			\
-   ? gen_rtx (REG,							\
-	      (MODE),							\
-	      ((MODE) == SFmode ?					\
-	       (TARGET_SNAKE ? 56 + 2 * (CUM) : 36  + (CUM)) :		\
-	       ((MODE) == DFmode ? ((CUM) ?				\
-				    (TARGET_SNAKE ? 62 : 39) :		\
-				    (TARGET_SNAKE ? 58 : 37)) :        	\
-		(27 - (CUM) - FUNCTION_ARG_SIZE ((MODE), (TYPE))))))	\
+   ? gen_rtx (REG, (MODE),						\
+	      (FUNCTION_ARG_SIZE ((MODE), (TYPE)) > 1			\
+	       ? ((MODE) == DFmode					\
+		  ? ((CUM) ? (TARGET_SNAKE ? 62 : 39)			\
+		     : (TARGET_SNAKE ? 58 : 37))			\
+		  : ((CUM) ? 23 : 25))					\
+	       : ((MODE) == SFmode					\
+		  ? (TARGET_SNAKE ? 56 + 2 * (CUM) : 36  + (CUM))	\
+		  : (27 - (CUM) - FUNCTION_ARG_SIZE ((MODE), (TYPE))))))\
    : 0)
 
 /* Define where a function finds its arguments.
@@ -767,15 +815,16 @@ extern enum cmp_type hppa_branch_type;
   do { fprintf (FILE, ",ARGW%d=FU", (ARG0));		\
        fprintf (FILE, ",ARGW%d=FR", (ARG1));} while (0)
 #endif
+
 #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL) \
-    do { tree fntype = DECL_RESULT (DECL);	 			\
+    do { tree fntype = TREE_TYPE (TREE_TYPE (DECL));			\
 	 tree tree_type = TREE_TYPE (DECL);				\
 	 tree parm;							\
 	 int i;								\
 	 if (TREE_PUBLIC (DECL))					\
-	   {								\
+	   { extern int current_function_varargs;			\
 	     fputs ("\t.EXPORT ", FILE); assemble_name (FILE, NAME);	\
-	     fputs (",PRIV_LEV=3", FILE);				\
+	     fputs (",ENTRY,PRIV_LEV=3", FILE);				\
 	     for (parm = DECL_ARGUMENTS (DECL), i = 0; parm && i < 4;	\
 		  parm = TREE_CHAIN (parm))				\
 	       {							\
@@ -783,8 +832,13 @@ extern enum cmp_type hppa_branch_type;
 		   fprintf (FILE, ",ARGW%d=FR", i++);			\
 		 else if (TYPE_MODE (DECL_ARG_TYPE (parm)) == DFmode)	\
 		   {							\
-		      if (i == 1) i++;				        \
-		      ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i++);	\
+		     if (i <= 2)					\
+		       {						\
+			 if (i == 1) i++;				\
+			 ASM_DOUBLE_ARG_DESCRIPTORS (FILE, i++, i++);	\
+		       }						\
+		     else						\
+		       break;						\
 		   }							\
 		 else							\
 		   {							\
@@ -804,9 +858,10 @@ extern enum cmp_type hppa_branch_type;
 		   }							\
 	       }							\
 	     /* anonymous args */					\
-	     if (TYPE_ARG_TYPES (tree_type) != 0			\
-		 && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (tree_type)))\
-		     != void_type_node))				\
+	     if ((TYPE_ARG_TYPES (tree_type) != 0			\
+		  && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (tree_type)))\
+		      != void_type_node))				\
+		 || current_function_varargs)				\
 	       {							\
 		 for (; i < 4; i++)					\
 		   fprintf (FILE, ",ARGW%d=GR", i);			\
@@ -951,13 +1006,13 @@ extern union tree_node *current_function_decl;
 #define REGNO_OK_FOR_BASE_P(REGNO)  \
   ((REGNO) && ((REGNO) < 32 || (unsigned) reg_renumber[REGNO] < 32))
 #define REGNO_OK_FOR_FP_P(REGNO) \
-  (((REGNO) >= 32 || reg_renumber[REGNO] >= 32)\
-   && ((REGNO) <= 111 || reg_renumber[REGNO] <= 111))
+  (((REGNO) >= 32 && (REGNO) <= 111)\
+   || (reg_renumber[REGNO] >= 32 && reg_renumber[REGNO] <= 111))
 
 /* Now macros that check whether X is a register and also,
    strictly, whether it is in a specified class.
 
-   These macros are specific to the the hp9k800, and may be used only
+   These macros are specific to the the HP-PA, and may be used only
    in code for printing assembler insns and in conditions for
    define_optimization.  */
 
@@ -1060,7 +1115,7 @@ extern union tree_node *current_function_decl;
    The MODE argument is the machine mode for the MEM expression
    that wants to use this address.
 
-   On the hp9k800, the actual legitimate addresses must be
+   On the HP-PA, the actual legitimate addresses must be
    REG+REG, REG+(REG*SCALE) or REG+SMALLINT.
    But we can treat a SYMBOL_REF as legitimate if it is part of this
    function's constant-pool, because such addresses can actually
@@ -1149,7 +1204,7 @@ extern union tree_node *current_function_decl;
    It is always safe for this macro to do nothing.  It exists to recognize
    opportunities to optimize the output.  */
 
-/* On the hp9k800, change REG+N into REG+REG, and REG+(X*Y) into REG+REG.  */
+/* On the HP-PA, change REG+N into REG+REG, and REG+(X*Y) into REG+REG.  */
 
 #define LEGITIMIZE_ADDRESS(X,OLDX,MODE,WIN)	\
 { if (GET_CODE (X) == PLUS && CONSTANT_ADDRESS_P (XEXP (X, 1)))	\
@@ -1167,18 +1222,18 @@ extern union tree_node *current_function_decl;
   if (memory_address_p (MODE, X))				\
     goto WIN;							\
   if (flag_pic) (X) = legitimize_pic_address (X, MODE, gen_reg_rtx (Pmode));\
-  else if ((GET_CODE (X) == SYMBOL_REF & read_only_operand (X))	\
+  else if ((GET_CODE (X) == SYMBOL_REF && read_only_operand (X))\
 	    || GET_CODE (X) == LABEL_REF)			\
     (X) = gen_rtx (LO_SUM, Pmode,				\
 		   copy_to_mode_reg (Pmode, gen_rtx (HIGH, Pmode, X)), X); \
   else if (GET_CODE (X) == SYMBOL_REF)				\
-    (X) = gen_rtx (LO_SUM, Pmode,				\
-		   copy_to_mode_reg (Pmode,			\
-				     gen_rtx (PLUS, Pmode,	\
-					      copy_to_mode_reg (Pmode,\
-								gen_rtx (HIGH, Pmode, X)),\
-					      gen_rtx (REG, Pmode, 27))),\
-		   X);						\
+    {								\
+      rtx temp2 = gen_reg_rtx (Pmode);				\
+      emit_insn (gen_rtx (SET, VOIDmode, temp2, 		\
+			  gen_rtx (PLUS, Pmode, gen_rtx (REG, Pmode, 27),\
+				   gen_rtx (HIGH, Pmode, X))));	\
+      (X) = gen_rtx (LO_SUM, Pmode, temp2, X);	 		\
+    }								\
   if (memory_address_p (MODE, X))				\
     goto WIN;}
 
@@ -1206,25 +1261,43 @@ extern union tree_node *current_function_decl;
    name string in the `symbol_ref' (if one bit is not enough
    information).
 
-   On the PA-RISC we use this to indicate if a symbol is in text or
-   data space.  */
+   On the HP-PA we use this to indicate if a symbol is in text or
+   data space.  Also, function labels need special treatment. */
+
+#define TEXT_SPACE_P(DECL)\
+  (TREE_CODE (DECL) == FUNCTION_DECL					\
+   || (TREE_CODE (DECL) == VAR_DECL					\
+       && TREE_READONLY (DECL) && ! TREE_SIDE_EFFECTS (DECL)		\
+       && !flag_pic)							\
+   || (*tree_code_type[(int) TREE_CODE (DECL)] == 'c'			\
+       && !(TREE_CODE (DECL) == STRING_CST && flag_writable_strings)))
+
+#define FUNCTION_NAME_P(NAME) \
+(*(NAME) == '@' || (*(NAME) == '*' && *((NAME) + 1) == '@'))
 
 #define ENCODE_SECTION_INFO(DECL)\
-do									\
-  {									\
-    if (TREE_CODE (DECL) == FUNCTION_DECL)				\
-      SYMBOL_REF_FLAG (XEXP (DECL_RTL (DECL), 0)) = 1;			\
-    else								\
-      {									\
-	rtx rtl = (TREE_CODE_CLASS (TREE_CODE (DECL)) != 'd'		\
-		   ? TREE_CST_RTL (DECL) : DECL_RTL (DECL));		\
-	if (RTX_UNCHANGING_P (rtl) && !MEM_VOLATILE_P (rtl)		\
-	    && !flag_pic)						\
-	  SYMBOL_REF_FLAG (XEXP (rtl, 0)) = 1;				\
-      }									\
-  }									\
+do							\
+  { if (TEXT_SPACE_P (DECL))				\
+      {	rtx _rtl;					\
+	if (TREE_CODE (DECL) == FUNCTION_DECL		\
+	    || TREE_CODE (DECL) == VAR_DECL)		\
+	  _rtl = DECL_RTL (DECL);			\
+	else						\
+	  _rtl = TREE_CST_RTL (DECL);			\
+	SYMBOL_REF_FLAG (XEXP (_rtl, 0)) = 1;		\
+	if (TREE_CODE (DECL) == FUNCTION_DECL)		\
+	  hppa_encode_label (XEXP (DECL_RTL (DECL), 0));\
+      }							\
+  }							\
 while (0)
   
+/* Store the user-specified part of SYMBOL_NAME in VAR.
+   This is sort of inverse to ENCODE_SECTION_INFO.  */
+
+#define STRIP_NAME_ENCODING(VAR,SYMBOL_NAME)	\
+  (VAR) = ((SYMBOL_NAME)  + ((SYMBOL_NAME)[0] == '*' ?	\
+			     1 + (SYMBOL_NAME)[1] == '@'\
+			     : (SYMBOL_NAME)[0] == '@'))
 
 /* Specify the machine mode that this machine uses
    for the index in the tablejump instruction.  */
@@ -1288,7 +1361,7 @@ while (0)
    should be used.  CC_NOOVmode should be used when the first operand is a
    PLUS, MINUS, or NEG.  CCmode should be used when no special processing is
    needed.  */
-#define SELECT_CC_MODE(OP,X) \
+#define SELECT_CC_MODE(OP,X,Y) \
   (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CCFPmode : CCmode)    \
 
 /* A function address in a call instruction
@@ -1326,8 +1399,8 @@ while (0)
 #define REGISTER_MOVE_COST(CLASS1, CLASS2) \
  ((((CLASS1 == FP_REGS || CLASS1 == SNAKE_FP_REGS	\
      || CLASS1 == HI_SNAKE_FP_REGS)			\
-    && (CLASS2 == R1_REGS | CLASS2 == GENERAL_REGS))	\
-   || ((CLASS2 == R1_REGS | CLASS1 == GENERAL_REGS)	\
+    && (CLASS2 == R1_REGS || CLASS2 == GENERAL_REGS))	\
+   || ((CLASS1 == R1_REGS || CLASS1 == GENERAL_REGS)	\
        && (CLASS2 == FP_REGS || CLASS2 == SNAKE_FP_REGS	\
 	   || CLASS2 == HI_SNAKE_FP_REGS))) ? 6 : 2)	
 
@@ -1343,7 +1416,7 @@ while (0)
   case MOD:						\
   case UMOD:						\
     return COSTS_N_INSNS (60);				\
-   case PLUS: /* this includes shNadd insns */		\
+  case PLUS: /* this includes shNadd insns */		\
     return COSTS_N_INSNS (1) + 2;
 
 /* Conditional branches with empty delay slots have a length of two.  */
@@ -1359,13 +1432,14 @@ while (0)
 #define ASM_FILE_START(FILE) \
 do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 \t.SUBSPA $DATA$,QUAD=1,ALIGN=8,ACCESS=31\n\
+\t.SUBSPA $BSS$,QUAD=1,ALIGN=8,ACCESS=31,ZERO,SORT=82\n\
 \t.SPACE $TEXT$\n\
 \t.SUBSPA $LIT$,QUAD=0,ALIGN=8,ACCESS=44\n\
 \t.SUBSPA $CODE$,QUAD=0,ALIGN=8,ACCESS=44,CODE_ONLY\n\
 \t.IMPORT $global$,DATA\n\
 \t.IMPORT $$dyncall,MILLICODE\n");\
      if (profile_flag)\
-       fprintf (FILE, "\t.IMPORT __gcc_mcount, CODE\n");\
+       fprintf (FILE, "\t.IMPORT _mcount, CODE\n");\
    } while (0)
 
 /* Output to assembler file text saying following lines
@@ -1378,7 +1452,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 #define ASM_APP_OFF ""
 
-/* We don't yet know how to identify GCC to HP series 800.  */
+/* We don't yet know how to identify GCC to HP-PA machines.  */
 #define ASM_IDENTIFY_GCC(FILE) fprintf (FILE, "; gcc_compiled.:\n")
 
 /* Output before code.  */
@@ -1390,6 +1464,26 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 /* Supposedly the assembler rejects the command if there is no tab!  */
 #define DATA_SECTION_ASM_OP "\t.SPACE $PRIVATE$\n\t.SUBSPA $DATA$\n"
+
+/* Output before uninitialized data.  */
+
+#define BSS_SECTION_ASM_OP "\t.SPACE $PRIVATE$\n\t.SUBSPA $BSS$\n"
+
+/* Define the .bss section for ASM_OUTPUT_LOCAL to use. */
+
+#define EXTRA_SECTIONS in_bss
+
+#define EXTRA_SECTION_FUNCTIONS						\
+void									\
+bss_section ()								\
+{									\
+  if (in_section != in_bss)						\
+    {									\
+      fprintf (asm_out_file, "%s\n", BSS_SECTION_ASM_OP);		\
+      in_section = in_bss;						\
+    }									\
+}
+
 
 /* How to refer to registers in assembler output.
    This sequence is indexed by compiler's hard-register-number (see above).  */
@@ -1427,10 +1521,10 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 #define ASM_OUTPUT_EXTERNAL(FILE, DECL, NAME)	\
   do { fputs ("\t.IMPORT ", FILE);				\
 	 assemble_name (FILE, NAME);				\
-       if (TREE_CODE (DECL) == VAR_DECL && ! TREE_READONLY (DECL))     	\
-	 fputs (",DATA\n", FILE);				\
-       else							\
+       if (FUNCTION_NAME_P (NAME))     				\
 	 fputs (",CODE\n", FILE);				\
+       else							\
+	 fputs (",DATA\n", FILE);				\
      } while (0)
 
 /* hpux ld doesn't output the object file name, or anything useful at
@@ -1458,13 +1552,16 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 #define ASM_GLOBALIZE_LABEL(FILE, NAME)					\
   do { fputs ("\t.EXPORT ", FILE); assemble_name (FILE, NAME);		\
-       fputs ("\n", FILE);} while (0)
+       if (FUNCTION_NAME_P (NAME))					\
+	 fputs (",CODE\n", FILE);					\
+       else								\
+	 fputs (",DATA\n", FILE);} while (0)
 
 /* This is how to output a reference to a user-level label named NAME.
    `assemble_name' uses this.  */
 
 #define ASM_OUTPUT_LABELREF(FILE,NAME)	\
-  fprintf (FILE, "%s", NAME)
+  fprintf ((FILE), "%s", (NAME) + (FUNCTION_NAME_P (NAME) ? 1 : 0))
 
 /* This is how to output an internal numbered label where
    PREFIX is the class of label and NUM is the number within the class.  */
@@ -1524,6 +1621,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 #define ASM_OUTPUT_ASCII(FILE, P, SIZE)  \
   output_ascii ((FILE), (P), (SIZE))
 
+#if 0
 #define ASM_OUTPUT_REG_PUSH(FILE,REGNO)  \
   fprintf (FILE, "\tstws,mb %s,4(0,30)\n", reg_names[REGNO])
 
@@ -1532,7 +1630,10 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 
 #define ASM_OUTPUT_REG_POP(FILE,REGNO)  \
   fprintf (FILE, "\tldws,ma -4(0,30),%s\n", reg_names[REGNO])
+#endif
 
+#define ASM_OUTPUT_REG_PUSH(FILE,REGNO)
+#define ASM_OUTPUT_REG_POP(FILE,REGNO) 
 /* This is how to output an element of a case-vector that is absolute.
    Note that this method makes filling these branch delay slots
    virtually impossible.  */
@@ -1541,7 +1642,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
   fprintf (FILE, "\tb L$%04d\n\tnop\n", VALUE)
 
 /* This is how to output an element of a case-vector that is relative.
-   (the hp9k800 does not use such vectors,
+   (The HP-PA does not use such vectors,
    but we must define this macro anyway.)  */
 
 #define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, VALUE, REL)  \
@@ -1560,8 +1661,11 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 /* This says how to output an assembler line
    to define a global common symbol.  */
 
+/* Supposedly the assembler rejects the command if there is no tab!  */
+
+
 #define ASM_OUTPUT_COMMON(FILE, NAME, SIZE, ROUNDED)  \
-( data_section (),					\
+( (TARGET_NO_BSS) ? data_section (): bss_section (),	\
   assemble_name ((FILE), (NAME)),			\
   fputs ("\t.comm ", (FILE)),				\
   fprintf ((FILE), "%d\n", (ROUNDED)))
@@ -1570,10 +1674,11 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
    to define a local common symbol.  */
 
 #define ASM_OUTPUT_LOCAL(FILE, NAME, SIZE, ROUNDED)  \
-( data_section (),					\
+( (TARGET_NO_BSS) ? data_section (): bss_section (),	\
   fprintf ((FILE), "\t.align %d\n", (SIZE) <= 4 ? 4 : 8),	\
   assemble_name ((FILE), (NAME)),				\
-  fprintf ((FILE), "\n\t.blockz %d\n", (ROUNDED)))
+  (TARGET_NO_BSS) ? fprintf ((FILE), "\n\t.blockz %d\n", (ROUNDED)) \
+		  : fprintf ((FILE), "\n\t.block %d\n", (ROUNDED)))
 
 /* Store in OUTPUT a string (made with alloca) containing
    an assembler-name for a local static variable named NAME.
@@ -1605,7 +1710,7 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
    CODE is a letter or dot (`z' in `%z0') or 0 if no letter was specified.
    For `%' followed by punctuation, CODE is the punctuation and X is null.
 
-   On the hp9k800, the CODE can be `r', meaning this is a register-only operand
+   On the HP-PA, the CODE can be `r', meaning this is a register-only operand
    and an immediate zero should be represented as `r0'.
 
    Several % codes are defined:
@@ -1656,6 +1761,8 @@ do { fprintf (FILE, "\t.SPACE $PRIVATE$\n\
 #define SMALL_INT(OP) INT_14_BITS (OP)
 /* Define functions in pa.c and used in insn-output.c.  */
 
+extern char *output_and ();
+extern char *output_ior ();
 extern char *output_move_double ();
 extern char *output_fp_move_double ();
 extern char *output_block_move ();
@@ -1670,3 +1777,6 @@ extern char *output_mod_insn ();
 extern void output_arg_descriptor ();
 extern void output_global_address ();
 extern struct rtx_def *legitimize_pic_address ();
+extern struct rtx_def *gen_cmp_fp ();
+extern struct rtx_def *gen_scond_fp ();
+extern void hppa_encode_label ();

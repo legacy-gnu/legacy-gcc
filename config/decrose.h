@@ -1,5 +1,6 @@
-/* Definitions of target machine for GNU compiler.  DECstation (OSF/1 with OSF/rose) version.
-   Copyright (C) 1991 Free Software Foundation, Inc.
+/* Definitions of target machine for GNU compiler.
+   DECstation (OSF/1 reference port with OSF/rose) version.
+   Copyright (C) 1991, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -25,6 +26,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "halfpic.h"
 
+#define WORD_SWITCH_TAKES_ARG(STR)					\
+ (!strcmp (STR, "Tdata") || !strcmp (STR, "Ttext")			\
+  || !strcmp (STR, "Tbss") || !strcmp (STR, "include")			\
+  || !strcmp (STR, "imacros") || !strcmp (STR, "aux-info")		\
+  || !strcmp (STR, "pic-names"))
+
 #define CPP_PREDEFINES "-DOSF -DOSF1 -Dbsd4_2 -DMIPSEL -Dhost_mips -Dmips -Dunix -DR3000 -DSYSTYPE_BSD"
 
 #define ASM_SPEC	"\
@@ -40,13 +47,24 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 	%{v*: -v} \
 	%{G*}"
 
+#ifndef CROSS_COMPILE
 #define ASM_FINAL_SPEC "\
 %{mmips-as: %{!mno-mips-tfile: \
 	\n mips-tfile %{v*: -v} %{d*} \
 			%{K: -I %b.o~} \
 			%{!K: %{save-temps: -I %b.o~}} \
-			%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %b.o} \
+			%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
 			%{.s:%i} %{!.s:%g.s}}}"
+
+#else				/* CROSS_COMPILE */
+#define ASM_FINAL_SPEC "\
+%{mmips-as: %{mmips-tfile: \
+	\n mips-tfile %{v*: -v} %{d*} \
+			%{K: -I %b.o~} \
+			%{!K: %{save-temps: -I %b.o~}} \
+			%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
+			%{.s:%i} %{!.s:%g.s}}}"
+#endif
 
 #define CPP_SPEC "\
 %{.S:	-D__LANGUAGE_ASSEMBLY__ -D__LANGUAGE_ASSEMBLY %{!ansi:-DLANGUAGE_ASSEMBLY} \
@@ -71,9 +89,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define LIB_SPEC "-lc"
 
+/* Define this macro meaning that `gcc' should find the library
+   `libgcc.a' by hand, rather than passing the argument `-lgcc' to
+   tell the linker to do the search. */
+
+#define LINK_LIBGCC_SPECIAL 1
+
 #define STARTFILE_SPEC "%{pg:gcrt0.o%s}%{!pg:%{p:mcrt0.o%s}%{!p:crt0.o%s}}"
 
-#define MACHINE_TYPE "DECstation running OSF/1 with OSF/rose objects"
+#define MACHINE_TYPE "DECstation with OSF/rose objects"
 
 #ifndef MD_EXEC_PREFIX
 #define MD_EXEC_PREFIX		"/usr/ccs/gcc/"
@@ -82,6 +106,18 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #ifndef MD_STARTFILE_PREFIX
 #define MD_STARTFILE_PREFIX	"/usr/ccs/lib/"
 #endif
+
+/* Turn on -mpic-extern by default.  */
+#define CC1_SPEC "\
+%{O*: %{!mno-gpOPT:%{!mno-gpopt: -mgpopt}}} \
+%{gline:%{!g:%{!g0:%{!g1:%{!g2: -g1}}}}} \
+%{G*} \
+%{pic-none:   -mno-half-pic} \
+%{pic-lib:    -mhalf-pic} \
+%{pic-extern: -mhalf-pic} \
+%{pic-calls:  -mhalf-pic} \
+%{pic-names*: -mhalf-pic} \
+%{!pic-*:     -mhalf-pic}"
 
 /* Specify size_t, ptrdiff_t, and wchar_t types.  */
 #define SIZE_TYPE	"long unsigned int"
@@ -104,6 +140,11 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Tell collect that the object format is OSF/rose.  */
 #define OBJECT_FORMAT_ROSE
+
+/* Tell collect where the appropriate binaries are.  */
+#define REAL_LD_FILE_NAME	"/usr/ccs/gcc/gld"
+#define REAL_NM_FILE_NAME	"/usr/ccs/bin/nm"
+#define REAL_STRIP_FILE_NAME	"/usr/ccs/bin/strip"
 
 /* Use atexit for static constructors/destructors, instead of defining
    our own exit function.  */

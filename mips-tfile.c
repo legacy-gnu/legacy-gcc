@@ -598,9 +598,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 */
 
 
-#include <stdio.h>
 #include "gvarargs.h"
 #include "config.h"
+#include <stdio.h>
 
 #ifndef __SABER__
 #define saber_stop()
@@ -637,7 +637,11 @@ typedef char *CPTR_T;
    the fact that including stddef.h gets you GCC's version
    instead of the standard one it's not worth it to fix it.  */
 
+#if defined(__OSF1__) || defined(__OSF__) || defined(__osf__)
+#define Size_t		long unsigned int
+#else
 #define Size_t		unsigned int
+#endif
 #define Ptrdiff_t	int
 
 /* The following might be called from obstack or malloc,
@@ -674,15 +678,29 @@ main ()
 
 #else				/* MIPS_DEBUGGING defined */
 
+/* The local and global symbols have a field index, so undo any defines
+   of index -> strchr and rindex -> strrchr.  */
+
+#undef rindex
+#undef index
 
 #include <sys/types.h>
-#include <a.out.h>
 #include <string.h>
 #include <ctype.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
 #include <sys/stat.h>
+
+#ifndef CROSS_COMPILE
+#include <a.out.h>
+#else
+#include "symconst.h"
+#define LANGUAGE_C
+#include "sym.h"
+#include "filehdr.h"
+#define ST_RFDESCAPE  0xfff
+#endif
 
 #if defined (USG) || defined (NO_STAB_H)
 #include "gstab.h"  /* If doing DBX on sysV, use our own stab.h.  */
@@ -1021,7 +1039,7 @@ typedef struct tag {
   struct forward *forward_ref;	/* list of forward references */
   bt_t		  basic_type;	/* bt_Struct, bt_Union, or bt_Enum */
   symint_t	  ifd;		/* file # tag defined in */
-  symint_t	  index;	/* index within file's local symbols */
+  symint_t	  indx;		/* index within file's local symbols */
 } tag_t;
 
 
@@ -1055,7 +1073,7 @@ typedef struct shash {
   struct shash	*next;		/* next hash value */
   char		*string;	/* string we are hashing */
   symint_t	 len;		/* string length */
-  symint_t	 index;		/* index within string table */
+  symint_t	 indx;		/* index within string table */
   EXTR		*esym_ptr;	/* global symbol pointer */
   SYMR		*sym_ptr;	/* local symbol pointer */
   SYMR		*end_ptr;	/* symbol pointer to end block */
@@ -1076,7 +1094,7 @@ typedef struct shash {
 typedef struct thash {
   struct thash	*next;		/* next hash value */
   AUXU		 type;		/* type we are hashing */
-  symint_t	 index;		/* index within string table */
+  symint_t	 indx;		/* index within string table */
 } thash_t;
 
 
@@ -1555,17 +1573,17 @@ static EXTR	*orig_ext_syms;			/* external symbols */
 #define CHECK(num,max,str) \
   (((unsigned long)num > (unsigned long)max) ? out_of_bounds (num, max, str, __LINE__) : 0)
 
-#define ORIG_LINENUM(index)	(CHECK ((index), orig_sym_hdr.cbLine,    "line#"), (index) + orig_linenum)
-#define ORIG_DENSE(index)	(CHECK ((index), orig_sym_hdr.idnMax,    "dense"), (index) + orig_dense)
-#define ORIG_PROCS(index)	(CHECK ((index), orig_sym_hdr.ipdMax,    "procs"), (index) + orig_procs)
-#define ORIG_FILES(index)	(CHECK ((index), orig_sym_hdr.ifdMax,    "funcs"), (index) + orig_files)
-#define ORIG_LSYMS(index)	(CHECK ((index), orig_sym_hdr.isymMax,   "lsyms"), (index) + orig_local_syms)
-#define ORIG_LSTRS(index)	(CHECK ((index), orig_sym_hdr.issMax,    "lstrs"), (index) + orig_local_strs)
-#define ORIG_ESYMS(index)	(CHECK ((index), orig_sym_hdr.iextMax,   "esyms"), (index) + orig_ext_syms)
-#define ORIG_ESTRS(index)	(CHECK ((index), orig_sym_hdr.issExtMax, "estrs"), (index) + orig_ext_strs)
-#define ORIG_OPT(index)		(CHECK ((index), orig_sym_hdr.ioptMax,   "opt"),   (index) + orig_opt_syms)
-#define ORIG_AUX(index)		(CHECK ((index), orig_sym_hdr.iauxMax,   "aux"),   (index) + orig_aux_syms)
-#define ORIG_RFDS(index)	(CHECK ((index), orig_sym_hdr.crfd,      "rfds"),  (index) + orig_rfds)
+#define ORIG_LINENUM(indx)	(CHECK ((indx), orig_sym_hdr.cbLine,    "line#"), (indx) + orig_linenum)
+#define ORIG_DENSE(indx)	(CHECK ((indx), orig_sym_hdr.idnMax,    "dense"), (indx) + orig_dense)
+#define ORIG_PROCS(indx)	(CHECK ((indx), orig_sym_hdr.ipdMax,    "procs"), (indx) + orig_procs)
+#define ORIG_FILES(indx)	(CHECK ((indx), orig_sym_hdr.ifdMax,    "funcs"), (indx) + orig_files)
+#define ORIG_LSYMS(indx)	(CHECK ((indx), orig_sym_hdr.isymMax,   "lsyms"), (indx) + orig_local_syms)
+#define ORIG_LSTRS(indx)	(CHECK ((indx), orig_sym_hdr.issMax,    "lstrs"), (indx) + orig_local_strs)
+#define ORIG_ESYMS(indx)	(CHECK ((indx), orig_sym_hdr.iextMax,   "esyms"), (indx) + orig_ext_syms)
+#define ORIG_ESTRS(indx)	(CHECK ((indx), orig_sym_hdr.issExtMax, "estrs"), (indx) + orig_ext_strs)
+#define ORIG_OPT(indx)		(CHECK ((indx), orig_sym_hdr.ioptMax,   "opt"),   (indx) + orig_opt_syms)
+#define ORIG_AUX(indx)		(CHECK ((indx), orig_sym_hdr.iauxMax,   "aux"),   (indx) + orig_aux_syms)
+#define ORIG_RFDS(indx)		(CHECK ((indx), orig_sym_hdr.crfd,      "rfds"),  (indx) + orig_rfds)
 
 /* Various other statics.  */
 static HDRR	symbolic_header;		/* symbolic header */
@@ -1716,6 +1734,9 @@ STATIC void	  free_forward		__proto((forward_t *));
 STATIC void	  free_scope		__proto((scope_t *));
 STATIC void	  free_tag		__proto((tag_t *));
 STATIC void	  free_thead		__proto((thead_t *));
+
+STATIC char	 *local_index		__proto((const char *, int));
+STATIC char	 *local_rindex		__proto((const char *, int));
 
 extern char  *sbrk			__proto((int));
 extern PTR_T  malloc			__proto((Size_t));
@@ -1868,9 +1889,8 @@ add_string (vp, hash_tbl, start, end_p1, ret_hash)
       hash_tbl[hi] = hash_ptr;
 
       hash_ptr->len = len;
-      hash_ptr->index = vp->num_allocated;
-      hash_ptr->string = p =
-	& vp->last->datum->byte[ vp->objects_last_page ];
+      hash_ptr->indx = vp->num_allocated;
+      hash_ptr->string = p = & vp->last->datum->byte[ vp->objects_last_page ];
 
       vp->objects_last_page += len+1;
       vp->num_allocated += len+1;
@@ -1884,7 +1904,7 @@ add_string (vp, hash_tbl, start, end_p1, ret_hash)
   if (ret_hash != (shash_t **)0)
     *ret_hash = hash_ptr;
 
-  return hash_ptr->index;
+  return hash_ptr->indx;
 }
 
 
@@ -2011,7 +2031,7 @@ add_local_symbol (str_start, str_end_p1, type, storage, value, indx)
 	    psym->iss = pscope->lsym->iss;	/* blk end gets same name */
 
 	  if (begin_type == st_File || begin_type == st_Block)
-	    pscope->lsym->index = ret+1; /* block begin gets next sym # */
+	    pscope->lsym->index = ret+1;	/* block begin gets next sym # */
 
 	  /* Functions push two or more aux words as follows:
 	     1st word: index+1 of the end symbol
@@ -2227,14 +2247,14 @@ add_aux_sym_tir (t, state, hash_tbl)
 	}
 
       if (hash_ptr != (thash_t *)0 && state == hash_yes)
-	return hash_ptr->index;
+	return hash_ptr->indx;
 
       if (hash_ptr == (thash_t *)0)
 	{
 	  hash_ptr = allocate_thash ();
 	  hash_ptr->next = hash_tbl[hi];
 	  hash_ptr->type = aux;
-	  hash_ptr->index = vp->num_allocated;
+	  hash_ptr->indx = vp->num_allocated;
 	  hash_tbl[hi] = hash_ptr;
 	}
     }
@@ -2270,7 +2290,7 @@ add_aux_sym_tir (t, state, hash_tbl)
       || t->basic_type == bt_Enum)
     {
       register symint_t file_index = t->tag_ptr->ifd;
-      register symint_t sym_index  = t->tag_ptr->index;
+      register symint_t sym_index  = t->tag_ptr->indx;
 
       if (t->unknown_tag)
 	{
@@ -2324,10 +2344,10 @@ add_aux_sym_tir (t, state, hash_tbl)
 /* Add a tag to the tag table (unless it already exists).  */
 
 STATIC tag_t *
-get_tag (tag_start, tag_end_p1, index, basic_type)
+get_tag (tag_start, tag_end_p1, indx, basic_type)
      const char *tag_start;		/* 1st byte of tag name */
      const char *tag_end_p1;		/* 1st byte after tag name */
-     symint_t index;			/* index of tag start block */
+     symint_t indx;			/* index of tag start block */
      bt_t basic_type;			/* bt_Struct, bt_Union, or bt_Enum */
 {
   shash_t *hash_ptr;
@@ -2341,11 +2361,11 @@ get_tag (tag_start, tag_end_p1, index, basic_type)
       && hash_ptr->tag_ptr != (tag_t *)0)
   {
     tag_ptr = hash_ptr->tag_ptr;
-    if (index != indexNil)
+    if (indx != indexNil)
       {
 	tag_ptr->basic_type = basic_type;
 	tag_ptr->ifd	    = cur_file_ptr->file_index;
-	tag_ptr->index	    = index;
+	tag_ptr->indx	    = indx;
       }
     return tag_ptr;
   }
@@ -2361,8 +2381,8 @@ get_tag (tag_start, tag_end_p1, index, basic_type)
   tag_ptr->hash_ptr	= hash_ptr;
   tag_ptr->same_name	= hash_ptr->tag_ptr;
   tag_ptr->basic_type	= basic_type;
-  tag_ptr->index	= index;
-  tag_ptr->ifd		= (index == indexNil) ? -1 : cur_file_ptr->file_index;
+  tag_ptr->indx		= indx;
+  tag_ptr->ifd		= (indx == indexNil) ? -1 : cur_file_ptr->file_index;
   tag_ptr->same_block	= cur_tag_head->first_tag;
 
   cur_tag_head->first_tag = tag_ptr;
@@ -2691,7 +2711,7 @@ st_to_string(symbol_type)
 
 /* Read a line from standard input, and return the start of the buffer
    (which is grows if the line is too big).  We split lines at the
-   semi-colon, and return each logical line indpendently.  */
+   semi-colon, and return each logical line independently.  */
 
 STATIC char *
 read_line __proto((void))
@@ -2747,7 +2767,7 @@ read_line __proto((void))
 	  else if (ch == '#')
 	    comment_p++;
 
-	  else if (ch == ';')
+	  else if (ch == ';' && !string_p)
 	    {
 	      line_split_p = 1;
 	      *ptr++ = '\n';
@@ -2894,7 +2914,7 @@ parse_def (name_start)
   EXTR *eptr		  = (EXTR *)0;		/* ext. sym equivalent to def*/
   int is_function	  = 0;			/* != 0 if function */
   symint_t value	  = 0;
-  symint_t index	  = cur_file_ptr->void_type;
+  symint_t indx		  = cur_file_ptr->void_type;
   int error_line	  = 0;
   symint_t arg_number;
   symint_t temp_array[ N_TQ ];
@@ -2910,14 +2930,19 @@ parse_def (name_start)
 
 
   /* Search for the end of the name being defined.  */
-  for (name_end_p1 = name_start; (ch = *name_end_p1) != ';'; name_end_p1++)
+  /* Allow spaces and such in names for G++ templates, which produce stabs
+     that look like:
+
+     #.def   SMANIP<long unsigned int>; .scl 10; .type 0x8; .size 8; .endef */
+
+  for (name_end_p1 = name_start; (ch = *name_end_p1) != ';' && ch != '\0'; name_end_p1++)
+    ;
+
+  if (ch == '\0')
     {
-      if (ch == '\0' || isspace (ch))
-	{
-	  error_line = __LINE__;
-	  saber_stop ();
-	  goto bomb_out;
-	}
+      error_line = __LINE__;
+      saber_stop ();
+      goto bomb_out;
     }
 
   /* Parse the remaining subdirectives now.  */
@@ -2976,16 +3001,20 @@ parse_def (name_start)
 	}
 
       if (!arg_was_number)
-	for (arg_end_p1 = arg_start+1; (ch = *arg_end_p1) != ';'; arg_end_p1++)
-	  {
-	    if (ch == '\0' || isspace (ch))
-	      {
-		error_line = __LINE__;
-		saber_stop ();
-		goto bomb_out;
-	      }
-	  }
+	{
+	  /* Allow spaces and such in names for G++ templates.  */
+	  for (arg_end_p1 = arg_start+1;
+	       (ch = *arg_end_p1) != ';' && ch != '\0';
+	       arg_end_p1++)
+	    ;
 
+	  if (ch == '\0')
+	    {
+	      error_line = __LINE__;
+	      saber_stop ();
+	      goto bomb_out;
+	    }
+	}
 
       /* Classify the directives now.  */
       len = dir_end_p1 - dir_start;
@@ -3284,10 +3313,10 @@ parse_def (name_start)
      type word in the aux. symbol table.  */
 
   if (symbol_type == st_Block || symbol_type == st_End)
-    index = 0;
+    indx = 0;
 
   else if (inside_enumeration)
-    index = cur_file_ptr->void_type;
+    indx = cur_file_ptr->void_type;
 
   else
     {
@@ -3314,9 +3343,9 @@ parse_def (name_start)
 	  return;
 	}
 
-      index = add_aux_sym_tir (&t,
-			       hash_yes,
-			       &cur_file_ptr->thash_head[0]);
+      indx = add_aux_sym_tir (&t,
+			      hash_yes,
+			      &cur_file_ptr->thash_head[0]);
     }
 
 
@@ -3327,7 +3356,7 @@ parse_def (name_start)
       && (eptr->asym.index == indexNil || cur_proc_ptr == (PDR *)0))
     {
       eptr->ifd = cur_file_ptr->file_index;
-      eptr->asym.index = index;
+      eptr->asym.index = indx;
     }
 
 
@@ -3369,7 +3398,7 @@ parse_def (name_start)
       /* Members of structures and unions that aren't bitfields, need
 	 to adjust the value from a byte offset to a bit offset.
 	 Members of enumerations do not have the value adjusted, and
-	 can be distinguished by index == indexNil.  For enumerations,
+	 can be distinguished by indx == indexNil.  For enumerations,
 	 update the maximum enumeration value.  */
 
     case st_Member:
@@ -3390,7 +3419,7 @@ parse_def (name_start)
       symint_t isym = add_local_symbol (name_start, name_end_p1,
 					symbol_type, storage_class,
 					value,
-					index);
+					indx);
 
       /* deal with struct, union, and enum tags.  */
       if (symbol_type == st_Block)
@@ -3548,8 +3577,8 @@ parse_file (start)
 
   (void) strtol (start, &p, 0);
   if (start == p
-      || (start_name = strchr (p, '"')) == (char *)0
-      || (end_name_p1 = strrchr (++start_name, '"')) == (char *)0)
+      || (start_name = local_index (p, '"')) == (char *)0
+      || (end_name_p1 = local_rindex (++start_name, '"')) == (char *)0)
     {
       error ("Illegal .file directive");
       return;
@@ -3646,7 +3675,7 @@ parse_stabs_common (string_start, string_end, rest)
 
   if (code == (int)N_SLINE)
     {
-      SYMR *sym_ptr;
+      SYMR *sym_ptr, dummy_symr;
       shash_t *shash_ptr;
 
       /* Skip ,0, */
@@ -3658,9 +3687,18 @@ parse_stabs_common (string_start, string_end, rest)
 
       code = strtol (p+3, &p, 0);
       ch = *++p;
-      if (code <= 0 || p[-1] != ',' || isdigit (ch) || !IS_ASM_IDENT (ch))
+      if (p[-1] != ',' || isdigit (ch) || !IS_ASM_IDENT (ch))
 	{
 	  error ("Illegal line number .stabs/.stabn directive");
+	  return;
+	}
+
+      dummy_symr.index = code;
+      if (dummy_symr.index != code)
+	{
+	  error ("Line number (%d) for .stabs/.stabn directive cannot fit in index field (20 bits)",
+		 code);
+
 	  return;
 	}
 
@@ -3722,16 +3760,37 @@ parse_stabs_common (string_start, string_end, rest)
       else
 	{
 	  SYMR *sym_ptr;
-	  shash_t *shash_ptr = hash_string (p,
-					    strlen (p) - 1,
-					    &orig_str_hash[0],
-					    (symint_t *)0);
+	  shash_t *shash_ptr;
+	  const char *start, *end_p1;
+
+	  start = p;
+	  if ((end_p1 = strchr (start, '+')) == (char *)0)
+	    {
+	      if ((end_p1 = strchr (start, '-')) == (char *)0)
+		end_p1 = start + strlen(start) - 1;
+	    }
+
+	  shash_ptr = hash_string (start,
+				   end_p1 - start,
+				   &orig_str_hash[0],
+				   (symint_t *)0);
 
 	  if (shash_ptr == (shash_t *)0
 	      || (sym_ptr = shash_ptr->sym_ptr) == (SYMR *)0)
 	    {
-	      error ("Illegal .stabs/.stabn directive, value not found");
-	      return;
+	      shash_ptr = hash_string (start,
+				       end_p1 - start,
+				       &ext_str_hash[0],
+				       (symint_t *)0);
+
+	      if (shash_ptr == (shash_t *)0
+		  || shash_ptr->esym_ptr == (EXTR *)0)
+		{
+		  error ("Illegal .stabs/.stabn directive, value not found");
+		  return;
+		}
+	      else
+		sym_ptr = &(shash_ptr->esym_ptr->asym);
 	    }
 
 	  /* Traditionally, N_LBRAC and N_RBRAC are *not* relocated. */
@@ -3746,6 +3805,27 @@ parse_stabs_common (string_start, string_end, rest)
 	      st = (st_t) sym_ptr->st;
 	    }
 	  value = sym_ptr->value;
+
+	  ch = *end_p1++;
+	  if (ch != '\n')
+	    {
+	      if (((!isdigit (*end_p1)) && (*end_p1 != '-'))
+		  || ((ch != '+') && (ch != '-')))
+		{
+		  error ("Illegal .stabs/.stabn directive, badly formed value");
+		  return;
+		}
+	      if (ch == '+')
+		value += strtol (end_p1, &p, 0);
+	      else if (ch == '-')
+		value -= strtol (end_p1, &p, 0);
+
+	      if (*p != '\n')
+		{
+		  error ("Illegal .stabs/.stabn directive, stuff after numeric value");
+		  return;
+		}
+	    }
 	}
       code = MIPS_MARK_STAB(code);
     }
@@ -3760,7 +3840,7 @@ STATIC void
 parse_stabs (start)
      const char *start;			/* start of directive */
 {
-  const char *end = strchr (start+1, '"');
+  const char *end = local_index (start+1, '"');
 
   if (*start != '"' || end == (const char *)0 || end[1] != ',')
     {
@@ -4458,7 +4538,7 @@ copy_object __proto((void))
       && orig_files->caux == 0)
     {
       char *filename = orig_local_strs + (orig_files->issBase + orig_files->rss);
-      char *suffix = strrchr (filename, '.');
+      char *suffix = local_rindex (filename, '.');
 
       if (suffix != (char *)0 && strcmp (suffix, ".s") == 0)
 	delete_ifd = 1;
@@ -4582,7 +4662,7 @@ copy_object __proto((void))
 		    orig_str_hash[hash_index] = shash_ptr;
 
 		    shash_ptr->len = len;
-		    shash_ptr->index = indexNil;
+		    shash_ptr->indx = indexNil;
 		    shash_ptr->string = str;
 		    shash_ptr->sym_ptr = sym;
 		  }
@@ -4692,7 +4772,7 @@ main (argc, argv)
      char *argv[];
 {
   int iflag = 0;
-  char *p = strrchr (argv[0], '/');
+  char *p = local_rindex (argv[0], '/');
   char *num_end;
   int option;
   int i;
@@ -4941,17 +5021,17 @@ pfatal_with_name (msg)
    ORIG_xxx macros, but the function never returns.  */
 
 static int
-out_of_bounds (index, max, str, prog_line)
-     symint_t index;		/* index that is out of bounds */
+out_of_bounds (indx, max, str, prog_line)
+     symint_t indx;		/* index that is out of bounds */
      symint_t max;		/* maximum index */
      const char *str;		/* string to print out */
      int prog_line;		/* line number within mips-tfile.c */
 {
-  if (index < max)		/* just in case */
+  if (indx < max)		/* just in case */
     return 0;
 
   fprintf (stderr, "%s, %s:%ld index %u is out of bounds for %s, max is %u, mips-tfile.c line# %d\n",
-	   progname, input_name, line_number, index, str, max, prog_line);
+	   progname, input_name, line_number, indx, str, max, prog_line);
 
   exit (1);
   return 0;			/* turn off warning messages */
@@ -5428,7 +5508,7 @@ free_thead (ptr)
 
 }
 
-#endif /* MIPS_DEBUGGING_INFO *?
+#endif /* MIPS_DEBUGGING_INFO */
 
 
 /* Output an error message and exit */
@@ -5563,4 +5643,41 @@ xfree (ptr)
     fprintf (stderr, "\tfree\tptr = 0x%.8x\n", ptr);
 
   free (ptr);
+}
+
+
+/* Define our own index/rindex, since the local and global symbol
+   structures as defined by MIPS has an 'index' field.  */
+
+STATIC char *
+local_index (str, sentinel)
+     const char *str;
+     int sentinel;
+{
+  int ch;
+
+  for ( ; (ch = *str) != sentinel; str++)
+    {
+      if (ch == '\0')
+	return (char *)0;
+    }
+
+  return (char *)str;
+}
+
+STATIC char *
+local_rindex (str, sentinel)
+     const char *str;
+     int sentinel;
+{
+  int ch;
+  const char *ret = (const char *)0;
+
+  for ( ; (ch = *str) != '\0'; str++)
+    {
+      if (ch == sentinel)
+	ret = str;
+    }
+
+  return (char *)ret;
 }

@@ -1,5 +1,5 @@
 /* Subroutines used by or related to instruction recognition.
-   Copyright (C) 1987, 1988, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1991, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -96,7 +96,7 @@ recog_memoized (insn)
      rtx insn;
 {
   if (INSN_CODE (insn) < 0)
-    INSN_CODE (insn) = recog (PATTERN (insn), insn, 0);
+    INSN_CODE (insn) = recog (PATTERN (insn), insn, NULL_PTR);
   return INSN_CODE (insn);
 }
 
@@ -117,7 +117,7 @@ check_asm_operands (x)
     return 1;
 
   operands = (rtx *) alloca (noperands * sizeof (rtx));
-  decode_asm_operands (x, operands, 0, 0, 0);
+  decode_asm_operands (x, operands, NULL_PTR, NULL_PTR, NULL_PTR);
 
   for (i = 0; i < noperands; i++)
     if (!general_operand (operands[i], VOIDmode))
@@ -487,8 +487,7 @@ validate_replace_rtx_1 (loc, from, to, object)
 	      MEM_VOLATILE_P (newmem) = MEM_VOLATILE_P (to);
 	      MEM_IN_STRUCT_P (newmem) = MEM_IN_STRUCT_P (to);
 
-	      validate_change (object, &XEXP (x, 2),
-			       gen_rtx (CONST_INT, VOIDmode, pos), 1);
+	      validate_change (object, &XEXP (x, 2), GEN_INT (pos), 1);
 	      validate_change (object, &XEXP (x, 0), newmem, 1);
 	    }
 	}
@@ -762,7 +761,8 @@ general_operand (op, mode)
   /* Don't accept CONST_INT or anything similar
      if the caller wants something floating.  */
   if (GET_MODE (op) == VOIDmode && mode != VOIDmode
-      && GET_MODE_CLASS (mode) != MODE_INT)
+      && GET_MODE_CLASS (mode) != MODE_INT
+      && GET_MODE_CLASS (mode) != MODE_PARTIAL_INT)
     return 0;
 
   if (CONSTANT_P (op))
@@ -902,7 +902,8 @@ immediate_operand (op, mode)
   /* Don't accept CONST_INT or anything similar
      if the caller wants something floating.  */
   if (GET_MODE (op) == VOIDmode && mode != VOIDmode
-      && GET_MODE_CLASS (mode) != MODE_INT)
+      && GET_MODE_CLASS (mode) != MODE_INT
+      && GET_MODE_CLASS (mode) != MODE_PARTIAL_INT)
     return 0;
 
   return (CONSTANT_P (op)
@@ -935,7 +936,8 @@ const_double_operand (op, mode)
   /* Don't accept CONST_INT or anything similar
      if the caller wants something floating.  */
   if (GET_MODE (op) == VOIDmode && mode != VOIDmode
-      && GET_MODE_CLASS (mode) != MODE_INT)
+      && GET_MODE_CLASS (mode) != MODE_INT
+      && GET_MODE_CLASS (mode) != MODE_PARTIAL_INT)
     return 0;
 
   return ((GET_CODE (op) == CONST_DOUBLE || GET_CODE (op) == CONST_INT)
@@ -965,7 +967,8 @@ nonmemory_operand (op, mode)
       /* Don't accept CONST_INT or anything similar
 	 if the caller wants something floating.  */
       if (GET_MODE (op) == VOIDmode && mode != VOIDmode
-	  && GET_MODE_CLASS (mode) != MODE_INT)
+	  && GET_MODE_CLASS (mode) != MODE_INT
+	  && GET_MODE_CLASS (mode) != MODE_PARTIAL_INT)
 	return 0;
 
       return ((GET_MODE (op) == VOIDmode || GET_MODE (op) == mode)
@@ -1329,9 +1332,6 @@ decode_asm_operands (body, operands, operand_locs, constraints, modes)
   return template;
 }
 
-extern rtx plus_constant_for_output ();
-extern rtx copy_rtx ();
-
 /* Given an rtx *P, if it is a sum containing an integer constant term,
    return the location (type rtx *) of the pointer to that constant term.
    Otherwise, return a null pointer.  */
@@ -1779,7 +1779,7 @@ constrain_operands (insn_code_num, strict)
 		/* Match any CONST_DOUBLE, but only if
 		   we can examine the bits of it reliably.  */
 		if ((HOST_FLOAT_FORMAT != TARGET_FLOAT_FORMAT
-		     || HOST_BITS_PER_INT != BITS_PER_WORD)
+		     || HOST_BITS_PER_WIDE_INT != BITS_PER_WORD)
 		    && GET_MODE (op) != VOIDmode && ! flag_pretend_float)
 		  break;
 		if (GET_CODE (op) == CONST_DOUBLE)

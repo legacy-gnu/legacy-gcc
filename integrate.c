@@ -36,8 +36,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "obstack.h"
 #define	obstack_chunk_alloc	xmalloc
 #define	obstack_chunk_free	free
-extern int xmalloc ();
-extern void free ();
 
 extern struct obstack *function_maybepermanent_obstack;
 
@@ -68,6 +66,7 @@ static rtx copy_for_inline ();
 static void copy_decl_rtls ();
 
 static tree copy_decl_tree ();
+static tree copy_decl_list ();
 
 /* Return the constant equivalent of a given rtx, or 0 if none.  */
 static rtx const_equiv ();
@@ -114,14 +113,14 @@ function_cannot_inline_p (fndecl)
     return "nested function cannot be inline";
 
   /* If its not even close, don't even look.  */
-  if (!TREE_INLINE (fndecl) && get_max_uid () > 3 * max_insns)
+  if (!DECL_INLINE (fndecl) && get_max_uid () > 3 * max_insns)
     return "function too large to be inline";
 
 #if 0
   /* Large stacks are OK now that inlined functions can share them.  */
   /* Don't inline functions with large stack usage,
      since they can make other recursive functions burn up stack.  */
-  if (!TREE_INLINE (fndecl) && get_frame_size () > 100)
+  if (!DECL_INLINE (fndecl) && get_frame_size () > 100)
     return "function stack frame for inlining";
 #endif
 
@@ -151,7 +150,7 @@ function_cannot_inline_p (fndecl)
     if (int_size_in_bytes (TREE_TYPE (parms)) < 0)
       return "function with varying-size parameter cannot be inline";
 
-  if (!TREE_INLINE (fndecl) && get_max_uid () > max_insns)
+  if (!DECL_INLINE (fndecl) && get_max_uid () > max_insns)
     {
       for (ninsns = 0, insn = get_first_nonparm_insn (); insn && ninsns < max_insns;
 	   insn = NEXT_INSN (insn))
@@ -307,7 +306,7 @@ initialize_for_inline (fndecl, min_labelno, max_labelno, max_reg, copy)
      the original argument vector,
      and the original DECL_INITIAL.  */
 
-  return gen_inline_header_rtx (NULL, NULL, min_labelno, max_labelno,
+  return gen_inline_header_rtx (NULL_RTX, NULL_RTX, min_labelno, max_labelno,
 				max_parm_reg, max_reg,
 				current_function_args_size,
 				current_function_pops_args,
@@ -329,7 +328,31 @@ finish_inline (fndecl, head)
   FIRST_PARM_INSN (head) = get_insns ();
   DECL_SAVED_INSNS (fndecl) = head;
   DECL_FRAME_SIZE (fndecl) = get_frame_size ();
-  TREE_INLINE (fndecl) = 1;
+  DECL_INLINE (fndecl) = 1;
+}
+
+/* Adjust the BLOCK_END_NOTE pointers in a given copied DECL tree so that
+   they all point to the new (copied) rtxs.  */
+
+static void
+adjust_copied_decl_tree (block)
+     register tree block;
+{
+  register tree subblock;
+  register rtx original_end;
+
+  original_end = BLOCK_END_NOTE (block);
+  if (original_end)
+    {
+      BLOCK_END_NOTE (block) = (rtx) NOTE_SOURCE_FILE (original_end);
+      NOTE_SOURCE_FILE (original_end) = 0;
+    }
+
+  /* Process all subblocks.  */
+  for (subblock = BLOCK_SUBBLOCKS (block);
+       subblock;
+       subblock = TREE_CHAIN (subblock))
+    adjust_copied_decl_tree (subblock);
 }
 
 /* Make the insns and PARM_DECLs of the current function permanent
@@ -340,7 +363,8 @@ finish_inline (fndecl, head)
    the insns for FNDECL.  The insns in maybepermanent_obstack cannot be
    modified by the compilation process, so we copy all of them to
    new storage and consider the new insns to be the insn chain to be
-   compiled.  */
+   compiled.  Our caller (rest_of_compilation) saves the original
+   DECL_INITIAL and DECL_ARGUMENTS; here we copy them.  */
 
 void
 save_for_inline_copying (fndecl)
@@ -481,10 +505,14 @@ save_for_inline_copying (fndecl)
      whose space has been freed.  */
 
   DECL_INITIAL (fndecl) = copy_decl_tree (DECL_INITIAL (fndecl));
+  DECL_ARGUMENTS (fndecl) = copy_decl_list (DECL_ARGUMENTS (fndecl));
 
   /* Now copy each DECL_RTL which is a MEM,
      so it is safe to modify their addresses.  */
   copy_decl_rtls (DECL_INITIAL (fndecl));
+
+  /* The fndecl node acts as its own progenitor, so mark it as such.  */
+  DECL_ABSTRACT_ORIGIN (fndecl) = fndecl;
 
   /* Now copy the chain of insns.  Do this twice.  The first copy the insn
      itself and its body.  The second time copy of REG_NOTES.  This is because
@@ -505,8 +533,14 @@ save_for_inline_copying (fndecl)
 	    continue;
 
 	  copy = rtx_alloc (NOTE);
-	  NOTE_SOURCE_FILE (copy) = NOTE_SOURCE_FILE (insn);
 	  NOTE_LINE_NUMBER (copy) = NOTE_LINE_NUMBER (insn);
+	  if (NOTE_LINE_NUMBER (insn) != NOTE_INSN_BLOCK_END)
+	    NOTE_SOURCE_FILE (copy) = NOTE_SOURCE_FILE (insn);
+	  else
+	    {
+	      NOTE_SOURCE_FILE (insn) = (char *) copy;
+	      NOTE_SOURCE_FILE (copy) = 0;
+	    }
 	  break;
 
 	case INSN:
@@ -538,6 +572,8 @@ save_for_inline_copying (fndecl)
       last_insn = copy;
     }
 
+  adjust_copied_decl_tree (DECL_INITIAL (fndecl));
+
   /* Now copy the REG_NOTES.  */
   for (insn = NEXT_INSN (get_insns ()); insn; insn = NEXT_INSN (insn))
     if (GET_RTX_CLASS (GET_CODE (insn)) == 'i'
@@ -552,6 +588,40 @@ save_for_inline_copying (fndecl)
   set_new_first_and_last_insn (first_insn, last_insn);
 }
 
+/* Return a copy of a chain of nodes, chained through the TREE_CHAIN field.
+   For example, this can copy a list made of TREE_LIST nodes.  While copying,
+   for each node copied which doesn't already have is DECL_ABSTRACT_ORIGIN
+   set to some non-zero value, set the DECL_ABSTRACT_ORIGIN of the copy to
+   point to the corresponding (abstract) original node.  */
+
+static tree
+copy_decl_list (list)
+     tree list;
+{
+  tree head;
+  register tree prev, next;
+
+  if (list == 0)
+    return 0;
+
+  head = prev = copy_node (list);
+  if (DECL_ABSTRACT_ORIGIN (head) == NULL_TREE)
+    DECL_ABSTRACT_ORIGIN (head) = list;
+  next = TREE_CHAIN (list);
+  while (next)
+    {
+      register tree copy;
+
+      copy = copy_node (next);
+      if (DECL_ABSTRACT_ORIGIN (copy) == NULL_TREE)
+	DECL_ABSTRACT_ORIGIN (copy) = next;
+      TREE_CHAIN (prev) = copy;
+      prev = copy;
+      next = TREE_CHAIN (next);
+    }
+  return head;
+}
+
 /* Make a copy of the entire tree of blocks BLOCK, and return it.  */
 
 static tree
@@ -560,7 +630,7 @@ copy_decl_tree (block)
 {
   tree t, vars, subblocks;
 
-  vars = copy_list (BLOCK_VARS (block));
+  vars = copy_decl_list (BLOCK_VARS (block));
   subblocks = 0;
 
   /* Process all subblocks.  */
@@ -574,6 +644,11 @@ copy_decl_tree (block)
   t = copy_node (block);
   BLOCK_VARS (t) = vars;
   BLOCK_SUBBLOCKS (t) = nreverse (subblocks);
+  /* If the BLOCK being cloned is already marked as having been instantiated
+     from something else, then leave that `origin' marking alone.  Elsewise,
+     mark the clone as having originated from the BLOCK we are cloning.  */
+  if (BLOCK_ABSTRACT_ORIGIN (t) == NULL_TREE)
+    BLOCK_ABSTRACT_ORIGIN (t) = block;
   return t;
 }
 
@@ -1058,7 +1133,7 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
      tree type;
      rtx structure_value_addr;
 {
-  tree formal, actual;
+  tree formal, actual, block;
   rtx header = DECL_SAVED_INSNS (fndecl);
   rtx insns = FIRST_FUNCTION_INSN (header);
   rtx parm_insns = FIRST_PARM_INSN (header);
@@ -1086,7 +1161,7 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 
   /* We expect PARMS to have the right length; don't crash if not.  */
   if (list_length (parms) != nargs)
-    return (rtx)-1;
+    return (rtx) (HOST_WIDE_INT) -1;
   /* Also check that the parms type match.  Since the appropriate
      conversions or default promotions have already been applied,
      the machine modes should match exactly.  */
@@ -1099,12 +1174,12 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
       tree arg = TREE_VALUE (actual);
       enum machine_mode mode = TYPE_MODE (DECL_ARG_TYPE (formal));
       if (mode != TYPE_MODE (TREE_TYPE (arg)))
-	return (rtx)-1;
+	return (rtx) (HOST_WIDE_INT) -1;
       /* If they are block mode, the types should match exactly.
          They don't match exactly if TREE_TYPE (FORMAL) == ERROR_MARK_NODE,
 	 which could happen if the parameter has incomplete type.  */
       if (mode == BLKmode && TREE_TYPE (arg) != TREE_TYPE (formal))
-	return (rtx)-1;
+	return (rtx) (HOST_WIDE_INT) -1;
     }
 
   /* Make a binding contour to keep inline cleanups called at
@@ -1117,7 +1192,12 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
   expand_start_bindings (0);
   if (GET_CODE (parm_insns) == NOTE
       && NOTE_LINE_NUMBER (parm_insns) > 0)
-    emit_note (NOTE_SOURCE_FILE (parm_insns), NOTE_LINE_NUMBER (parm_insns));
+    {
+      rtx note = emit_note (NOTE_SOURCE_FILE (parm_insns),
+			    NOTE_LINE_NUMBER (parm_insns));
+      if (note)
+	RTX_INTEGRATED_P (note) = 1;
+    }
 
   /* Expand the function arguments.  Do this first so that any
      new registers get created before we allocate the maps.  */
@@ -1137,7 +1217,15 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
       /* Where parameter is located in the function.  */
       rtx copy;
 
-      emit_note (DECL_SOURCE_FILE (formal), DECL_SOURCE_LINE (formal));
+      /* Make sure this formal has some correspondence in the users code
+       * before emitting any line notes for it.  */
+      if (DECL_SOURCE_LINE (formal))
+	{
+	  rtx note = emit_note (DECL_SOURCE_FILE (formal),
+				DECL_SOURCE_LINE (formal));
+	  if (note)
+	    RTX_INTEGRATED_P (note) = 1;
+	}
 
       arg_trees[i] = arg;
       loc = RTVEC_ELT (arg_vector, i);
@@ -1149,15 +1237,21 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
       if (GET_CODE (loc) == MEM && GET_CODE (XEXP (loc, 0)) == REG
 	  && REGNO (XEXP (loc, 0)) > LAST_VIRTUAL_REGISTER)
 	{
-	  enum machine_mode mode = TYPE_MODE (TREE_TYPE (arg));
-	  rtx stack_slot = assign_stack_temp (mode, int_size_in_bytes (TREE_TYPE (arg)), 1);
+	  rtx stack_slot
+	    = assign_stack_temp (TYPE_MODE (TREE_TYPE (arg)),
+				 int_size_in_bytes (TREE_TYPE (arg)), 1);
 
 	  store_expr (arg, stack_slot, 0);
 
 	  arg_vals[i] = XEXP (stack_slot, 0);
 	}
       else if (GET_CODE (loc) != MEM)
-	arg_vals[i] = expand_expr (arg, 0, mode, EXPAND_SUM);
+	/* The mode if LOC and ARG can differ if LOC was a variable
+	   that had its mode promoted via PROMOTED_MODE.  */
+	arg_vals[i] = convert_to_mode (GET_MODE (loc),
+				       expand_expr (arg, NULL_RTX, mode,
+						    EXPAND_SUM),
+				       TREE_UNSIGNED (TREE_TYPE (formal)));
       else
 	arg_vals[i] = 0;
 
@@ -1175,7 +1269,7 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 		      || GET_CODE (arg_vals[i]) == SUBREG
 		      || GET_CODE (arg_vals[i]) == MEM)
 		  && reg_overlap_mentioned_p (arg_vals[i], target))))
-	arg_vals[i] = copy_to_mode_reg (mode, arg_vals[i]);
+	arg_vals[i] = copy_to_mode_reg (GET_MODE (loc), arg_vals[i]);
     }
 	
   /* Allocate the structures we use to remap things.  */
@@ -1283,10 +1377,17 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 	{
 	  /* This is the good case where the parameter is in a register.
 	     If it is read-only and our argument is a constant, set up the
-	     constant equivalence.  */
-	  if (GET_CODE (copy) != REG && GET_CODE (copy) != SUBREG)
+	     constant equivalence.
+
+	     If LOC is REG_USERVAR_P, the usual case, COPY must also have
+	     that flag set if it is a register.  */
+
+	  if ((GET_CODE (copy) != REG && GET_CODE (copy) != SUBREG)
+	      || (GET_CODE (copy) == REG && REG_USERVAR_P (loc)
+		  && ! REG_USERVAR_P (copy)))
 	    {
 	      temp = copy_to_mode_reg (GET_MODE (loc), copy);
+	      REG_USERVAR_P (temp) = REG_USERVAR_P (loc);
 	      if (CONSTANT_P (copy) || FIXED_BASE_PLUS_P (copy))
 		{
 		  map->const_equiv_map[REGNO (temp)] = copy;
@@ -1317,12 +1418,15 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
 	  && ! (GET_CODE (XEXP (loc, 0)) == REG
 		&& REGNO (XEXP (loc, 0)) > LAST_VIRTUAL_REGISTER))
 	{
-	  emit_note (DECL_SOURCE_FILE (formal), DECL_SOURCE_LINE (formal));
+	  rtx note = emit_note (DECL_SOURCE_FILE (formal),
+				DECL_SOURCE_LINE (formal));
+	  if (note)
+	    RTX_INTEGRATED_P (note) = 1;
 
 	  /* Compute the address in the area we reserved and store the
 	     value there.  */
 	  temp = copy_rtx_and_substitute (loc, map);
-	  subst_constants (&temp, 0, map);
+	  subst_constants (&temp, NULL_RTX, map);
 	  apply_change_group ();
 	  if (! memory_address_p (GET_MODE (temp), XEXP (temp, 0)))
 	    temp = change_address (temp, VOIDmode, XEXP (temp, 0));
@@ -1375,7 +1479,7 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
       else
 	{
 	  temp = copy_rtx_and_substitute (loc, map);
-	  subst_constants (&temp, 0, map);
+	  subst_constants (&temp, NULL_RTX, map);
 	  apply_change_group ();
 	  emit_move_insn (temp, structure_value_addr);
 	}
@@ -1617,14 +1721,17 @@ expand_inline_function (fndecl, parms, target, ignore, type, structure_value_add
      in SAVE_EXPRs for TYPE_SIZEs as local.  */
 
   inline_function_decl = fndecl;
-  integrate_decl_tree ((tree) ORIGINAL_DECL_INITIAL (header), 0, map, 0);
   integrate_parm_decls (DECL_ARGUMENTS (fndecl), map, arg_vector);
+  integrate_decl_tree ((tree) ORIGINAL_DECL_INITIAL (header), 0, map);
   inline_function_decl = 0;
 
-  /* End the scope containing the copied formal parameter variables.  */
+  /* End the scope containing the copied formal parameter variables
+     and copied LABEL_DECLs.  */
 
   expand_end_bindings (getdecls (), 1, 1);
-  poplevel (1, 1, 0);
+  block = poplevel (1, 1, 0);
+  BLOCK_ABSTRACT_ORIGIN (block) = (DECL_ABSTRACT_ORIGIN (fndecl) == NULL
+				   ? fndecl : DECL_ABSTRACT_ORIGIN (fndecl));
   poplevel (0, 0, 0);
   emit_line_note (input_filename, lineno);
 
@@ -1656,13 +1763,13 @@ integrate_parm_decls (args, map, arg_vector)
       /* These args would always appear unused, if not for this.  */
       TREE_USED (decl) = 1;
       /* Prevent warning for shadowing with these.  */
-      DECL_FROM_INLINE (decl) = 1;
+      DECL_ABSTRACT_ORIGIN (decl) = tail;
       pushdecl (decl);
       /* Fully instantiate the address with the equivalent form so that the
 	 debugging information contains the actual register, instead of the
 	 virtual register.   Do this by not passing an insn to
 	 subst_constants.  */
-      subst_constants (&new_decl_rtl, 0, map);
+      subst_constants (&new_decl_rtl, NULL_RTX, map);
       apply_change_group ();
       DECL_RTL (decl) = new_decl_rtl;
     }
@@ -1672,45 +1779,41 @@ integrate_parm_decls (args, map, arg_vector)
    current function a tree of contexts isomorphic to the one that is given.
 
    LEVEL indicates how far down into the BLOCK tree is the node we are
-   currently traversing.  It is always zero for the initial call.
+   currently traversing.  It is always zero except for recursive calls.
 
-   MAP, if nonzero, is a pointer to a inline_remap map which indicates how
+   MAP, if nonzero, is a pointer to an inline_remap map which indicates how
    registers used in the DECL_RTL field should be remapped.  If it is zero,
-   no mapping is necessary.
-
-   FUNCTIONBODY indicates whether the top level block tree corresponds to
-   a function body.  This is identical in meaning to the functionbody
-   argument of poplevel.  */
+   no mapping is necessary.  */
 
 static void
-integrate_decl_tree (let, level, map, functionbody)
+integrate_decl_tree (let, level, map)
      tree let;
      int level;
      struct inline_remap *map;
-     int functionbody;
 {
   tree t, node;
 
-  pushlevel (0);
+  if (level > 0)
+    pushlevel (0);
   
   for (t = BLOCK_VARS (let); t; t = TREE_CHAIN (t))
     {
       tree d = build_decl (TREE_CODE (t), DECL_NAME (t), TREE_TYPE (t));
       DECL_SOURCE_LINE (d) = DECL_SOURCE_LINE (t);
       DECL_SOURCE_FILE (d) = DECL_SOURCE_FILE (t);
-      if (! functionbody && DECL_RTL (t) != 0)
+      if (DECL_RTL (t) != 0)
 	{
 	  DECL_RTL (d) = copy_rtx_and_substitute (DECL_RTL (t), map);
 	  /* Fully instantiate the address with the equivalent form so that the
 	     debugging information contains the actual register, instead of the
 	     virtual register.   Do this by not passing an insn to
 	     subst_constants.  */
-	  subst_constants (&DECL_RTL (d), 0, map);
+	  subst_constants (&DECL_RTL (d), NULL_RTX, map);
 	  apply_change_group ();
 	}
       else if (DECL_RTL (t))
 	DECL_RTL (d) = copy_rtx (DECL_RTL (t));
-      TREE_EXTERNAL (d) = TREE_EXTERNAL (t);
+      DECL_EXTERNAL (d) = DECL_EXTERNAL (t);
       TREE_STATIC (d) = TREE_STATIC (t);
       TREE_PUBLIC (d) = TREE_PUBLIC (t);
       TREE_CONSTANT (d) = TREE_CONSTANT (t);
@@ -1720,16 +1823,22 @@ integrate_decl_tree (let, level, map, functionbody)
       /* These args would always appear unused, if not for this.  */
       TREE_USED (d) = 1;
       /* Prevent warning for shadowing with these.  */
-      DECL_FROM_INLINE (d) = 1;
+      DECL_ABSTRACT_ORIGIN (d) = t;
       pushdecl (d);
     }
 
   for (t = BLOCK_SUBBLOCKS (let); t; t = TREE_CHAIN (t))
-    integrate_decl_tree (t, level + 1, map, functionbody);
+    integrate_decl_tree (t, level + 1, map);
 
-  node = poplevel (level > 0, 0, level == 0 && functionbody);
-  if (node)
-    TREE_USED (node) = TREE_USED (let);
+  if (level > 0)
+    {
+      node = poplevel (1, 0, 0);
+      if (node)
+	{
+	  TREE_USED (node) = TREE_USED (let);
+	  BLOCK_ABSTRACT_ORIGIN (node) = let;
+	}
+    }
 }
 
 /* Create a new copy of an rtx.
@@ -1801,7 +1910,8 @@ copy_rtx_and_substitute (orig, map)
 	      rounded = CEIL_ROUND (size, BIGGEST_ALIGNMENT / BITS_PER_UNIT);
 	      loc = plus_constant (loc, rounded);
 #endif
-	      map->reg_map[regno] = temp = force_operand (loc, 0);
+	      map->reg_map[regno] = temp
+		= force_reg (Pmode, force_operand (loc, NULL_RTX));
 	      map->const_equiv_map[REGNO (temp)] = loc;
 	      map->const_age_map[REGNO (temp)] = CONST_AGE_PARM;
 
@@ -1820,7 +1930,14 @@ copy_rtx_and_substitute (orig, map)
 	      start_sequence ();
 	      loc = assign_stack_temp (BLKmode, size, 1);
 	      loc = XEXP (loc, 0);
-	      map->reg_map[regno] = temp = force_operand (loc, 0);
+	      /* When arguments grow downward, the virtual incoming 
+		 args pointer points to the top of the argument block,
+		 so the remapped location better do the same. */
+#ifdef ARGS_GROW_DOWNWARD
+	      loc = plus_constant (loc, size);
+#endif
+	      map->reg_map[regno] = temp
+		= force_reg (Pmode, force_operand (loc, NULL_RTX));
 	      map->const_equiv_map[REGNO (temp)] = loc;
 	      map->const_age_map[REGNO (temp)] = CONST_AGE_PARM;
 
@@ -2073,6 +2190,10 @@ copy_rtx_and_substitute (orig, map)
 	    }
 	  break;
 
+	case 'w':
+	  XWINT (copy, i) = XWINT (orig, i);
+	  break;
+
 	case 'i':
 	  XINT (copy, i) = XINT (orig, i);
 	  break;
@@ -2213,33 +2334,38 @@ subst_constants (loc, insn, map)
       }
 
     case SUBREG:
-      /* SUBREG is ordinary, but don't make nested SUBREGs and try to simplify
-	 constants.  */
-      {
-	rtx inner = SUBREG_REG (x);
-	rtx new = 0;
+      /* SUBREG applied to something other than a reg
+	 should be treated as ordinary, since that must
+	 be a special hack and we don't know how to treat it specially.
+	 Consider for example mulsidi3 in m68k.md.
+	 Ordinary SUBREG of a REG needs this special treatment.  */
+      if (GET_CODE (SUBREG_REG (x)) == REG)
+	{
+	  rtx inner = SUBREG_REG (x);
+	  rtx new = 0;
 
-	/* We can't call subst_constants on &SUBREG_REG (x) because any
-	   constant or SUBREG wouldn't be valid inside our SUBEG.  Instead,
-	   see what is inside, try to form the new SUBREG and see if that is
-	   valid.  We handle two cases: extracting a full word in an 
-	   integral mode and extracting the low part.  */
-	subst_constants (&inner, 0, map);
+	  /* We can't call subst_constants on &SUBREG_REG (x) because any
+	     constant or SUBREG wouldn't be valid inside our SUBEG.  Instead,
+	     see what is inside, try to form the new SUBREG and see if that is
+	     valid.  We handle two cases: extracting a full word in an 
+	     integral mode and extracting the low part.  */
+	  subst_constants (&inner, NULL_RTX, map);
 
-	if (GET_MODE_CLASS (GET_MODE (x)) == MODE_INT
-	    && GET_MODE_SIZE (GET_MODE (x)) == UNITS_PER_WORD
-	    && GET_MODE (SUBREG_REG (x)) != VOIDmode)
-	  new = operand_subword (inner, SUBREG_WORD (x), 0,
-				 GET_MODE (SUBREG_REG (x)));
+	  if (GET_MODE_CLASS (GET_MODE (x)) == MODE_INT
+	      && GET_MODE_SIZE (GET_MODE (x)) == UNITS_PER_WORD
+	      && GET_MODE (SUBREG_REG (x)) != VOIDmode)
+	    new = operand_subword (inner, SUBREG_WORD (x), 0,
+				   GET_MODE (SUBREG_REG (x)));
 
-	if (new == 0 && subreg_lowpart_p (x))
-	  new = gen_lowpart_common (GET_MODE (x), inner);
+	  if (new == 0 && subreg_lowpart_p (x))
+	    new = gen_lowpart_common (GET_MODE (x), inner);
 
-	if (new)
-	  validate_change (insn, loc, new, 1);
+	  if (new)
+	    validate_change (insn, loc, new, 1);
 
-	return;
-      }
+	  return;
+	}
+      break;
 
     case MEM:
       subst_constants (&XEXP (x, 0), insn, map);
@@ -2263,7 +2389,8 @@ subst_constants (loc, insn, map)
 	src = SET_SRC (x);
 
 	while (GET_CODE (*dest_loc) == ZERO_EXTRACT
-	       || GET_CODE (*dest_loc) == SIGN_EXTRACT
+	       /* By convention, we always use ZERO_EXTRACT in the dest.  */
+/*	       || GET_CODE (*dest_loc) == SIGN_EXTRACT */
 	       || GET_CODE (*dest_loc) == SUBREG
 	       || GET_CODE (*dest_loc) == STRICT_LOW_PART)
 	  {
@@ -2274,6 +2401,10 @@ subst_constants (loc, insn, map)
 	      }
 	    dest_loc = &XEXP (*dest_loc, 0);
 	  }
+
+	/* Do substitute in the address of a destination in memory.  */
+	if (GET_CODE (*dest_loc) == MEM)
+	  subst_constants (&XEXP (*dest_loc, 0), insn, map);
 
 	/* Check for the case of DEST a SUBREG, both it and the underlying
 	   register are less than one word, and the SUBREG has the wider mode.
@@ -2335,6 +2466,7 @@ subst_constants (loc, insn, map)
 	case 'u':
 	case 'i':
 	case 's':
+	case 'w':
 	  break;
 
 	case 'E':
@@ -2376,6 +2508,11 @@ subst_constants (loc, insn, map)
 	  op_mode = GET_MODE (XEXP (x, 1));
 	new = simplify_relational_operation (code, op_mode,
 					     XEXP (x, 0), XEXP (x, 1));
+#ifdef FLOAT_STORE_FLAG_VALUE
+	if (new != 0 && GET_MODE_CLASS (GET_MODE (x)) == MODE_FLOAT)
+	  new = ((new == const0_rtx) ? CONST0_RTX (GET_MODE (x))
+		 : immed_real_const_1 (FLOAT_STORE_FLAG_VALUE, GET_MODE (x)));
+#endif
 	break;
       }
 
@@ -2485,6 +2622,132 @@ restore_constants (px)
     }
 }
 
+/* Given a pointer to some BLOCK node, if the BLOCK_ABSTRACT_ORIGIN for the
+   given BLOCK node is NULL, set the BLOCK_ABSTRACT_ORIGIN for the node so
+   that it points to the node itself, thus indicating that the node is its
+   own (abstract) origin.  Additionally, if the BLOCK_ABSTRACT_ORIGIN for
+   the given node is NULL, recursively descend the decl/block tree which
+   it is the root of, and for each other ..._DECL or BLOCK node contained
+   therein whose DECL_ABSTRACT_ORIGINs or BLOCK_ABSTRACT_ORIGINs are also
+   still NULL, set *their* DECL_ABSTRACT_ORIGIN or BLOCK_ABSTRACT_ORIGIN
+   values to point to themselves.  */
+
+static void set_decl_origin_self ();
+
+static void
+set_block_origin_self (stmt)
+     register tree stmt;
+{
+  if (BLOCK_ABSTRACT_ORIGIN (stmt) == NULL_TREE)
+    {
+      BLOCK_ABSTRACT_ORIGIN (stmt) = stmt;
+
+      {
+        register tree local_decl;
+
+        for (local_decl = BLOCK_VARS (stmt);
+	     local_decl != NULL_TREE;
+	     local_decl = TREE_CHAIN (local_decl))
+          set_decl_origin_self (local_decl);	/* Potential recursion.  */
+      }
+
+      {
+        register tree subblock;
+
+        for (subblock = BLOCK_SUBBLOCKS (stmt);
+	     subblock != NULL_TREE;
+	     subblock = BLOCK_CHAIN (subblock))
+          set_block_origin_self (subblock);	/* Recurse.  */
+      }
+    }
+}
+
+/* Given a pointer to some ..._DECL node, if the DECL_ABSTRACT_ORIGIN for
+   the given ..._DECL node is NULL, set the DECL_ABSTRACT_ORIGIN for the
+   node to so that it points to the node itself, thus indicating that the
+   node represents its own (abstract) origin.  Additionally, if the
+   DECL_ABSTRACT_ORIGIN for the given node is NULL, recursively descend
+   the decl/block tree of which the given node is the root of, and for
+   each other ..._DECL or BLOCK node contained therein whose
+   DECL_ABSTRACT_ORIGINs or BLOCK_ABSTRACT_ORIGINs are also still NULL,
+   set *their* DECL_ABSTRACT_ORIGIN or BLOCK_ABSTRACT_ORIGIN values to
+   point to themselves.  */
+
+static void
+set_decl_origin_self (decl)
+     register tree decl;
+{
+  if (DECL_ABSTRACT_ORIGIN (decl) == NULL_TREE)
+    {
+      DECL_ABSTRACT_ORIGIN (decl) = decl;
+      if (TREE_CODE (decl) == FUNCTION_DECL)
+	{
+	  register tree arg;
+
+	  for (arg = DECL_ARGUMENTS (decl); arg; arg = TREE_CHAIN (arg))
+	    DECL_ABSTRACT_ORIGIN (arg) = arg;
+	  if (DECL_INITIAL (decl) != NULL_TREE)
+	    set_block_origin_self (DECL_INITIAL (decl));
+	}
+    }
+}
+
+/* Given a pointer to some BLOCK node, and a boolean value to set the
+   "abstract" flags to, set that value into the BLOCK_ABSTRACT flag for
+   the given block, and for all local decls and all local sub-blocks
+   (recursively) which are contained therein.  */
+
+void set_decl_abstract_flags ();
+
+static void
+set_block_abstract_flags (stmt, setting)
+     register tree stmt;
+     register int setting;
+{
+  BLOCK_ABSTRACT (stmt) = setting;
+
+  {
+    register tree local_decl;
+
+    for (local_decl = BLOCK_VARS (stmt);
+	 local_decl != NULL_TREE;
+	 local_decl = TREE_CHAIN (local_decl))
+      set_decl_abstract_flags (local_decl, setting);
+  }
+
+  {
+    register tree subblock;
+
+    for (subblock = BLOCK_SUBBLOCKS (stmt);
+	 subblock != NULL_TREE;
+	 subblock = BLOCK_CHAIN (subblock))
+      set_block_abstract_flags (subblock, setting);
+  }
+}
+
+/* Given a pointer to some ..._DECL node, and a boolean value to set the
+   "abstract" flags to, set that value into the DECL_ABSTRACT flag for the
+   given decl, and (in the case where the decl is a FUNCTION_DECL) also
+   set the abstract flags for all of the parameters, local vars, local
+   blocks and sub-blocks (recursively) to the same setting.  */
+
+void
+set_decl_abstract_flags (decl, setting)
+     register tree decl;
+     register int setting;
+{
+  DECL_ABSTRACT (decl) = setting;
+  if (TREE_CODE (decl) == FUNCTION_DECL)
+    {
+      register tree arg;
+
+      for (arg = DECL_ARGUMENTS (decl); arg; arg = TREE_CHAIN (arg))
+	DECL_ABSTRACT (arg) = setting;
+      if (DECL_INITIAL (decl) != NULL_TREE)
+	set_block_abstract_flags (DECL_INITIAL (decl), setting);
+    }
+}
+
 /* Output the assembly language code for the function FNDECL
    from its DECL_SAVED_INSNS.  Used for inline functions that are output
    at end of compilation instead of where they came in the source.  */
@@ -2565,6 +2828,17 @@ output_inline_function (fndecl)
 
   set_new_first_and_last_insn (FIRST_PARM_INSN (head), last);
   set_new_first_and_last_label_num (FIRST_LABELNO (head), LAST_LABELNO (head));
+
+  /* We must have already output DWARF debugging information for the
+     original (abstract) inline function declaration/definition, so
+     we want to make sure that the debugging information we generate
+     for this special instance of the inline function refers back to
+     the information we already generated.  To make sure that happens,
+     we simply have to set the DECL_ABSTRACT_ORIGIN for the function
+     node (and for all of the local ..._DECL nodes which are its children)
+     so that they all point to themselves.  */
+
+  set_decl_origin_self (fndecl);
 
   /* Compile this function all the way down to assembly code.  */
   rest_of_compilation (fndecl);

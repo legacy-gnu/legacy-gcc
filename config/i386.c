@@ -1,5 +1,5 @@
 /* Subroutines for insn-output.c for Intel 80386.
-   Copyright (C) 1988 Free Software Foundation, Inc.
+   Copyright (C) 1988, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
@@ -35,7 +35,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* If EXTRA_CONSTRAINT is defined, then the 'S'
    constraint in REG_CLASS_FROM_LETTER will no longer work, and various
    asm statements that need 'S' for class SIREG will break.  */
- #error EXTRA_CONSTRAINT conflicts with S constraint letter
+ error EXTRA_CONSTRAINT conflicts with S constraint letter
+/* The previous line used to be #error, but some compilers barf
+   even if the conditional was untrue.  */
 #endif
 
 #define AT_BP(mode) (gen_rtx (MEM, (mode), frame_pointer_rtx))
@@ -47,9 +49,9 @@ char *singlemove_string ();
 char *output_move_const_single ();
 char *output_fp_cc0_set ();
 
-static char *hi_reg_name[] = HI_REGISTER_NAMES;
-static char *qi_reg_name[] = QI_REGISTER_NAMES;
-static char *qi_high_reg_name[] = QI_HIGH_REGISTER_NAMES;
+char *hi_reg_name[] = HI_REGISTER_NAMES;
+char *qi_reg_name[] = QI_REGISTER_NAMES;
+char *qi_high_reg_name[] = QI_HIGH_REGISTER_NAMES;
 
 /* Array of the smallest class containing reg number REGNO, indexed by
    REGNO.  Used by REGNO_REG_CLASS in i386.h. */
@@ -98,7 +100,7 @@ output_op_from_reg (src, template)
 
   xops[0] = src;
   xops[1] = AT_SP (Pmode);
-  xops[2] = gen_rtx (CONST_INT, VOIDmode, GET_MODE_SIZE (GET_MODE (src)));
+  xops[2] = GEN_INT (GET_MODE_SIZE (GET_MODE (src)));
   xops[3] = stack_pointer_rtx;
 
   if (GET_MODE_SIZE (GET_MODE (src)) > UNITS_PER_WORD)
@@ -127,7 +129,7 @@ output_to_reg (dest, dies)
 
   xops[0] = AT_SP (Pmode);
   xops[1] = stack_pointer_rtx;
-  xops[2] = gen_rtx (CONST_INT, VOIDmode, GET_MODE_SIZE (GET_MODE (dest)));
+  xops[2] = GEN_INT (GET_MODE_SIZE (GET_MODE (dest)));
   xops[3] = dest;
 
   output_asm_insn (AS2 (sub%L1,%2,%1), xops);
@@ -221,12 +223,12 @@ asm_add (n, x)
   xops[1] = x;
   if (n < 0)
     {
-      xops[0] = gen_rtx (CONST_INT, VOIDmode, -n);
+      xops[0] = GEN_INT (-n);
       output_asm_insn (AS2 (sub%L0,%0,%1), xops);
     }
   else if (n > 0)
     {
-      xops[0] = gen_rtx (CONST_INT, VOIDmode, n);
+      xops[0] = GEN_INT (n);
       output_asm_insn (AS2 (add%L0,%0,%1), xops);
     }
 }
@@ -241,6 +243,7 @@ output_move_double (operands)
   enum {REGOP, OFFSOP, MEMOP, PUSHOP, POPOP, CNSTOP, RNDOP } optype0, optype1;
   rtx latehalf[2];
   rtx addreg0 = 0, addreg1 = 0;
+  int dest_overlapped_low = 0;
 
   /* First classify both operands.  */
 
@@ -350,6 +353,32 @@ output_move_double (operands)
       && reg_overlap_mentioned_p (stack_pointer_rtx, operands[1]))
     operands[1] = latehalf[1];
 
+  /* For (set (reg:DI N) (mem:DI ... (reg:SI N) ...)),
+     if the upper part of reg N does not appear in the MEM, arrange to
+     emit the move late-half first.  Otherwise, compute the MEM address
+     into the upper part of N and use that as a pointer to the memory
+     operand.  */
+  if (optype0 == REGOP
+      && (optype1 == OFFSOP || optype1 == MEMOP))
+    {
+      if (reg_mentioned_p (operands[0], XEXP (operands[1], 0))
+	  && reg_mentioned_p (latehalf[0], XEXP (operands[1], 0)))
+	{
+	  /* If both halves of dest are used in the src memory address,
+	     compute the address into latehalf of dest.  */
+	  rtx xops[2];
+	  xops[0] = latehalf[0];
+	  xops[1] = XEXP (operands[1], 0);
+	  output_asm_insn (AS2 (lea%L0,%a1,%0), xops);
+	  operands[1] = gen_rtx (MEM, DImode, latehalf[0]);
+	  latehalf[1] = adj_offsettable_operand (operands[1], 4);
+	}
+      else if (reg_mentioned_p (operands[0], XEXP (operands[1], 0)))
+	/* If the low half of dest is mentioned in the source memory
+	   address, the arrange to emit the move late half first.  */
+	dest_overlapped_low = 1;
+    }
+
   /* If one or both operands autodecrementing,
      do the two words, high-numbered first.  */
 
@@ -360,7 +389,8 @@ output_move_double (operands)
 
   if (optype0 == PUSHOP || optype1 == PUSHOP
       || (optype0 == REGOP && optype1 == REGOP
-	  && REGNO (operands[0]) == REGNO (latehalf[1])))
+	  && REGNO (operands[0]) == REGNO (latehalf[1]))
+      || dest_overlapped_low)
     {
       /* Make any unoffsettable addresses point at high-numbered word.  */
       if (addreg0)
@@ -447,7 +477,7 @@ output_move_const_single (operands)
       u1.i[0] = CONST_DOUBLE_LOW (operands[1]);
       u1.i[1] = CONST_DOUBLE_HIGH (operands[1]);
       u2.f = u1.d;
-      operands[1] = gen_rtx (CONST_INT, VOIDmode, u2.i);
+      operands[1] = GEN_INT (u2.i);
     }
   return singlemove_string (operands);
 }
@@ -579,7 +609,8 @@ legitimize_pic_address (orig, reg)
 	reg = gen_reg_rtx (Pmode);
 
       base = legitimize_pic_address (XEXP (addr, 0), reg);
-      addr = legitimize_pic_address (XEXP (addr, 1), base == reg ? 0 : reg);
+      addr = legitimize_pic_address (XEXP (addr, 1),
+				     base == reg ? NULL_RTX : reg);
 
       if (GET_CODE (addr) == CONST_INT)
 	return plus_constant (base, INTVAL (addr));
@@ -626,7 +657,7 @@ function_prologue (file, size)
 
   xops[0] = stack_pointer_rtx;
   xops[1] = frame_pointer_rtx;
-  xops[2] = gen_rtx (CONST_INT, VOIDmode, size);
+  xops[2] = GEN_INT (size);
   if (frame_pointer_needed)
     {
       output_asm_insn ("push%L1 %1", xops);
@@ -788,13 +819,13 @@ function_epilogue (file, size)
     {
       /* If there is no frame pointer, we must still release the frame. */
 
-      xops[0] = gen_rtx (CONST_INT, VOIDmode, size);
+      xops[0] = GEN_INT (size);
       output_asm_insn (AS2 (add%L2,%0,%2), xops);
     }
 
   if (current_function_pops_args && current_function_args_size)
     {
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, current_function_pops_args);
+      xops[1] = GEN_INT (current_function_pops_args);
 
       /* i386 can only pop 32K bytes (maybe 64K?  Is it signed?).  If
 	 asked to pop more, pop return address, do explicit add, and jump
@@ -919,45 +950,6 @@ output_pic_addr_const (file, x, code)
     }
 }
 
-/* Print the name of a register based on its machine mode and number.
-   If CODE is 'w', pretend the mode is HImode.
-   If CODE is 'b', pretend the mode is QImode.
-   If CODE is 'k', pretend the mode is SImode.
-   If CODE is 'h', pretend the reg is the `high' byte register.
-   If CODE is 'y', print "st(0)" instead of "st", if the reg is stack op. */
-
-#define PRINT_REG(X, CODE, FILE) \
-  do { if (REGNO (X) == ARG_POINTER_REGNUM)		\
-	 abort ();					\
-       fprintf (FILE, "%s", RP);			\
-       switch ((CODE == 'w' ? 2 			\
-		: CODE == 'b' ? 1			\
-		: CODE == 'k' ? 4			\
-		: CODE == 'y' ? 3			\
-		: CODE == 'h' ? 0			\
-		: GET_MODE_SIZE (GET_MODE (X))))	\
-	 {						\
-	 case 3:					\
-	   if (STACK_TOP_P (X))				\
-	     {						\
-	       fputs ("st(0)", FILE);			\
-	       break;					\
-	     }						\
-	 case 4:					\
-	 case 8:					\
-	   if (!FP_REG_P (X)) fputs ("e", FILE);	\
-	 case 2:					\
-	   fputs (hi_reg_name[REGNO (X)], FILE);	\
-	   break;					\
-	 case 1:					\
-	   fputs (qi_reg_name[REGNO (X)], FILE);	\
-	   break;					\
-	 case 0:					\
-	   fputs (qi_high_reg_name[REGNO (X)], FILE);	\
-	   break;					\
-	 }						\
-     } while (0)
-
 /* Meaning of CODE:
    f -- float insn (print a CONST_DOUBLE as a float rather than in hex).
    D,L,W,B,Q,S -- print the opcode suffix for specified size of operand.
@@ -1055,7 +1047,12 @@ print_operand (file, x, code)
 	  break;
 
 	default:
-	  abort ();
+	  {
+	    char str[50];
+
+	    sprintf (str, "invalid operand code `%c'", code);
+	    output_operand_lossage (str);
+	  }
 	}
     }
   if (GET_CODE (x) == REG)
@@ -1365,10 +1362,10 @@ notice_update_cc (exp)
       if (SET_DEST (XVECEXP (exp, 0, 0)) == cc0_rtx)
 	{
 	  CC_STATUS_INIT;
-	  if (! stack_regs_mentioned_p (SET_SRC (XVECEXP (exp, 0, 0))))
+	  if (stack_regs_mentioned_p (SET_SRC (XVECEXP (exp, 0, 0))))
+	    cc_status.flags |= CC_IN_80387;
+	  else
 	    cc_status.value1 = SET_SRC (XVECEXP (exp, 0, 0));
-
-	  cc_status.flags |= CC_IN_80387;
 	  return;
 	}
       CC_STATUS_INIT;
@@ -1458,21 +1455,6 @@ convert_387_op (op, mode)
     default:
       return 0;
     }
-}
-
-/* Return 1 if this is a valid "float from int" operation on a 387.
-   OP is the expression matched, and MODE is its mode. */
-
-int
-float_op (op, mode)
-    register rtx op;
-    enum machine_mode mode;
-{
-  if (mode != VOIDmode && mode != GET_MODE (op))
-    return 0;
-
-  return GET_CODE (op) == FLOAT
-    && GET_MODE_CLASS (GET_MODE (op)) == MODE_FLOAT;
 }
 
 /* Return 1 if this is a valid shift or rotate operation on a 386.
@@ -1655,8 +1637,8 @@ output_fix_trunc (insn, operands)
   xops[0] = stack_pointer_rtx;
   xops[1] = AT_SP (SImode);
   xops[2] = adj_offsettable_operand (xops[1], 2);
-  xops[3] = gen_rtx (CONST_INT, VOIDmode, 4);
-  xops[4] = gen_rtx (CONST_INT, VOIDmode, 0xc00);
+  xops[3] = GEN_INT (4);
+  xops[4] = GEN_INT (0xc00);
   xops[5] = operands[2];
 
   output_asm_insn (AS2 (sub%L0,%3,%0), xops);
@@ -1797,28 +1779,28 @@ output_fp_cc0_set (insn)
   switch (code)
     {
     case GT:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x45);
+      xops[1] = GEN_INT (0x45);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       /* je label */
       break;
 
     case LT:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x45);
-      xops[2] = gen_rtx (CONST_INT, VOIDmode, 0x01);
+      xops[1] = GEN_INT (0x45);
+      xops[2] = GEN_INT (0x01);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       output_asm_insn (AS2 (cmp%B0,%2,%h0), xops);
       /* je label */
       break;
 
     case GE:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x05);
+      xops[1] = GEN_INT (0x05);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       /* je label */
       break;
 
     case LE:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x45);
-      xops[2] = gen_rtx (CONST_INT, VOIDmode, 0x40);
+      xops[1] = GEN_INT (0x45);
+      xops[2] = GEN_INT (0x40);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       output_asm_insn (AS1 (dec%B0,%h0), xops);
       output_asm_insn (AS2 (cmp%B0,%2,%h0), xops);
@@ -1826,16 +1808,16 @@ output_fp_cc0_set (insn)
       break;
 
     case EQ:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x45);
-      xops[2] = gen_rtx (CONST_INT, VOIDmode, 0x40);
+      xops[1] = GEN_INT (0x45);
+      xops[2] = GEN_INT (0x40);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       output_asm_insn (AS2 (cmp%B0,%2,%h0), xops);
       /* je label */
       break;
 
     case NE:
-      xops[1] = gen_rtx (CONST_INT, VOIDmode, 0x44);
-      xops[2] = gen_rtx (CONST_INT, VOIDmode, 0x40);
+      xops[1] = GEN_INT (0x44);
+      xops[2] = GEN_INT (0x40);
       output_asm_insn (AS2 (and%B0,%1,%h0), xops);
       output_asm_insn (AS2 (xor%B0,%2,%h0), xops);
       /* jne label */
@@ -1850,173 +1832,3 @@ output_fp_cc0_set (insn)
     }
   RET;
 }
-
-#ifdef HANDLE_PRAGMA
-
-/* When structure field packing is in effect, this variable is the
-   number of bits to use as the maximum alignment.  When packing is not
-   in effect, this is zero. */
-
-int maximum_field_alignment = 0;
-
-/* Handle a pragma directive.  HANDLE_PRAGMA conspires to parse the
-   input following #pragma into tokens based on yylex.  TOKEN is the
-   current token, and STRING is its printable form.  */
-
-void
-handle_pragma_token (string, token)
-     char *string;
-     tree token;
-{
-  static enum pragma_state
-    {
-      ps_start,
-      ps_done,
-      ps_bad,
-      ps_weak,
-      ps_name,
-      ps_equals,
-      ps_value,
-      ps_pack,
-      ps_left,
-      ps_align,
-      ps_right
-      } state = ps_start, type;
-  static char *name;
-  static char *value;
-  static int align;
-
-  if (string == 0)
-    {
-      if (type == ps_pack)
-	{
-	  if (state == ps_right)
-	    maximum_field_alignment = align * 8;
-	  else
-	    warning ("ignoring malformed #pragma pack( [ 1 | 2 | 4 ] )");
-	}
-#ifdef WEAK_ASM_OP
-      else if (type == ps_weak)
-	{
-	  if (state == ps_name || state == ps_value)
-	    {
-	      fprintf (asm_out_file, "\t%s\t", WEAK_ASM_OP);
-	      ASM_OUTPUT_LABELREF (asm_out_file, name);
-	      fputc ('\n', asm_out_file);
-	      if (state == ps_value)
-		{
-		  fprintf (asm_out_file, "\t%s\t", SET_ASM_OP);
-		  ASM_OUTPUT_LABELREF (asm_out_file, name);
-		  fputc (',', asm_out_file);
-		  ASM_OUTPUT_LABELREF (asm_out_file, value);
-		  fputc ('\n', asm_out_file);
-		}
-	    }
-	  else if (! (state == ps_done || state == ps_start))
-	    warning ("ignoring malformed #pragma weak symbol [=value]");
-	}
-#endif /* WEAK_ASM_OP */
-
-      type = state = ps_start;
-      return;
-    }
-
-  switch (state)
-    {
-    case ps_start:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
-	{
-	  if (strcmp (IDENTIFIER_POINTER (token), "pack") == 0)
-	    type = state = ps_pack;
-#ifdef WEAK_ASM_OP
-	  else if (strcmp (IDENTIFIER_POINTER (token), "weak") == 0)
-	    type = state = ps_weak;
-#endif
-	  else
-	    type = state = ps_done;
-	}
-      else
-	type = state = ps_done;
-      break;
-
-#ifdef WEAK_ASM_OP
-    case ps_weak:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
-	{
-	  name = IDENTIFIER_POINTER (token);
-	  state = ps_name;
-	}
-      else
-	state = ps_bad;
-      break;
-
-    case ps_name:
-      state = (strcmp (string, "=") ? ps_bad : ps_equals);
-      break;
-
-    case ps_equals:
-      if (token && TREE_CODE (token) == IDENTIFIER_NODE)
-	{
-	  value = IDENTIFIER_POINTER (token);
-	  state = ps_value;
-	}
-      else
-	state = ps_bad;
-      break;
-
-    case ps_value:
-      state = ps_bad;
-      break;
-#endif /* WEAK_ASM_OP */
-
-    case ps_pack:
-      if (strcmp (string, "(") == 0)
-	state = ps_left;
-      else
-	state = ps_bad;
-      break;
-
-    case ps_left:
-      if (token && TREE_CODE (token) == INTEGER_CST
-	  && TREE_INT_CST_HIGH (token) == 0)
-	switch (TREE_INT_CST_LOW (token))
-	  {
-	  case 1:
-	  case 2:
-	  case 4:
-	    align = TREE_INT_CST_LOW (token);
-	    state = ps_align;
-	    break;
-
-	  default:
-	    state = ps_bad;
-	  }
-      else if (! token && strcmp (string, ")") == 0)
-	{
-	  align = 0;
-	  state = ps_right;
-	}
-      else
-	state = ps_bad;
-      break;
-
-    case ps_align:
-      if (strcmp (string, ")") == 0)
-	state = ps_right;
-      else
-	state = ps_bad;
-      break;
-
-    case ps_right:
-      state = ps_bad;
-      break;
-
-    case ps_bad:
-    case ps_done:
-      break;
-
-    default:
-      abort ();
-    }
-}
-#endif /* HANDLE_PRAGMA */

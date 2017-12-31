@@ -90,7 +90,7 @@ It would not make an case in output_insn_hairy because the template
 given in the entry is a constant (it does not start with `*').  */
 
 #include <stdio.h>
-#include "config.h"
+#include "hconfig.h"
 #include "rtl.h"
 #include "obstack.h"
 
@@ -497,6 +497,7 @@ scan_operands (part, this_address_p, this_strict_low)
 
     case MATCH_DUP:
     case MATCH_OP_DUP:
+    case MATCH_PAR_DUP:
       ++num_dups;
       return;
 
@@ -846,6 +847,7 @@ gen_split (split)
   mybzero (d->strict_low, sizeof strict_low);
 
   d->n_dups = 0;
+  d->n_alternatives = 0;
   d->template = 0;
   d->outfun = 0;
 }

@@ -43,24 +43,24 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    directly as assembler code by the macros FUNCTION_PROLOGUE and
    FUNCTION_EPILOGUE.  Those instructions never exist as rtl.  */
 
-#include <stdio.h>
 #include "config.h"
 #include "gvarargs.h"
 #include "rtl.h"
 #include "regs.h"
 #include "insn-config.h"
+#include "insn-flags.h"
 #include "insn-attr.h"
 #include "insn-codes.h"
 #include "recog.h"
 #include "conditions.h"
 #include "flags.h"
 #include "real.h"
-#include "output.h"
 #include "hard-reg-set.h"
+#include "defaults.h"
 
-#ifndef ASM_STABD_OP
-#define ASM_STABD_OP ".stabd"
-#endif
+#include <stdio.h>
+
+#include "output.h"
 
 /* Get N_SLINE and N_SOL from stab.h if we can expect the file to exist.  */
 #if defined (DBX_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
@@ -111,6 +111,7 @@ void output_addr_const ();
 static void output_source_line ();
 rtx final_scan_insn ();
 void profile_function ();
+static void profile_after_prologue ();
 
 #ifdef HAVE_ATTR_length
 static int asm_insn_count ();
@@ -161,7 +162,7 @@ static int new_block = 1;
    and assume that they will both give the same number to each block.
    Final uses these sequence numbers to generate assembler label names
    LBBnnn and LBEnnn for the beginning and end of the symbol-block.
-   Dbxout uses the sequence nunbers to generate references to the same labels
+   Dbxout uses the sequence numbers to generate references to the same labels
    from the dbx debugging information.
 
    Sdb records this level at the beginning of each function,
@@ -284,8 +285,7 @@ end_final (filename)
       assemble_integer (gen_rtx (SYMBOL_REF, Pmode, name), UNITS_PER_WORD, 1);
       ASM_GENERATE_INTERNAL_LABEL (name, "LPBX", 2);
       assemble_integer (gen_rtx (SYMBOL_REF, Pmode, name), UNITS_PER_WORD, 1);
-      assemble_integer (gen_rtx (CONST_INT, VOIDmode, count_basic_blocks),
-			UNITS_PER_WORD, 1);
+      assemble_integer (GEN_INT (count_basic_blocks), UNITS_PER_WORD, 1);
       assemble_integer (const0_rtx, UNITS_PER_WORD, 1);
       ASM_GENERATE_INTERNAL_LABEL (name, "LPBX", 3);
       assemble_integer (gen_rtx (SYMBOL_REF, Pmode, name), UNITS_PER_WORD, 1);
@@ -311,6 +311,9 @@ end_final (filename)
 
       /* Output the table of addresses.  */
       readonly_data_section ();
+      /* Realign in new section */
+      ASM_OUTPUT_ALIGN (asm_out_file,
+			floor_log2 (BIGGEST_ALIGNMENT / BITS_PER_UNIT));
       ASM_OUTPUT_INTERNAL_LABEL (asm_out_file, "LPBX", 3);
       for (i = 0; i < count_basic_blocks; i++)
 	{
@@ -524,13 +527,15 @@ shorten_branches (first)
       else if (GET_CODE (body) == SEQUENCE)
 	{
 	  int i;
-
+	  int const_delay_slots;
+#ifdef DELAY_SLOTS
+	  const_delay_slots = const_num_delay_slots (XVECEXP (body, 0, 0));
+#else
+	  const_delay_slots = 0;
+#endif
 	  /* Inside a delay slot sequence, we do not do any branch shortening
-	     (on the only machine known to have both variable-length branches
-	     and delay slots, the ROMP, branch-with-execute is the same size
-	     as the maximum branch anyway).  So we only have to handle normal
-	     insns (actually, reorg never puts ASM insns in a delay slot, but
-	     we don't take advantage of that knowledge here).  */
+	     if the shortening could change the number of delay slots
+	     of the branch. */
 	  for (i = 0; i < XVECLEN (body, 0); i++)
 	    {
 	      rtx inner_insn = XVECEXP (body, 0, i);
@@ -544,7 +549,16 @@ shorten_branches (first)
 		inner_length = insn_default_length (inner_insn);
 	      
 	      insn_lengths[inner_uid] = inner_length;
-	      varying_length[inner_uid] = 0;
+	      if (const_delay_slots)
+		{
+		  if ((varying_length[inner_uid]
+		       = insn_variable_length_p (inner_insn)) != 0)
+		    varying_length[uid] = 1;
+		  insn_addresses[inner_uid] = (insn_current_address +
+					       insn_lengths[uid]);
+		}
+	      else
+		varying_length[inner_uid] = 0;
 	      insn_lengths[uid] += inner_length;
 	    }
 	}
@@ -569,16 +583,45 @@ shorten_branches (first)
       something_changed = 0;
       for (insn_current_address = FIRST_INSN_ADDRESS, insn = first;
 	   insn != 0;
-	   insn_current_address += insn_lengths[uid], insn = NEXT_INSN (insn))
+	   insn = NEXT_INSN (insn))
 	{
 	  int new_length;
 
 	  uid = INSN_UID (insn);
 	  insn_addresses[uid] = insn_current_address;
 	  if (! varying_length[uid])
-	    continue;
+	    {
+	      insn_current_address += insn_lengths[uid];
+	      continue;
+	    }
+	  if (GET_CODE (insn) == INSN && GET_CODE (PATTERN (insn)) == SEQUENCE)
+	    {
+	      int i;
+	      
+	      body = PATTERN (insn);
+	      new_length = 0;
+	      for (i = 0; i < XVECLEN (body, 0); i++)
+		{
+		  rtx inner_insn = XVECEXP (body, 0, i);
+		  int inner_uid = INSN_UID (inner_insn);
+		  int inner_length;
 
-	  new_length = insn_current_length (insn);
+		  insn_addresses[inner_uid] = insn_current_address;
+		  inner_length = insn_current_length (inner_insn);
+		  if (inner_length != insn_lengths[inner_uid])
+		    {
+		      insn_lengths[inner_uid] = inner_length;
+		      something_changed = 1;
+		    }
+		  insn_current_address += insn_lengths[inner_uid];
+		  new_length += inner_length;
+		}
+	    }
+	  else
+	    {
+	      new_length = insn_current_length (insn);
+	      insn_current_address += new_length;
+	    }
 	  if (new_length != insn_lengths[uid])
 	    {
 	      insn_lengths[uid] = new_length;
@@ -601,7 +644,8 @@ asm_insn_count (body)
   char *template;
   int count = 1;
 
-  for (template = decode_asm_operands (body, 0, 0, 0, 0);
+  for (template = decode_asm_operands (body, NULL_PTR, NULL_PTR,
+				       NULL_PTR, NULL_PTR);
        *template; template++)
     if (*template == ';' || *template == '\n')
       count++;
@@ -689,6 +733,20 @@ final_start_function (first, file, optimize)
     next_block_index = 1;
 #endif
 
+  /* If the machine represents the prologue as RTL, the profiling code must
+     be emitted when NOTE_INSN_PROLOGUE_END is scanned.  */
+#ifdef HAVE_prologue
+  if (! HAVE_prologue)
+#endif
+    profile_after_prologue (file);
+
+  profile_label_no++;
+}
+
+static void
+profile_after_prologue (file)
+     FILE *file;
+{
 #ifdef FUNCTION_BLOCK_PROFILER
   if (profile_block_flag)
     {
@@ -700,8 +758,6 @@ final_start_function (first, file, optimize)
   if (profile_flag)
     profile_function (file);
 #endif /* not PROFILE_BEFORE_PROLOGUE */
-
-  profile_label_no++;
 }
 
 void
@@ -787,6 +843,11 @@ final_end_function (first, file, optimize)
     sdbout_end_function (last_linenum);
 #endif
 
+#ifdef DWARF_DEBUGGING_INFO
+  if (write_symbols == DWARF_DEBUG)
+    dwarfout_end_function ();
+#endif
+
 #ifdef XCOFF_DEBUGGING_INFO
   if (write_symbols == XCOFF_DEBUG)
     xcoffout_end_function (file, last_linenum);
@@ -841,10 +902,39 @@ final (first, file, optimize, prescan)
   last_ignored_compare = 0;
   new_block = 1;
 
-  /* Make a map indicating which line numbers appear in this function.  */
-  for (insn = first; insn; insn = NEXT_INSN (insn))
-    if (GET_CODE (insn) == NOTE && NOTE_LINE_NUMBER (insn) > max_line)
-      max_line = NOTE_LINE_NUMBER (insn);
+  /* Make a map indicating which line numbers appear in this function.
+     When producing SDB debugging info, delete troublesome line number
+     notes from inlined functions in other files as well as duplicate
+     line number notes.  */
+#ifdef SDB_DEBUGGING_INFO
+  if (write_symbols == SDB_DEBUG)
+    {
+      rtx last = 0;
+      for (insn = first; insn; insn = NEXT_INSN (insn))
+	if (GET_CODE (insn) == NOTE && NOTE_LINE_NUMBER (insn) > 0)
+	  {
+	    if ((RTX_INTEGRATED_P (insn)
+		 && strcmp (NOTE_SOURCE_FILE (insn), main_input_filename) != 0)
+		 || (last != 0
+		     && NOTE_LINE_NUMBER (insn) == NOTE_LINE_NUMBER (last)
+		     && NOTE_SOURCE_FILE (insn) == NOTE_SOURCE_FILE (last)))
+	      {
+		NOTE_LINE_NUMBER (insn) = NOTE_INSN_DELETED;
+		NOTE_SOURCE_FILE (insn) = 0;
+		continue;
+	      }
+	    last = insn;
+	    if (NOTE_LINE_NUMBER (insn) > max_line)
+	      max_line = NOTE_LINE_NUMBER (insn);
+	  }
+    }
+  else
+#endif
+    {
+      for (insn = first; insn; insn = NEXT_INSN (insn))
+	if (GET_CODE (insn) == NOTE && NOTE_LINE_NUMBER (insn) > max_line)
+	  max_line = NOTE_LINE_NUMBER (insn);
+    }
 
   line_note_exists = (char *) oballoc (max_line + 1);
   bzero (line_note_exists, max_line + 1);
@@ -926,6 +1016,23 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
       if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_LOOP_END)
 	break;
 
+      if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_PROLOGUE_END)
+	{
+#ifdef FUNCTION_END_PROLOGUE
+	  FUNCTION_END_PROLOGUE (file);
+#endif
+	  profile_after_prologue (file);
+	  break;
+	}
+
+#ifdef FUNCTION_BEGIN_EPILOGUE
+      if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_EPILOGUE_BEG)
+	{
+	  FUNCTION_BEGIN_EPILOGUE (file);
+	  break;
+	}
+#endif
+
       if (write_symbols == NO_DEBUG)
 	break;
       if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_FUNCTION_BEG)
@@ -938,6 +1045,10 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	  if (write_symbols == XCOFF_DEBUG)
 	    xcoffout_begin_function (file, last_linenum);
 #endif
+#ifdef DWARF_DEBUGGING_INFO
+	  if (write_symbols == DWARF_DEBUG)
+	    dwarfout_begin_function ();
+#endif
 	  break;
 	}
       if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_DELETED)
@@ -949,7 +1060,12 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	}
       if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_BLOCK_BEG
 	  && (debug_info_level == DINFO_LEVEL_NORMAL
-	      || debug_info_level == DINFO_LEVEL_VERBOSE))
+	      || debug_info_level == DINFO_LEVEL_VERBOSE
+#ifdef DWARF_DEBUGGING_INFO
+	      || write_symbols == DWARF_DEBUG
+#endif
+	     )
+	 )
 	{
 	  /* Beginning of a symbol-block.  Assign it a sequence number
 	     and push the number onto the stack PENDING_BLOCKS.  */
@@ -987,7 +1103,12 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	}
       else if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_BLOCK_END
 	       && (debug_info_level == DINFO_LEVEL_NORMAL
-		   || debug_info_level == DINFO_LEVEL_VERBOSE))
+		   || debug_info_level == DINFO_LEVEL_VERBOSE
+#ifdef DWARF_DEBUGGING_INFO
+	           || write_symbols == DWARF_DEBUG
+#endif
+	          )
+	      )
 	{
 	  /* End of a symbol-block.  Pop its sequence number off
 	     PENDING_BLOCKS and output debugging info based on that.  */
@@ -1012,6 +1133,15 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	    dwarfout_end_block (pending_blocks[block_depth]);
 #endif
 	}
+      else if (NOTE_LINE_NUMBER (insn) == NOTE_INSN_DELETED_LABEL
+	       && (debug_info_level == DINFO_LEVEL_NORMAL
+		   || debug_info_level == DINFO_LEVEL_VERBOSE))
+	{
+#ifdef DWARF_DEBUGGING_INFO
+          if (write_symbols == DWARF_DEBUG)
+            dwarfout_label (insn);
+#endif
+	}
       else if (NOTE_LINE_NUMBER (insn) > 0)
 	/* This note is a line-number.  */
 	{
@@ -1029,7 +1159,7 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	      if (GET_CODE (note) != NOTE && GET_CODE (note) != CODE_LABEL)
 		break;
 	      /* These types of notes can be significant
-		 so make sure the preceeding line number stays.  */
+		 so make sure the preceding line number stays.  */
 	      else if (GET_CODE (note) == NOTE
 		       && (NOTE_LINE_NUMBER (note) == NOTE_INSN_BLOCK_BEG
 			   || NOTE_LINE_NUMBER (note) == NOTE_INSN_BLOCK_END
@@ -1046,7 +1176,7 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 		    if (line_note_exists[num])
 		      break;
 
-		  if (num == NOTE_LINE_NUMBER (note))
+		  if (num >= NOTE_LINE_NUMBER (note))
 		    note_after = 1;
 		  break;
 		}
@@ -1061,7 +1191,11 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 
     case BARRIER:
 #ifdef ASM_OUTPUT_ALIGN_CODE
-      ASM_OUTPUT_ALIGN_CODE (file);
+      /* Don't litter the assembler output with needless alignments.  A
+	 BARRIER will be placed at the end of every function if HAVE_epilogue
+	 is true.  */	 
+      if (NEXT_INSN (insn))
+	ASM_OUTPUT_ALIGN_CODE (file);
 #endif
       break;
 
@@ -1097,9 +1231,14 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	    {
 #ifndef JUMP_TABLES_IN_TEXT_SECTION
 	      readonly_data_section ();
-#else
+#ifdef READONLY_DATA_SECTION
+	      ASM_OUTPUT_ALIGN (file,
+				exact_log2 (BIGGEST_ALIGNMENT
+					    / BITS_PER_UNIT));
+#endif /* READONLY_DATA_SECTION */
+#else /* JUMP_TABLES_IN_TEXT_SECTION */
 	      text_section ();
-#endif
+#endif /* JUMP_TABLES_IN_TEXT_SECTION */
 #ifdef ASM_OUTPUT_CASE_LABEL
 	      ASM_OUTPUT_CASE_LABEL (file, "L", CODE_LABEL_NUMBER (insn),
 				     NEXT_INSN (insn));
@@ -1133,7 +1272,7 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	   of the insn that branched here.  So recover the cc status
 	   from the insn that set it.  */
 
-	note = find_reg_note (insn, REG_CC_SETTER, 0);
+	note = find_reg_note (insn, REG_CC_SETTER, NULL_RTX);
 	if (note)
 	  {
 	    NOTICE_UPDATE_CC (PATTERN (XEXP (note, 0)), XEXP (note, 0));
@@ -1161,13 +1300,25 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	    for (idx = 0; idx < vlen; idx++)
 	      {
 		if (GET_CODE (body) == ADDR_VEC)
-		  ASM_OUTPUT_ADDR_VEC_ELT
-		    (file, CODE_LABEL_NUMBER (XEXP (XVECEXP (body, 0, idx), 0)));
+		  {
+#ifdef ASM_OUTPUT_ADDR_VEC_ELT
+		    ASM_OUTPUT_ADDR_VEC_ELT
+		      (file, CODE_LABEL_NUMBER (XEXP (XVECEXP (body, 0, idx), 0)));
+#else
+		    abort ();
+#endif
+		  }
 		else
-		  ASM_OUTPUT_ADDR_DIFF_ELT
-		    (file,
-		     CODE_LABEL_NUMBER (XEXP (XVECEXP (body, 1, idx), 0)),
-		     CODE_LABEL_NUMBER (XEXP (XEXP (body, 0), 0)));
+		  {
+#ifdef ASM_OUTPUT_ADDR_DIFF_ELT
+		    ASM_OUTPUT_ADDR_DIFF_ELT
+		      (file,
+		       CODE_LABEL_NUMBER (XEXP (XVECEXP (body, 1, idx), 0)),
+		       CODE_LABEL_NUMBER (XEXP (XEXP (body, 0), 0)));
+#else
+		    abort ();
+#endif
+		  }
 	      }
 #ifdef ASM_OUTPUT_CASE_END
 	    ASM_OUTPUT_CASE_END (file,
@@ -1236,7 +1387,8 @@ final_scan_insn (insn, file, optimize, prescan, nopeepholes)
 	      }
 
 	    /* Get out the operand values.  */
-	    string = decode_asm_operands (body, ops, 0, 0, 0);
+	    string = decode_asm_operands (body, ops, NULL_PTR,
+					  NULL_PTR, NULL_PTR);
 	    /* Inhibit aborts on what would otherwise be compiler bugs.  */
 	    insn_noperands = noperands;
 	    this_is_asm_operands = insn;
@@ -1624,16 +1776,7 @@ output_source_line (file, insn)
 
 #if defined (DBX_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
       if (write_symbols == DBX_DEBUG || write_symbols == XCOFF_DEBUG)
-	{
-	  dbxout_source_file (file, filename);
-
-#ifdef ASM_OUTPUT_SOURCE_LINE
-	  ASM_OUTPUT_SOURCE_LINE (file, NOTE_LINE_NUMBER (insn));
-#else
-	  fprintf (file, "\t%s %d,0,%d\n", ASM_STABD_OP, 
-		   N_SLINE, NOTE_LINE_NUMBER (insn));
-#endif
-	}
+	dbxout_source_line (file, filename, NOTE_LINE_NUMBER (insn));
 #endif /* DBX_DEBUGGING_INFO || XCOFF_DEBUGGING_INFO */
 
 #ifdef DWARF_DEBUGGING_INFO
@@ -1826,7 +1969,33 @@ alter_cond (cond)
 	value = 2;
 	break;
       }
-  
+
+  if (cc_status.flags & CC_NOT_SIGNED)
+    /* The flags are valid if signed condition operators are converted
+       to unsigned.  */
+    switch (GET_CODE (cond))
+      {
+      case LE:
+	PUT_CODE (cond, LEU);
+	value = 2;
+	break;
+
+      case LT:
+	PUT_CODE (cond, LTU);
+	value = 2;
+	break;
+
+      case GT:
+	PUT_CODE (cond, GTU);
+	value = 2;
+	break;
+
+      case GE:
+	PUT_CODE (cond, GEU);
+	value = 2;
+	break;
+      }
+
   return value;
 }
 #endif
@@ -1911,7 +2080,10 @@ output_asm_insn (template, operands)
 	     compilation.  This is useful for making local labels that are
 	     referred to more than once in a given insn.  */
 	  else if (*p == '=')
-	    fprintf (asm_out_file, "%d", insn_counter);
+	    {
+	      p++;
+	      fprintf (asm_out_file, "%d", insn_counter);
+	    }
 	  /* % followed by a letter and some digits
 	     outputs an operand in a special way depending on the letter.
 	     Letters `acln' are implemented directly.
@@ -1941,7 +2113,13 @@ output_asm_insn (template, operands)
 	      else if (letter == 'n')
 		{
 		  if (GET_CODE (operands[c]) == CONST_INT)
-		    fprintf (asm_out_file, "%d", - INTVAL (operands[c]));
+		    fprintf (asm_out_file,
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT
+			     "%d",
+#else
+			     "%ld",
+#endif
+			     - INTVAL (operands[c]));
 		  else
 		    {
 		      putc ('-', asm_out_file);
@@ -1968,7 +2146,7 @@ output_asm_insn (template, operands)
 	     The PRINT_OPERAND macro decides what is actually done.  */
 #ifdef PRINT_OPERAND_PUNCT_VALID_P
 	  else if (PRINT_OPERAND_PUNCT_VALID_P (*p))
-	    output_operand (0, *p++);
+	    output_operand (NULL_RTX, *p++);
 #endif
 	  else
 	    output_operand_lossage ("invalid %%-code");
@@ -2031,6 +2209,13 @@ output_operand (x, code)
 {
   if (x && GET_CODE (x) == SUBREG)
     x = alter_subreg (x);
+
+  /* If X is a pseudo-register, abort now rather than writing trash to the
+     assembler file.  */
+
+  if (x && GET_CODE (x) == REG && REGNO (x) >= FIRST_PSEUDO_REGISTER)
+    abort ();
+
   PRINT_OPERAND (asm_out_file, x, code);
 }
 
@@ -2073,16 +2258,22 @@ output_addr_const (file, x)
 
     case LABEL_REF:
       ASM_GENERATE_INTERNAL_LABEL (buf, "L", CODE_LABEL_NUMBER (XEXP (x, 0)));
-      assemble_name (asm_out_file, buf);
+      assemble_name (file, buf);
       break;
 
     case CODE_LABEL:
       ASM_GENERATE_INTERNAL_LABEL (buf, "L", CODE_LABEL_NUMBER (x));
-      assemble_name (asm_out_file, buf);
+      assemble_name (file, buf);
       break;
 
     case CONST_INT:
-      fprintf (file, "%d", INTVAL (x));
+      fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT
+	       "%d",
+#else
+	       "%ld",
+#endif
+	       INTVAL (x));
       break;
 
     case CONST:
@@ -2094,12 +2285,31 @@ output_addr_const (file, x)
     case CONST_DOUBLE:
       if (GET_MODE (x) == VOIDmode)
 	{
-	  /* We can use %d if the number is <32 bits and positive.  */
+	  /* We can use %d if the number is one word and positive.  */
 	  if (CONST_DOUBLE_HIGH (x) || CONST_DOUBLE_LOW (x) < 0)
-	    fprintf (file, "0x%x%08x",
+	    fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == 64
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%016lx",
+#else
+		 " 0x%x%016x",
+#endif
+#else
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%08lx",
+#else
+		 " 0x%x%08x",
+#endif
+#endif
 		     CONST_DOUBLE_HIGH (x), CONST_DOUBLE_LOW (x));
 	  else
-	    fprintf (file, "%d", CONST_DOUBLE_LOW (x));
+	    fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT
+		     "%d",
+#else
+		     "%ld",
+#endif
+		     CONST_DOUBLE_LOW (x));
 	}
       else
 	/* We can't handle floating point constants;
@@ -2126,9 +2336,28 @@ output_addr_const (file, x)
       break;
 
     case MINUS:
+      /* Avoid outputting things like x-x or x+5-x,
+	 since some assemblers can't handle that.  */
+      x = simplify_subtraction (x);
+      if (GET_CODE (x) != MINUS)
+	goto restart;
+
       output_addr_const (file, XEXP (x, 0));
       fprintf (file, "-");
-      output_addr_const (file, XEXP (x, 1));
+      if (GET_CODE (XEXP (x, 1)) == CONST_INT
+	  && INTVAL (XEXP (x, 1)) < 0)
+	{
+	  fprintf (file, ASM_OPEN_PAREN);
+	  output_addr_const (file, XEXP (x, 1));
+	  fprintf (file, ASM_CLOSE_PAREN);
+	}
+      else
+	output_addr_const (file, XEXP (x, 1));
+      break;
+
+    case ZERO_EXTEND:
+    case SIGN_EXTEND:
+      output_addr_const (file, XEXP (x, 0));
       break;
 
     default:
@@ -2279,27 +2508,27 @@ split_double (value, first, second)
       /* In an integer, the words are defined as most and least significant.
 	 So order them by the target's convention.  */
 #if WORDS_BIG_ENDIAN
-      *first = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_HIGH (value));
-      *second = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (value));
+      *first = GEN_INT (CONST_DOUBLE_HIGH (value));
+      *second = GEN_INT (CONST_DOUBLE_LOW (value));
 #else
-      *first = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (value));
-      *second = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_HIGH (value));
+      *first = GEN_INT (CONST_DOUBLE_LOW (value));
+      *second = GEN_INT (CONST_DOUBLE_HIGH (value));
 #endif
     }
   else
     {
       if ((HOST_FLOAT_FORMAT != TARGET_FLOAT_FORMAT
-	   || HOST_BITS_PER_INT != BITS_PER_WORD)
+	   || HOST_BITS_PER_WIDE_INT != BITS_PER_WORD)
 	  && ! flag_pretend_float)
       abort ();
 
 #if defined (HOST_WORDS_BIG_ENDIAN) == WORDS_BIG_ENDIAN
       /* Host and target agree => no need to swap.  */
-      *first = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (value));
-      *second = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_HIGH (value));
+      *first = GEN_INT (CONST_DOUBLE_LOW (value));
+      *second = GEN_INT (CONST_DOUBLE_HIGH (value));
 #else
-      *second = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (value));
-      *first = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_HIGH (value));
+      *second = GEN_INT (CONST_DOUBLE_LOW (value));
+      *first = GEN_INT (CONST_DOUBLE_HIGH (value));
 #endif
     }
 }
@@ -2359,7 +2588,8 @@ only_leaf_regs_used ()
 
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
     {
-      if (regs_ever_live[i] > permitted_reg_in_leaf_functions[i])
+      if ((regs_ever_live[i] || global_regs[i])
+	  && ! permitted_reg_in_leaf_functions[i])
 	return 0;
     }
   return 1;
@@ -2457,6 +2687,7 @@ leaf_renumber_regs_insn (in_rtx)
       case 's':
       case '0':
       case 'i':
+      case 'w':
       case 'n':
       case 'u':
 	break;

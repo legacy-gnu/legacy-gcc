@@ -69,7 +69,7 @@ extern char *output_call ();
 #define TARGET_C2 (target_flags & 2)
 #define TARGET_C34 (target_flags & 4)
 #define TARGET_C38 (target_flags & 010)
-#define TARGET_INDIRECTS (target_flags & 020)
+#define TARGET_INDIRECTS (1)
 #define TARGET_ARGCOUNT (target_flags & 040)
 
 /* Macro to define tables used to set the flags.
@@ -85,7 +85,7 @@ extern char *output_call ();
     { "c34", 006 },	\
     { "c38", 012 },	\
     { "noc1", -001 }, 	\
-    { "noc2", -022 },	\
+    { "noc2", -002 },	\
     { "argcount", 040 },  \
     { "noargcount", -040 }, \
     { "", TARGET_DEFAULT }}
@@ -315,7 +315,10 @@ enum reg_class {
 /* S regs use the letter 'd' because 's' is taken. */
 
 #define REG_CLASS_FROM_LETTER(C) \
-  ((C) == 'a' ? A_REGS : (C) == 'd' ? S_REGS : NO_REGS)
+  ((C) == 'a' ? A_REGS : \
+   (C) == 'd' ? S_REGS : \
+   (C) == 'A' ? INDEX_REGS : \
+   NO_REGS)
 
 /* The letters I, J, K, L and M in a register constraint string
    can be used to stand for particular ranges of immediate operands.
@@ -399,7 +402,7 @@ enum reg_class {
 /* The standard Convex call, with arg count word, includes popping the
    args as part of the call template.  We optionally omit the arg count
    word and let gcc combine the arg pops. */
-#define RETURN_POPS_ARGS(FUNTYPE,SIZE) (TARGET_ARGCOUNT)
+#define RETURN_POPS_ARGS(FUNTYPE, SIZE) (TARGET_ARGCOUNT ? (SIZE) : 0)
 
 /* Define how to find the value returned by a function.
    VALTYPE is the data type of the value (as a tree).
@@ -727,7 +730,7 @@ enum reg_class {
 /* Define if shifts truncate the shift count
    which implies one can omit a sign-extension or zero-extension
    of a shift count.  */
-#define SHIFT_COUNT_TRUNCATED
+/* #define SHIFT_COUNT_TRUNCATED */
 
 /* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
    is done just by pretending it is already truncated.  */
@@ -840,6 +843,12 @@ enum reg_class {
    no longer contain unusual constructs.  */
 
 #define ASM_APP_OFF ";NO_APP\n"
+
+/* Output something following the gcc2_compiled tag to keep that label from
+   hiding a real function name for tools like adb and prof. */
+
+#define ASM_IDENTIFY_GCC(FILE) \
+  fprintf (FILE, "gcc2_compiled.:\n\tds.h 0\n");
 
 /* Alignment with Convex's assembler goes like this:
    .text can be .aligned up to a halfword.

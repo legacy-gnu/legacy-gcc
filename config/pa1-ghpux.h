@@ -23,8 +23,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define HP_FP_ARG_DESCRIPTOR_REVERSED
 
+#define TARGET_DEFAULT 1	/* TARGET_SNAKE */
+
 #include "pa-ghpux.h"
-
-#undef TARGET_DEFAULT
-#define TARGET_DEFAULT 1
-

@@ -23,7 +23,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "flags.h"
 #include <stdio.h>
 #include "cp-tree.h"
-#include "assert.h"
 #include "obstack.h"
 
 #ifdef CADILLAC
@@ -36,9 +35,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-
-extern int xmalloc ();
-extern void free ();
 
 void init_cadillac ();
 
@@ -391,7 +387,7 @@ cadillac_start_function (fndecl)
   context_stack->context = fndecl;
 
   CWriteTopLevel (conn, StartMType);
-  assert (TREE_CODE (fndecl) == FUNCTION_DECL);
+  my_friendly_assert (TREE_CODE (fndecl) == FUNCTION_DECL, 202);
   CWriteLanguageDecl (conn, fndecl,
 		      (TREE_CODE (TREE_TYPE (fndecl)) == METHOD_TYPE
 		       ? MemberFnOType : FunctionOType));

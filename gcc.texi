@@ -40,17 +40,18 @@ notice identical to this one except for the removal of this paragraph
 @end ignore
 Permission is granted to copy and distribute modified versions of this
 manual under the conditions for verbatim copying, provided also that the
-sections entitled ``GNU General Public License'' and ``Boycott'' are
-included exactly as in the original, and provided that the entire
-resulting derived work is distributed under the terms of a permission
-notice identical to this one.
+sections entitled ``GNU General Public License'' and ``Protect Your
+Freedom---Fight `Look And Feel'@w{}'' are included exactly as in the
+original, and provided that the entire resulting derived work is
+distributed under the terms of a permission notice identical to this
+one.
 
 Permission is granted to copy and distribute translations of this manual
 into another language, under the above conditions for modified versions,
 except that the sections entitled ``GNU General Public License'' and
-``Boycott'', and this permission notice, may be included in translations
-approved by the Free Software Foundation instead of in the original
-English.
+``Protect Your Freedom---Fight `Look And Feel'@w{}'', and this permission
+notice, may be included in translations approved by the Free Software
+Foundation instead of in the original English.
 @end ifinfo
 
 @setchapternewpage odd
@@ -65,10 +66,10 @@ English.
 @sp 2
 @center Richard M. Stallman
 @sp 3
-@center last updated 22 May 1992
+@center last updated 16 Dec 1992
 @sp 1
 @c The version number appears twice more in this file.
-@center for version 2.2
+@center for version 2.3
 @center (preliminary draft, which will change)
 @page
 @vskip 0pt plus 1filll
@@ -103,13 +104,13 @@ English.
 @ifset INTERNALS
 This manual documents how to run, install and port the GNU C compiler, as
 well as its new features and incompatibilities, and how to report bugs.
-It corresponds to GNU CC version 2.2.
+It corresponds to GNU CC version 2.3.
 @end ifset
 
 @ifclear INTERNALS
 This manual documents how to run and install the GNU C compiler, as
 well as its new features and incompatibilities, and how to report bugs.
-It corresponds to GNU CC version 2.2.
+It corresponds to GNU CC version 2.3.
 @end ifclear
 
 @end ifinfo
@@ -478,7 +479,7 @@ POSSIBILITY OF SUCH DAMAGES.
 @end ifinfo
 
 @page
-@unnumberedsec Appendix: How to Apply These Terms to Your New Programs
+@unnumberedsec How to Apply These Terms to Your New Programs
 
   If you develop a new program, and you want it to be of the greatest
 possible use to the public, the best way to achieve this is to make it
@@ -490,13 +491,13 @@ convey the exclusion of warranty; and each file should have at least
 the ``copyright'' line and a pointer to where the full notice is found.
 
 @smallexample
-@var{one line to give the program's name and a brief idea of what it does.}
+@var{one line to give the program's name and an idea of what it does.}
 Copyright (C) 19@var{yy}  @var{name of author}
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -515,9 +516,10 @@ when it starts in an interactive mode:
 
 @smallexample
 Gnomovision version 69, Copyright (C) 19@var{yy} @var{name of author}
-Gnomovision comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
-This is free software, and you are welcome to redistribute it
-under certain conditions; type `show c' for details.
+Gnomovision comes with ABSOLUTELY NO WARRANTY; for details
+type `show w'.  This is free software, and you are welcome
+to redistribute it under certain conditions; type `show c'
+for details.
 @end smallexample
 
 The hypothetical commands @samp{show w} and @samp{show c} should show
@@ -531,11 +533,15 @@ school, if any, to sign a ``copyright disclaimer'' for the program, if
 necessary.  Here is a sample; alter the names:
 
 @example
-Yoyodyne, Inc., hereby disclaims all copyright interest in the program
-`Gnomovision' (which makes passes at compilers) written by James Hacker.
+@group
+Yoyodyne, Inc., hereby disclaims all copyright
+interest in the program `Gnomovision'
+(which makes passes at compilers) written 
+by James Hacker.
 
 @var{signature of Ty Coon}, 1 April 1989
 Ty Coon, President of Vice
+@end group
 @end example
 
 This General Public License does not permit incorporating your program into
@@ -629,9 +635,10 @@ Jonathan Stone wrote the machine description for the Pyramid computer.
 Gary Miller ported GNU CC to Charles River Data Systems machines.
 
 @item
-Richard Kenner of New York University wrote the machine descriptions for
-the AMD 29000, the IBM RT PC, and the IBM RS/6000 as well as the support
-for instruction attributes.  He also made changes to better support RISC
+Richard Kenner of the New York University Ultracomputer Research
+Laboratory wrote the machine descriptions for the AMD 29000, the DEC
+Alpha, the IBM RT PC, and the IBM RS/6000 as well as the support for
+instruction attributes.  He also made changes to better support RISC
 processors including changes to common subexpression elimination,
 strength reduction, function calling sequence handling, and condition
 code support, in addition to generalizing the code for frame pointer
@@ -664,15 +671,18 @@ Mike Meissner at the Open Software Foundation finished the port to the
 MIPS cpu, including adding ECOFF debug support.
 
 @item
-Ron Guilmette implemented the protoize and unprotoize tools, the support
-for Dwarf symbolic debugging information, and much of the support for
-System V Release 4.  He has also worked heavily on the Intel 386 and 860
-support.
+Ron Guilmette implemented the @code{protoize} and @code{unprotoize}
+tools, the support for Dwarf symbolic debugging information, and much of
+the support for System V Release 4.  He has also worked heavily on the
+Intel 386 and 860 support.
 
 @item
 Torbjorn Granlund of the Swedish Institute of Computer Science
 implemented multiply-by-constant optimization and better long long
 support, and improved leaf function register allocation.
+
+@item
+Mike Stump implemented the support for Elxsi 64 bit CPU.
 @end itemize
 
 @node Boycott
@@ -763,7 +773,7 @@ others.
 The League needs both activist members and members who only pay their
 dues.
 
-To join, or for more information, phone (617) 492-0023 or write to:
+To join, or for more information, phone (617) 243-4091 or write to:
 
 @display
 League for Programming Freedom
@@ -848,6 +858,7 @@ where people's opinions differ as to what is best.
 			   and with certain linkers, assemblers and debuggers.
 * Incompatibilities::   GNU CC is incompatible with traditional C.
 * Disappointments::     Regrettable things we can't change, but not quite bugs.
+* Protoize Caveats::    Things to watch out for when using @code{protoize}.
 * Non-bugs::		Things we think are right, but some others disagree.
 @end menu
 
@@ -856,22 +867,16 @@ where people's opinions differ as to what is best.
 
 @itemize @bullet
 @item
-Loop unrolling doesn't work properly for certain programs.  This is
+Loop unrolling doesn't work properly for certain C++ programs.  This is
 because of difficulty in updating the debugging information within the
 loop being unrolled.  We plan to revamp the representation of debugging
 information so that this will work properly, but we have not done this
-in version 2.2 because we don't want to delay it any further.
-
-@item
-There is a bug in producing DBX output which outputs a structure tag
-even when a structure doesn't have a tag.  The reason we aren't fixing
-this now is that a clean fix requires reorganizations that seem risky.
-We will do them after 2.2 is released.
+in version 2.3 because we don't want to delay it any further.
 @end itemize
 
 @node Installation Problems
 @section Installation Problems
-	
+
 This is a list of problems (and some apparent problems which don't
 really mean anything is wrong) that show up during installation of GNU
 CC.
@@ -914,20 +919,46 @@ Sometimes @code{make} recompiles parts of the compiler when installing
 the compiler.  In one case, this was traced down to a bug in
 @code{make}.  Either ignore the problem or switch to GNU Make.
 
+@item
+On some 386 systems, building the compiler never finishes because
+@code{enquire} hangs due to a hardware problem in the motherboard---it
+reports floating point exceptions to the kernel incorrectly.  You can
+install GNU CC except for @file{float.h} by patching out the command to
+run @code{enquire}.  You may also be able to fix the problem for real by
+getting a replacement motherboard.  This problem was observed in
+Revision E of the Micronics motherboard, and is fixed in Revision F.
+
+@item
+On some 386 systems, GNU CC crashes trying to compile @file{enquire.c}.
+This happens on machines that don't have a 387 FPU chip.  On 386
+machines, the system kernel is supposed to emulate the 387 when you
+don't have one.  The crash is due to a bug in the emulator.
+
+One of these systems is the Unix from Interactive Systems: 386/ix.
+On this system, an alternate emulator is provided, and it does work.
+To use it, execute this command as super-user:
+
+@example
+ln /etc/emulator.rel1 /etc/emulator
+@end example
+
+@noindent
+and then reboot the system.  (The default emulator file remains present
+under the name @file{emulator.dflt}.)
+
+If you have such a problem on the SCO system, try using
+@file{/etc/emulator.att}.
+
+Another system which has this problem is Esix.  We don't know whether it
+has an alternate emulator that works.
+
 @cindex @code{genflags}, crash on Sun 4
 @item
 Sometimes on a Sun 4 you may observe a crash in the program
-@code{genflags} or @code{genoutput} while building GCC.  This is said to
+@code{genflags} or @code{genoutput} while building GNU CC.  This is said to
 be due to a bug in @code{sh}.  You can probably get around it by running
 @code{genflags} or @code{genoutput} manually and then retrying the
 @code{make}.
-
-@item 
-On some versions of Ultrix, the system supplied compiler cannot compile
-@file{cp-parse.c} because it cannot handle so many cases in a
-@code{switch} statement.  You can avoid this problem by specifying
-@samp{LANGUAGES=c} when you compile GNU CC with the Ultrix compiler.
-Then you can compile the entire GNU compiler with GNU CC.
 
 @item
 If you use the 1.31 version of the MIPS assembler (such as was shipped
@@ -940,6 +971,27 @@ floating point instruction, such as add.d.
 Users have reported some problems with version 2.0 of the MIPS
 compiler tools that were shipped with Ultrix 4.1.  Version 2.10
 which came with Ultrix 4.2 seems to work fine.
+
+@item
+Some versions of the MIPS linker will issue an assertion failure
+when linking code that uses @code{alloca} against shared
+libraries on RISC-OS 5.0, and DEC's OSF/1 systems.  This is a bug
+in the linker, that is supposed to be fixed in future revisions.
+To protect against this, GCC passes @samp{-non_shared} to the
+linker unless you pass an explicit @samp{-shared} or
+@samp{-call_shared} switch.
+
+@item
+On System V release 3, you may get this error message
+while linking:
+
+@smallexample
+ld fatal: failed to write symbol name @var{something} 
+ in strings table for file @var{whatever}
+@end smallexample
+
+This indicates that the disk is full or your ULIMIT won't allow
+the file to be as large as it needs to be.
 
 @item
 On HP 9000 series 300 or 400 running HP-UX release 8.0, there is a bug
@@ -1017,6 +1069,11 @@ On the Altos 3068, programs compiled with GNU CC won't work unless you
 fix a kernel bug.  This happens using system versions V.2.2 1.0gT1 and
 V.2.2 1.0e and perhaps later versions as well.  See the file
 @file{README.ALTOS}.
+
+@item
+You will get several sorts of compilation and linking errors on the
+we32k if you don't follow the special instructions.  @xref{WE32K
+Install}.
 @end itemize
 
 @node Cross-Compiler Problems
@@ -1062,8 +1119,8 @@ compile environment.
 @section Interoperation
 
 This section lists various difficulties encountered in using GNU C or
-GNU C++ together with other compilers or with the assemblers, linkers
-and debuggers on certain systems.
+GNU C++ together with other compilers or with the assemblers, linkers,
+libraries and debuggers on certain systems.
 
 @itemize @bullet
 @item
@@ -1071,7 +1128,7 @@ GNU C normally compiles functions to return small structures and unions
 in registers.  Most other compilers arrange to return them just like
 larger structures and unions.  This can lead to trouble when you link
 together code compiled by different compilers. To avoid the problem, you
-can use the option @samp{-fpcc-struct-value} when compiling with GNU CC.
+can use the option @samp{-fpcc-struct-return} when compiling with GNU CC.
 
 @item
 GNU C++ does not do name mangling in the same way as other C++
@@ -1102,6 +1159,22 @@ On some BSD systems including some versions of Ultrix, use of profiling
 causes static variable destructors (currently used only in C++) not to
 be run.
 
+@item
+Use of @samp{-I/usr/include} may cause trouble.
+
+Many systems come with header files that won't work with GNU CC unless
+corrected by @code{fixincludes}.  The corrected header files go in a new
+directory; GNU CC searches this directory before @file{/usr/include}.
+If you use @samp{-I/usr/include}, this tells GNU CC to search
+@file{/usr/include} earlier on, before the corrected headers.  The
+result is that you get the uncorrected header files.
+
+Instead, you should use these options:
+
+@example
+-I/usr/local/lib/gcc-lib/@var{target}/@var{version}/include -I/usr/include
+@end example
+
 @ignore
 @cindex @code{vfork}, for the Sun-4
 @item
@@ -1117,6 +1190,43 @@ variables @code{volatile} in the function that calls @code{vfork}, until
 the problem goes away, or by not declaring them @code{register} and not
 using @samp{-O} for those source files.
 @end ignore
+
+@item
+On a Sparc, GNU CC aligns all values of type @code{double} on an 8-byte
+boundary, and it expects every @code{double} to be so aligned.  The Sun
+compiler usually gives @code{double} values 8-byte alignment, with one
+exception: function arguments of type @code{double} may not be aligned.
+
+As a result, if a function compiled with Sun CC takes the address of an
+argument of type @code{double} and passes this pointer of type
+@code{double *} to a function compiled with GNU CC, dereferencing the
+pointer may cause a fatal signal.
+
+One way to solve this problem is to compile your entire program with GNU
+CC.  Another solution is to modify the function that is compiled with
+Sun CC to copy the argument into a local variable; local variables
+are always properly aligned.  A third solution is to modify the function
+that uses the pointer to dereference it via the following function
+@code{access_double} instead of directly with @samp{*}:
+
+@example
+inline double
+access_double (double *unaligned_ptr)
+@{
+  union d2i @{ double d; int i[2]; @};
+
+  union d2i *p = (union d2i *) unaligned_ptr;
+  union d2i u;
+
+  u.i[0] = p->i[0];
+  u.i[1] = p->i[1];
+
+  return u.d;
+@}
+@end example
+
+@noindent
+Storing into the pointer can be done likewise with the same union.
 
 @item
 On a Sun, linking using GNU CC fails to find a shared library and
@@ -1142,19 +1252,40 @@ when linking, compile and link against the file
 On the HP PA machine, ADB sometimes fails to work on functions compiled
 with GNU CC.  Specifically, it fails to work on functions that use
 @code{alloca} or variable-size arrays.  This is because GNU CC doesn't
-generate HPUX unwind descriptors for such functions.  It may even be
+generate HP-UX unwind descriptors for such functions.  It may even be
 impossible to generate them.
 
 @item 
-Profiling is not supported on the HP PA machine.  Neither is debugging
-(@samp{-g}), unless you use the preliminary GNU tools
-(@pxref{Installation}).
+Debugging (@samp{-g}) is not supported on the HP PA machine, unless you use 
+the preliminary GNU tools (@pxref{Installation}).
 
 @item
-GNU CC on the HP PA handles variadic function arguments using a calling
-convention incompatible with the HP compiler.  This is only a problem
-for routines that take @code{va_list} as parameters, such as
-@code{vprintf}.  This may be fixed eventually.
+The HP-UX linker has a bug which can cause programs which make use of
+@code{const} variables to fail in unusual ways.  If your program makes
+use of global @code{const} variables, we suggest you compile with the
+following additional options:
+
+@example
+-Dconst="" -D__const="" -D__const__="" -fwritable-strings
+@end example
+
+This will force the @code{const} variables into the DATA subspace which 
+will avoid the linker bug.
+
+Another option one might use to work around this problem is
+@samp{-mkernel}.  @samp{-mkernel} changes how the address of variables
+is computed to a sequence less likely to tickle the HP-UX linker bug.
+
+We hope to work around this problem in GNU CC 2.4, if HP does not fix
+it.
+
+@item
+Taking the address of a label may generate errors from the HP-UX
+PA assembler.  GAS for the PA does not have this problem.
+
+@item
+GNU CC produced code will not yet link against HP-UX 8.0 shared libraries.
+We expect to fix this problem in GNU CC 2.4.  
 
 @item
 The current version of the assembler (@file{/bin/as}) for the RS/6000
@@ -1191,6 +1322,19 @@ On VMS, GAS versions 1.38.1 and earlier may cause spurious warning
 messages from the linker.  These warning messages complain of mismatched
 psect attributes.  You can ignore them.  @xref{VMS Install}.
 
+@item
+On NewsOS version 3, if you include both @file{stddef.h} and
+@file{sys/types.h}, you get an error because there are two typedefs of
+@code{size_t}.  You should change @file{sys/types.h} by adding these
+lines around the definition of @code{size_t}:
+
+@example
+#ifndef _SIZE_T
+#define _SIZE_T
+@var{actual typedef here}
+#endif
+@end example
+
 @cindex Alliant
 @item
 On the Alliant, the system's own convention for returning structures
@@ -1218,6 +1362,24 @@ these options to produce code compatible with the Fortran compiler:
 @smallexample
 -fcall-saved-r2 -fcall-saved-r3 -fcall-saved-r4 -fcall-saved-r5
 @end smallexample
+
+@item
+On the WE32k, you may find that programs compiled with GNU CC do not
+work with the standard shared C ilbrary.  You may need to link with
+the ordinary C compiler.  If you do so, you must specify the following
+options:
+
+@smallexample
+-L/usr/local/lib/gcc-lib/we32k-att-sysv/2.3 -lgcc -lc_s
+@end smallexample
+
+The first specifies where to find the library @file{libgcc.a}
+specified with the @samp{-lgcc} option.
+
+GNU CC does linking by invoking @code{ld}, just as @code{cc} does, and
+there is no reason why it @emph{should} matter which compilation program
+you use to invoke @code{ld}.  If someone tracks this problem down,
+it can probably be fixed easily.
 @end itemize
 
 @node Incompatibilities
@@ -1375,11 +1537,11 @@ too.
 @cindex apostrophes
 @cindex '
 @item
-GNU CC will flag unterminated character constants inside of preprocessor
-conditionals that fail.  Some programs have English comments enclosed in
-conditionals that are guaranteed to fail; if these comments contain
-apostrophes, GNU CC will probably report an error.  For example,
-this code would produce an error:
+GNU CC complains about unterminated character constants inside of
+preprocessor conditionals that fail.  Some programs have English
+comments enclosed in conditionals that are guaranteed to fail; if these
+comments contain apostrophes, GNU CC will probably report an error.  For
+example, this code would produce an error:
 
 @example
 #if 0
@@ -1390,6 +1552,17 @@ You can't expect this to work.
 The best solution to such a problem is to put the text into an actual
 C comment delimited by @samp{/*@dots{}*/}.  However,
 @samp{-traditional} suppresses these error messages.
+
+@item
+Many user programs contain the declaration @samp{long time ();}.  In the
+past, the system header files on many systems did not actually declare
+@code{time}, so it did not matter what type your program declared it to
+return.  But in systems with ANSI C headers, @code{time} is declared to
+return @code{time_t}, and if that is not the same as @code{long}, then
+@samp{long time ();} is erroneous.
+
+The solution is to change your program to use @code{time_t} as the return
+type of @code{time}.
 
 @cindex @code{float} as function value type
 @item
@@ -1465,7 +1638,7 @@ int foo (struct mumble *x)
 @end example
 
 This code really is erroneous, because the scope of @code{struct
-mumble} the prototype is limited to the argument list containing it.
+mumble} in the prototype is limited to the argument list containing it.
 It does not refer to the @code{struct mumble} defined with file scope
 immediately below---they are two unrelated types with similar names in
 different scopes.
@@ -1479,9 +1652,126 @@ It is easy enough for you to make your code work by moving the
 definition of @code{struct mumble} above the prototype.  It's not worth
 being incompatible with ANSI C just to avoid an error for the example
 shown above.
+
+@item
+Accesses to bitfields even in volatile objects works by accessing larger
+objects, such as a byte or a word.  You cannot rely on what size of
+object is accessed in order to read or write the bitfield; it may even
+vary for a given bitfield according to the precise usage.
+
+If you care about controlling the amount of memory that is accessed, use
+volatile but do not use bitfields.
+
+@item
+On 68000 systems, you can get paradoxical results if you test the
+precise values of floating point numbers.  For example, you can find
+that a floating point value which is not a NaN is not equal to itself.
+This results from the fact that the the floating point registers hold a
+few more bits of precision than fit in a @code{double} in memory.
+Compiled code moves values between memory and floating point registers
+at its convenience, and moving them into memory truncates them.
+
+You can partially avoid this problem by using the option
+@samp{-ffloat-store} (@pxref{Optimize Options}).
+
+@item
+On the MIPS, variable argument functions using @file{varargs.h}
+cannot have a floating point value for the first argument.  The
+reason for this is that in the absence of a prototype in scope,
+if the first argument is a floating point, it is passed in a
+floating point register, rather than an integer resgister.
+
+If the code is rewritten to use the ANSI standard @file{stdarg.h}
+method of variable arguments, and the prototype is in scope at
+the time of the call, everything will work fine.
 @end itemize
 
-@node Non-bugs,, Disappointments, Trouble
+@node Protoize Caveats
+@section Caveats of using @code{protoize}
+
+The conversion programs @code{protoize} and @code{unprotoize} can
+sometimes change a source file in a way that won't work unless you
+rearrange it.
+
+@itemize @bullet
+@item
+@code{protoize} can insert references to a type name or type tag before
+the definition, or in a file where they are not defined.
+
+If this happens, compiler error messages should show you where the new
+references are, so fixing the file by hand is straightforward.
+
+@item
+There are some C constructs which @code{protoize} cannot figure out.
+For example, it can't determine argument types for declaring a
+pointer-to-function variable; this you must do by hand.  @code{protoize}
+inserts a comment containing @samp{???} each time it finds such a
+variable; so you can find all such variables by searching for this
+string.  ANSI C does not require declaring the argument types of
+pointer-to-function types.
+
+@item
+Using @code{unprotoize} can easily introduce bugs.  If the program
+relied on prototypes to bring about conversion of arguments, these
+conversions will not take place in the program without prototypes.
+One case in which you can be sure @code{unprotoize} is safe is when
+you are removing prototypes that were made with @code{protoize}; if
+the program worked before without any prototypes, it will work again
+without them.
+
+You can find all the places where this problem might occur by compiling
+the program with the @samp{-Wconversion} option.  It prints a warning
+whenever an argument is converted.
+
+@item
+Both conversion programs can be confused if there are macro calls in and
+around the text to be converted.  In other words, the standard syntax
+for a declaration or definition must not result from expanding a macro.
+This problem is inherent in the design of C and cannot be fixed.  If
+only a few functions have confusing macro calls, you can easily convert
+them manually.
+
+@item
+@code{protoize} cannot get the argument types for a function whose
+definition was not actually compiled due to preprocessor conditionals.
+When this happens, @code{protoize} changes nothing in regard to such 
+a function.  @code{protoize} tries to detect such instances and warn
+about them.
+
+You can generally work around this problem by using @code{protoize} step
+by step, each time specifying a different set of @samp{-D} options for
+compilation, until all of the functions have been converted.  There is
+no automatic way to verify that you have got them all, however.
+
+@item
+Confusion may result if there is an occasion to convert a function
+declaration or definition in a region of source code where there is more
+than one formal parameter list present.  Thus, attempts to convert code
+containing multiple (conditionally compiled) versions of a single
+function header (in the same vicinity) may not produce the desired (or
+expected) results.
+
+If you plan on converting source files which contain such code, it is
+recommended that you first make sure that each conditionally compiled
+region of source code which contains an alternative function header also
+contains at least one additional follower token (past the final right
+parenthesis of the function header).  This should circumvent the
+problem.
+
+@item
+@code{unprotoize} can become confused when trying to convert a function
+definition or declaration which contains a declaration for a
+pointer-to-function formal argument which has the same name as the
+function being defined or declared.  We recommand you avoid such choices
+of formal parameter names.
+
+@item
+You might also want to correct some of the indentation by hand and break
+long lines.  (The conversion programs don't write lines longer than
+eighty characters in any case.)
+@end itemize
+
+@node Non-bugs
 @section Certain Changes We Don't Want to Make
 
 This section lists changes that people frequently request, but which
@@ -1509,6 +1799,13 @@ Warning about assigning a signed value to an unsigned variable.
 
 Such assignments must be very common; warning about them would cause
 more annoyance than good.
+
+@item 
+Warning about unreachable code.
+
+It's very common to have unreachable code in machine-generated
+programs.  For example, this happens normally in some files of GNU C
+itself.
 
 @item
 Warning when a non-void function value is ignored.
@@ -1776,7 +2073,7 @@ Each mailing list and its newsgroup carry exactly the same messages.
 Often people think of posting bug reports to the newsgroup instead of
 mailing them.  This appears to work, but it has one problem which can be
 crucial: a newsgroup posting does not contain a mail path back to the
-sender.  Thus, if maintaners need more information, they may be unable
+sender.  Thus, if maintainers need more information, they may be unable
 to reach you.  For this reason, you should always send bug reports by
 mail to the proper mailing list.
 
@@ -1842,14 +2139,22 @@ source file through the C preprocessor by doing @samp{gcc -E
 @samp{-I}, @samp{-D} or @samp{-U} options that you used in actual
 compilation.)
 
-A single statement is not enough of an example.  In order to compile
-it, it must be embedded in a function definition; and the bug might
-depend on the details of how this is done.
+A single statement is not enough of an example.  In order to compile it,
+it must be embedded in a complete file of compiler input; and the bug
+might depend on the details of how this is done.
 
 Without a real example one can compile, all anyone can do about your bug
 report is wish you luck.  It would be futile to try to guess how to
 provoke the bug.  For example, bugs in register allocation and reloading
 frequently depend on every little detail of the function they happen in.
+
+Even if the input file that fails comes from a GNU program, you should
+still send the complete test case.  Don't ask the GNU CC maintainers to
+do the extra work of obtaining the program in question---they are all
+overworked as it is.  Also, the problem may depend on what is in the
+header files on your system; it is unreliable for the GNU CC maintainers
+to try the problem with the header files available to them.  By sending
+CPP output, you can eliminate this source of uncertainty.
 
 @item
 The command arguments you gave GNU CC or GNU C++ to compile that example
@@ -1873,7 +2178,8 @@ source.  (We don't promise to investigate the bug unless it happens in
 an unmodified compiler.  But if you've made modifications and don't tell
 us, then you are sending us on a wild goose chase.)
 
-Be precise about these changes---show a context diff for them.
+Be precise about these changes.  A description in English is not
+enough---send a context diff for them.
 
 Adding files of your own (such as a machine description for a machine we
 don't support) is a modification of the compiler source.
@@ -1891,7 +2197,7 @@ Of course, if the bug is that the compiler gets a fatal signal, then one
 can't miss it.  But if the bug is incorrect output, the maintainer might
 not notice unless it is glaringly wrong.  None of us has time to study
 all the assembler code from a 50-line C program just on the chance that
-one instruction might be wrong.  We need @code{you} to do this part!
+one instruction might be wrong.  We need @emph{you} to do this part!
 
 Even if the problem you experience is a fatal signal, you should still
 say so explicitly.  Suppose something strange is going on, such as, your
@@ -1902,6 +2208,9 @@ then when the compiler here fails to crash, we would know that the bug
 was not happening.  If you don't say to expect a crash, then we would
 not know whether the bug was happening.  We would not be able to draw
 any conclusion from our observations.
+
+If the problem is a diagnostic when compiling GNU CC with some other
+compiler, say whether it is a warning or an error.
 
 Often the observed symptom is incorrect output when your program is run.
 Sad to say, this is not enough information unless the program is short
@@ -1919,9 +2228,8 @@ includes source line numbers which are essential for correlating the
 output with the input.
 
 @item
-If you wish to suggest changes to the GNU CC source, send them as
-context diffs.  If you even discuss something in the GNU CC source,
-refer to it by context, not by line number.
+If you wish to mention something in the GNU CC source, refer to it by
+context, not by line number.
 
 The line numbers in the development sources don't match those in your
 sources.  Your line numbers would convey no useful information to the
@@ -1960,10 +2268,6 @@ to.  (If GDB doesn't run on your machine, use your debugger to call
 the function @code{debug_rtx} with the RTX as an argument.)  In
 general, whenever a variable is a pointer, its value is no use
 without the data it points to.
-
-In addition, include a debugging dump from just before the pass
-in which the crash happens.  Most bugs involve a series of insns,
-not just one.
 @end itemize
 
 Here are some things that are not necessary:
@@ -1995,6 +2299,12 @@ However, simplification is not vital; if you don't want to do this,
 report the bug anyway and send the entire test case you used.
 
 @item
+In particular, some people insert conditionals @samp{#ifdef BUG} around
+a statement which, if removed, makes the bug not happen.  These are just
+clutter; we won't pay any attention to them anyway.  Besides, you should
+send us cpp output, and that can't have conditionals.
+
+@item
 A patch for the bug.
 
 A patch for the bug is useful if it is a good one.  But don't omit the
@@ -2019,6 +2329,13 @@ A guess about what the bug is or what it depends on.
 
 Such guesses are usually wrong.  Even I can't guess right about such
 things without first using the debugger to find the facts.
+
+@item
+A core dump file.
+
+We have no way of examining a core dump for your type of machine
+unless we have an identical system---and if we do have one,
+we should be able to reproduce the crash ourselves.
 @end itemize
 
 @node Sending Patches,, Bug Reporting, Bugs
@@ -2113,7 +2430,7 @@ If you would like your name to appear in the header line for who made
 the change, send us the header line.
 
 @item
-When you write the fix, keep in mind that I can't install a change that
+When you write the fix, keep in mind that we can't install a change that
 would break other systems.
 
 People often suggest fixing a problem by changing machine-independent
@@ -2265,6 +2582,10 @@ may have to generate or create header files, either by using the public
 domain utility @code{UNSDL} (which can be found on a DECUS tape), or by
 extracting the relevant modules from one of the system macro libraries,
 and using an editor to construct a C header file.
+
+A @code{#include} file name cannot contain a DECNET node name.  The
+preprocessor reports an I/O error if you attempt to use a node name,
+whether explicitly, or implicitly via a logical name.
 
 @node Global Declarations
 @section Global Declarations and VMS
@@ -2418,13 +2739,18 @@ placed in writable storage.
 @cindex name augmentation
 @cindex case sensitivity and VMS
 @cindex VMS and case sensitivity
-The VMS linker does not distinguish between upper and lower case letters
-in function and variable names.  However, usual practice in C is to
-distinguish case.  Normally GNU CC (by means of the assembler GAS)
-implements usual C behavior by augmenting each name that is not all
-lower-case.  A name is augmented by truncating it to at most 23
-characters and then adding more characters at the end which encode the
-case pattern the rest.
+Although the VMS linker does distinguish between upper and lower case
+letters in global symbols, most VMS compilers convert all such symbols
+into upper case and most run-time library routines also have upper case
+names.  To be able to reliably call such routines, GNU CC (by means of
+the assembler GAS) converts global symbols into upper case like other
+VMS compilers.  However, since the usual practice in C is to distinguish
+case, GNU CC (via GAS) tries to preserve usual C behavior by augmenting
+each name that is not all lower case.  This means truncating the name
+to at most 23 characters and then adding more characters at the end
+which encode the case pattern of those 23.   Names which contain at
+least one dollar sign are an exception; they are converted directly into
+upper case without augmentation.
 
 Name augmentation yields bad results for programs that use precompiled
 libraries (such as Xlib) which were generated by another compiler.  You
@@ -2432,7 +2758,8 @@ can use the compiler option @samp{/NOCASE_HACK} to inhibit augmentation;
 it makes external C functions and variables case-independent as is usual
 on VMS.  Alternatively, you could write all references to the functions
 and variables in such libraries using lower case; this will work on VMS,
-but is not portable to other systems.
+but is not portable to other systems.  The compiler option @samp{/NAMES}
+also provides control over global name handling.
 
 Function and variable names are handled somewhat differently with GNU
 C++.  The GNU C++ compiler performs @dfn{name mangling} on function
@@ -2680,8 +3007,8 @@ The source files for parsing C are @file{c-parse.y}, @file{c-decl.c},
 @file{c-tree.h}.
 
 The source files for parsing C++ are @file{cp-parse.y},
-@file{cp-class.c}, @file{cp-cvt.c},@*
-@file{cp-decl.c}, @file{cp-decl.c}, @file{cp-decl2.c},
+@file{cp-class.c},@*
+@file{cp-cvt.c}, @file{cp-decl.c}, @file{cp-decl2.c},
 @file{cp-dem.c}, @file{cp-except.c},@*
 @file{cp-expr.c}, @file{cp-init.c}, @file{cp-lex.c},
 @file{cp-method.c}, @file{cp-ptree.c},@*
@@ -2902,7 +3229,7 @@ the input file name.
 
 @cindex global register allocation
 @item
-Global register allocation (@file{global-alloc.c}).  This pass
+Global register allocation (@file{global.c}).  This pass
 allocates hard registers for the remaining pseudo registers (those
 whose life spans are not contained in one basic block).
 
@@ -3194,6 +3521,34 @@ system.
 @item NO_SYS_SIGLIST
 Define this if your system @emph{does not} provide the variable
 @code{sys_siglist}.
+
+@findex USE_PROTOTYPES
+@item USE_PROTOTYPES
+Define this to be 1 if you know that the host compiler supports
+prototypes, even if it doesn't define __STDC__, or define
+it to be 0 if you do not want any prototypes used in compiling
+GNU CC.  If @samp{USE_PROTOTYPES} is not defined, it will be
+determined automatically whether your compiler supports
+prototypes by checking if @samp{__STDC__} is defined.
+
+@findex NO_MD_PROTOTYPES
+@item NO_MD_PROTOTYPES
+Define this if you wish suppression of prototypes generated from
+the machine description file, but to use other prototypes within
+GNU CC.  If @samp{USE_PROTOTYPES} is defined to be 0, or the
+host compiler does not support prototypes, this macro has no
+effect.
+
+@findex MD_CALL_PROTOTYPES
+@item MD_CALL_PROTOTYPES
+Define this if you wish to generate prototypes for the
+@code{gen_call} or @code{gen_call_value} functions generated from
+the machine description file.  If @samp{USE_PROTOTYPES} is
+defined to be 0, or the host compiler does not support
+prototypes, or @samp{NO_MD_PROTOTYPES} is defined, this macro has
+no effect.  As soon as all of the machine descriptions are
+modified to have the appropriate number of arguments, this macro
+will be removed.
 
 @vindex sys_siglist
 Some systems do provide this variable, but with a different name such

@@ -19,7 +19,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include <stdio.h>
-#include "config.h"
+#include "hconfig.h"
 #include "rtl.h"
 #include "obstack.h"
 
@@ -83,7 +83,7 @@ max_operand_1 (x)
   if (code == MATCH_OPERAND || code == MATCH_OPERATOR
       || code == MATCH_PARALLEL)
     max_opno = MAX (max_opno, XINT (x, 0));
-  if (code == MATCH_DUP || code == MATCH_OP_DUP)
+  if (code == MATCH_DUP || code == MATCH_OP_DUP || code == MATCH_PAR_DUP)
     max_dup_opno = MAX (max_dup_opno, XINT (x, 0));
 
   fmt = GET_RTX_FORMAT (code);
@@ -146,7 +146,7 @@ gen_exp (x)
 
   if (x == 0)
     {
-      printf ("0");
+      printf ("NULL_RTX");
       return;
     }
 
@@ -182,6 +182,7 @@ gen_exp (x)
       return;
 
     case MATCH_PARALLEL:
+    case MATCH_PAR_DUP:
       printf ("operand%d", XINT (x, 0));
       return;
 
@@ -202,25 +203,27 @@ gen_exp (x)
 
     case CONST_INT:
       if (INTVAL (x) == 0)
-	{
-	  printf ("const0_rtx");
-	  return;
-	}
-      if (INTVAL (x) == 1)
-	{
-	  printf ("const1_rtx");
-	  return;
-	}
-      if (INTVAL (x) == -1)
-	{
-	  printf ("constm1_rtx");
-	  return;
-	}
-      if (INTVAL (x) == STORE_FLAG_VALUE)
-	{
-	  printf ("const_true_rtx");
-	  return;
-	}
+	printf ("const0_rtx");
+      else if (INTVAL (x) == 1)
+	printf ("const1_rtx");
+      else if (INTVAL (x) == -1)
+	printf ("constm1_rtx");
+      else if (INTVAL (x) == STORE_FLAG_VALUE)
+	printf ("const_true_rtx");
+      else
+	printf (
+#if HOST_BITS_PER_WIDE_INT == HOST_BITS_PER_INT	     
+		"GEN_INT (%d)",
+#else
+		"GEN_INT (%ld)",
+#endif
+		INTVAL (x));
+      return;
+
+    case CONST_DOUBLE:
+      /* These shouldn't be written in MD files.  Instead, the appropriate
+	 routines in varasm.c should be called.  */
+      abort ();
     }
 
   printf ("gen_rtx (");
@@ -237,7 +240,7 @@ gen_exp (x)
       if (fmt[i] == 'e' || fmt[i] == 'u')
 	gen_exp (XEXP (x, i));
       else if (fmt[i] == 'i')
-	printf ("%u", (unsigned) XINT (x, i));
+	printf ("%u", XINT (x, i));
       else if (fmt[i] == 's')
 	printf ("\"%s\"", XSTR (x, i));
       else if (fmt[i] == 'E')

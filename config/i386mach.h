@@ -1,11 +1,19 @@
 /* Configuration for an i386 running Mach as the target machine.  */
-#include "i386gas.h"
+
+/* We do want to add an underscore to the front of each user symbol.
+   i386gas.h checks this.  */
+#define YES_UNDERSCORES
+
+#include "i386gstabs.h"
 
 #undef CPP_PREDEFINES
 #define CPP_PREDEFINES "-Dunix -Di386 -DMACH"
 
 /* Specify extra dir to search for include files.  */
 #define SYSTEM_INCLUDE_DIR "/usr/mach/include"
+
+/* Make stddef.h agree with types.h.  */
+#define SIZE_TYPE "long int"
 
 /* Defines to be able to build libgcc.a with GCC.  */
 
@@ -60,15 +68,18 @@
   auto unsigned short ostatus;						\
   auto unsigned short nstatus;						\
   auto int ret;								\
+  auto double tmp;							\
 									\
   &ostatus;			/* guarantee these land in memory */	\
   &nstatus;								\
   &ret;									\
+  &tmp;									\
 									\
   asm volatile ("fnstcw %0" : "=m" (ostatus));				\
   nstatus = ostatus | 0x0c00;						\
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (nstatus));		\
-  asm volatile ("fldl %0" : /* no outputs */ : "m" (a));		\
+  tmp = a;								\
+  asm volatile ("fldl %0" : /* no outputs */ : "m" (tmp));		\
   asm volatile ("fistpl %0" : "=m" (ret));				\
   asm volatile ("fldcw %0" : /* no outputs */ : "m" (ostatus));		\
 									\

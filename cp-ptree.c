@@ -38,11 +38,20 @@ print_lang_decl (file, node, indent)
     return;
   indent_to (file, indent + 3);
   if (DECL_MAIN_VARIANT (node))
-    fprintf (file, " decl-main-variant %x", DECL_MAIN_VARIANT (node));
+    {
+      fprintf (file, " decl-main-variant ");
+      fprintf (file, HOST_PTR_PRINTF, DECL_MAIN_VARIANT (node));
+    }
   if (DECL_PENDING_INLINE_INFO (node))
-    fprintf (file, " pending-inline-info %x", DECL_PENDING_INLINE_INFO (node));
+    {
+      fprintf (file, " pending-inline-info ");
+      fprintf (file, HOST_PTR_PRINTF, DECL_PENDING_INLINE_INFO (node));
+    }
   if (DECL_TEMPLATE_INFO (node))
-    fprintf (file, " template-info %x", DECL_TEMPLATE_INFO (node));
+    {
+      fprintf (file, " template-info ");
+      fprintf (file, HOST_PTR_PRINTF,  DECL_TEMPLATE_INFO (node));
+    }
 }
 
 void
@@ -97,8 +106,6 @@ print_lang_type (file, node, indent)
     fputs (" this=(X&)", file);
   if (TYPE_GETS_ASSIGN_REF (node))
     fputs (" gets=(X&)", file);
-  if (TYPE_HAS_WRAPPER (node))
-    fputs (" wrapper", file);
   if (TYPE_OVERLOADS_METHOD_CALL_EXPR (node))
     fputs (" op->()", file);
   if (TYPE_GETS_INIT_AGGR (node))

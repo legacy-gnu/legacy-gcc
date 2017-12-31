@@ -31,6 +31,9 @@
 #
 #	See README-fixinc for more information.
 
+# Directory where gcc sources (and sometimes special include files) live.
+SRCDIR=${3-${SRCDIR-.}}
+
 # Directory containing the original header files.
 INPUT=${2-${INPUT-/usr/include}}
 
@@ -41,7 +44,7 @@ exit 1
 fi
 
 # Directory in which to store the results.
-LIB=${1-${LIB-/usr/local/lib/gcc-include}}
+LIB=${1?"fixincludes: output directory not specified"}
 
 # Make sure it exists.
 if [ ! -d $LIB ]; then
@@ -55,8 +58,12 @@ cd $LIB; LIB=`pwd`
 
 # This prevents /bin/ex from failing if the current terminal type is
 # unrecognizable.
-TERM=unknown
+TERM=dumb
 export TERM
+# This prevents /bin/ex from failing if the EXINIT environment variable
+# was set to something invalid.
+EXINIT=""
+export EXINIT
 
 echo 'Building fixincludes in ' ${LIB}
 
@@ -145,6 +152,15 @@ while [ $# != 0 ]; do
 # which isn't much of a reason. -- rms.
 #	  /^[ 	]*#[ 	]*ident/d
 
+# This code makes Solaris SCSI fail, because it changes the
+# alignment within some critical structures.  See <sys/scsi/impl/commands.h>.
+#	  s/u_char\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
+# Disable these also, since they probably aren't safe either.
+#	  s/u_short\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
+#	  s/ushort\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
+#	  s/evcm_t\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
+#	  s/Pbyte\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*SEQSIZ\)/unsigned int\1/
+
 # The change of u_char, etc, to u_int
 # applies to bit fields.
 	sed -e '
@@ -166,11 +182,6 @@ while [ $# != 0 ]; do
 	  /#[a-z]*if.*[	 (]ns32000/	s/\([^_]\)ns32000/\1__ns32000__/g
 	  /#[a-z]*if.*[	 (]pyr/		s/\([^_]\)pyr/\1__pyr__/g
 	  /#[a-z]*if.*[	 (]is68k/	s/\([^_]\)is68k/\1__is68k__/g
-	  s/u_char\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
-	  s/u_short\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
-	  s/ushort\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
-	  s/evcm_t\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*[0-9][0-9]*\)/u_int\1/
-	  s/Pbyte\([ 	][ 	]*[a-zA-Z0-9_][a-zA-Z0-9_]*[ 	]*:[ 	]*SEQSIZ\)/unsigned int\1/
 	  s/__STDC__ == 0/!defined (__STRICT_ANSI__)/g
 	  s/__STDC__ != 0/defined (__STRICT_ANSI__)/g
 	  s/__STDC__ - 0 == 0/!defined (__STRICT_ANSI__)/g
@@ -360,7 +371,7 @@ EOF
   rm -f /tmp/$base
 fi
 
-# Add some missing declarations to <sys/mman.h>.
+# Add a prototyped declaration of mmap to <sys/mman.h>.
 
 file=sys/mman.h
 base=`basename $file`
@@ -460,7 +471,52 @@ fi
 
 # Add a `static' declaration of `getrnge' into <regexp.h>.
 
+# Don't do this if there is already a `static void getrnge' declaration
+# present, since this would cause a redeclaration error.  Solaris 2.x has
+# such a declaration.
+
 file=regexp.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  if grep "static void getrnge" $file_to_fix > /dev/null; then
+    true
+  else
+    cp $file_to_fix /tmp/$base
+    chmod +w /tmp/$base
+    ex /tmp/$base <<EOF
+    /^static int[ 	]*size;/c
+static int	size ;
+
+static int getrnge ();
+.
+    wq
+EOF
+    if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+      No change needed in $file_to_fix
+    else
+      echo Fixed $file_to_fix
+      rm -f ${LIB}/$file
+      cp /tmp/$base ${LIB}/$file
+    fi
+  fi
+  rm -f /tmp/$base
+fi
+
+# Disable apparent native compiler optimization cruft in SVR4.2 <string.h>
+# that is visible to any ANSI compiler using this include.  Simply
+# delete the lines the #define some string functions to internal forms.
+
+file=string.h
 base=`basename $file`
 if [ -r ${LIB}/$file ]; then
   file_to_fix=${LIB}/$file
@@ -476,11 +532,7 @@ if [ \! -z "$file_to_fix" ]; then
   cp $file_to_fix /tmp/$base
   chmod +w /tmp/$base
   ex /tmp/$base <<EOF
-  /^static int[ 	]*size;/c
-static int	size ;
-
-static int getrnge ();
-.
+  g/#define.*__std_hdr_/d
   wq
 EOF
   if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
@@ -494,6 +546,7 @@ EOF
 fi
 
 # Add a #define of _SIGACTION_ into <sys/signal.h>.
+# Also fix types of SIG_DFL, SIG_ERR, SIG_IGN, and SIG_HOLD.
 
 file=sys/signal.h
 base=`basename $file`
@@ -515,6 +568,7 @@ if [ \! -z "$file_to_fix" ]; then
 #define _SIGACTION_
 struct  sigaction  {
 .
+  1,\$s/(void *(\*)())/(void (*)(int))/
   wq
 EOF
   if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
@@ -853,6 +907,205 @@ if [ \! -z "$file_to_fix" ]; then
   fi
 fi
 
+# Conditionalize some of <netinet/in.h> on _KERNEL being defined.
+
+file=netinet/in.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  if grep _KERNEL $file_to_fix > /dev/null; then
+    echo No change needed in $file_to_fix
+  else
+    sed -e '/#ifdef INKERNEL/i\
+#ifdef _KERNEL' \
+    -e '/#endif[ 	]*\/\* INKERNEL \*\//a\
+#endif /* _KERNEL */' \
+    $file_to_fix > ${LIB}/${file}.sed
+    rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+    echo Fixed $file_to_fix
+  fi
+fi
+
+# Conditionalize some of <sys/endian.h> on __GNUC__ and __GNUG__.
+
+file=sys/endian.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  if grep __GNUC__ $file_to_fix > /dev/null; then
+    echo No change needed in $file_to_fix
+  else
+    sed -e '/#	ifdef	__STDC__/i\
+#   if !defined (__GNUC__) && !defined (__GNUG__)' \
+    -e '/#		include	<sys\/byteorder.h>/s/		/   /'\
+    -e '/#   include	<sys\/byteorder.h>/i\
+#   endif /* !defined (__GNUC__) && !defined (__GNUG__) */'\
+    $file_to_fix > ${LIB}/${file}.sed
+    rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+    echo Fixed $file_to_fix
+  fi
+fi
+
+# Commented out because tmcconne@sedona.intel.com says we don't clearly need it
+# and the text in types.h is not erroneous.
+## In sys/types.h, don't name the enum for booleans.
+#
+#file=sys/types.h
+#base=`basename $file`
+#if [ -r ${LIB}/$file ]; then
+#  file_to_fix=${LIB}/$file
+#else
+#  if [ -r ${INPUT}/$file ]; then
+#    file_to_fix=${INPUT}/$file
+#  else
+#    file_to_fix=""
+#  fi
+#fi
+#if [ \! -z "$file_to_fix" ]; then
+#  echo Checking $file_to_fix
+#  if grep "enum boolean" $file_to_fix > /dev/null; then
+#    sed -e 's/enum boolean/enum/' ${LIB}/$file > ${LIB}/${file}.sed
+#    rm -f ${LIB}/$file; mv ${LIB}/${file}.sed ${LIB}/$file
+#    echo Fixed $file_to_fix
+#  else
+#    echo No change needed in $file_to_fix
+#  fi
+#fi
+
+# Remove useless extern keyword from struct forward declarations in
+# <sys/stream.h> and <sys/strsubr.h>
+
+file=sys/stream.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  sed -e '
+    s/extern struct stdata;/struct stdata;/g
+    s/extern struct strevent;/struct strevent;/g
+  ' $file_to_fix > /tmp/$base 
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+file=sys/strsubr.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  sed -e '
+    s/extern struct strbuf;/struct strbuf;/g
+    s/extern struct uio;/struct uio;/g
+    s/extern struct thread;/struct thread;/g
+    s/extern struct proc;/struct proc;/g
+  ' $file_to_fix > /tmp/$base 
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Convert functions to prototype form, and fix arg names in <sys/stat.h>.
+
+file=sys/stat.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  cp $file_to_fix /tmp/$base
+  chmod +w /tmp/$base
+  ex /tmp/$base <<EOF
+/^stat(path, buf)/j
+j
+-
+/^stat(path, buf)/c
+stat (const char *path, struct stat *buf)
+.
+/^lstat(path, buf)/j
+j
+-
+/^lstat(path, buf)/c
+lstat (const char *path, struct stat *buf)
+.
+/^fstat(fd, buf)/j
+j
+-
+/^fstat(fd, buf)/c
+fstat (int fd, struct stat *buf)
+.
+/^mknod(path, mode, dev)/j
+j
+j
+-
+/^mknod(path, mode, dev)/c
+mknod (const char *path, mode_t mode, dev_t dev)
+.
+1,\$s/path/__path/g
+1,\$s/buf/__buf/g
+1,\$s/fd/__fd/g
+1,\$s/ret\\([^u]\\)/__ret\1/g
+1,\$s/\\([^_]\\)mode\\([^_]\\)/\\1__mode\\2/g
+1,\$s/\\([^_r]\\)dev\\([^_]\\)/\\1__dev\\2/g
+wq
+EOF
+  echo Fixed $file_to_fix
+  rm -f ${LIB}/$file
+  cp /tmp/$base ${LIB}/$file
+  rm -f /tmp/$base
+fi
+
 # Sony NEWSOS 5.0 does not support the complete ANSI C standard.
 
 if [ -x /bin/sony ]; then
@@ -924,6 +1177,57 @@ if [ -x /bin/sony ]; then
   fi
 fi
 
+# In limits.h, put #ifndefs around things that are supposed to be defined
+# in float.h to avoid redefinition errors if float.h is included first.
+# Solaris 2.1 has this problem.
+
+file=limits.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  sed -e '/[ 	]FLT_MIN[ 	]/i\
+#ifndef FLT_MIN'\
+      -e '/[ 	]FLT_MIN[ 	]/a\
+#endif'\
+      -e '/[ 	]FLT_MAX[ 	]/i\
+#ifndef FLT_MAX'\
+      -e '/[ 	]FLT_MAX[ 	]/a\
+#endif'\
+      -e '/[ 	]FLT_DIG[ 	]/i\
+#ifndef FLT_DIG'\
+      -e '/[ 	]FLT_DIG[ 	]/a\
+#endif'\
+      -e '/[ 	]DBL_MIN[ 	]/i\
+#ifndef DBL_MIN'\
+      -e '/[ 	]DBL_MIN[ 	]/a\
+#endif'\
+      -e '/[ 	]DBL_MAX[ 	]/i\
+#ifndef DBL_MAX'\
+      -e '/[ 	]DBL_MAX[ 	]/a\
+#endif'\
+      -e '/[ 	]DBL_DIG[ 	]/i\
+#ifndef DBL_DIG'\
+      -e '/[ 	]DBL_DIG[ 	]/a\
+#endif' $file_to_fix > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
 echo 'Removing unneeded directories:'
 cd $LIB
 files=`find . -type d -print | sort -r`
@@ -950,7 +1254,7 @@ cd ${ORIG_DIR}
 
 echo 'Replacing <sys/byteorder.h>'
 rm -f ${LIB}/sys/byteorder.h
-cp byteorder.h ${LIB}/sys/byteorder.h
+cp ${SRCDIR}/byteorder.h ${LIB}/sys/byteorder.h
 
 exit 0
 

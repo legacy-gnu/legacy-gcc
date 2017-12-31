@@ -339,8 +339,21 @@ yyprint (file, yychar, yylval)
     case CONSTANT:
       t = yylval.ttype;
       if (TREE_CODE (t) == INTEGER_CST)
-	fprintf (file, " 0x%8x%8x", TREE_INT_CST_HIGH (t),
-		 TREE_INT_CST_LOW (t));
+	fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == 64
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%016lx",
+#else
+		 " 0x%x%016x",
+#endif
+#else
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%08lx",
+#else
+		 " 0x%x%08x",
+#endif
+#endif
+		 TREE_INT_CST_HIGH (t), TREE_INT_CST_LOW (t));
       break;
     }
 }
@@ -481,6 +494,9 @@ check_newline ()
 	      && getc (finput) == 'a'
 	      && ((c = getc (finput)) == ' ' || c == '\t' || c == '\n'))
 	    {
+#ifdef HANDLE_SYSV_PRAGMA
+	      return handle_sysv_pragma (finput, c);
+#endif /* HANDLE_SYSV_PRAGMA */
 #ifdef HANDLE_PRAGMA
 	      HANDLE_PRAGMA (finput);
 #endif /* HANDLE_PRAGMA */
@@ -729,20 +745,66 @@ linenum:
   return c;
 }
 
+#ifdef HANDLE_SYSV_PRAGMA
+
+/* Handle a #pragma directive.  INPUT is the current input stream,
+   and C is a character to reread.  Processes the entire input line
+   and returns a character for the caller to reread: either \n or EOF.  */
+
+/* This function has to be in this file, in order to get at
+   the token types.  */
+
+int
+handle_sysv_pragma (input, c)
+     FILE *input;
+     int c;
+{
+  for (;;)
+    {
+      while (c == ' ' || c == '\t')
+	c = getc (input);
+      if (c == '\n' || c == EOF)
+	{
+	  handle_pragma_token (0, 0);
+	  return c;
+	}
+      ungetc (c, input);
+      switch (yylex ())
+	{
+	case IDENTIFIER:
+	case TYPENAME:
+	case STRING:
+	case CONSTANT:
+	  handle_pragma_token (token_buffer, yylval.ttype);
+	  break;
+	default:
+	  handle_pragma_token (token_buffer, 0);
+	}
+      if (nextchar >= 0)
+	c = nextchar, nextchar = -1;
+      else
+	c = getc (input);
+    }
+}
+
+#endif /* HANDLE_SYSV_PRAGMA */
+
 #define isalnum(char) ((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9'))
 #define isdigit(char) (char >= '0' && char <= '9')
 #define ENDFILE -1  /* token that represents end-of-file */
 
 /* Read an escape sequence, returning its equivalent as a character,
-   or -1 if it is backslash-newline.  */
+   or store 1 in *ignore_ptr if it is backslash-newline.  */
 
 static int
-readescape ()
+readescape (ignore_ptr)
+     int *ignore_ptr;
 {
   register int c = getc (finput);
   register int code;
   register unsigned count;
   unsigned firstdig;
+  int nonnull;
 
   switch (c)
     {
@@ -755,6 +817,7 @@ readescape ()
 
       code = 0;
       count = 0;
+      nonnull = 0;
       while (1)
 	{
 	  c = getc (finput);
@@ -772,12 +835,19 @@ readescape ()
 	    code += c - 'A' + 10;
 	  if (c >= '0' && c <= '9')
 	    code += c - '0';
-	  if (count == 0)
-	    firstdig = code;
-	  count++;
+	  if (code != 0 || count != 0)
+	    {
+	      if (count == 0)
+		firstdig = code;
+	      count++;
+	    }
+	  nonnull = 1;
 	}
-      if (count == 0)
+      if (! nonnull)
 	error ("\\x used with no following hex digits");
+      else if (count == 0)
+	/* Digits are all 0's.  Ok.  */
+	;
       else if ((count - 1) * 4 >= TYPE_PRECISION (integer_type_node)
 	       || (count > 1
 		   && ((1 << (TYPE_PRECISION (integer_type_node) - (count - 1) * 4))
@@ -802,7 +872,8 @@ readescape ()
 
     case '\n':
       lineno++;
-      return -1;
+      *ignore_ptr = 1;
+      return 0;
 
     case 'n':
       return TARGET_NEWLINE;
@@ -834,8 +905,10 @@ readescape ()
 #endif
       return TARGET_VT;
 
+    case 'e':
     case 'E':
-      pedwarn ("non-ANSI-standard escape sequence, `\\E'");
+      if (pedantic)
+	pedwarn ("non-ANSI-standard escape sequence, `\\%c'", c);
       return 033;
 
     case '?':
@@ -849,7 +922,7 @@ readescape ()
 	pedwarn ("non-ANSI escape sequence `\\%c'", c);
       return c;
     }
-  if (c >= 040 && c <= 0177)
+  if (c >= 040 && c < 0177)
     pedwarn ("unknown escape sequence `\\%c'", c);
   else
     pedwarn ("unknown escape sequence: `\\' followed by char code 0x%x", c);
@@ -1104,16 +1177,20 @@ yylex ()
 	int largest_digit = 0;
 	int numdigits = 0;
 	/* for multi-precision arithmetic,
-	   we store only 8 live bits in each short,
-	   giving us 64 bits of reliable precision */
-	short shorts[8];
+	   we actually store only HOST_BITS_PER_CHAR bits in each part.
+	   The number of parts is chosen so as to be sufficient to hold
+	   the enough bits to fit into the two HOST_WIDE_INTs that contain
+	   the integer value (this is always at least as many bits as are
+	   in a target `long long' value, but may be wider).  */
+#define TOTAL_PARTS ((HOST_BITS_PER_WIDE_INT / HOST_BITS_PER_CHAR) * 2 + 2)
+	int parts[TOTAL_PARTS];
 	int overflow = 0;
 
 	enum anon1 { NOT_FLOAT, AFTER_POINT, TOO_MANY_POINTS} floatflag
 	  = NOT_FLOAT;
 
-	for (count = 0; count < 8; count++)
-	  shorts[count] = 0;
+	for (count = 0; count < TOTAL_PARTS; count++)
+	  parts[count] = 0;
 
 	p = token_buffer;
 	*p++ = c;
@@ -1212,20 +1289,24 @@ yylex ()
 		  largest_digit = c;
 		numdigits++;
 
-		for (count = 0; count < 8; count++)
+		for (count = 0; count < TOTAL_PARTS; count++)
 		  {
-		    shorts[count] *= base;
+		    parts[count] *= base;
 		    if (count)
 		      {
-			shorts[count] += (shorts[count-1] >> 8);
-			shorts[count-1] &= (1<<8)-1;
+			parts[count]
+			  += (parts[count-1] >> HOST_BITS_PER_CHAR);
+			parts[count-1]
+			  &= (1 << HOST_BITS_PER_CHAR) - 1;
 		      }
-		    else shorts[0] += c;
+		    else
+		      parts[0] += c;
 		  }
 
-		if (shorts[7] >= 1<<8
-		    || shorts[7] < - (1 << 8))
-		  overflow = TRUE;
+		/* If the extra highest-order part ever gets anything in it,
+		   the number is certainly too big.  */
+		if (parts[TOTAL_PARTS - 1] != 0)
+		  overflow = 1;
 
 		if (p >= token_buffer + maxtoken - 3)
 		  p = extend_token_buffer (p);
@@ -1245,8 +1326,7 @@ yylex ()
 	if (floatflag != NOT_FLOAT)
 	  {
 	    tree type = double_type_node;
-	    char f_seen = 0;
-	    char l_seen = 0;
+	    int garbage_chars = 0, exceeds_double = 0;
 	    REAL_VALUE_TYPE value;
 	    jmp_buf handler;
 
@@ -1287,76 +1367,49 @@ yylex ()
 	      {
 		set_float_handler (handler);
 		value = REAL_VALUE_ATOF (token_buffer);
-		set_float_handler (0);
+		set_float_handler (NULL_PTR);
 	      }
 #ifdef ERANGE
 	    if (errno == ERANGE && !flag_traditional && pedantic)
 	      {
-		char *p1 = token_buffer;
-		/* Check for "0.0" and variants;
-		   Sunos 4 spuriously returns ERANGE for them.  */
-		while (*p1 == '0') p1++;
-		if (*p1 == '.')
+  		/* ERANGE is also reported for underflow,
+  		   so test the value to distinguish overflow from that.  */
+		if (REAL_VALUES_LESS (dconst1, value)
+		    || REAL_VALUES_LESS (value, dconstm1))
 		  {
-		    p1++;
-		    while (*p1 == '0') p1++;
+		    pedwarn ("floating point number exceeds range of `double'");
+		    exceeds_double = 1;
 		  }
-		if (*p1 == 'e' || *p1 == 'E')
-		  {
-		    /* with significand==0, ignore the exponent */
-		    p1++;
-		    while (*p1 != 0) p1++;
-		  }
-		/* ERANGE is also reported for underflow,
-		   so test the value to distinguish overflow from that.  */
-		if (*p1 != 0 && (value > 1.0 || value < -1.0))
-		  pedwarn ("floating point number exceeds range of `double'");
 	      }
 #endif
 
 	    /* Read the suffixes to choose a data type.  */
-	    while (1)
+	    switch (c)
 	      {
-		if (c == 'f' || c == 'F')
-		  {
-		    if (f_seen)
-		      error ("two `f's in floating constant");
-		    else
-		      {
-			f_seen = 1;
-			type = float_type_node;
-			value = REAL_VALUE_TRUNCATE (TYPE_MODE (type), value);
-			if (REAL_VALUE_ISINF (value) && pedantic)
-			  pedwarn ("floating point number exceeds range of `float'");
-		      }
-		  }
-		else if (c == 'l' || c == 'L')
-		  {
-		    if (l_seen)
-		      error ("two `l's in floating constant");
-		    l_seen = 1;
-		    type = long_double_type_node;
-		  }
-		else
-		  {
-		    if (isalnum (c))
-		      {
-			error ("garbage at end of number");
-			while (isalnum (c))
-			  {
-			    if (p >= token_buffer + maxtoken - 3)
-			      p = extend_token_buffer (p);
-			    *p++ = c;
-			    c = getc (finput);
-			  }
-		      }
-		    break;
-		  }
+	      case 'f': case 'F':
+		type = float_type_node;
+		value = REAL_VALUE_TRUNCATE (TYPE_MODE (type), value);
+		if (REAL_VALUE_ISINF (value) && ! exceeds_double && pedantic)
+		  pedwarn ("floating point number exceeds range of `float'");
+		garbage_chars = -1;
+		break;
+
+	      case 'l': case 'L':
+		type = long_double_type_node;
+		garbage_chars = -1;
+		break;
+	      }
+	    /* Note: garbage_chars is -1 if first char is *not* garbage.  */
+	    while (isalnum (c))
+	      {
 		if (p >= token_buffer + maxtoken - 3)
 		  p = extend_token_buffer (p);
 		*p++ = c;
 		c = getc (finput);
+		garbage_chars++;
 	      }
+	    if (garbage_chars > 0)
+	      error ("garbage at end of number");
 
 	    /* Create a node with determined type and value.  */
 	    yylval.ttype = build_real (type, value);
@@ -1367,6 +1420,7 @@ yylex ()
 	else
 	  {
 	    tree traditional_type, ansi_type, type;
+	    HOST_WIDE_INT high, low;
 	    int spec_unsigned = 0;
 	    int spec_long = 0;
 	    int spec_long_long = 0;
@@ -1430,107 +1484,29 @@ yylex ()
 	    else
 	      bytes = TYPE_PRECISION (long_integer_type_node) / 8;
 
-	    if (bytes <= 8)
-	      {
-		warn = overflow;
-		for (i = bytes; i < 8; i++)
-		  if (shorts[i])
-		    {
-		      /* If LL was not used, then clear any excess precision.
-			 This is equivalent to the original code, but it is
-			 not clear why this is being done.  Perhaps to prevent
-			 ANSI programs from creating long long constants
-			 by accident?  */
-		      if (! spec_long_long)
-			shorts[i] = 0;
-		      warn = 1;
-		    }
-		if (warn)
-		  pedwarn ("integer constant out of range");
-	      }
-	    else if (overflow)
-	      pedwarn ("integer constant larger than compiler can handle");
-
-	    /* If it overflowed our internal buffer, then make it unsigned.
-	       We can't distinguish based on the tree node because
-	       any integer constant fits any long long type.  */
-	    if (overflow)
-	      spec_unsigned = 1;
+	    warn = overflow;
+	    for (i = bytes; i < TOTAL_PARTS; i++)
+	      if (parts[i])
+		warn = 1;
+	    if (warn)
+	      pedwarn ("integer constant out of range");
 
 	    /* This is simplified by the fact that our constant
 	       is always positive.  */
-	    /* The casts in the following statement should not be
-	       needed, but they get around bugs in some C compilers.  */
-	    yylval.ttype
-	      = (build_int_2
-		 ((((long)shorts[3]<<24) + ((long)shorts[2]<<16)
-		   + ((long)shorts[1]<<8) + (long)shorts[0]),
-		  (((long)shorts[7]<<24) + ((long)shorts[6]<<16)
-		   + ((long)shorts[5]<<8) + (long)shorts[4])));
 
-#if 0
-	    /* Find the first allowable type that the value fits in.  */
-	    type = 0;
-	    for (i = 0; i < sizeof (type_sequence) / sizeof (type_sequence[0]);
-		 i++)
-	      if (!(spec_long && !type_sequence[i].long_flag)
-		  && !(spec_long_long && !type_sequence[i].long_long_flag)
-		  && !(spec_unsigned && !type_sequence[i].unsigned_flag)
-		  /* A decimal constant can't be unsigned int
-		     unless explicitly specified.  */
-		  && !(base == 10 && !spec_unsigned
-		       && *type_sequence[i].node_var == unsigned_type_node))
-		if (int_fits_type_p (yylval.ttype, *type_sequence[i].node_var))
-		  {
-		    type = *type_sequence[i].node_var;
-		    break;
-		  }
-	    if (flag_traditional && type == long_unsigned_type_node
-		&& !spec_unsigned)
-	      type = long_integer_type_node;
-	      
-	    if (type == 0)
+	    high = low = 0;
+
+	    for (i = 0; i < HOST_BITS_PER_WIDE_INT / HOST_BITS_PER_CHAR; i++)
 	      {
-		type = long_long_integer_type_node;
-		warning ("integer constant out of range");
+		high |= ((HOST_WIDE_INT) parts[i + (HOST_BITS_PER_WIDE_INT
+						    / HOST_BITS_PER_CHAR)]
+			 << (i * HOST_BITS_PER_CHAR));
+		low |= (HOST_WIDE_INT) parts[i] << (i * HOST_BITS_PER_CHAR);
 	      }
+	    
+	    yylval.ttype = build_int_2 (low, high);
+	    TREE_TYPE (yylval.ttype) = long_long_unsigned_type_node;
 
-	    /* Warn about some cases where the type of a given constant
-	       changes from traditional C to ANSI C.  */
-	    if (warn_traditional)
-	      {
-		tree other_type = 0;
-
-		/* This computation is the same as the previous one
-		   except that flag_traditional is used backwards.  */
-		for (i = 0; i < sizeof (type_sequence) / sizeof (type_sequence[0]);
-		     i++)
-		  if (!(spec_long && !type_sequence[i].long_flag)
-		      && !(spec_long_long && !type_sequence[i].long_long_flag)
-		      && !(spec_unsigned && !type_sequence[i].unsigned_flag)
-		      /* A decimal constant can't be unsigned int
-			 unless explicitly specified.  */
-		      && !(base == 10 && !spec_unsigned
-			   && *type_sequence[i].node_var == unsigned_type_node))
-		    if (int_fits_type_p (yylval.ttype, *type_sequence[i].node_var))
-		      {
-			other_type = *type_sequence[i].node_var;
-			break;
-		      }
-		if (!flag_traditional && type == long_unsigned_type_node
-		    && !spec_unsigned)
-		  type = long_integer_type_node;
-	      
-		if (other_type != 0 && other_type != type)
-		  {
-		    if (flag_traditional)
-		      warning ("type of integer constant would be different without -traditional");
-		    else
-		      warning ("type of integer constant would be different with -traditional");
-		  }
-	      }
-
-#else /* 1 */
 	    /* If warn_traditional, calculate both the ANSI type and the
 	       traditional type, then see if they disagree.
 	       Otherwise, calculate only the type for the dialect in use.  */
@@ -1553,9 +1529,7 @@ yylex ()
 			 && int_fits_type_p (yylval.ttype, integer_type_node))
 		  traditional_type = (spec_unsigned ? unsigned_type_node
 				      : integer_type_node);
-		else if (! spec_long_long
-			 && int_fits_type_p (yylval.ttype,
-					     long_unsigned_type_node))
+		else if (! spec_long_long)
 		  traditional_type = (spec_unsigned ? long_unsigned_type_node
 				      : long_integer_type_node);
 		else
@@ -1575,11 +1549,11 @@ yylex ()
 		else if (! spec_unsigned && !spec_long_long
 			 && int_fits_type_p (yylval.ttype, long_integer_type_node))
 		  ansi_type = long_integer_type_node;
-		else if (! spec_long_long
-			 && int_fits_type_p (yylval.ttype,
-					     long_unsigned_type_node))
+		else if (! spec_long_long)
 		  ansi_type = long_unsigned_type_node;
 		else if (! spec_unsigned
+			 /* Verify value does not overflow into sign bit.  */
+			 && TREE_INT_CST_HIGH (yylval.ttype) >= 0
 			 && int_fits_type_p (yylval.ttype,
 					     long_long_integer_type_node))
 		  ansi_type = long_long_integer_type_node;
@@ -1600,12 +1574,25 @@ yylex ()
 		else
 		  warning ("width of integer constant may change on other systems with -traditional");
 	      }
-#endif
 
-	    if (!flag_traditional && !int_fits_type_p (yylval.ttype, type))
+	    if (!flag_traditional && !int_fits_type_p (yylval.ttype, type)
+		&& !warn)
 	      pedwarn ("integer constant out of range");
 
-	    TREE_TYPE (yylval.ttype) = type;
+	    if (base == 10 && ! spec_unsigned && TREE_UNSIGNED (type))
+	      warning ("integer constant is so large that it is unsigned");
+
+	    if (flag_traditional && !int_fits_type_p (yylval.ttype, type))
+	      /* The traditional constant 0x80000000 is signed
+		 but doesn't fit in the range of int.
+		 This will change it to -0x80000000, which does fit.  */
+	      {
+		TREE_TYPE (yylval.ttype) = unsigned_type (type);
+		yylval.ttype = convert (type, yylval.ttype);
+	      }
+	    else
+	      TREE_TYPE (yylval.ttype) = type;
+
 	    *p = 0;
 	  }
 
@@ -1616,7 +1603,7 @@ yylex ()
     char_constant:
       {
 	register int result = 0;
-	register num_chars = 0;
+	register int num_chars = 0;
 	unsigned width = TYPE_PRECISION (char_type_node);
 	int max_chars;
 
@@ -1643,8 +1630,9 @@ yylex ()
 
 	    if (c == '\\')
 	      {
-		c = readescape ();
-		if (c < 0)
+		int ignore = 0;
+		c = readescape (&ignore);
+		if (ignore)
 		  goto tryagain;
 		if (width < HOST_BITS_PER_INT
 		    && (unsigned) c >= (1 << width))
@@ -1695,13 +1683,13 @@ yylex ()
 	    if (TREE_UNSIGNED (char_type_node)
 		|| ((result >> (num_bits - 1)) & 1) == 0)
 	      yylval.ttype
-		= build_int_2 (result & ((unsigned) ~0
-					 >> (HOST_BITS_PER_INT - num_bits)),
+		= build_int_2 (result & ((unsigned HOST_WIDE_INT) ~0
+					 >> (HOST_BITS_PER_WIDE_INT - num_bits)),
 			       0);
 	    else
 	      yylval.ttype
-		= build_int_2 (result | ~((unsigned) ~0
-					  >> (HOST_BITS_PER_INT - num_bits)),
+		= build_int_2 (result | ~((unsigned HOST_WIDE_INT) ~0
+					  >> (HOST_BITS_PER_WIDE_INT - num_bits)),
 			       -1);
 	  }
 	else
@@ -1715,7 +1703,7 @@ yylex ()
 		|| (num_chars == 1 && token_buffer[1] != '\0'))
 	      {
 		wchar_t wc;
-		(void) mbtowc (NULL, NULL, 0);
+		(void) mbtowc (NULL_PTR, NULL_PTR, 0);
 		if (mbtowc (& wc, token_buffer + 1, num_chars) == num_chars)
 		  result = wc;
 		else
@@ -1741,8 +1729,9 @@ yylex ()
 	    /* ignore_escape_flag is set for reading the filename in #line.  */
 	    if (!ignore_escape_flag && c == '\\')
 	      {
-		c = readescape ();
-		if (c < 0)
+		int ignore = 0;
+		c = readescape (&ignore);
+		if (ignore)
 		  goto skipnewline;
 		if (!wide_flag
 		    && TYPE_PRECISION (char_type_node) < HOST_BITS_PER_INT

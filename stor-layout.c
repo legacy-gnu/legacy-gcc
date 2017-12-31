@@ -40,6 +40,10 @@ tree size_zero_node;
 
 tree size_one_node;
 
+/* If nonzero, this is an upper limit on alignment of structure fields.
+   The value is measured in bits.  */
+int maximum_field_alignment;
+
 #define GET_MODE_ALIGNMENT(MODE)   \
   MIN (BIGGEST_ALIGNMENT, 	   \
        MAX (1, (GET_MODE_UNIT_SIZE (MODE) * BITS_PER_UNIT)))
@@ -82,9 +86,9 @@ variable_size (size)
     }
 
   if (immediate_size_expand)
-    expand_expr (size, 0, VOIDmode, 0);
+    expand_expr (size, NULL_PTR, VOIDmode, 0);
   else
-    pending_sizes = tree_cons (0, size, pending_sizes);
+    pending_sizes = tree_cons (NULL_TREE, size, pending_sizes);
 
   return size;
 }
@@ -198,7 +202,12 @@ layout_decl (decl, known_align)
   /* Conditions are: a fixed size that is correct for another mode
      and occupying a complete byte or bytes on proper boundary.  */
   if (code == FIELD_DECL)
-    DECL_BIT_FIELD_TYPE (decl) = DECL_BIT_FIELD (decl) ? type : 0;
+    {
+      DECL_BIT_FIELD_TYPE (decl) = DECL_BIT_FIELD (decl) ? type : 0;
+      if (maximum_field_alignment != 0)
+	DECL_ALIGN (decl) = MIN (DECL_ALIGN (decl), maximum_field_alignment);
+    }
+
   if (DECL_BIT_FIELD (decl)
       && TYPE_SIZE (type) != 0
       && TREE_CODE (TYPE_SIZE (type)) == INTEGER_CST)
@@ -271,7 +280,7 @@ layout_record (rec)
 
       if (TREE_STATIC (field))
 	{
-	  pending_statics = tree_cons (NULL, field, pending_statics);
+	  pending_statics = tree_cons (NULL_TREE, field, pending_statics);
 	  continue;
 	}
       /* Enumerators and enum types which are local to this class need not
@@ -318,7 +327,13 @@ layout_record (rec)
 	  /* A named bit field of declared type `int'
 	     forces the entire structure to have `int' alignment.  */
 	  if (DECL_NAME (field) != 0)
-	    record_align = MAX (record_align, TYPE_ALIGN (TREE_TYPE (field)));
+	    {
+	      int type_align = TYPE_ALIGN (TREE_TYPE (field));
+	      if (maximum_field_alignment != 0)
+		type_align = MIN (type_align, maximum_field_alignment);
+
+	      record_align = MAX (record_align, type_align);
+	    }
 	}
       else
 	record_align = MAX (record_align, desired_align);
@@ -362,8 +377,15 @@ layout_record (rec)
 	  register tree dsize = DECL_SIZE (field);
 	  int field_size = TREE_INT_CST_LOW (dsize);
 
+	  if (maximum_field_alignment != 0)
+	    type_align = MIN (type_align, maximum_field_alignment);
+
 	  /* A bit field may not span the unit of alignment of its type.
 	     Advance to next boundary if necessary.  */
+	  /* ??? There is some uncertainty here as to what
+	     should be done if type_align is less than the width of the type.
+	     That can happen because the width exceeds BIGGEST_ALIGNMENT
+	     or because it exceeds maximum_field_alignment.  */
 	  if (const_size / type_align
 	      != (const_size + field_size - 1) / type_align)
 	    const_size = CEIL (const_size, type_align) * type_align;
@@ -383,6 +405,9 @@ layout_record (rec)
 	  int type_align = TYPE_ALIGN (TREE_TYPE (field));
 	  register tree dsize = DECL_SIZE (field);
 	  int field_size = TREE_INT_CST_LOW (dsize);
+
+	  if (maximum_field_alignment != 0)
+	    type_align = MIN (type_align, maximum_field_alignment);
 
 	  /* A bit field may not span the unit of alignment of its type.
 	     Advance to next boundary if necessary.  */
@@ -421,7 +446,12 @@ layout_record (rec)
       {
         register tree dsize = DECL_SIZE (field);
 
-	if (TREE_CODE (dsize) == INTEGER_CST)
+	/* This can happen when we have an invalid nested struct definition,
+	   such as struct j { struct j { int i; } }.  The error message is
+	   printed in finish_struct.  */
+	if (dsize == 0)
+	  /* Do nothing.  */;
+	else if (TREE_CODE (dsize) == INTEGER_CST)
 	  const_size += TREE_INT_CST_LOW (dsize);
 	else
 	  {
@@ -807,6 +837,28 @@ layout_type (type)
 	}
       break;
 
+    /* Pascal types */
+    case BOOLEAN_TYPE:		 /* store one byte/boolean for now. */
+      TYPE_MODE (type) = QImode;
+      TYPE_SIZE (type) = size_int (GET_MODE_BITSIZE (TYPE_MODE (type)));
+      TYPE_PRECISION (type) = 1;
+      TYPE_ALIGN (type) = GET_MODE_ALIGNMENT (TYPE_MODE (type));
+      break;
+
+    case CHAR_TYPE:
+      TYPE_MODE (type) = QImode;
+      TYPE_SIZE (type) = size_int (GET_MODE_BITSIZE (TYPE_MODE (type)));
+      TYPE_PRECISION (type) = GET_MODE_BITSIZE (TYPE_MODE (type));
+      TYPE_ALIGN (type) = GET_MODE_ALIGNMENT (TYPE_MODE (type));
+      break;
+
+    case FILE_TYPE:
+      /* The size may vary in different languages, so the language front end
+	 should fill in the size.  */
+      TYPE_ALIGN (type) = BIGGEST_ALIGNMENT;
+      TYPE_MODE  (type) = BLKmode;
+      break;
+
     default:
       abort ();
     } /* end switch */
@@ -864,14 +916,18 @@ make_signed_type (precision)
   /* Create the extreme values based on the number of bits.  */
 
   TYPE_MIN_VALUE (type)
-    = build_int_2 ((precision-HOST_BITS_PER_INT > 0 ? 0 : (-1)<<(precision-1)),
-		   (-1)<<(precision-HOST_BITS_PER_INT-1 > 0
-			  ? precision-HOST_BITS_PER_INT-1
-			  : 0));
+    = build_int_2 ((precision - HOST_BITS_PER_WIDE_INT > 0
+		    ? 0 : (HOST_WIDE_INT) (-1) << (precision - 1)),
+		   (((HOST_WIDE_INT) (-1)
+		     << (precision - HOST_BITS_PER_WIDE_INT - 1 > 0
+			 ? precision-HOST_BITS_PER_WIDE_INT - 1
+			 : 0))));
   TYPE_MAX_VALUE (type)
-    = build_int_2 ((precision-HOST_BITS_PER_INT > 0 ? -1 : (1<<(precision-1))-1),
-		   (precision-HOST_BITS_PER_INT-1 > 0
-		    ? (1<<(precision-HOST_BITS_PER_INT-1))-1
+    = build_int_2 ((precision - HOST_BITS_PER_WIDE_INT > 0 
+		    ? -1 : ((HOST_WIDE_INT) 1 << (precision - 1)) - 1),
+		   (precision - HOST_BITS_PER_WIDE_INT - 1 > 0
+		    ? (((HOST_WIDE_INT) 1
+			<< (precision - HOST_BITS_PER_INT - 1)))-1
 		    : 0));
 
   /* Give this type's extreme values this type as their type.  */
@@ -917,6 +973,36 @@ make_unsigned_type (precision)
 }
 
 /* Set the extreme values of TYPE based on its precision in bits,
+   the lay it out.  Used when make_signed_type won't do
+   because the tree code is not INTEGER_TYPE.
+   E.g. for Pascal, when the -fsigned-char option is given.  */
+
+void
+fixup_signed_type (type)
+     tree type;
+{
+  register int precision = TYPE_PRECISION (type);
+
+  TYPE_MIN_VALUE (type)
+    = build_int_2 ((precision-BITS_PER_WORD > 0 ? 0 : (-1)<<(precision-1)),
+		   (-1)<<(precision-BITS_PER_WORD-1 > 0
+			  ? precision-BITS_PER_WORD-1
+			  : 0));
+  TYPE_MAX_VALUE (type)
+    = build_int_2 ((precision-BITS_PER_WORD > 0 ? -1 : (1<<(precision-1))-1),
+		   (precision-BITS_PER_WORD-1 > 0
+		    ? (1<<(precision-BITS_PER_WORD-1))-1
+		    : 0));
+
+  TREE_TYPE (TYPE_MIN_VALUE (type)) = type;
+  TREE_TYPE (TYPE_MAX_VALUE (type)) = type;
+
+  /* Lay out the type: set its alignment, size, etc.  */
+
+  layout_type (type);
+}
+
+/* Set the extreme values of TYPE based on its precision in bits,
    the lay it out.  This is used both in `make_unsigned_type'
    and for enumeral types.  */
 
@@ -928,10 +1014,12 @@ fixup_unsigned_type (type)
 
   TYPE_MIN_VALUE (type) = build_int_2 (0, 0);
   TYPE_MAX_VALUE (type)
-    = build_int_2 (precision-HOST_BITS_PER_INT >= 0 ? -1 : (1<<precision)-1,
-		   precision-HOST_BITS_PER_INT > 0
-		   ? ((unsigned) ~0
-		      >> (HOST_BITS_PER_INT - (precision - HOST_BITS_PER_INT)))
+    = build_int_2 (precision - HOST_BITS_PER_WIDE_INT >= 0
+		   ? -1 : ((HOST_WIDE_INT) 1<< precision) - 1,
+		   precision - HOST_BITS_PER_WIDE_INT > 0
+		   ? ((unsigned HOST_WIDE_INT) ~0
+		      >> (HOST_BITS_PER_WIDE_INT
+			  - (precision - HOST_BITS_PER_WIDE_INT)))
 		   : 0);
   TREE_TYPE (TYPE_MIN_VALUE (type)) = type;
   TREE_TYPE (TYPE_MAX_VALUE (type)) = type;
@@ -952,9 +1040,9 @@ fixup_unsigned_type (type)
    VOLATILEP is true or SLOW_BYTE_ACCESS is false, we return the smallest
    mode meeting these conditions.
 
-   Otherwise (VOLATILEP is false and SLOW_BYTE_ACCESS is true), if a mode
-   whose size is UNITS_PER_WORD meets all the conditions, it is returned
-   instead.  */
+   Otherwise (VOLATILEP is false and SLOW_BYTE_ACCESS is true), we return
+   the largest mode (but a mode no wider than UNITS_PER_WORD) that meets
+   all the conditions.  */
 
 enum machine_mode
 get_best_mode (bitsize, bitpos, align, largest_mode, volatilep)
@@ -987,12 +1075,25 @@ get_best_mode (bitsize, bitpos, align, largest_mode, volatilep)
       || (largest_mode != VOIDmode && unit > GET_MODE_BITSIZE (largest_mode)))
     return VOIDmode;
 
-  if (SLOW_BYTE_ACCESS
-      && ! volatilep
-      && BITS_PER_WORD <= MIN (align, BIGGEST_ALIGNMENT)
-      && (largest_mode == VOIDmode
-	  || BITS_PER_WORD <= GET_MODE_BITSIZE (largest_mode)))
-    return word_mode;
+  if (SLOW_BYTE_ACCESS && ! volatilep)
+    {
+      enum machine_mode wide_mode = VOIDmode, tmode;
+
+      for (tmode = GET_CLASS_NARROWEST_MODE (MODE_INT); tmode != VOIDmode;
+	   tmode = GET_MODE_WIDER_MODE (tmode))
+	{
+	  unit = GET_MODE_BITSIZE (tmode);
+	  if (bitpos / unit == (bitpos + bitsize - 1) / unit
+	      && unit <= BITS_PER_WORD
+	      && unit <= MIN (align, BIGGEST_ALIGNMENT)
+	      && (largest_mode == VOIDmode
+		  || unit <= GET_MODE_BITSIZE (largest_mode)))
+	    wide_mode = tmode;
+	}
+
+      if (wide_mode != VOIDmode)
+	return wide_mode;
+    }
 
   return mode;
 }

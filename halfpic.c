@@ -34,7 +34,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "rtl.h"
 #include <stdio.h>
-#include <string.h>
 #include "obstack.h"
 
 #define obstack_chunk_alloc xmalloc
@@ -209,12 +208,24 @@ half_pic_encode (decl)
   if (code != VAR_DECL && code != FUNCTION_DECL)
     return;
 
-  /* If this is not an external reference, it can't be half-pic.  */
-  if (!TREE_EXTERNAL (decl))
+  asm_name = DECL_ASSEMBLER_NAME (decl);
+
+  if (!asm_name)
     return;
 
-  asm_name = DECL_ASSEMBLER_NAME (decl);
-  if (!asm_name)
+#ifdef HALF_PIC_DEBUG
+  if (HALF_PIC_DEBUG)
+    {
+      if (HALF_PIC_DEBUG)
+	fprintf (stderr, "\n========== Half_pic_encode %.*s\n",
+		 IDENTIFIER_LENGTH (asm_name),
+		 IDENTIFIER_POINTER (asm_name));
+      debug_tree (decl);
+    }
+#endif
+
+  /* If this is not an external reference, it can't be half-pic.  */
+  if (!DECL_EXTERNAL (decl) && (code != VAR_DECL || !TREE_PUBLIC (decl)))
     return;
 
   ptr = half_pic_hash (IDENTIFIER_POINTER (asm_name),
@@ -225,7 +236,7 @@ half_pic_encode (decl)
 
 #ifdef HALF_PIC_DEBUG
   if (HALF_PIC_DEBUG)
-    fprintf (stderr, "\n========== Half_pic_encode %.*s\n",
+    fprintf (stderr, "\n%.*s is half-pic\n",
 	     IDENTIFIER_LENGTH (asm_name),
 	     IDENTIFIER_POINTER (asm_name));
 #endif
@@ -277,7 +288,7 @@ half_pic_address_p (addr)
     case CONST:
       {
 	rtx offset = const0_rtx;
-	addr = eliminate_constant_term (addr, &offset);
+	addr = eliminate_constant_term (XEXP (addr, 0), &offset);
 	if (GET_CODE (addr) != SYMBOL_REF)
 	  return FALSE;
       }

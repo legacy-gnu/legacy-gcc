@@ -181,3 +181,56 @@ do {									\
 	
 #undef BIGGEST_ALIGNMENT
 #define BIGGEST_ALIGNMENT 64
+
+/* SVR4 m68k assembler is bitching on the `comm i,1,1' which askes for 
+   1 byte alignment. Don't generate alignment for COMMON seems to be
+   safer until we the assembler is fixed. */
+#undef ASM_OUTPUT_ALIGNED_COMMON
+/* Same problem with this one.  */
+#undef ASM_OUTPUT_ALIGNED_LOCAL
+
+/* The `string' directive on m68k svr4 does not handle string with
+   escape char (ie., `\') right. Use normal way to output ASCII bytes
+   seems to be safer. */
+#undef ASM_OUTPUT_ASCII
+#define ASM_OUTPUT_ASCII(FILE,PTR,LEN)				\
+{								\
+  register int sp = 0, lp = 0, ch;				\
+  fprintf ((FILE), "\t%s ", BYTE_ASM_OP);			\
+  do {								\
+    ch = (PTR)[sp];						\
+    if (ch > ' ' && ! (ch & 0x80) && ch != '\\')		\
+      {								\
+	fprintf ((FILE), "'%c", ch);				\
+      }								\
+    else							\
+      {								\
+	fprintf ((FILE), "0x%x", ch);				\
+      }								\
+    if (++sp < (LEN))						\
+      {								\
+	if ((sp % 10) == 0)					\
+	  {							\
+	    fprintf ((FILE), "\n\t%s ", BYTE_ASM_OP);		\
+	  }							\
+	else							\
+	  {							\
+	    putc (',', (FILE));					\
+	  }							\
+      }								\
+  } while (sp < (LEN));						\
+  putc ('\n', (FILE));						\
+}
+
+/* SVR4 m68k assembler is bitching on the syntax `2.b'.
+   So use the "LLDnnn-LLnnn" format.  Define LLDnnn after the table.  */
+
+#undef ASM_OUTPUT_CASE_END
+#define ASM_OUTPUT_CASE_END(FILE,NUM,TABLE)				\
+do {									\
+  if (switch_table_difference_label_flag)				\
+    asm_fprintf ((FILE), "\t%s %LLD%d,%LL%d\n", SET_ASM_OP, (NUM), (NUM));\
+  switch_table_difference_label_flag = 0;				\
+} while (0)
+
+int switch_table_difference_label_flag;

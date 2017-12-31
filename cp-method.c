@@ -26,19 +26,14 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Handle method declarations.  */
 #include <stdio.h>
-#include <string.h>
 #include "config.h"
 #include "tree.h"
 #include "cp-tree.h"
 #include "cp-class.h"
-#include "assert.h"
 #include "obstack.h"
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-
-extern int xmalloc ();
-extern void free ();
 
 /* TREE_LIST of the current inline functions that need to be
    processed.  */
@@ -70,8 +65,6 @@ static int scratch_error_offset;
 static void dump_type (), dump_decl ();
 static void dump_init (), dump_unary_op (), dump_binary_op ();
 
-tree wrapper_name, wrapper_pred_name, anti_wrapper_name;
-
 #ifdef NO_AUTO_OVERLOAD
 int is_overloaded ();
 #endif
@@ -79,26 +72,8 @@ int is_overloaded ();
 void
 init_method ()
 {
-  char buf[sizeof (ANTI_WRAPPER_NAME_FORMAT) + 8];
-  sprintf (buf, WRAPPER_NAME_FORMAT, "");
-  wrapper_name = get_identifier (buf);
-  sprintf (buf, WRAPPER_PRED_NAME_FORMAT, "");
-  wrapper_pred_name = get_identifier (buf);
-  sprintf (buf, ANTI_WRAPPER_NAME_FORMAT, "");
-  anti_wrapper_name = get_identifier (buf);
   gcc_obstack_init (&scratch_obstack);
   scratch_firstobj = (char *)obstack_alloc (&scratch_obstack, 0);
-}
-
-/* Return a pointer to the end of the new text in INLINE_BUFFER.
-   We cannot use `fatal' or `error' in here because that
-   might cause an infinite loop.  */
-static char *
-new_text_len (s)
-     char *s;
-{
-  while (*s++) ;
-  return s - 1;
 }
 
 tree
@@ -183,8 +158,6 @@ dump_type_prefix (t, p)
      int *p;
 {
   int old_p = 0;
-  int print_struct = 1;
-  tree name;
 
   if (t == NULL_TREE)
     return;
@@ -461,7 +434,6 @@ dump_type (t, p)
      int *p;
 {
   int old_p = 0;
-  int print_struct = 1;
 
   if (t == NULL_TREE)
     return;
@@ -733,14 +705,6 @@ dump_init (t)
 	    OB_PUTCP (name_string);
 	    OB_PUTC (' ');
 	  }
-#if 0
-	else if (WRAPPER_NAME_P (name))
-	  sprintf (inline_bufp, " ()%s", IDENTIFIER_POINTER (DECL_NAME (t)));
-	else if (WRAPPER_PRED_NAME_P (name))
-	  sprintf (inline_bufp, " ()?%s", IDENTIFIER_POINTER (DECL_NAME (t)));
-	else if (ANTI_WRAPPER_NAME_P (name))
-	  sprintf (inline_bufp, " ~()%s", IDENTIFIER_POINTER (DECL_NAME (t)));
-#endif
 	else
 	  {
 	    OB_PUTC (' ');
@@ -909,7 +873,7 @@ dump_init (t)
       if (TREE_HAS_CONSTRUCTOR (t))
 	{
 	  t = TREE_OPERAND (t, 0);
-	  assert (TREE_CODE (t) == CALL_EXPR);
+	  my_friendly_assert (TREE_CODE (t) == CALL_EXPR, 237);
 	  dump_init (TREE_OPERAND (t, 0));
 	  OB_PUTC ('(');
 	  dump_init_list (TREE_CHAIN (TREE_OPERAND (t, 1)));
@@ -1017,14 +981,15 @@ fndecl_as_string (cname, fndecl, print_ret_type_p)
   if (DECL_CLASS_CONTEXT (fndecl))
     cname = TYPE_NAME (DECL_CLASS_CONTEXT (fndecl));
 
+  if (DECL_STATIC_FUNCTION_P (fndecl))
+      OB_PUTS ("static ");
+    
   if (print_ret_type_p && ! IDENTIFIER_TYPENAME_P (name))
     {
       dump_type_prefix (TREE_TYPE (fntype), &p);
       OB_PUTC (' ');
     }
-  if (DECL_STATIC_FUNCTION_P (fndecl))
-      OB_PUTS ("static ");
-    
+
   if (cname)
     {
       dump_type (cname, &p);
@@ -1073,17 +1038,7 @@ fndecl_as_string (cname, fndecl, print_ret_type_p)
       dump_decl (DECL_NAME (fndecl));
     }
   else
-    {
-#if 0
-      if (WRAPPER_NAME_P (name))
-	OB_PUTC2 ('(', ')');
-      if (WRAPPER_PRED_NAME_P (name))
-	OB_PUTS ("()?");
-      else if (ANTI_WRAPPER_NAME_P (name))
-	OB_PUTS ("~()");
-#endif
-      dump_decl (DECL_NAME (fndecl));
-    }
+    dump_decl (DECL_NAME (fndecl));
 
   OB_PUTC ('(');
   if (parmtypes)
@@ -1135,16 +1090,28 @@ fndecl_as_string (cname, fndecl, print_ret_type_p)
 
 /* Same, but handtype a _TYPE.  */
 char *
-type_as_string (buf, typ)
-     char *buf;
+type_as_string (typ)
      tree typ;
 {
   int p = 0;
-  int spaces = 0;
 
   OB_INIT ();
 
   dump_type(typ,&p);
+
+  OB_FINISH ();
+
+  return (char *)obstack_base (&scratch_obstack);
+}
+
+/* A cross between type_as_string and fndecl_as_string.  */
+char *
+decl_as_string (decl)
+     tree decl;
+{
+  OB_INIT ();
+
+  dump_decl(decl);
 
   OB_FINISH ();
 
@@ -1161,7 +1128,6 @@ void
 do_inline_function_hair (type, friend_list)
      tree type, friend_list;
 {
-  tree cname = TYPE_IDENTIFIER (type);
   tree method = TYPE_METHODS (type);
 
   if (method && TREE_CODE (method) == TREE_VEC)
@@ -1180,7 +1146,7 @@ do_inline_function_hair (type, friend_list)
 	{
 	  tree args;
 
-	  assert (info->fndecl == method);
+	  my_friendly_assert (info->fndecl == method, 238);
 	  args = DECL_ARGUMENTS (method);
 	  while (args)
 	    {
@@ -1201,7 +1167,7 @@ do_inline_function_hair (type, friend_list)
 	{
 	  tree args;
 
-	  assert (info->fndecl == fndecl);
+	  my_friendly_assert (info->fndecl == fndecl, 239);
 	  args = DECL_ARGUMENTS (fndecl);
 	  while (args)
 	    {
@@ -1217,7 +1183,7 @@ do_inline_function_hair (type, friend_list)
     }
 }
 
-/* Report a argument type mismatch between the best declared function
+/* Report an argument type mismatch between the best declared function
    we could find and the current argument list that we have.  */
 void
 report_type_mismatch (cp, parmtypes, name_kind, err_name)
@@ -1232,7 +1198,7 @@ report_type_mismatch (cp, parmtypes, name_kind, err_name)
   switch (i)
     {
     case -4:
-      assert (TREE_CODE (cp->function) == TEMPLATE_DECL);
+      my_friendly_assert (TREE_CODE (cp->function) == TEMPLATE_DECL, 240);
       error ("type unification failed for function template `%s'", err_name);
       return;
 
@@ -1252,8 +1218,9 @@ report_type_mismatch (cp, parmtypes, name_kind, err_name)
       if (TREE_CODE (TREE_TYPE (cp->function)) == METHOD_TYPE)
 	{
 	  /* Happens when we have an ambiguous base class.  */
-	  assert (get_binfo (DECL_CLASS_CONTEXT (cp->function),
-			     TREE_TYPE (TREE_TYPE (TREE_VALUE (parmtypes))), 1) == error_mark_node);
+	  my_friendly_assert (get_binfo (DECL_CLASS_CONTEXT (cp->function),
+			     TREE_TYPE (TREE_TYPE (TREE_VALUE (parmtypes))), 1) == error_mark_node,
+			      241);
 	  return;
 	}
     }
@@ -1361,7 +1328,6 @@ flush_repeats (type)
      tree type;
 {
   int tindex = 0;
-  char *rval;
 
   while (typevec[tindex] != type)
     tindex++;
@@ -1387,7 +1353,8 @@ static void
 build_overload_nested_name (context)
      tree context;
 {
-  tree name = DECL_ASSEMBLER_NAME (context);
+  /* We use DECL_NAME here, because pushtag now sets the DECL_ASSEMBLER_NAME.  */
+  tree name = DECL_NAME (context);
   if (DECL_CONTEXT (context))
     {
       context = DECL_CONTEXT (context);
@@ -1404,15 +1371,15 @@ build_overload_value (type, value)
 {
   while (TREE_CODE (value) == NON_LVALUE_EXPR)
     value = TREE_OPERAND (value, 0);
-  assert (TREE_CODE (type) == PARM_DECL);
+  my_friendly_assert (TREE_CODE (type) == PARM_DECL, 242);
   type = TREE_TYPE (type);
   switch (TREE_CODE (type))
     {
     case INTEGER_TYPE:
     case ENUMERAL_TYPE:
       {
-	assert (TREE_CODE (value) == INTEGER_CST);
-	if (TYPE_MODE (value) == DImode)
+	my_friendly_assert (TREE_CODE (value) == INTEGER_CST, 243);
+	if (TYPE_PRECISION (value) == 2 * HOST_BITS_PER_WIDE_INT)
 	  {
 	    if (tree_int_cst_lt (value, integer_zero_node))
 	      {
@@ -1420,14 +1387,15 @@ build_overload_value (type, value)
 		value = build_int_2 (~ TREE_INT_CST_LOW (value),
 				     - TREE_INT_CST_HIGH (value));
 	      }
-	    if (TREE_INT_CST_HIGH (value) != (TREE_INT_CST_LOW (value) >> 31))
+	    if (TREE_INT_CST_HIGH (value)
+		!= (TREE_INT_CST_LOW (value) >> (HOST_BITS_PER_WIDE_INT - 1)))
 	      {
 		/* need to print a DImode value in decimal */
 		sorry ("conversion of long long as PT parameter");
 	      }
 	    /* else fall through to print in smaller mode */
 	  }
-	/* SImode or smaller */
+	/* Wordsize or smaller */
 	icat (TREE_INT_CST_LOW (value));
 	return;
       }
@@ -1436,8 +1404,9 @@ build_overload_value (type, value)
       {
 	REAL_VALUE_TYPE val;
 	char *bufp = digit_buffer;
+	extern char *index ();
 
-	assert (TREE_CODE (value) == REAL_CST);
+	my_friendly_assert (TREE_CODE (value) == REAL_CST, 244);
 	val = TREE_REAL_CST (value);
 	if (val < 0)
 	  {
@@ -1445,7 +1414,7 @@ build_overload_value (type, value)
 	    *bufp++ = 'm';
 	  }
 	sprintf (bufp, "%e", val);
-	bufp = strchr (bufp, 'e');
+	bufp = (char *) index (bufp, 'e');
 	if (!bufp)
 	  strcat (digit_buffer, "e0");
 	else
@@ -1481,22 +1450,20 @@ build_overload_value (type, value)
       value = TREE_OPERAND (value, 0);
       if (TREE_CODE (value) == VAR_DECL)
 	{
-	  assert (DECL_NAME (value) != 0);
+	  my_friendly_assert (DECL_NAME (value) != 0, 245);
 	  build_overload_identifier (DECL_NAME (value));
 	  return;
 	}
       else if (TREE_CODE (value) == FUNCTION_DECL)
 	{
-	  assert (DECL_NAME (value) != 0);
+	  my_friendly_assert (DECL_NAME (value) != 0, 246);
 	  build_overload_identifier (DECL_NAME (value));
 	  return;
 	}
       else
-	{
-	  debug_tree (type);
-	  debug_tree (value);
-	  my_friendly_abort (71);
-	}
+	my_friendly_abort (71);
+      break; /* not really needed */
+
     default:
       sorry ("conversion of %s as PT parameter",
 	     tree_code_name [(int) TREE_CODE (type)]);
@@ -1731,53 +1698,37 @@ build_overload_name (parmtypes, begin, end)
 
 	case INTEGER_TYPE:
 	  parmtype = TYPE_MAIN_VARIANT (parmtype);
-	  switch (TYPE_MODE (parmtype))
+	  if (parmtype == integer_type_node
+	      || parmtype == unsigned_type_node)
+	    OB_PUTC ('i');
+	  else if (parmtype == long_integer_type_node
+		   || parmtype == long_unsigned_type_node)
+	    OB_PUTC ('l');
+	  else if (parmtype == short_integer_type_node
+		   || parmtype == short_unsigned_type_node)
+	    OB_PUTC ('s');
+	  else if (parmtype == signed_char_type_node)
 	    {
-	    case TImode:
-	      if (parmtype == long_integer_type_node
-		  || parmtype == long_unsigned_type_node)
-		OB_PUTC ('l');
-	      else
-		OB_PUTC ('q');
-	      break;
-	    case DImode:
-	      if (parmtype == long_integer_type_node
-		  || parmtype == long_unsigned_type_node)
-		OB_PUTC ('l');
-	      else if (parmtype == integer_type_node
-		       || parmtype == unsigned_type_node)
-		OB_PUTC ('i');
-	      else if (parmtype == short_integer_type_node
-		       || parmtype == short_unsigned_type_node)
-		OB_PUTC ('s');
-	      else
-		OB_PUTC ('x');
-	      break;
-	    case SImode:
-	      if (parmtype == long_integer_type_node
-		  || parmtype == long_unsigned_type_node)
-		OB_PUTC ('l');
-	      else if (parmtype == short_integer_type_node
-		       || parmtype == short_unsigned_type_node)
-		OB_PUTC ('s');
-	      else
-		OB_PUTC ('i');
-	      break;
-	    case HImode:
-	      if (parmtype == integer_type_node
-		  || parmtype == unsigned_type_node)
-		OB_PUTC ('i');
-	      else
-		OB_PUTC ('s');
-	      break;
-	    case QImode:
-	      if (parmtype == signed_char_type_node)
-	        OB_PUTC ('S');
+	      OB_PUTC ('S');
 	      OB_PUTC ('c');
-	      break;
-	    default:
-	      my_friendly_abort (73);
 	    }
+	  else if (parmtype == char_type_node
+		   || parmtype == unsigned_char_type_node)
+	    OB_PUTC ('c');
+	  else if (parmtype == wchar_type_node)
+	    OB_PUTC ('w');
+	  else if (parmtype == long_long_integer_type_node
+	      || parmtype == long_long_unsigned_type_node)
+	    OB_PUTC ('x');
+#if 0
+	  /* it would seem there is no way to enter these in source code,
+	     yet.  (mrs) */
+	  else if (parmtype == long_long_long_integer_type_node
+	      || parmtype == long_long_long_unsigned_type_node)
+	    OB_PUTC ('q');
+#endif
+	  else
+	    my_friendly_abort (73);
 	  break;
 
 	case REAL_TYPE:
@@ -1798,7 +1749,7 @@ build_overload_name (parmtypes, begin, end)
 	      extern tree void_list_node;
 
 	      /* See if anybody is wasting memory.  */
-	      assert (parmtypes == void_list_node);
+	      my_friendly_assert (parmtypes == void_list_node, 247);
 #endif
 	      /* This is the end of a parameter list.  */
 	      if (end) OB_FINISH ();
@@ -1836,7 +1787,7 @@ build_overload_name (parmtypes, begin, end)
 		  }
 		name = DECL_NAME (name);
 	      }
-	    assert (TREE_CODE (name) == IDENTIFIER_NODE);
+	    my_friendly_assert (TREE_CODE (name) == IDENTIFIER_NODE, 248);
 	    if (i > 1)
 	      {
 		OB_PUTC ('Q');
@@ -1930,6 +1881,15 @@ build_decl_overload (dname, parms, for_method)
 	   && TREE_VALUE (parms) == ptr_type_node
 	   && TREE_CHAIN (parms) == void_list_node)
     return get_identifier ("__builtin_delete");
+  else if (dname == ansi_opname[(int) DELETE_EXPR]
+	   && parms != NULL_TREE
+	   && TREE_CODE (parms) == TREE_LIST
+	   && TREE_VALUE (parms) == ptr_type_node
+	   && TREE_CHAIN (parms) != NULL_TREE
+	   && TREE_CODE (TREE_CHAIN (parms)) == TREE_LIST
+	   && TREE_VALUE (TREE_CHAIN (parms)) == sizetype
+	   && TREE_CHAIN (TREE_CHAIN (parms)) == void_list_node)
+    return get_identifier ("__builtin_delete");
 
   OB_INIT ();
   if (for_method != 2)
@@ -2004,8 +1964,6 @@ tree
 build_t_desc_overload (type)
      tree type;
 {
-  int i = sizeof (T_DESC_FORMAT) - 1;
-
   OB_INIT ();
   OB_PUTS (T_DESC_FORMAT);
   nofold = 1;
@@ -2024,7 +1982,7 @@ build_t_desc_overload (type)
 	    *p = tolower (*p);
 	  }
       /* If there's no change, we have an inappropriate T_DESC_FORMAT.  */
-      assert (changed != 0);
+      my_friendly_assert (changed != 0, 249);
     }
 #endif
 
@@ -2106,8 +2064,8 @@ is_overloaded (name)
 tree
 build_opfncall (code, flags, xarg1, xarg2, arg3)
      enum tree_code code;
-     tree xarg1, xarg2;
-     tree arg3;
+     int flags;
+     tree xarg1, xarg2, arg3;
 {
   tree rval = 0;
   tree arg1, arg2;
@@ -2202,19 +2160,23 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
 
 	fnname = ansi_opname[(int) DELETE_EXPR];
 	if (flags & LOOKUP_GLOBAL)
-	  return build_overload_call (fnname, build_tree_list (NULL_TREE, xarg1),
+	  return build_overload_call (fnname,
+				      tree_cons (NULL_TREE, xarg1,
+						 build_tree_list (NULL_TREE, xarg2)),
 				      flags & LOOKUP_COMPLAIN, 0);
 
 	if (current_function_decl == NULL_TREE
 	    || !DESTRUCTOR_NAME_P (DECL_ASSEMBLER_NAME (current_function_decl))
 	    || current_class_type != TYPE_MAIN_VARIANT (type1))
 	  flags = LOOKUP_COMPLAIN;
-	rval = build_method_call (build1 (NOP_EXPR, TREE_TYPE (xarg1), error_mark_node),
-				  fnname, build_tree_list (NULL_TREE, xarg1),
+	rval = build_method_call (build1 (NOP_EXPR, TREE_TYPE (xarg1),
+					  error_mark_node),
+				  fnname, tree_cons (NULL_TREE, xarg1,
+						     build_tree_list (NULL_TREE, xarg2)),
 				  NULL_TREE, flags);
 	/* This happens when the user mis-declares `operator delete'.
 	   Should now be impossible.  */
-	assert (rval != error_mark_node);
+	my_friendly_assert (rval != error_mark_node, 250);
 	TREE_TYPE (rval) = void_type_node;
 	return rval;
       }
@@ -2300,7 +2262,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
     }
 
   if (code == MODIFY_EXPR)
-    fnname = ansi_assopname[(int)arg3];
+    fnname = ansi_assopname[(int) TREE_CODE (arg3)];
   else
     fnname = ansi_opname[(int) code];
 
@@ -2348,7 +2310,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
     }
   else if (code == COND_EXPR)
     {
-      parms = tree_cons (0, xarg2, build_tree_list (0, arg3));
+      parms = tree_cons (0, xarg2, build_tree_list (NULL_TREE, arg3));
       rval = build_method_call (xarg1, fnname, parms, NULL_TREE, flags);
     }
   else if (code == METHOD_CALL_EXPR)
@@ -2403,6 +2365,7 @@ build_opfncall (code, flags, xarg1, xarg2, arg3)
 tree
 hack_identifier (value, name, yychar)
      tree value, name;
+     int yychar;
 {
   tree type;
 
@@ -2416,7 +2379,7 @@ hack_identifier (value, name, yychar)
 	      tree fndecl;
 
 	      fndecl = TREE_VALUE (fields);
-	      assert (TREE_CODE (fndecl) == FUNCTION_DECL);
+	      my_friendly_assert (TREE_CODE (fndecl) == FUNCTION_DECL, 251);
 	      if (DECL_CHAIN (fndecl) == NULL_TREE)
 		{
 		  warning ("methods cannot be converted to function pointers");
@@ -2486,15 +2449,18 @@ hack_identifier (value, name, yychar)
       TREE_USED (value) = 1;
     }
 
-  if (TREE_CODE_CLASS (TREE_CODE (value)) == 'd' && TREE_NONLOCAL (value))
+  if (TREE_CODE_CLASS (TREE_CODE (value)) == 'd' && DECL_NONLOCAL (value))
     {
       if (DECL_CLASS_CONTEXT (value) != current_class_type)
 	{
 	  tree path;
 	  enum visibility_type visibility;
+	  register tree context
+	    = (TREE_CODE (value) == FUNCTION_DECL && DECL_VIRTUAL_P (value))
+	      ? DECL_CLASS_CONTEXT (value)
+	      : DECL_CONTEXT (value);
 
-	  get_base_distance (DECL_CLASS_CONTEXT (value),
-			     current_class_type, 0, &path);
+	  get_base_distance (context, current_class_type, 0, &path);
 	  visibility = compute_visibility (path, value);
 	  if (visibility != visibility_public)
 	    {
@@ -2506,11 +2472,6 @@ hack_identifier (value, name, yychar)
 		       IDENTIFIER_POINTER (name));
 	      return error_mark_node;
 	    }
-	}
-      if (TREE_CODE (value) == VAR_DECL && ! TREE_USED (value))
-	{
-	  assemble_external (value);
-	  TREE_USED (value) = 1;
 	}
       return value;
     }
@@ -2528,42 +2489,14 @@ hack_identifier (value, name, yychar)
 
   if (TREE_CODE (type) == REFERENCE_TYPE)
     {
-      assert (TREE_CODE (value) == VAR_DECL || TREE_CODE (value) == PARM_DECL);
+      my_friendly_assert (TREE_CODE (value) == VAR_DECL
+			  || TREE_CODE (value) == PARM_DECL, 252);
       if (DECL_REFERENCE_SLOT (value))
 	return DECL_REFERENCE_SLOT (value);
     }
   return value;
 }
 
-/* NONWRAPPER is nonzero if this call is not to be wrapped.
-   TYPE is the type that the wrapper belongs to (in case
-   it should be non-virtual).
-   DECL is the function will will be (not be) wrapped.  */
-tree
-hack_wrapper (nonwrapper, type, decl)
-     int nonwrapper;
-     tree type, decl;
-{
-  if (type == NULL_TREE || is_aggr_typedef (type, 1))
-    {
-      if (type)
-	type = TREE_TYPE (type);
-
-      switch (nonwrapper)
-	{
-	case 0:
-	  return build_nt (WRAPPER_EXPR, type, decl);
-	case 1:
-	  return build_nt (ANTI_WRAPPER_EXPR, type, decl);
-	case 2:
-	  return build_nt (WRAPPER_EXPR, type,
-			   build_nt (COND_EXPR, decl, NULL_TREE, NULL_TREE));
-	default:
-	  assert (0 <= nonwrapper && nonwrapper <= 2);
-	}
-    }
-  return error_mark_node;
-}
 
 /* Given an object OF, and a type conversion operator COMPONENT
    build a call to the conversion operator, if a call is requested,
@@ -2588,8 +2521,9 @@ build_component_type_expr (of, component, basetype_path, protect)
   tree name;
   int flags = protect ? LOOKUP_NORMAL : LOOKUP_COMPLAIN;
 
-  assert (IS_AGGR_TYPE (TREE_TYPE (of)));
-  assert (TREE_CODE (component) == TYPE_EXPR);
+  if (of)
+    my_friendly_assert (IS_AGGR_TYPE (TREE_TYPE (of)), 253);
+  my_friendly_assert (TREE_CODE (component) == TYPE_EXPR, 254);
 
   tmp = TREE_OPERAND (component, 0);
   last = NULL_TREE;
@@ -2642,7 +2576,7 @@ build_component_type_expr (of, component, basetype_path, protect)
 	  break;
 
 	case SCOPE_REF:
-	  assert (cname == 0);
+	  my_friendly_assert (cname == 0, 255);
 	  cname = TREE_OPERAND (tmp, 0);
 	  tmp = TREE_OPERAND (tmp, 1);
 	  break;
@@ -2664,7 +2598,7 @@ build_component_type_expr (of, component, basetype_path, protect)
 	  cname = DECL_NAME (of);
 	  of = NULL_TREE;
 	}
-      else assert (cname == DECL_NAME (of));
+      else my_friendly_assert (cname == DECL_NAME (of), 256);
     }
 
   if (of)

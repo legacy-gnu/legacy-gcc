@@ -1,6 +1,6 @@
 /* Generate information regarding function declarations and definitions based
    on information stored in GCC's tree structure.  This code implements the
-   -fgen-aux-info option.
+   -aux-info option.
 
    This code was written by Ron Guilmette (rfg@mcc.com).
 
@@ -126,12 +126,12 @@ affix_data_type (type_or_decl)
 
   for (;;)
     {
-      if (!strncmp (p, "volatile", 8))
+      if (!strncmp (p, "volatile ", 9))
         {
           p += 9;
           continue;
         }
-      if (!strncmp (p, "const", 5))
+      if (!strncmp (p, "const ", 6))
         {
           p += 6;
           continue;
@@ -384,7 +384,18 @@ gen_type (ret_val, t, style)
           return ret_val;
 
         case ARRAY_TYPE:
-          ret_val = gen_type (concat (ret_val, "[]"), TREE_TYPE (t), style);
+	  if (TYPE_SIZE (t) == 0 || TREE_CODE (TYPE_SIZE (t)) != INTEGER_CST)
+	    ret_val = gen_type (concat (ret_val, "[]"), TREE_TYPE (t), style);
+	  else if (int_size_in_bytes (t) == 0)
+	    ret_val = gen_type (concat (ret_val, "[0]"), TREE_TYPE (t), style);
+	  else
+	    {
+	      int size = (int_size_in_bytes (t) / int_size_in_bytes (TREE_TYPE (t)));
+	      char buff[10];
+	      sprintf (buff, "[%d]", size);
+	      ret_val = gen_type (concat (ret_val, buff),
+				  TREE_TYPE (t), style);
+	    }
           break;
 
         case FUNCTION_TYPE:
@@ -568,7 +579,7 @@ gen_decl (decl, is_func_definition, style)
 
   ret_val = affix_data_type (ret_val);
 
-  if (TREE_REGDECL (decl))
+  if (DECL_REGISTER (decl))
     ret_val = concat ("register ", ret_val);
   if (TREE_PUBLIC (decl))
     ret_val = concat ("extern ", ret_val);
@@ -601,7 +612,7 @@ gen_aux_info_record (fndecl, is_definition, is_implicit, is_prototyped)
       if (! compiled_from_record++)
 	{
 	  /* The first line tells which directory file names are relative to.
-	     Currently, -fgen-aux-info works only for files in the working
+	     Currently, -aux-info works only for files in the working
 	     directory, so just use a `.' as a placeholder for now.  */
 	  fprintf (aux_info_file, "/* compiled from: . */\n");
 	}

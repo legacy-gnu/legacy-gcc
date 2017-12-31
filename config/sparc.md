@@ -29,7 +29,7 @@
 ;; type "call_no_delay_slot" is a call followed by an unimp instruction.
 
 (define_attr "type"
-  "move,unary,binary,compare,load,store,branch,call,call_no_delay_slot,address,fpload,fpstore,fp,fpcmp,fpmul,fpdiv,fpsqrt,multi,misc"
+  "move,unary,binary,compare,load,store,uncond_branch,branch,call,call_no_delay_slot,address,fpload,fpstore,fp,fpcmp,fpmul,fpdiv,fpsqrt,multi,misc"
   (const_string "binary"))
 
 ;; Set true if insn uses call-clobbered intermediate register.
@@ -72,7 +72,7 @@
 ;; Attributes for instruction and branch scheduling
 
 (define_attr "in_call_delay" "false,true"
-  (cond [(eq_attr "type" "branch,call,call_no_delay_slot,multi")
+  (cond [(eq_attr "type" "uncond_branch,branch,call,call_no_delay_slot,multi")
 	 	(const_string "false")
 	 (eq_attr "type" "load,fpload,store,fpstore")
 	 	(if_then_else (eq_attr "length" "1")
@@ -93,20 +93,44 @@
 ;; branches.  This would allow us to remove the nop always inserted before
 ;; a floating point branch.
 
+;; ??? It is OK for fill_simple_delay_slots to put load/store instructions
+;; in a delay slot, but it is not OK for fill_eager_delay_slots to do so.
+;; This is because doing so will add several pipeline stalls to the path
+;; that the load/store did not come from.  Unfortunately, there is no way
+;; to prevent fill_eager_delay_slots from using load/store without completely
+;; disabling them.  For the SPEC benchmark set, this is a serious lose,
+;; because it prevents us from moving back the final store of inner loops.
+
 (define_attr "in_branch_delay" "false,true"
-  (if_then_else (and (eq_attr "type" "!branch,call,call_no_delay_slot,multi")
+  (if_then_else (and (eq_attr "type" "!uncond_branch,branch,call,call_no_delay_slot,multi")
+		     (eq_attr "length" "1"))
+		(const_string "true")
+		(const_string "false")))
+
+(define_attr "in_uncond_branch_delay" "false,true"
+  (if_then_else (and (eq_attr "type" "!uncond_branch,branch,call,call_no_delay_slot,multi")
+		     (eq_attr "length" "1"))
+		(const_string "true")
+		(const_string "false")))
+
+(define_attr "in_annul_branch_delay" "false,true"
+  (if_then_else (and (eq_attr "type" "!uncond_branch,branch,call,call_no_delay_slot,multi")
 		     (eq_attr "length" "1"))
 		(const_string "true")
 		(const_string "false")))
 
 (define_delay (eq_attr "type" "branch")
   [(eq_attr "in_branch_delay" "true")
-   (nil) (eq_attr "in_branch_delay" "true")])
+   (nil) (eq_attr "in_annul_branch_delay" "true")])
 
+(define_delay (eq_attr "type" "uncond_branch")
+  [(eq_attr "in_uncond_branch_delay" "true")
+   (nil) (nil)])
+   
 ;; Function units of the SPARC
 
 ;; (define_function_unit {name} {num-units} {n-users} {test}
-;;                       {ready-delay} {busy-delay} [{conflict-list}])
+;;                       {ready-delay} {issue-delay} [{conflict-list}])
 
 ;; The integer ALU.
 ;; (Noted only for documentation; units that take one cycle do not need to
@@ -116,7 +140,7 @@
 ;;  (eq_attr "type" "unary,binary,move,address") 1 0)
 
 ;; Memory with load-delay of 1 (i.e., 2 cycle load).
-(define_function_unit "memory" 1 0 (eq_attr "type" "load,fpload") 2 0)
+(define_function_unit "memory" 1 1 (eq_attr "type" "load,fpload") 2 0)
 
 ;; SPARC has two floating-point units: the FP ALU,
 ;; and the FP MUL/DIV/SQRT unit.
@@ -137,10 +161,10 @@
 ;; The CY7C602 can only support 2 fp isnsn simultaneously.
 ;; More insns cause the chip to stall.
 
-(define_function_unit "fp_alu" 1 2 (eq_attr "type" "fp") 5 0)
-(define_function_unit "fp_mul" 1 2 (eq_attr "type" "fpmul") 7 0)
-(define_function_unit "fp_div" 1 2 (eq_attr "type" "fpdiv") 37 0)
-(define_function_unit "fp_sqrt" 1 2 (eq_attr "type" "fpsqrt") 63 0)
+(define_function_unit "fp_alu" 1 1 (eq_attr "type" "fp") 5 0)
+(define_function_unit "fp_mds" 1 1 (eq_attr "type" "fpmul") 7 0)
+(define_function_unit "fp_mds" 1 1 (eq_attr "type" "fpdiv") 37 0)
+(define_function_unit "fp_mds" 1 1 (eq_attr "type" "fpsqrt") 63 0)
 
 ;; Compare instructions.
 ;; This controls RTL generation and register allocation.
@@ -360,7 +384,7 @@
 
 (define_insn ""
   [(set (reg:CC 0)
-	(compare:CC (match_operand:SI 0 "register_operand" "rJ")
+	(compare:CC (match_operand:SI 0 "register_operand" "r")
 		    (match_operand:SI 1 "arith_operand" "rI")))]
   ""
   "cmp %r0,%1"
@@ -609,7 +633,7 @@
 ;; turn something that does not require a jump into something that does.
 (define_insn ""
   [(set (match_operand:SI 0 "register_operand" "=r")
-	(match_operator:SI 1 "normal_comp_operator" [(reg 0) (const_int 0)]))]
+	(match_operator:SI 1 "noov_compare_op" [(reg 0) (const_int 0)]))]
   ""
   "* return output_scc_insn (operands, insn); "
   [(set_attr "type" "multi")
@@ -1031,8 +1055,8 @@
 }")
 
 (define_insn ""
-  [(set (mem:BLK (match_operand:SI 0 "register_operand" "r"))
-	(mem:BLK (match_operand:SI 1 "register_operand" "r")))
+  [(set (mem:BLK (match_operand:SI 0 "register_operand" "+r"))
+	(mem:BLK (match_operand:SI 1 "register_operand" "+r")))
    (use (match_operand:SI 2 "nonmemory_operand" "rn"))
    (use (match_operand:SI 3 "immediate_operand" "i"))
    (clobber (match_dup 0))
@@ -1146,8 +1170,8 @@
 }")
 
 (define_insn ""
-  [(set (match_operand:DF 0 "reg_or_nonsymb_mem_operand" "=f,r,Q,Q,f,&r,?f,?r")
-	(match_operand:DF 1 "reg_or_nonsymb_mem_operand" "f,r,f,r,Q,Q,r,f"))]
+  [(set (match_operand:DF 0 "reg_or_nonsymb_mem_operand" "=T,U,f,r,Q,Q,f,&r,?f,?r")
+	(match_operand:DF 1 "reg_or_nonsymb_mem_operand" "U,T,f,r,f,r,Q,Q,r,f"))]
   "register_operand (operands[0], DFmode)
    || register_operand (operands[1], DFmode)"
   "*
@@ -1156,8 +1180,8 @@
     return output_fp_move_double (operands);
   return output_move_double (operands);
 }"
-  [(set_attr "type" "fp,move,fpstore,store,fpload,load,multi,multi")
-   (set_attr "length" "2,2,3,3,3,3,3,3")])
+  [(set_attr "type" "fpstore,fpload,fp,move,fpstore,store,fpload,load,multi,multi")
+   (set_attr "length" "1,1,2,2,3,3,3,3,3,3")])
 
 (define_insn ""
   [(set (mem:DF (match_operand:SI 0 "symbolic_operand" "i,i"))
@@ -1500,232 +1524,49 @@
 ;; Conversion between fixed point and floating point.
 
 (define_insn "floatsisf2"
-  [(set (match_operand:SF 0 "general_operand" "=f")
-	(float:SF (match_operand:SI 1 "nonimmediate_operand" "rfm")))]
+  [(set (match_operand:SF 0 "register_operand" "=f")
+	(float:SF (match_operand:SI 1 "register_operand" "f")))]
   ""
-  "* return output_floatsisf2 (operands);"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fitos %1,%0"
+  [(set_attr "type" "fp")])
 
 (define_insn "floatsidf2"
-  [(set (match_operand:DF 0 "general_operand" "=f")
-	(float:DF (match_operand:SI 1 "nonimmediate_operand" "rfm")))]
+  [(set (match_operand:DF 0 "register_operand" "=f")
+	(float:DF (match_operand:SI 1 "register_operand" "f")))]
   ""
-  "* return output_floatsidf2 (operands);"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fitod %1,%0"
+  [(set_attr "type" "fp")])
 
 (define_insn "floatsitf2"
-  [(set (match_operand:TF 0 "general_operand" "=f")
-	(float:TF (match_operand:SI 1 "nonimmediate_operand" "rfm")))]
+  [(set (match_operand:TF 0 "register_operand" "=f")
+	(float:TF (match_operand:SI 1 "register_operand" "f")))]
   ""
-  "* return output_floatsitf2 (operands);"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fitox %1,%0"
+  [(set_attr "type" "fp")])
 
 ;; Convert a float to an actual integer.
 ;; Truncation is performed as part of the conversion.
 
 (define_insn "fix_truncsfsi2"
-  [(set (match_operand:SI 0 "general_operand" "=rm")
-	(fix:SI (fix:SF (match_operand:SF 1 "general_operand" "fm"))))
-   (clobber (match_scratch:SF 2 "=&f"))]
+  [(set (match_operand:SI 0 "register_operand" "=f")
+	(fix:SI (fix:SF (match_operand:SF 1 "register_operand" "f"))))]
   ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fstoi %1,%2\", operands);
-  else
-    output_asm_insn (\"ld %1,%2\;fstoi %2,%2\", operands);
-  if (GET_CODE (operands[0]) == MEM)
-    return \"st %2,%0\";
-  else
-    return \"st %2,[%%fp-4]\;ld [%%fp-4],%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fstoi %1,%0"
+  [(set_attr "type" "fp")])
 
 (define_insn "fix_truncdfsi2"
-  [(set (match_operand:SI 0 "general_operand" "=rm")
-	(fix:SI (fix:DF (match_operand:DF 1 "general_operand" "fm"))))
-   (clobber (match_scratch:DF 2 "=&f"))]
+  [(set (match_operand:SI 0 "register_operand" "=f")
+	(fix:SI (fix:DF (match_operand:DF 1 "register_operand" "f"))))]
   ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fdtoi %1,%2\", operands);
-  else
-    {
-      rtx xoperands[3];
-      xoperands[0] = operands[2];
-      xoperands[1] = operands[1];
-      output_asm_insn (output_fp_move_double (xoperands), xoperands);
-      output_asm_insn (\"fdtoi %2,%2\", operands);
-    }
-  if (GET_CODE (operands[0]) == MEM)
-    return \"st %2,%0\";
-  else
-    return \"st %2,[%%fp-4]\;ld [%%fp-4],%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fdtoi %1,%0"
+  [(set_attr "type" "fp")])
 
 (define_insn "fix_trunctfsi2"
-  [(set (match_operand:SI 0 "general_operand" "=rm")
-	(fix:SI (fix:TF (match_operand:TF 1 "general_operand" "fm"))))
-   (clobber (match_scratch:DF 2 "=&f"))]
+  [(set (match_operand:SI 0 "register_operand" "=f")
+	(fix:SI (fix:TF (match_operand:TF 1 "register_operand" "f"))))]
   ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fqtoi %1,%2\", operands);
-  else
-    {
-      rtx xoperands[3];
-      xoperands[0] = operands[2];
-      xoperands[1] = operands[1];
-      output_asm_insn (output_fp_move_quad (xoperands), xoperands);
-      output_asm_insn (\"fqtoi %2,%2\", operands);
-    }
-  if (GET_CODE (operands[0]) == MEM)
-    return \"st %2,%0\";
-  else
-    return \"st %2,[%%fp-4]\;ld [%%fp-4],%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
-
-;; Allow combiner to combine a fix_trunctfsi2 with a floatsitf2
-;; This eliminates 2 useless instructions.
-;; The first one matches if the fixed result is needed.  The second one
-;; matches if the fixed result is not needed.
-
-(define_insn ""
-  [(set (match_operand:TF 0 "general_operand" "=f")
-	(float:TF (fix:SI (fix:TF (match_operand:TF 1 "general_operand" "fm")))))
-   (set (match_operand:SI 2 "general_operand" "=rm")
-	(fix:SI (fix:TF (match_dup 1))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fqtoi %1,%0\", operands);
-  else
-    {
-      output_asm_insn (output_fp_move_quad (operands), operands);
-      output_asm_insn (\"fqtoi %0,%0\", operands);
-    }
-  if (GET_CODE (operands[2]) == MEM)
-    return \"st %0,%2\;fitoq %0,%0\";
-  else
-    return \"st %0,[%%fp-4]\;fitoq %0,%0\;ld [%%fp-4],%2\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "5")])
-
-(define_insn ""
-  [(set (match_operand:TF 0 "general_operand" "=f")
-	(float:TF (fix:SI (fix:TF (match_operand:TF 1 "general_operand" "fm")))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fqtoi %1,%0\", operands);
-  else
-    {
-      output_asm_insn (output_fp_move_quad (operands), operands);
-      output_asm_insn (\"fqtoi %0,%0\", operands);
-    }
-  return \"fitoq %0,%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
-
-;; Allow combiner to combine a fix_truncdfsi2 with a floatsidf2
-;; This eliminates 2 useless instructions.
-;; The first one matches if the fixed result is needed.  The second one
-;; matches if the fixed result is not needed.
-
-(define_insn ""
-  [(set (match_operand:DF 0 "general_operand" "=f")
-	(float:DF (fix:SI (fix:DF (match_operand:DF 1 "general_operand" "fm")))))
-   (set (match_operand:SI 2 "general_operand" "=rm")
-	(fix:SI (fix:DF (match_dup 1))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fdtoi %1,%0\", operands);
-  else
-    {
-      output_asm_insn (output_fp_move_double (operands), operands);
-      output_asm_insn (\"fdtoi %0,%0\", operands);
-    }
-  if (GET_CODE (operands[2]) == MEM)
-    return \"st %0,%2\;fitod %0,%0\";
-  else
-    return \"st %0,[%%fp-4]\;fitod %0,%0\;ld [%%fp-4],%2\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "5")])
-
-(define_insn ""
-  [(set (match_operand:DF 0 "general_operand" "=f")
-	(float:DF (fix:SI (fix:DF (match_operand:DF 1 "general_operand" "fm")))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fdtoi %1,%0\", operands);
-  else
-    {
-      output_asm_insn (output_fp_move_double (operands), operands);
-      output_asm_insn (\"fdtoi %0,%0\", operands);
-    }
-  return \"fitod %0,%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
-
-;; Allow combiner to combine a fix_truncsfsi2 with a floatsisf2
-;; This eliminates 2 useless instructions.
-;; The first one matches if the fixed result is needed.  The second one
-;; matches if the fixed result is not needed.
-
-(define_insn ""
-  [(set (match_operand:SF 0 "general_operand" "=f")
-	(float:SF (fix:SI (fix:SF (match_operand:SF 1 "general_operand" "fm")))))
-   (set (match_operand:SI 2 "general_operand" "=rm")
-	(fix:SI (fix:SF (match_dup 1))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fstoi %1,%0\", operands);
-  else
-    output_asm_insn (\"ld %1,%0\;fstoi %0,%0\", operands);
-  if (GET_CODE (operands[2]) == MEM)
-    return \"st %0,%2\;fitos %0,%0\";
-  else
-    return \"st %0,[%%fp-4]\;fitos %0,%0\;ld [%%fp-4],%2\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "5")])
-
-(define_insn ""
-  [(set (match_operand:SF 0 "general_operand" "=f")
-	(float:SF (fix:SI (fix:SF (match_operand:SF 1 "general_operand" "fm")))))]
-  ""
-  "*
-{
-  if (FP_REG_P (operands[1]))
-    output_asm_insn (\"fstoi %1,%0\", operands);
-  else
-    output_asm_insn (\"ld %1,%0\;fstoi %0,%0\", operands);
-  return \"fitos %0,%0\";
-}"
-  [(set_attr "type" "fp")
-   (set_attr "length" "3")])
+  "fqtoi %1,%0"
+  [(set_attr "type" "fp")])
 
 ;;- arithmetic instructions
 
@@ -1976,6 +1817,21 @@
   ""
   "and %1,%2,%0")
 
+(define_split
+  [(set (match_operand:SI 0 "register_operand" "")
+	(and:SI (match_operand:SI 1 "register_operand" "")
+		(match_operand:SI 2 "" "")))
+   (clobber (match_operand:SI 3 "register_operand" ""))]
+  "GET_CODE (operands[2]) == CONST_INT
+   && !SMALL_INT (operands[2])
+   && (INTVAL (operands[2]) & 0x3ff) == 0x3ff"
+  [(set (match_dup 3) (match_dup 4))
+   (set (match_dup 0) (and:SI (not:SI (match_dup 3)) (match_dup 1)))]
+  "
+{
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (operands[2]));
+}")
+
 (define_insn ""
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(and:DI (not:DI (match_operand:DI 1 "register_operand" "r"))
@@ -2036,6 +1892,21 @@
   ""
   "or %1,%2,%0")
 
+(define_split
+  [(set (match_operand:SI 0 "register_operand" "")
+	(ior:SI (match_operand:SI 1 "register_operand" "")
+		(match_operand:SI 2 "" "")))
+   (clobber (match_operand:SI 3 "register_operand" ""))]
+  "GET_CODE (operands[2]) == CONST_INT
+   && !SMALL_INT (operands[2])
+   && (INTVAL (operands[2]) & 0x3ff) == 0x3ff"
+  [(set (match_dup 3) (match_dup 4))
+   (set (match_dup 0) (ior:SI (not:SI (match_dup 3)) (match_dup 1)))]
+  "
+{
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (operands[2]));
+}")
+
 (define_insn ""
   [(set (match_operand:DI 0 "register_operand" "=r")
 	(ior:DI (not:DI (match_operand:DI 1 "register_operand" "r"))
@@ -2095,6 +1966,36 @@
 		(match_operand:SI 2 "arith_operand" "rI")))]
   ""
   "xor %r1,%2,%0")
+
+(define_split
+  [(set (match_operand:SI 0 "register_operand" "")
+	(xor:SI (match_operand:SI 1 "register_operand" "")
+		(match_operand:SI 2 "" "")))
+   (clobber (match_operand:SI 3 "register_operand" ""))]
+  "GET_CODE (operands[2]) == CONST_INT
+   && !SMALL_INT (operands[2])
+   && (INTVAL (operands[2]) & 0x3ff) == 0x3ff"
+  [(set (match_dup 3) (match_dup 4))
+   (set (match_dup 0) (not:SI (xor:SI (match_dup 3) (match_dup 1))))]
+  "
+{
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (operands[2]));
+}")
+
+(define_split
+  [(set (match_operand:SI 0 "register_operand" "")
+	(not:SI (xor:SI (match_operand:SI 1 "register_operand" "")
+			(match_operand:SI 2 "" ""))))
+   (clobber (match_operand:SI 3 "register_operand" ""))]
+  "GET_CODE (operands[2]) == CONST_INT
+   && !SMALL_INT (operands[2])
+   && (INTVAL (operands[2]) & 0x3ff) == 0x3ff"
+  [(set (match_dup 3) (match_dup 4))
+   (set (match_dup 0) (xor:SI (match_dup 3) (match_dup 1)))]
+  "
+{
+  operands[4] = gen_rtx (CONST_INT, VOIDmode, ~INTVAL (operands[2]));
+}")
 
 ;; xnor patterns.  Note that (a ^ ~b) == (~a ^ b) == ~(a ^ b).
 ;; Combine now canonicalizes to the rightmost expression.
@@ -2509,14 +2410,14 @@
   "srl %1,%2,%0")
 
 ;; Unconditional and other jump instructions
-;; Note that for the Sparc, by setting the annul bit on an unconditional
-;; branch, the following insn is never executed.  This saves us a nop,
-;; but requires a debugger which can handle annulled branches.
+;; On the Sparc, by setting the annul bit on an unconditional branch, the
+;; following insn is never executed.  This saves us a nop.  Dbx does not
+;; handle such branches though, so we only use them when optimizing.
 (define_insn "jump"
   [(set (pc) (label_ref (match_operand 0 "" "")))]
   ""
-  "b%* %l0"
-  [(set_attr "type" "branch")])
+  "b%* %l0%("
+  [(set_attr "type" "uncond_branch")])
 
 (define_expand "tablejump"
   [(parallel [(set (pc) (match_operand:SI 0 "register_operand" "r"))
@@ -2539,21 +2440,21 @@
    (use (reg:SI 15))]
   ""
   "jmp %%o7+%0%#"
-  [(set_attr "type" "branch")])
+  [(set_attr "type" "uncond_branch")])
 
 (define_insn ""
   [(set (pc) (match_operand:SI 0 "address_operand" "p"))
    (use (label_ref (match_operand 1 "" "")))]
   ""
   "jmp %a0%#"
-  [(set_attr "type" "branch")])
+  [(set_attr "type" "uncond_branch")])
 
 (define_insn ""
   [(set (pc) (label_ref (match_operand 0 "" "")))
    (set (reg:SI 15) (label_ref (match_dup 0)))]
   ""
   "call %l0%#"
-  [(set_attr "type" "branch")])
+  [(set_attr "type" "uncond_branch")])
 
 ;; This pattern recognizes the "instruction" that appears in 
 ;; a function call that wants a structure value, 
@@ -2728,7 +2629,7 @@
   [(set (pc) (match_operand:SI 0 "address_operand" "p"))]
   ""
  "jmp %a0%#"
- [(set_attr "type" "branch")])
+ [(set_attr "type" "uncond_branch")])
  
 (define_expand "nonlocal_goto"
   [(match_operand:SI 0 "general_operand" "")
@@ -2738,12 +2639,16 @@
   ""
   "
 {
-  rtx temp;
   /* Trap instruction to flush all the registers window.  */
   emit_insn (gen_rtx (UNSPEC_VOLATILE, VOIDmode,
 		      gen_rtvec (1, const0_rtx), 0));
   /* Load the fp value for the containing fn into %fp.
-     This is needed because operands[2] refers to %fp.  */
+     This is needed because operands[2] refers to %fp.
+     Virtual register instantiation fails if the virtual %fp isn't set from a
+     register.  Thus we must copy operands[0] into a register if it isn't
+     already one.  */
+  if (GET_CODE (operands[0]) != REG)
+    operands[0] = force_reg (SImode, operands[0]);
   emit_move_insn (virtual_stack_vars_rtx, operands[0]);
   /* Find the containing function's current nonlocal goto handler,
      which will do any cleanups and then jump to the label.  */
@@ -2967,33 +2872,33 @@
 ;; explained in the code for {registers,memory}_ok_for_ldd functions.
 
 (define_peephole
-  [(set (match_operand:SI 0 "register_operand" "r")
+  [(set (match_operand:SI 0 "register_operand" "=rf")
         (match_operand:SI 1 "memory_operand" ""))
-   (set (match_operand:SI 2 "register_operand" "r")
+   (set (match_operand:SI 2 "register_operand" "=rf")
         (match_operand:SI 3 "memory_operand" ""))]
-  "registers_ok_for_ldd (operands[0], operands[2]) 
+  "registers_ok_for_ldd_peep (operands[0], operands[2]) 
    && ! MEM_VOLATILE_P (operands[1]) && ! MEM_VOLATILE_P (operands[3])
-   && memory_ok_for_ldd (XEXP (operands[1], 0), XEXP (operands[3], 0))" 
+   && addrs_ok_for_ldd_peep (XEXP (operands[1], 0), XEXP (operands[3], 0))" 
   "ldd %1,%0")
 
 (define_peephole
   [(set (match_operand:SI 0 "memory_operand" "")
-        (match_operand:SI 1 "register_operand" "r"))
+        (match_operand:SI 1 "register_operand" "rf"))
    (set (match_operand:SI 2 "memory_operand" "")
-        (match_operand:SI 3 "register_operand" "r"))]
-  "registers_ok_for_ldd (operands[1], operands[3]) 
+        (match_operand:SI 3 "register_operand" "rf"))]
+  "registers_ok_for_ldd_peep (operands[1], operands[3]) 
    && ! MEM_VOLATILE_P (operands[0]) && ! MEM_VOLATILE_P (operands[2])
-   && memory_ok_for_ldd (XEXP (operands[0], 0), XEXP (operands[2], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[0], 0), XEXP (operands[2], 0))"
   "std %1,%0")
  
 (define_peephole
-  [(set (match_operand:SF 0 "register_operand" "fr")
+  [(set (match_operand:SF 0 "register_operand" "=fr")
         (match_operand:SF 1 "memory_operand" ""))
-   (set (match_operand:SF 2 "register_operand" "fr")
+   (set (match_operand:SF 2 "register_operand" "=fr")
         (match_operand:SF 3 "memory_operand" ""))]
-  "registers_ok_for_ldd (operands[0], operands[2]) 
+  "registers_ok_for_ldd_peep (operands[0], operands[2]) 
    && ! MEM_VOLATILE_P (operands[1]) && ! MEM_VOLATILE_P (operands[3])
-   && memory_ok_for_ldd (XEXP (operands[1], 0), XEXP (operands[3], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[1], 0), XEXP (operands[3], 0))"
   "ldd %1,%0")
 
 (define_peephole
@@ -3001,39 +2906,39 @@
         (match_operand:SF 1 "register_operand" "fr"))
    (set (match_operand:SF 2 "memory_operand" "")
         (match_operand:SF 3 "register_operand" "fr"))]
-  "registers_ok_for_ldd (operands[1], operands[3]) 
+  "registers_ok_for_ldd_peep (operands[1], operands[3]) 
    && ! MEM_VOLATILE_P (operands[0]) && ! MEM_VOLATILE_P (operands[2])
-   && memory_ok_for_ldd (XEXP (operands[0], 0), XEXP (operands[2], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[0], 0), XEXP (operands[2], 0))"
   "std %1,%0")
 
 (define_peephole
-  [(set (match_operand:SI 0 "register_operand" "r")
+  [(set (match_operand:SI 0 "register_operand" "=rf")
         (match_operand:SI 1 "memory_operand" ""))
-   (set (match_operand:SI 2 "register_operand" "r")
+   (set (match_operand:SI 2 "register_operand" "=rf")
         (match_operand:SI 3 "memory_operand" ""))]
-  "registers_ok_for_ldd (operands[2], operands[0]) 
+  "registers_ok_for_ldd_peep (operands[2], operands[0]) 
    && ! MEM_VOLATILE_P (operands[3]) && ! MEM_VOLATILE_P (operands[1])
-   && memory_ok_for_ldd (XEXP (operands[3], 0), XEXP (operands[1], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[3], 0), XEXP (operands[1], 0))"
   "ldd %3,%2")
 
 (define_peephole
   [(set (match_operand:SI 0 "memory_operand" "")
-        (match_operand:SI 1 "register_operand" "r"))
+        (match_operand:SI 1 "register_operand" "rf"))
    (set (match_operand:SI 2 "memory_operand" "")
-        (match_operand:SI 3 "register_operand" "r"))]
-  "registers_ok_for_ldd (operands[3], operands[1]) 
+        (match_operand:SI 3 "register_operand" "rf"))]
+  "registers_ok_for_ldd_peep (operands[3], operands[1]) 
    && ! MEM_VOLATILE_P (operands[2]) && ! MEM_VOLATILE_P (operands[0])
-   && memory_ok_for_ldd (XEXP (operands[2], 0), XEXP (operands[0], 0))" 
+   && addrs_ok_for_ldd_peep (XEXP (operands[2], 0), XEXP (operands[0], 0))" 
   "std %3,%2")
  
 (define_peephole
-  [(set (match_operand:SF 0 "register_operand" "fr")
+  [(set (match_operand:SF 0 "register_operand" "=fr")
         (match_operand:SF 1 "memory_operand" ""))
-   (set (match_operand:SF 2 "register_operand" "fr")
+   (set (match_operand:SF 2 "register_operand" "=fr")
         (match_operand:SF 3 "memory_operand" ""))]
-  "registers_ok_for_ldd (operands[2], operands[0]) 
+  "registers_ok_for_ldd_peep (operands[2], operands[0]) 
    && ! MEM_VOLATILE_P (operands[3]) && ! MEM_VOLATILE_P (operands[1])
-   && memory_ok_for_ldd (XEXP (operands[3], 0), XEXP (operands[1], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[3], 0), XEXP (operands[1], 0))"
   "ldd %3,%2")
 
 (define_peephole
@@ -3041,13 +2946,14 @@
         (match_operand:SF 1 "register_operand" "fr"))
    (set (match_operand:SF 2 "memory_operand" "")
         (match_operand:SF 3 "register_operand" "fr"))]
-  "registers_ok_for_ldd (operands[3], operands[1]) 
+  "registers_ok_for_ldd_peep (operands[3], operands[1]) 
    && ! MEM_VOLATILE_P (operands[2]) && ! MEM_VOLATILE_P (operands[0])
-   && memory_ok_for_ldd (XEXP (operands[2], 0), XEXP (operands[0], 0))"
+   && addrs_ok_for_ldd_peep (XEXP (operands[2], 0), XEXP (operands[0], 0))"
   "std %3,%2")
  
 ;; Optimize the case of following a reg-reg move with a test
-;; of reg just moved.
+;; of reg just moved.  Don't allow floating point regs for operand 0 or 1.
+;; This can result from a float to fix conversion.
 
 (define_peephole
   [(set (match_operand:SI 0 "register_operand" "=r")
@@ -3055,8 +2961,9 @@
    (set (reg:CC 0)
 	(compare:CC (match_operand:SI 2 "register_operand" "r")
 		    (const_int 0)))]
-  "rtx_equal_p (operands[2], operands[0])
-   || rtx_equal_p (operands[2], operands[1])"
+  "(rtx_equal_p (operands[2], operands[0])
+    || rtx_equal_p (operands[2], operands[1]))
+   && ! FP_REG_P (operands[0]) && ! FP_REG_P (operands[1])"
   "orcc %1,%%g0,%0")
 
 ;; Do {sign,zero}-extended compares somewhat more efficiently.
@@ -3142,6 +3049,37 @@
   "ld [%0+%%lo(%a1)],%2")
 
 ;; Return peepholes.  First the "normal" ones
+
+;; ??? There are QImode, HImode, and SImode versions of this pattern.
+;; It might be possible to write one more general pattern instead of three.
+
+(define_insn ""
+  [(set (match_operand:QI 0 "restore_operand" "")
+	(match_operand:QI 1 "arith_operand" "rI"))
+   (return)]
+  "! TARGET_EPILOGUE"
+  "*
+{
+  if (current_function_returns_struct)
+    return \"jmp %%i7+12\;restore %%g0,%1,%Y0\";
+  else
+    return \"ret\;restore %%g0,%1,%Y0\";
+}"
+  [(set_attr "type" "multi")])
+
+(define_insn ""
+  [(set (match_operand:HI 0 "restore_operand" "")
+	(match_operand:HI 1 "arith_operand" "rI"))
+   (return)]
+  "! TARGET_EPILOGUE"
+  "*
+{
+  if (current_function_returns_struct)
+    return \"jmp %%i7+12\;restore %%g0,%1,%Y0\";
+  else
+    return \"ret\;restore %%g0,%1,%Y0\";
+}"
+  [(set_attr "type" "multi")])
 
 (define_insn ""
   [(set (match_operand:SI 0 "restore_operand" "")

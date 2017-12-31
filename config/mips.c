@@ -62,37 +62,21 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define STAB_CODE_TYPE int
 #endif
 
-extern char *getenv ();
+extern void   abort ();
+extern int    atoi ();
+extern char  *getenv ();
+extern char  *mktemp ();
+ 
+extern rtx    adj_offsettable_operand ();
+extern rtx    copy_to_reg ();
+extern void   error ();
+extern void   fatal ();
+extern tree   lookup_name ();
+extern void   pfatal_with_name ();
+extern void   warning ();
 
-extern char *permalloc ();
-extern void  debug_rtx ();
-extern void  abort_with_insn ();
-extern rtx   copy_to_reg ();
-extern rtx   adj_offsettable_operand ();
-extern int   offsettable_address_p ();
-extern tree  lookup_name ();
-
-extern rtx gen_movqi ();
-extern rtx gen_movhi ();
-extern rtx gen_movsi ();
-extern rtx gen_movsi_ulw ();
-extern rtx gen_movsi_usw ();
-extern rtx gen_movstrsi_internal ();
-extern rtx gen_addsi3 ();
-extern rtx gen_iorsi3 ();
-extern rtx gen_andsi3 ();
-extern rtx gen_bne ();
-extern rtx gen_beq ();
-extern rtx gen_cmpsi ();
-extern rtx gen_jump ();
-
-extern char   call_used_regs[];
-extern char  *asm_file_name;
-extern FILE  *asm_out_file;
 extern tree   current_function_decl;
-extern char **save_argv;
-extern char  *version_string;
-extern char  *language_string;
+extern FILE  *asm_out_file;
 
 /* Enumeration for all of the relational tests, so that we can build
    arrays indexed by the test type, and not worry about the order
@@ -122,10 +106,6 @@ int mips_section_threshold = -1;
 
 /* Count the number of .file directives, so that .loc is up to date.  */
 int num_source_filenames = 0;
-
-/* Count of the number of functions created so far, in order to make
-   unique labels for omitting the frame pointer.  */
-int number_functions_processed = 0;
 
 /* Count the number of sdb related labels are generated (to find block
    start and end boundaries).  */
@@ -195,6 +175,10 @@ rtx branch_cmp[2];
 
 /* what type of branch to use */
 enum cmp_type branch_type;
+
+/* Number of previously seen half-pic pointers and references.  */
+static int prev_half_pic_ptrs = 0;
+static int prev_half_pic_refs = 0;
 
 /* which cpu are we scheduling for */
 enum processor_type mips_cpu;
@@ -420,19 +404,19 @@ large_int (op, mode)
      rtx op;
      enum machine_mode mode;
 {
-  long value;
+  HOST_WIDE_INT value;
 
   if (GET_CODE (op) != CONST_INT)
     return FALSE;
 
   value = INTVAL (op);
-  if ((value & 0xffff0000) == 0)		/* ior reg,$r0,value */
+  if ((value & ~0x0000ffff) == 0)			/* ior reg,$r0,value */
     return FALSE;
 
-  if ((value & 0xffff0000) == 0xffff0000)	/* subu reg,$r0,value */
+  if (((unsigned long)(value + 32768)) <= 32767)	/* subu reg,$r0,value */
     return FALSE;
 
-  if ((value & 0x0000ffff) == 0)		/* lui reg,value>>16 */
+  if ((value & 0xffff0000) == value)			/* lui reg,value>>16 */
     return FALSE;
 
   return TRUE;
@@ -447,6 +431,9 @@ reg_or_0_operand (op, mode)
 {
   switch (GET_CODE (op))
     {
+    default:
+      break;
+
     case CONST_INT:
       return (INTVAL (op) == 0);
 
@@ -558,6 +545,9 @@ simple_memory_operand (op, mode)
   addr = XEXP (op, 0);
   switch (GET_CODE (addr))
     {
+    default:
+      break;
+
     case REG:
       return TRUE;
 
@@ -819,6 +809,9 @@ mips_count_memory_refs (op, num)
       looping = FALSE;
       switch (GET_CODE (addr))
 	{
+	default:
+	  break;
+
 	case REG:
 	case CONST_INT:
 	  break;
@@ -1013,10 +1006,11 @@ mips_move_1word (operands, insn, unsignedp)
 		 target, so zero/sign extend can use this code as well.  */
 	      switch (GET_MODE (op1))
 		{
-		case SFmode: ret = "lw\t%0,%1"; break;
-		case SImode: ret = "lw\t%0,%1"; break;
-		case HImode: ret = (unsignedp) ? "lhu\t%0,%1" : "lh\t%0,%1"; break;
-		case QImode: ret = (unsignedp) ? "lbu\t%0,%1" : "lb\t%0,%1"; break;
+		default:							break;
+		case SFmode: ret = "lw\t%0,%1";					break;
+		case SImode: ret = "lw\t%0,%1";					break;
+		case HImode: ret = (unsignedp) ? "lhu\t%0,%1" : "lh\t%0,%1";	break;
+		case QImode: ret = (unsignedp) ? "lbu\t%0,%1" : "lb\t%0,%1";	break;
 		}
 	    }
 
@@ -1049,12 +1043,7 @@ mips_move_1word (operands, insn, unsignedp)
 	    }
 
 	  else if (GP_REG_P (regno0))
-	    {
-	      if ((INTVAL (operands[1]) & 0x0000ffff) == 0)
-		ret = "lui\t%0,(%X1)>>16";
-	      else
-		ret = "li\t%0,%1";
-	    }
+	    ret = (INTVAL (op1) < 0) ? "li\t%0,%1\t\t\t# %X1" : "li\t%0,%X1\t\t# %1";
 	}
 
       else if (code1 == CONST_DOUBLE && mode == SFmode)
@@ -1079,21 +1068,51 @@ mips_move_1word (operands, insn, unsignedp)
 	}
 
       else if (code1 == LABEL_REF)
-	ret = "la\t%0,%a1";
-
-      else if (code1 == SYMBOL_REF || code1 == CONST)
 	{
 	  if (TARGET_STATS)
 	    mips_count_memory_refs (op1, 1);
 
+	  ret = "la\t%0,%a1";
+	}
+
+      else if (code1 == SYMBOL_REF || code1 == CONST)
+	{
 	  if (HALF_PIC_P () && CONSTANT_P (op1) && HALF_PIC_ADDRESS_P (op1))
 	    {
-	      delay = DELAY_LOAD;
-	      ret = "lw\t%0,%2\t\t# pic reference";
-	      operands[2] = HALF_PIC_PTR (op1);
+	      rtx offset = const0_rtx;
+
+	      if (GET_CODE (op1) == CONST)
+		op1 = eliminate_constant_term (XEXP (op1, 0), &offset);
+
+	      if (GET_CODE (op1) == SYMBOL_REF)
+		{
+		  operands[2] = HALF_PIC_PTR (op1);
+
+		  if (TARGET_STATS)
+		    mips_count_memory_refs (operands[2], 1);
+
+		  if (INTVAL (offset) == 0)
+		    {
+		      delay = DELAY_LOAD;
+		      ret = "lw\t%0,%2";
+		    }
+		  else
+		    {
+		      dslots_load_total++;
+		      operands[3] = offset;
+		      ret = (SMALL_INT (offset))
+				? "lw\t%0,%2%#\n\tadd\t%0,%0,%3"
+				: "lw\t%0,%2%#\n\t%[li\t%@,%3\n\tadd\t%0,%0,%@%]";
+		    }
+		}
 	    }
 	  else
-	    ret = "la\t%0,%a1";
+	    {
+	      if (TARGET_STATS)
+		mips_count_memory_refs (op1, 1);
+
+	      ret = "la\t%0,%a1";
+	    }
 	}
 
       else if (code1 == PLUS)
@@ -1126,6 +1145,7 @@ mips_move_1word (operands, insn, unsignedp)
 	    {
 	      switch (mode)
 		{
+		default: break;
 		case SFmode: ret = "sw\t%1,%0"; break;
 		case SImode: ret = "sw\t%1,%0"; break;
 		case HImode: ret = "sh\t%1,%0"; break;
@@ -1141,6 +1161,7 @@ mips_move_1word (operands, insn, unsignedp)
 	{
 	  switch (mode)
 	    {
+	    default: break;
 	    case SFmode: ret = "sw\t%z1,%0"; break;
 	    case SImode: ret = "sw\t%z1,%0"; break;
 	    case HImode: ret = "sh\t%z1,%0"; break;
@@ -1152,6 +1173,7 @@ mips_move_1word (operands, insn, unsignedp)
 	{
 	  switch (mode)
 	    {
+	    default: break;
 	    case SFmode: ret = "sw\t%.,%0"; break;
 	    case SImode: ret = "sw\t%.,%0"; break;
 	    case HImode: ret = "sh\t%.,%0"; break;
@@ -1279,8 +1301,8 @@ mips_move_2words (operands, insn)
 
 	      else
 		{
-		  operands[2] = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_LOW (op1));
-		  operands[3] = gen_rtx (CONST_INT, VOIDmode, CONST_DOUBLE_HIGH (op1));
+		  operands[2] = GEN_INT (CONST_DOUBLE_LOW (op1));
+		  operands[3] = GEN_INT (CONST_DOUBLE_HIGH (op1));
 		  ret = "li\t%M0,%3\n\tli\t%L0,%2";
 		}
 	    }
@@ -1316,7 +1338,7 @@ mips_move_2words (operands, insn)
 	
       else if (code1 == CONST_INT && GET_MODE (op0) == DImode && GP_REG_P (regno0))
 	{
-	  operands[2] = gen_rtx (CONST_INT, VOIDmode, INTVAL (operands[1]) >= 0 ? 0 : -1);
+	  operands[2] = GEN_INT (INTVAL (operands[1]) >= 0 ? 0 : -1);
 	  ret = "li\t%M0,%2\n\tli\t%L0,%1";
 	}
 
@@ -1417,6 +1439,9 @@ mips_address_cost (addr)
 {
   switch (GET_CODE (addr))
     {
+    default:
+      break;
+
     case LO_SUM:
     case HIGH:
       return 1;
@@ -1458,6 +1483,9 @@ mips_address_cost (addr)
 
 	switch (GET_CODE (plus1))
 	  {
+	  default:
+	    break;
+
 	  case CONST_INT:
 	    {
 	      int value = INTVAL (plus1);
@@ -1488,6 +1516,7 @@ map_test_to_internal_test (test_code)
 
   switch (test_code)
     {
+    default:			break;
     case EQ:  test = ITEST_EQ;  break;
     case NE:  test = ITEST_NE;  break;
     case GT:  test = ITEST_GT;  break;
@@ -1506,8 +1535,6 @@ map_test_to_internal_test (test_code)
 
 /* Generate the code to compare two integer values.  The return value is:
    (reg:SI xx)		The pseudo register the comparison is in
-   (const_int 0)	The comparison is always false
-   (const_int 1)	The comparison is always true
    (rtx)0	       	No register, generate a simple branch.  */
 
 rtx
@@ -1517,7 +1544,7 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
      rtx cmp0;			/* first operand to compare */
      rtx cmp1;			/* second operand to compare */
      int *p_invert;		/* NULL or ptr to hold whether branch needs */
-				/* to reserse it's test */
+				/* to reverse its test */
 {
   struct cmp_info {
     enum rtx_code test_code;	/* code to use in instruction (LT vs. LTU) */
@@ -1527,20 +1554,21 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
     int reverse_regs;		/* reverse registers in test */
     int invert_const;		/* != 0 if invert value if cmp1 is constant */
     int invert_reg;		/* != 0 if invert value if cmp1 is register */
+    int unsignedp;		/* != 0 for unsigned comparisons.  */
   };
 
   static struct cmp_info info[ (int)ITEST_MAX ] = {
 
-    { XOR,	 0,  65535,  0,	 0,  0,	 0 },	/* EQ  */
-    { XOR,	 0,  65535,  0,	 0,  1,	 1 },	/* NE  */
-    { LT,   -32769,  32766,  1,	 1,  1,	 0 },	/* GT  */
-    { LT,   -32768,  32767,  0,	 0,  1,	 1 },	/* GE  */
-    { LT,   -32768,  32767,  0,	 0,  0,	 0 },	/* LT  */
-    { LT,   -32769,  32766,  1,	 1,  0,	 1 },	/* LE  */
-    { LTU,  -32769,  32766,  1,	 1,  1,	 0 },	/* GTU */
-    { LTU,  -32768,  32767,  0,	 0,  1,	 1 },	/* GEU */
-    { LTU,  -32768,  32767,  0,	 0,  0,	 0 },	/* LTU */
-    { LTU,  -32769,  32766,  1,	 1,  0,	 1 },	/* LEU */
+    { XOR,	 0,  65535,  0,	 0,  0,	 0, 0 },	/* EQ  */
+    { XOR,	 0,  65535,  0,	 0,  1,	 1, 0 },	/* NE  */
+    { LT,   -32769,  32766,  1,	 1,  1,	 0, 0 },	/* GT  */
+    { LT,   -32768,  32767,  0,	 0,  1,	 1, 0 },	/* GE  */
+    { LT,   -32768,  32767,  0,	 0,  0,	 0, 0 },	/* LT  */
+    { LT,   -32769,  32766,  1,	 1,  0,	 1, 0 },	/* LE  */
+    { LTU,  -32769,  32766,  1,	 1,  1,	 0, 1 },	/* GTU */
+    { LTU,  -32768,  32767,  0,	 0,  1,	 1, 1 },	/* GEU */
+    { LTU,  -32768,  32767,  0,	 0,  0,	 0, 1 },	/* LTU */
+    { LTU,  -32769,  32766,  1,	 1,  0,	 1, 1 },	/* LEU */
   };
 
   enum internal_test test;
@@ -1558,52 +1586,6 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
   p_info = &info[ (int)test ];
   eqne_p = (p_info->test_code == XOR);
 
-  /* See if the test is always true or false.  */
-  if ((GET_CODE (cmp0) == REG || GET_CODE (cmp0) == SUBREG)
-      && GET_CODE (cmp1) == CONST_INT)
-    {
-      int value = INTVAL (cmp1);
-      rtx truth = (rtx)0;
-
-      if (test == ITEST_GEU && value == 0)
-	truth = const1_rtx;
-
-      else if (test == ITEST_LTU && value == 0)
-	truth = const0_rtx;
-
-      else if (!TARGET_INT64)
-	{
-	  if (test == ITEST_LTU && value == -1)
-	    truth = const1_rtx;
-
-	  else if (test == ITEST_GTU && value == -1)
-	    truth = const0_rtx;
-
-	  else if (test == ITEST_LEU && value == -1)
-	    truth = const1_rtx;
-
-	  else if (test == ITEST_GT && value == 0x7fffffff)
-	    truth = const0_rtx;
-
-	  else if (test == ITEST_LE && value == 0x7fffffff)
-	    truth = const1_rtx;
-
-	  else if (test == ITEST_LT && value == 0x80000000)
-	    truth = const0_rtx;
-
-	  else if (test == ITEST_GE && value == 0x80000000)
-	    truth = const1_rtx;
-	}
-
-      if (truth != (rtx)0)
-	{
-	  if (result != (rtx)0)
-	    emit_move_insn (result, truth);
-
-	  return truth;
-	}
-    }
-
   /* Eliminate simple branches */
   branch_p = (result == (rtx)0);
   if (branch_p)
@@ -1619,7 +1601,7 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
 	    return (rtx)0;
 	}
 
-      /* allocate a psuedo to calculate the value in.  */
+      /* allocate a pseudo to calculate the value in.  */
       result = gen_reg_rtx (SImode);
     }
 
@@ -1629,7 +1611,7 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
 
   if (GET_CODE (cmp1) == CONST_INT)
     {
-      int value = INTVAL (cmp1);
+      HOST_WIDE_INT value = INTVAL (cmp1);
       if (value < p_info->const_low || value > p_info->const_high)
 	cmp1 = force_reg (SImode, cmp1);
     }
@@ -1650,7 +1632,22 @@ gen_int_relational (test_code, result, cmp0, cmp1, p_invert)
   if (GET_CODE (cmp1) == CONST_INT)
     {
       if (p_info->const_add != 0)
-	cmp1 = gen_rtx (CONST_INT, VOIDmode, INTVAL (cmp1) + p_info->const_add);
+	{
+	  HOST_WIDE_INT new = INTVAL (cmp1) + p_info->const_add;
+	  /* If modification of cmp1 caused overflow,
+	     we would get the wrong answer if we follow the usual path;
+	     thus, x > 0xffffffffu would turn into x > 0u.  */
+	  if ((p_info->unsignedp
+	       ? (unsigned HOST_WIDE_INT) new > INTVAL (cmp1)
+	       : new > INTVAL (cmp1))
+	      != (p_info->const_add > 0))
+	    /* 1 is the right value in the LE and LEU case.
+	       In the GT and GTU case, *p_invert is already set,
+	       so this is effectively 0.  */
+	    return force_reg (SImode, const1_rtx);
+	  else
+	    cmp1 = GEN_INT (new);
+	}
     }
   else if (p_info->reverse_regs)
     {
@@ -1787,7 +1784,7 @@ gen_conditional_branch (operands, test_code)
       }
       break;
     }
-  
+
   /* Generate the jump */
   if (invert)
     {
@@ -1814,10 +1811,11 @@ fail:
 /* Internal code to generate the load and store of one word/short/byte.
    The load is emitted directly, and the store insn is returned.  */
 
+#if 0
 static rtx
 block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align, orig_src)
-     rtx src_reg;		/* register holding source memory addresss */
-     rtx dest_reg;		/* register holding dest. memory addresss */
+     rtx src_reg;		/* register holding source memory address */
+     rtx dest_reg;		/* register holding dest. memory address */
      int *p_bytes;		/* pointer to # bytes remaining */
      int *p_offset;		/* pointer to current offset */
      int align;			/* alignment */
@@ -1886,8 +1884,8 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align, orig_src)
     }
   else
     {
-      src_addr  = gen_rtx (PLUS, Pmode, src_reg,  gen_rtx (CONST_INT, VOIDmode, offset));
-      dest_addr = gen_rtx (PLUS, Pmode, dest_reg, gen_rtx (CONST_INT, VOIDmode, offset));
+      src_addr  = gen_rtx (PLUS, Pmode, src_reg,  GEN_INT (offset));
+      dest_addr = gen_rtx (PLUS, Pmode, dest_reg, GEN_INT (offset));
     }
 
   reg = gen_reg_rtx (mode);
@@ -1900,6 +1898,7 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align, orig_src)
 
   return (*store_func) (gen_rtx (MEM, mode, dest_addr), reg);
 }
+#endif
 
 
 /* Write a series of loads/stores to move some bytes.  Generate load/stores as follows:
@@ -1918,6 +1917,7 @@ block_move_load_store (dest_reg, src_reg, p_bytes, p_offset, align, orig_src)
    two temp registers are needed.  Two delay slots are used
    in deference to the R4000.  */
 
+#if 0
 static void
 block_move_sequence (dest_reg, src_reg, bytes, align, orig_src)
      rtx dest_reg;		/* register holding destination address */
@@ -1954,6 +1954,7 @@ block_move_sequence (dest_reg, src_reg, bytes, align, orig_src)
   if (cur_store)
     emit_insn (cur_store);
 }
+#endif
 
 
 /* Write a loop to move a constant number of bytes.  Generate load/stores as follows:
@@ -1991,11 +1992,10 @@ block_move_loop (dest_reg, src_reg, bytes, align, orig_src)
 {
   rtx dest_mem		= gen_rtx (MEM, BLKmode, dest_reg);
   rtx src_mem		= gen_rtx (MEM, BLKmode, src_reg);
-  rtx align_rtx		= gen_rtx (CONST_INT, VOIDmode, align);
+  rtx align_rtx		= GEN_INT (align);
   rtx label;
   rtx final_src;
   rtx bytes_rtx;
-  int i;
   int leftover;
 
   if (bytes < 2*MAX_MOVE_BYTES)
@@ -2006,7 +2006,7 @@ block_move_loop (dest_reg, src_reg, bytes, align, orig_src)
 
   label = gen_label_rtx ();
   final_src = gen_reg_rtx (Pmode);
-  bytes_rtx = gen_rtx (CONST_INT, VOIDmode, bytes);
+  bytes_rtx = GEN_INT (bytes);
 
   if (bytes > 0x7fff)
     {
@@ -2018,7 +2018,7 @@ block_move_loop (dest_reg, src_reg, bytes, align, orig_src)
 
   emit_label (label);
 
-  bytes_rtx = gen_rtx (CONST_INT, VOIDmode, MAX_MOVE_BYTES);
+  bytes_rtx = GEN_INT (MAX_MOVE_BYTES);
   emit_insn (gen_movstrsi_internal (dest_mem, src_mem, bytes_rtx, align_rtx));
   emit_insn (gen_addsi3 (src_reg, src_reg, bytes_rtx));
   emit_insn (gen_addsi3 (dest_reg, dest_reg, bytes_rtx));
@@ -2027,7 +2027,7 @@ block_move_loop (dest_reg, src_reg, bytes, align, orig_src)
 
   if (leftover)
     emit_insn (gen_movstrsi_internal (dest_mem, src_mem,
-				      gen_rtx (CONST_INT, VOIDmode, leftover),
+				      GEN_INT (leftover),
 				      align_rtx));
 }
 
@@ -2116,7 +2116,7 @@ expand_block_move (operands)
       bytes -= leftover;
 
       emit_insn (gen_iorsi3 (temp, src_reg, dest_reg));
-      emit_insn (gen_andsi3 (temp, temp, gen_rtx (CONST_INT, VOIDmode, UNITS_PER_WORD-1)));
+      emit_insn (gen_andsi3 (temp, temp, GEN_INT (UNITS_PER_WORD-1)));
       emit_insn (gen_cmpsi (temp, const0_rtx));
       emit_jump_insn (gen_beq (aligned_label));
 
@@ -2141,8 +2141,8 @@ expand_block_move (operands)
 #endif
 	    emit_insn (gen_movstrsi_internal (gen_rtx (MEM, BLKmode, dest_reg),
 					      gen_rtx (MEM, BLKmode, src_reg),
-					      gen_rtx (CONST_INT, VOIDmode, leftover),
-					      gen_rtx (CONST_INT, VOIDmode, align)));
+					      GEN_INT (leftover),
+					      GEN_INT (align)));
 	}
     }
 
@@ -2413,14 +2413,25 @@ init_cumulative_args (cum, fntype, libname)
      tree fntype;		/* tree ptr for function decl */
      rtx libname;		/* SYMBOL_REF of library name or 0 */
 {
+  static CUMULATIVE_ARGS zero_cum;
   tree param, next_param;
 
   if (TARGET_DEBUG_E_MODE)
-    fprintf (stderr, "\ninit_cumulative_args\n");
+    {
+      fprintf (stderr, "\ninit_cumulative_args, fntype = 0x%.8lx", (long)fntype);
+      if (!fntype)
+	fputc ('\n', stderr);
 
-  cum->gp_reg_found = 0;
-  cum->arg_number = 0;
-  cum->arg_words = 0;
+      else
+	{
+	  tree ret_type = TREE_TYPE (fntype);
+	  fprintf (stderr, ", fntype code = %s, ret code = %s\n",
+		   tree_code_name[ (int)TREE_CODE (fntype) ],
+		   tree_code_name[ (int)TREE_CODE (ret_type) ]);
+	}
+    }
+
+  *cum = zero_cum;
 
   /* Determine if this function has variable arguments.  This is
      indicated by the last argument being 'void_type_mode' if there
@@ -2436,24 +2447,6 @@ init_cumulative_args (cum, fntype, libname)
       if (next_param == (tree)0 && TREE_VALUE (param) != void_type_node)
 	cum->gp_reg_found = 1;
     }
-
-  /* Determine if the function is returning a structure, if so,
-     advance by one argument.  */
-
-  if (fntype
-      && (TREE_CODE (fntype) == FUNCTION_TYPE || TREE_CODE (fntype) == METHOD_TYPE)
-      && TREE_TYPE (fntype) != 0)
-    {
-      tree ret_type = TREE_TYPE (fntype);
-      enum tree_code ret_code = TREE_CODE (ret_type);
-
-      if (ret_code == RECORD_TYPE || ret_code == UNION_TYPE)
-	{
-	  cum->gp_reg_found = 1;
-	  cum->arg_number = 1;
-	  cum->arg_words = 1;
-	}
-    }
 }
 
 /* Advance the argument to the next argument position.  */
@@ -2463,10 +2456,11 @@ function_arg_advance (cum, mode, type, named)
      CUMULATIVE_ARGS *cum;	/* current arg information */
      enum machine_mode mode;	/* current arg mode */
      tree type;			/* type of the argument or 0 if lib support */
+     int named;			/* whether or not the argument was named */
 {
   if (TARGET_DEBUG_E_MODE)
     fprintf (stderr,
-	     "function_adv( {gp reg found = %d, arg # = %2d, words = %2d}, %4s, 0x%.8x, %d )\n",
+	     "function_adv( {gp reg found = %d, arg # = %2d, words = %2d}, %4s, 0x%.8x, %d )\n\n",
 	     cum->gp_reg_found, cum->arg_number, cum->arg_words, GET_MODE_NAME (mode),
 	     type, named);
 
@@ -2517,8 +2511,12 @@ function_arg (cum, mode, type, named)
      tree type;			/* type of the argument or 0 if lib support */
      int named;			/* != 0 for normal args, == 0 for ... args */
 {
+  rtx ret;
   int regbase = -1;
   int bias = 0;
+  int struct_p = ((type != (tree)0)
+		  && (TREE_CODE (type) == RECORD_TYPE
+		      || TREE_CODE (type) == UNION_TYPE));
 
   if (TARGET_DEBUG_E_MODE)
     fprintf (stderr,
@@ -2550,8 +2548,14 @@ function_arg (cum, mode, type, named)
 			: FP_ARG_FIRST;
       break;
 
-    case VOIDmode:
     case BLKmode:
+      if (type != (tree)0 && TYPE_ALIGN (type) > BITS_PER_WORD)
+	cum->arg_words += (cum->arg_words & 1);
+
+      regbase = GP_ARG_FIRST;
+      break;
+
+    case VOIDmode:
     case QImode:
     case HImode:
     case SImode:
@@ -2566,18 +2570,42 @@ function_arg (cum, mode, type, named)
   if (cum->arg_words >= MAX_ARGS_IN_REGISTERS)
     {
       if (TARGET_DEBUG_E_MODE)
-	fprintf (stderr, "<stack>\n");
+	fprintf (stderr, "<stack>%s\n", struct_p ? ", [struct]" : "");
 
-      return 0;
+      ret = (rtx)0;
+    }
+  else
+    {
+      if (regbase == -1)
+	abort ();
+
+      ret = gen_rtx (REG, mode, regbase + cum->arg_words + bias);
+
+      if (TARGET_DEBUG_E_MODE)
+	fprintf (stderr, "%s%s\n", reg_names[regbase + cum->arg_words + bias],
+		 struct_p ? ", [struct]" : "");
+
+      /* The following is a hack in order to pass 1 byte structures
+	 the same way that the MIPS compiler does (namely by passing
+	 the structure in the high byte or half word of the register).
+	 This also makes varargs work.  If we have such a structure,
+	 we save the adjustment RTL, and the call define expands will
+	 emit them.  For the VOIDmode argument (argument after the
+	 last real argument, pass back a parallel vector holding each
+	 of the adjustments.  */
+
+      if (struct_p && (mode == QImode || mode == HImode))
+	{
+	  rtx amount = GEN_INT (BITS_PER_WORD - GET_MODE_BITSIZE (mode));
+	  rtx reg = gen_rtx (REG, SImode, regbase + cum->arg_words + bias);
+	  cum->adjust[ cum->num_adjusts++ ] = gen_ashlsi3 (reg, reg, amount);
+	}
     }
 
-  if (regbase == -1)
-    abort ();
+  if (mode == VOIDmode && cum->num_adjusts > 0)
+    ret = gen_rtx (PARALLEL, VOIDmode, gen_rtvec_v (cum->num_adjusts, cum->adjust));
 
-  if (TARGET_DEBUG_E_MODE)
-    fprintf (stderr, "%s\n", reg_names[regbase + cum->arg_words + bias]);
-
-  return gen_rtx (REG, mode, regbase + cum->arg_words + bias);
+  return ret;
 }
 
 
@@ -2714,54 +2742,14 @@ trace (s, s1, s2)
 
 #ifdef SIGINFO
 
-#include <sys/wait.h>
-
 static void
 siginfo (signo)
      int signo;
 {
-  char select_pgrp[15];
-  char *argv[4];
-  pid_t pid;
-  pid_t pgrp;
-  int status;
-
   fprintf (stderr, "compiling '%s' in '%s'\n",
 	   (current_function_name != (char *)0) ? current_function_name : "<toplevel>",
 	   (current_function_file != (char *)0) ? current_function_file : "<no file>");
-
-  pgrp = getpgrp ();
-  if (pgrp != -1)
-    sprintf (select_pgrp, "-g%d", pgrp);
-  else
-    strcpy (select_pgrp, "-a");
-
-  /* Spawn a ps to tell about current memory usage, etc. */
-  argv[0] = "ps";
-  argv[1] = "-ouser,pid,pri,nice,usertime,systime,pcpu,cp,inblock,oublock,vsize,rss,pmem,ucomm";
-  argv[2] = select_pgrp;
-  argv[3] = (char *)0;
-
-  pid = vfork ();
-  if (pid == 0)			/* child context */
-    {
-      execv ("/usr/bin/ps", argv);
-      execv ("/usr/sbin/ps", argv);
-      execvp ("ps", argv);
-      perror ("ps");
-      _exit (1);
-    }
-
-  else if (pid > 0)		/* parent context */
-    {
-      void (*sigint)(int)  = signal (SIGINT, SIG_IGN);
-      void (*sigquit)(int) = signal (SIGQUIT, SIG_IGN);
-
-      (void) waitpid (pid, &status, 0);
-
-      (void) signal (SIGINT,  sigint);
-      (void) signal (SIGQUIT, sigquit);
-    }
+  fflush (stderr);
 }
 #endif /* SIGINFO */
 
@@ -2906,17 +2894,13 @@ override_options ()
     }
 #endif
 
-#ifdef _IOLBF
+#if defined(_IOLBF)
+#if defined(ultrix) || defined(__ultrix) || defined(__OSF1__) || defined(__osf__) || defined(osf)
   /* If -mstats and -quiet, make stderr line buffered.  */
   if (quiet_flag && TARGET_STATS)
-    {
-#ifdef MIPS_BSD43
-      setlinebuf (stderr);
-#else
-      setvbuf (stderr, (char *)0, _IOLBF, BUFSIZ);
+    setvbuf (stderr, (char *)0, _IOLBF, BUFSIZ);
 #endif
 #endif
-    }
 
   /* Set up the classification arrays now.  */
   mips_rtx_classify[(int)PLUS]  = CLASS_ADD_OP;
@@ -3017,11 +3001,14 @@ override_options ()
 
 
 /*
- * If the frame pointer has been eliminated, the offset for an auto
- * or argument will be based on the stack pointer.  But this is not
- * what the debugger expects--it needs to find an offset off of the
- * frame pointer (whether it exists or not).  So here we turn all
- * offsets into those based on the (possibly virtual) frame pointer.
+ * The MIPS debug format wants all automatic variables and arguments
+ * to be in terms of the virtual frame pointer (stack pointer before
+ * any adjustment in the function), while the MIPS 3.0 linker wants
+ * the frame pointer to be the stack pointer after the initial
+ * adjustment.  So, we do the adjustment here.  The arg pointer (which
+ * is eliminated) points to the virtual frame pointer, while the frame
+ * pointer (which may be eliminated) points to the stack pointer after
+ * the initial adjustments.
  */
 
 int
@@ -3035,7 +3022,7 @@ mips_debugger_offset (addr, offset)
   if (!offset)
     offset = INTVAL (offset2);
 
-  if (reg == stack_pointer_rtx)
+  if (reg == stack_pointer_rtx || reg == frame_pointer_rtx)
     {
       int frame_size = (!current_frame_info.initialized)
 				? compute_frame_size (get_frame_size ())
@@ -3043,13 +3030,11 @@ mips_debugger_offset (addr, offset)
 
       offset = offset - frame_size;
     }
-
-  /* Any other register is, we hope, either the frame pointer,
-     or a pseudo equivalent to the frame pointer.  (Assign_parms
-     copies the arg pointer to a pseudo if ARG_POINTER_REGNUM is
-     equal to FRAME_POINTER_REGNUM, so references off of the
-     arg pointer are all off a pseudo.)  Seems like all we can
-     do is to just return OFFSET and hope for the best.  */
+  /* sdbout_parms does not want this to crash for unrecognized cases.  */
+#if 0
+  else if (reg != arg_pointer_rtx)
+    abort_with_insn (addr, "mips_debugger_offset called with non stack/frame/arg pointer.");
+#endif
 
   return offset;
 }
@@ -3347,6 +3332,9 @@ print_operand_address (file, addr)
 	break;
 
       case REG:
+	if (REGNO (addr) == ARG_POINTER_REGNUM)
+	  abort_with_insn (addr, "Arg pointer not eliminated.");
+
 	fprintf (file, "0(%s)", reg_names [REGNO (addr)]);
 	break;
 
@@ -3379,6 +3367,9 @@ print_operand_address (file, addr)
 
 	  if (!CONSTANT_P (offset))
 	    abort_with_insn (addr, "PRINT_OPERAND_ADDRESS, illegal insn #2");
+
+	if (REGNO (reg) == ARG_POINTER_REGNUM)
+	  abort_with_insn (addr, "Arg pointer not eliminated.");
 
 	  output_addr_const (file, offset);
 	  fprintf (file, "(%s)", reg_names [REGNO (reg)]);
@@ -3551,6 +3542,64 @@ mips_output_lineno (stream, line)
 }
 
 
+/* If defined, a C statement to be executed just prior to the
+   output of assembler code for INSN, to modify the extracted
+   operands so they will be output differently.
+
+   Here the argument OPVEC is the vector containing the operands
+   extracted from INSN, and NOPERANDS is the number of elements of
+   the vector which contain meaningful data for this insn.  The
+   contents of this vector are what will be used to convert the
+   insn template into assembler code, so you can change the
+   assembler output by changing the contents of the vector.
+
+   We use it to check if the current insn needs a nop in front of it
+   because of load delays, and also to update the delay slot
+   statistics.  */
+
+void
+final_prescan_insn (insn, opvec, noperands)
+     rtx insn;
+     rtx opvec[];
+     int noperands;
+{
+  if (dslots_number_nops > 0)
+    {
+      rtx pattern = PATTERN (insn);
+      int length = get_attr_length (insn);
+
+      /* Do we need to emit a NOP? */
+      if (length == 0
+	  || (mips_load_reg  != (rtx)0 && reg_mentioned_p (mips_load_reg,  pattern))
+	  || (mips_load_reg2 != (rtx)0 && reg_mentioned_p (mips_load_reg2, pattern))
+	  || (mips_load_reg3 != (rtx)0 && reg_mentioned_p (mips_load_reg3, pattern))
+	  || (mips_load_reg4 != (rtx)0 && reg_mentioned_p (mips_load_reg4, pattern)))
+	fputs ((set_noreorder) ? "\tnop\n" : "\t#nop\n", asm_out_file);
+
+      else
+	dslots_load_filled++;
+
+      while (--dslots_number_nops > 0)
+	fputs ((set_noreorder) ? "\tnop\n" : "\t#nop\n", asm_out_file);
+
+      mips_load_reg  = (rtx)0;
+      mips_load_reg2 = (rtx)0;
+      mips_load_reg3 = (rtx)0;
+      mips_load_reg4 = (rtx)0;
+
+      if (set_noreorder && --set_noreorder == 0)
+	fputs ("\t.set\treorder\n", asm_out_file);
+    }
+
+  if (TARGET_STATS)
+    {
+      enum rtx_code code = GET_CODE (insn);
+      if (code == JUMP_INSN || code == CALL_INSN)
+	dslots_jump_total++;
+    }
+}
+
+
 /* Output at beginning of assembler file.
    If we are optimizing to use the global pointer, create a temporary
    file to hold all of the text stuff, and write it out to the end.
@@ -3710,6 +3759,72 @@ mips_output_float (stream, value)
 }
 
 
+/* Return TRUE if any register used in the epilogue is used.  This to insure
+   any insn put into the epilogue delay slots is safe.  */
+
+int
+epilogue_reg_mentioned_p (insn)
+     rtx insn;
+{
+  register char *fmt;
+  register int i;
+  register enum rtx_code code;
+  register int regno;
+
+  if (insn == (rtx)0)
+    return 0;
+
+  if (GET_CODE (insn) == LABEL_REF)
+    return 0;
+
+  code = GET_CODE (insn);
+  switch (code)
+    {
+    case REG:
+      regno = REGNO (insn);
+      if (regno == STACK_POINTER_REGNUM)
+	return 1;
+
+      if (regno == FRAME_POINTER_REGNUM && frame_pointer_needed)
+	return 1;
+
+      if (!call_used_regs[regno])
+	return 1;
+
+      if (regno != MIPS_TEMP1_REGNUM && regno != MIPS_TEMP2_REGNUM)
+	return 0;
+
+      if (!current_frame_info.initialized)
+	compute_frame_size (get_frame_size ());
+
+      return (current_frame_info.total_size >= 32768);
+
+    case SCRATCH:
+    case CC0:
+    case PC:
+    case CONST_INT:
+    case CONST_DOUBLE:
+      return 0;
+    }
+
+  fmt = GET_RTX_FORMAT (code);
+  for (i = GET_RTX_LENGTH (code) - 1; i >= 0; i--)
+    {
+      if (fmt[i] == 'E')
+	{
+	  register int j;
+	  for (j = XVECLEN (insn, i) - 1; j >= 0; j--)
+	    if (epilogue_reg_mentioned_p (XVECEXP (insn, i, j)))
+	      return 1;
+	}
+      else if (fmt[i] == 'e' && epilogue_reg_mentioned_p (XEXP (insn, i)))
+	return 1;
+    }
+
+  return 0;
+}
+
+
 /* Return the bytes needed to compute the frame pointer from the current
    stack pointer.
 
@@ -3735,10 +3850,6 @@ mips_output_float (stream, value)
 					|  GP save for V.4 abi	|
 					|			|
 					+-----------------------+
-					|			|
-					|  local variables	|
-					|			|
-					+-----------------------+
 					|		        |
                                         |  fp register save     |
 					|			|
@@ -3746,6 +3857,10 @@ mips_output_float (stream, value)
 					|		        |
                                         |  gp register save     |
                                         |       		|
+					+-----------------------+
+					|			|
+					|  local variables	|
+					|			|
 					+-----------------------+
 					|			|
                                         |  alloca allocations   |
@@ -3763,33 +3878,40 @@ mips_output_float (stream, value)
 
 */
 
-unsigned long
+long
 compute_frame_size (size)
      int size;			/* # of var. bytes allocated */
 {
   int regno;
-  unsigned long total_size;	/* # bytes that the entire frame takes up */
-  unsigned long var_size;	/* # bytes that variables take up */
-  unsigned long args_size;	/* # bytes that outgoing arguments take up */
-  unsigned long extra_size;	/* # extra bytes */
-  unsigned int  gp_reg_rounded;	/* # bytes needed to store gp after rounding */
-  unsigned int  gp_reg_size;	/* # bytes needed to store gp regs */
-  unsigned int  fp_reg_size;	/* # bytes needed to store fp regs */
-  unsigned long mask;		/* mask of saved gp registers */
-  unsigned long fmask;		/* mask of saved fp registers */
-  int fp_inc;			/* 1 or 2 depending on the size of fp regs */
-  int fp_bits;			/* bitmask to use for each fp register */
+  long total_size;		/* # bytes that the entire frame takes up */
+  long var_size;		/* # bytes that variables take up */
+  long args_size;		/* # bytes that outgoing arguments take up */
+  long extra_size;		/* # extra bytes */
+  long gp_reg_rounded;		/* # bytes needed to store gp after rounding */
+  long gp_reg_size;		/* # bytes needed to store gp regs */
+  long fp_reg_size;		/* # bytes needed to store fp regs */
+  long mask;			/* mask of saved gp registers */
+  long fmask;			/* mask of saved fp registers */
+  int  fp_inc;			/* 1 or 2 depending on the size of fp regs */
+  long fp_bits;			/* bitmask to use for each fp register */
 
-  extra_size	 = MIPS_STACK_ALIGN (((TARGET_ABICALLS) ? UNITS_PER_WORD : 0)
-				     -STARTING_FRAME_OFFSET);
-
-  var_size	 = MIPS_STACK_ALIGN (size);
-  args_size	 = MIPS_STACK_ALIGN (current_function_outgoing_args_size);
-  total_size	 = var_size + args_size + extra_size;
   gp_reg_size	 = 0;
   fp_reg_size	 = 0;
   mask		 = 0;
   fmask		 = 0;
+  extra_size	 = MIPS_STACK_ALIGN (((TARGET_ABICALLS) ? UNITS_PER_WORD : 0));
+  var_size	 = MIPS_STACK_ALIGN (size);
+  args_size	 = MIPS_STACK_ALIGN (current_function_outgoing_args_size);
+
+  /* The MIPS 3.0 linker does not like functions that dynamically
+     allocate the stack and have 0 for STACK_DYNAMIC_OFFSET, since it
+     looks like we are trying to create a second frame pointer to the
+     function, so allocate some stack space to make it happy.  */
+
+  if (args_size == 0 && current_function_calls_alloca)
+    args_size = 4*UNITS_PER_WORD;
+
+  total_size = var_size + args_size + extra_size;
 
   /* Calculate space needed for gp registers.  */
   for (regno = GP_REG_FIRST; regno <= GP_REG_LAST; regno++)
@@ -3797,7 +3919,7 @@ compute_frame_size (size)
       if (MUST_SAVE_REGISTER (regno))
 	{
 	  gp_reg_size += UNITS_PER_WORD;
-	  mask |= 1 << (regno - GP_REG_FIRST);
+	  mask |= 1L << (regno - GP_REG_FIRST);
 	}
     }
 
@@ -3838,19 +3960,32 @@ compute_frame_size (size)
   current_frame_info.mask	 = mask;
   current_frame_info.fmask	 = fmask;
   current_frame_info.initialized = reload_completed;
+  current_frame_info.num_gp	 = gp_reg_size / UNITS_PER_WORD;
+  current_frame_info.num_fp	 = fp_reg_size / (2*UNITS_PER_WORD);
 
   if (mask)
     {
-      unsigned long offset = args_size + gp_reg_size - UNITS_PER_WORD;
+      unsigned long offset = args_size + var_size + gp_reg_size - UNITS_PER_WORD;
       current_frame_info.gp_sp_offset = offset;
       current_frame_info.gp_save_offset = offset - total_size;
     }
+  else
+    {
+      current_frame_info.gp_sp_offset = 0;
+      current_frame_info.gp_save_offset = 0;
+    }
+
 
   if (fmask)
     {
-      unsigned long offset = args_size + gp_reg_rounded + fp_reg_size - 2*UNITS_PER_WORD;
+      unsigned long offset = args_size + var_size + gp_reg_rounded + fp_reg_size - 2*UNITS_PER_WORD;
       current_frame_info.fp_sp_offset = offset;
       current_frame_info.fp_save_offset = offset - total_size + UNITS_PER_WORD;
+    }
+  else
+    {
+      current_frame_info.fp_sp_offset = 0;
+      current_frame_info.fp_save_offset = 0;
     }
 
   /* Ok, we're done.  */
@@ -3858,73 +3993,213 @@ compute_frame_size (size)
 }
 
 
-/* Common code to save/restore registers.  */
+/* Common code to emit the insns (or to write the instructions to a file)
+   to save/restore registers.
 
-void
-save_restore (file, gp_op, gp_2word_op, fp_op)
-     FILE *file;		/* stream to write to */
-     char *gp_op;		/* operation to do on gp registers */
-     char *gp_2word_op;		/* 2 word op to do on gp registers */
-     char *fp_op;		/* operation to do on fp registers */
+   Other parts of the code assume that MIPS_TEMP1_REGNUM (aka large_reg)
+   is not modified within save_restore_insns.  */
+
+#define BITSET_P(value,bit) (((value) & (1L << (bit))) != 0)
+
+static void
+save_restore_insns (store_p, large_reg, large_offset, file)
+     int store_p;		/* true if this is prologue */
+     rtx large_reg;		/* register holding large offset constant or NULL */
+     long large_offset;		/* large constant offset value */
+     FILE *file;		/* file to write instructions to instead of making RTL */
 {
+  long mask		= current_frame_info.mask;
+  long fmask		= current_frame_info.fmask;
   int regno;
-  unsigned long mask	  = current_frame_info.mask;
-  unsigned long fmask	  = current_frame_info.fmask;
-  unsigned long gp_offset;
-  unsigned long fp_offset;
-  unsigned long max_offset;
-  char *base_reg;
+  rtx base_reg_rtx;
+  long base_offset;
+  long gp_offset;
+  long fp_offset;
+  long end_offset;
+
+  if (frame_pointer_needed && !BITSET_P (mask, FRAME_POINTER_REGNUM - GP_REG_FIRST))
+    abort ();
 
   if (mask == 0 && fmask == 0)
     return;
-
-  base_reg   = reg_names[STACK_POINTER_REGNUM];
-  gp_offset  = current_frame_info.gp_sp_offset;
-  fp_offset  = current_frame_info.fp_sp_offset;
-  max_offset = (gp_offset > fp_offset) ? gp_offset : fp_offset;
-
-  /* Deal with calling functions with a large structure.  */
-  if (max_offset >= 32768)
-    {
-      char *temp = reg_names[MIPS_TEMP2_REGNUM];
-      fprintf (file, "\tli\t%s,%ld\n", temp, max_offset);
-      fprintf (file, "\taddu\t%s,%s,%s\n", temp, temp, base_reg);
-      base_reg = temp;
-      gp_offset = max_offset - gp_offset;
-      fp_offset = max_offset - fp_offset;
-    }
 
   /* Save registers starting from high to low.  The debuggers prefer
      at least the return register be stored at func+4, and also it
      allows us not to need a nop in the epilog if at least one
      register is reloaded in addition to return address.  */
 
-  if (mask || frame_pointer_needed)
+  /* Save GP registers if needed.  */
+  if (mask)
     {
+      /* Pick which pointer to use as a base register.  For small
+	 frames, just use the stack pointer.  Otherwise, use a
+	 temporary register.  Save 2 cycles if the save area is near
+	 the end of a large frame, by reusing the constant created in
+	 the prologue/epilogue to adjust the stack frame.  */
+
+      gp_offset  = current_frame_info.gp_sp_offset;
+      end_offset = gp_offset - (current_frame_info.gp_reg_size - UNITS_PER_WORD);
+
+      if (gp_offset < 0 || end_offset < 0)
+	fatal ("gp_offset (%ld) or end_offset (%ld) is less than zero.",
+	       gp_offset, end_offset);
+
+      else if (gp_offset < 32768)
+	{
+	  base_reg_rtx = stack_pointer_rtx;
+	  base_offset  = 0;
+	}
+
+      else if (large_reg != (rtx)0
+	       && (((unsigned long)(large_offset - gp_offset))  < 32768)
+	       && (((unsigned long)(large_offset - end_offset)) < 32768))
+	{
+	  base_reg_rtx = gen_rtx (REG, Pmode, MIPS_TEMP2_REGNUM);
+	  base_offset  = large_offset;
+	  if (file == (FILE *)0)
+	    emit_insn (gen_addsi3 (base_reg_rtx, large_reg, stack_pointer_rtx));
+	  else
+	    fprintf (file, "\taddu\t%s,%s,%s\n",
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[REGNO (large_reg)],
+		     reg_names[STACK_POINTER_REGNUM]);
+	}
+
+      else
+	{
+	  base_reg_rtx = gen_rtx (REG, Pmode, MIPS_TEMP2_REGNUM);
+	  base_offset  = gp_offset;
+	  if (file == (FILE *)0)
+	    {
+	      emit_move_insn (base_reg_rtx, GEN_INT (gp_offset));
+	      emit_insn (gen_addsi3 (base_reg_rtx, base_reg_rtx, stack_pointer_rtx));
+	    }
+	  else
+	    fprintf (file, "\tli\t%s,0x%.08lx\t# %ld\n\taddu\t%s,%s,%s\n",
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     (long)base_offset,
+		     (long)base_offset,
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[STACK_POINTER_REGNUM]);
+	}
+
       for  (regno = GP_REG_LAST; regno >= GP_REG_FIRST; regno--)
 	{
-	  if ((mask & (1L << (regno - GP_REG_FIRST))) != 0
-	      || (regno == FRAME_POINTER_REGNUM && frame_pointer_needed))
+	  if (BITSET_P (mask, regno - GP_REG_FIRST))
 	    {
-	      fprintf (file, "\t%s\t%s,%d(%s)\n",
-		       gp_op, reg_names[regno],
-		       gp_offset, base_reg);
+	      if (file == (FILE *)0)
+		{
+		  rtx reg_rtx = gen_rtx (REG, Pmode, regno);
+		  rtx mem_rtx = gen_rtx (MEM, Pmode,
+					 gen_rtx (PLUS, Pmode, base_reg_rtx,
+						  GEN_INT (gp_offset - base_offset)));
+
+		  if (store_p)
+		    emit_move_insn (mem_rtx, reg_rtx);
+		  else
+		    emit_move_insn (reg_rtx, mem_rtx);
+		}
+	      else
+		fprintf (file, "\t%s\t%s,%ld(%s)\n",
+			 (store_p) ? "sw" : "lw",
+			 reg_names[regno],
+			 gp_offset - base_offset,
+			 reg_names[REGNO(base_reg_rtx)]);
 
 	      gp_offset -= UNITS_PER_WORD;
 	    }
 	}
     }
+  else
+    {
+      base_reg_rtx = (rtx)0;		/* Make sure these are initialzed */
+      base_offset  = 0;
+    }
 
+  /* Save floating point registers if needed.  */
   if (fmask)
     {
       int fp_inc = (TARGET_FLOAT64) ? 1 : 2;
 
+      /* Pick which pointer to use as a base register.  */
+      fp_offset  = current_frame_info.fp_sp_offset;
+      end_offset = fp_offset - (current_frame_info.fp_reg_size - UNITS_PER_WORD);
+
+      if (fp_offset < 0 || end_offset < 0)
+	fatal ("fp_offset (%ld) or end_offset (%ld) is less than zero.",
+	       fp_offset, end_offset);
+
+      else if (fp_offset < 32768)
+	{
+	  base_reg_rtx = stack_pointer_rtx;
+	  base_offset  = 0;
+	}
+
+      else if (base_reg_rtx != (rtx)0
+	       && (((unsigned long)(base_offset - fp_offset))  < 32768)
+	       && (((unsigned long)(base_offset - end_offset)) < 32768))
+	{
+	  ;			/* already set up for gp registers above */
+	}
+
+      else if (large_reg != (rtx)0
+	       && (((unsigned long)(large_offset - fp_offset))  < 32768)
+	       && (((unsigned long)(large_offset - end_offset)) < 32768))
+	{
+	  base_reg_rtx = gen_rtx (REG, Pmode, MIPS_TEMP2_REGNUM);
+	  base_offset  = large_offset;
+	  if (file == (FILE *)0)
+	    emit_insn (gen_addsi3 (base_reg_rtx, large_reg, stack_pointer_rtx));
+	  else
+	    fprintf (file, "\taddu\t%s,%s,%s\n",
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[REGNO (large_reg)],
+		     reg_names[STACK_POINTER_REGNUM]);
+	}
+
+      else
+	{
+	  base_reg_rtx = gen_rtx (REG, Pmode, MIPS_TEMP2_REGNUM);
+	  base_offset  = fp_offset;
+	  if (file == (FILE *)0)
+	    {
+	      emit_move_insn (base_reg_rtx, GEN_INT (fp_offset));
+	      emit_insn (gen_addsi3 (base_reg_rtx, base_reg_rtx, stack_pointer_rtx));
+	    }
+	  else
+	    fprintf (file, "\tli\t%s,0x%.08lx\t# %ld\n\taddu\t%s,%s,%s\n",
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     (long)base_offset,
+		     (long)base_offset,
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[MIPS_TEMP2_REGNUM],
+		     reg_names[STACK_POINTER_REGNUM]);
+	}
+
       for  (regno = FP_REG_LAST-1; regno >= FP_REG_FIRST; regno -= fp_inc)
 	{
-	  if ((fmask & (1L << (regno - FP_REG_FIRST))) != 0)
+	  if (BITSET_P (fmask, regno - FP_REG_FIRST))
 	    {
-	      fprintf (file, "\t%s\t%s,%d(%s)\n",
-		       fp_op, reg_names[regno], fp_offset, base_reg);
+	      if (file == (FILE *)0)
+		{
+		  rtx reg_rtx = gen_rtx (REG, DFmode, regno);
+		  rtx mem_rtx = gen_rtx (MEM, DFmode,
+					 gen_rtx (PLUS, Pmode, base_reg_rtx,
+						  GEN_INT (fp_offset - base_offset)));
+
+		  if (store_p)
+		    emit_move_insn (mem_rtx, reg_rtx);
+		  else
+		    emit_move_insn (reg_rtx, mem_rtx);
+		}
+	      else
+		fprintf (file, "\t%s\t%s,%ld(%s)\n",
+			 (store_p) ? "s.d" : "l.d",
+			 reg_names[regno],
+			 fp_offset - base_offset,
+			 reg_names[REGNO(base_reg_rtx)]);
+
 
 	      fp_offset -= 2*UNITS_PER_WORD;
 	    }
@@ -3940,29 +4215,18 @@ function_prologue (file, size)
      FILE *file;
      int size;
 {
-  int regno;
-  int tsize;
-  char *sp_str = reg_names[STACK_POINTER_REGNUM];
-  char *fp_str = (!frame_pointer_needed)
-			? sp_str
-			: reg_names[FRAME_POINTER_REGNUM];
-  tree fndecl = current_function_decl; /* current... is tooo long */
-  tree fntype = TREE_TYPE (fndecl);
-  tree fnargs = (TREE_CODE (fntype) != METHOD_TYPE)
-			? DECL_ARGUMENTS (fndecl)
-			: 0;
-  tree next_arg;
-  tree cur_arg;
-  char *arg_name = (char *)0;
-  CUMULATIVE_ARGS args_so_far;
+  long tsize = current_frame_info.total_size;
 
   ASM_OUTPUT_SOURCE_FILENAME (file, DECL_SOURCE_FILE (current_function_decl));
-  ASM_OUTPUT_SOURCE_LINE (file, DECL_SOURCE_LINE (current_function_decl));
+
+  if (debug_info_level != DINFO_LEVEL_TERSE)
+    ASM_OUTPUT_SOURCE_LINE (file, DECL_SOURCE_LINE (current_function_decl));
 
   inside_function = 1;
   fputs ("\t.ent\t", file);
   assemble_name (file, current_function_name);
   fputs ("\n", file);
+
   assemble_name (file, current_function_name);
   fputs (":\n", file);
 
@@ -3971,9 +4235,85 @@ function_prologue (file, size)
 	     "\t.set\tnoreorder\n\t.cpload\t%s\n\t.set\treorder\n",
 	     reg_names[ GP_REG_FIRST + 25 ]);
 
+  tsize = current_frame_info.total_size;
+  if (tsize > 0 && TARGET_ABICALLS)
+    fprintf (file, "\t.cprestore %d\n", tsize + STARTING_FRAME_OFFSET);
+
+  fprintf (file, "\t.frame\t%s,%d,%s\t\t# vars= %d, regs= %d/%d, args = %d, extra= %d\n",
+	   reg_names[ (frame_pointer_needed) ? FRAME_POINTER_REGNUM : STACK_POINTER_REGNUM ],
+	   tsize,
+	   reg_names[31 + GP_REG_FIRST],
+	   current_frame_info.var_size,
+	   current_frame_info.num_gp,
+	   current_frame_info.num_fp,
+	   current_function_outgoing_args_size,
+	   current_frame_info.extra_size);
+
+  fprintf (file, "\t.mask\t0x%08lx,%d\n\t.fmask\t0x%08lx,%d\n",
+	   current_frame_info.mask,
+	   current_frame_info.gp_save_offset,
+	   current_frame_info.fmask,
+	   current_frame_info.fp_save_offset);
+}
+
+
+/* Expand the prologue into a bunch of separate insns.  */
+
+void
+mips_expand_prologue ()
+{
+  int regno;
+  long tsize;
+  rtx tmp_rtx	 = (rtx)0;
+  char *arg_name = (char *)0;
+  tree fndecl	 = current_function_decl;
+  tree fntype	 = TREE_TYPE (fndecl);
+  tree fnargs	 = (TREE_CODE (fntype) != METHOD_TYPE)
+			? DECL_ARGUMENTS (fndecl)
+			: 0;
+  rtx next_arg_reg;
+  int i;
+  tree next_arg;
+  tree cur_arg;
+  CUMULATIVE_ARGS args_so_far;
+
   /* Determine the last argument, and get its name.  */
+
+  INIT_CUMULATIVE_ARGS (args_so_far, fntype, (rtx)0);
+  regno = GP_ARG_FIRST;
+
   for (cur_arg = fnargs; cur_arg != (tree)0; cur_arg = next_arg)
     {
+      tree type = DECL_ARG_TYPE (cur_arg);
+      enum machine_mode passed_mode = TYPE_MODE (type);
+      rtx entry_parm = FUNCTION_ARG (args_so_far,
+				     passed_mode,
+				     DECL_ARG_TYPE (cur_arg),
+				     1);
+
+      if (entry_parm)
+	{
+	  int words;
+
+	  /* passed in a register, so will get homed automatically */
+	  if (GET_MODE (entry_parm) == BLKmode)
+	    words = (int_size_in_bytes (type) + 3) / 4;
+	  else
+	    words = (GET_MODE_SIZE (GET_MODE (entry_parm)) + 3) / 4;
+
+	  regno = REGNO (entry_parm) + words - 1;
+	}
+      else
+	{
+	  regno = GP_ARG_LAST+1;
+	  break;
+	}
+
+      FUNCTION_ARG_ADVANCE (args_so_far,
+			    passed_mode,
+			    DECL_ARG_TYPE (cur_arg),
+			    1);
+
       next_arg = TREE_CHAIN (cur_arg);
       if (next_arg == (tree)0)
 	{
@@ -3984,115 +4324,75 @@ function_prologue (file, size)
 	}
     }
 
+  /* In order to pass small structures by value in registers
+     compatibly with the MIPS compiler, we need to shift the value
+     into the high part of the register.  Function_arg has encoded a
+     PARALLEL rtx, holding a vector of adjustments to be made as the
+     next_arg_reg variable, so we split up the insns, and emit them
+     separately.  */
+
+  next_arg_reg = FUNCTION_ARG (args_so_far, VOIDmode, void_type_node, 1);
+  if (next_arg_reg != (rtx)0 && GET_CODE (next_arg_reg) == PARALLEL)
+    {
+      rtvec adjust = XVEC (next_arg_reg, 0);
+      int num = GET_NUM_ELEM (adjust);
+
+      for (i = 0; i < num; i++)
+	{
+	  rtx pattern = RTVEC_ELT (adjust, i);
+	  if (GET_CODE (pattern) != SET
+	      || GET_CODE (SET_SRC (pattern)) != ASHIFT)
+	    abort_with_insn (pattern, "Insn is not a shift");
+
+	  PUT_CODE (SET_SRC (pattern), ASHIFTRT);
+	  emit_insn (pattern);
+	}
+    }
+
   /* If this function is a varargs function, store any registers that
      would normally hold arguments ($4 - $7) on the stack.  */
   if ((TYPE_ARG_TYPES (fntype) != 0
        && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (fntype))) != void_type_node))
-      || (arg_name
-	  && (strcmp (arg_name, "__builtin_va_alist") == 0
-	      || strcmp (arg_name, "va_alist") == 0)))
+      || (arg_name != (char *)0
+	  && ((arg_name[0] == '_' && strcmp (arg_name, "__builtin_va_alist") == 0)
+	      || (arg_name[0] == 'v' && strcmp (arg_name, "va_alist") == 0))))
     {
-      tree parm;
-
-      regno = GP_ARG_FIRST;
-      INIT_CUMULATIVE_ARGS (args_so_far, fntype, (rtx)0);
-
-      for (parm = fnargs; (parm && (regno <= GP_ARG_LAST)); parm = TREE_CHAIN (parm))
+      for (; regno <= GP_ARG_LAST; regno++)
 	{
-	  rtx entry_parm;
-	  enum machine_mode passed_mode;
-	  tree type;
+	  rtx ptr = stack_pointer_rtx;
+	  if (regno != GP_ARG_FIRST)
+	    ptr = gen_rtx (PLUS, Pmode, ptr,
+			   GEN_INT ((regno - GP_ARG_FIRST) * UNITS_PER_WORD));
 
-	  type = DECL_ARG_TYPE (parm);
-	  passed_mode = TYPE_MODE (type);
-	  entry_parm = FUNCTION_ARG (args_so_far, passed_mode,
-				     DECL_ARG_TYPE (parm), 1);
-
-	  if (entry_parm)
-	    {
-	      int words;
-
-	      /* passed in a register, so will get homed automatically */
-	      if (GET_MODE (entry_parm) == BLKmode)
-		words = (int_size_in_bytes (type) + 3) / 4;
-	      else
-		words = (GET_MODE_SIZE (GET_MODE (entry_parm)) + 3) / 4;
-
-	      regno = REGNO (entry_parm) + words - 1;
-	    }
-	  else
-	    {
-	      regno = GP_ARG_LAST+1;
-	      break;
-	    }
-
-	  FUNCTION_ARG_ADVANCE (args_so_far, passed_mode,
-				DECL_ARG_TYPE (parm), 1);
-	}
-
-      if (regno <= GP_ARG_LAST && (regno & 1) != 0)
-	{
-	  fprintf (file, "\tsw\t%s,%d(%s)\t\t# varargs home register\n",
-		   reg_names[regno], (regno - 4) * 4, sp_str);
-	  regno++;
-	}
-
-      for (; regno <= GP_ARG_LAST; regno += 2)
-	{
-	  fprintf (file, "\tsd\t%s,%d(%s)\t\t# varargs home register\n",
-		   reg_names[regno], (regno - 4) * 4, sp_str);
+	  emit_move_insn (gen_rtx (MEM, Pmode, ptr), gen_rtx (REG, Pmode, regno));
 	}
     }
 
-  size = MIPS_STACK_ALIGN (size);
-  tsize = (!current_frame_info.initialized)
-		? compute_frame_size (size)
-		: current_frame_info.total_size;
-
+  tsize = compute_frame_size (get_frame_size ());
   if (tsize > 0)
     {
-      if (tsize <= 32767)
-	fprintf (file,
-		 "\tsubu\t%s,%s,%d\t\t# vars= %d, regs= %d/%d, args = %d, extra= %d\n",
-		 sp_str, sp_str, tsize, current_frame_info.var_size,
-		 current_frame_info.gp_reg_size / 4,
-		 current_frame_info.fp_reg_size / 8,
-		 current_function_outgoing_args_size,
-		 current_frame_info.extra_size);
-      else
-	fprintf (file,
-		 "\tli\t%s,%d\n\tsubu\t%s,%s,%s\t\t# vars= %d, regs= %d/%d, args = %d, sfo= %d\n",
-		 reg_names[MIPS_TEMP1_REGNUM], tsize, sp_str, sp_str,
-		 reg_names[MIPS_TEMP1_REGNUM], current_frame_info.var_size,
-		 current_frame_info.gp_reg_size / 4,
-		 current_frame_info.fp_reg_size / 8,
-		 current_function_outgoing_args_size,
-		 current_frame_info.extra_size);
+      rtx tsize_rtx = GEN_INT (tsize);
+
+      if (tsize > 32767)
+	{
+	  tmp_rtx = gen_rtx (REG, SImode, MIPS_TEMP1_REGNUM);
+	  emit_move_insn (tmp_rtx, tsize_rtx);
+	  tsize_rtx = tmp_rtx;
+	}
+
+      emit_insn (gen_subsi3 (stack_pointer_rtx, stack_pointer_rtx, tsize_rtx));
+
+      save_restore_insns (TRUE, tmp_rtx, tsize, (FILE *)0);
+
+      if (frame_pointer_needed)
+	emit_insn (gen_movsi (frame_pointer_rtx, stack_pointer_rtx));
     }
 
-  if (TARGET_ABICALLS)
-    fprintf (file, "\t.cprestore %d\n", tsize + STARTING_FRAME_OFFSET);
+  /* If we are profiling, make sure no instructions are scheduled before
+     the call to mcount.  */
 
-  fprintf (file, "\t.frame\t%s,%d,%s\n\t.mask\t0x%08lx,%d\n\t.fmask\t0x%08lx,%d\n",
-	   fp_str,
-	   (frame_pointer_needed) ? 0 : tsize,
-	   reg_names[31 + GP_REG_FIRST],
-	   current_frame_info.mask,
-	   current_frame_info.gp_save_offset,
-	   current_frame_info.fmask,
-	   current_frame_info.fp_save_offset);
-
-  save_restore (file, "sw", "sd", "s.d");
-
-  if (frame_pointer_needed)
-    {
-      if (tsize <= 32767)
-	fprintf (file, "\taddu\t%s,%s,%d\t# set up frame pointer\n", fp_str, sp_str, tsize);
-
-      else
-	fprintf (file, "\taddu\t%s,%s,%s\t# set up frame pointer\n", fp_str, sp_str,
-		 reg_names[MIPS_TEMP1_REGNUM]);
-    }
+  if (profile_flag || profile_block_flag)
+    emit_insn (gen_blockage ());
 }
 
 
@@ -4103,7 +4403,7 @@ function_epilogue (file, size)
      FILE *file;
      int size;
 {
-  int tsize;
+  long tsize;
   char *sp_str = reg_names[STACK_POINTER_REGNUM];
   char *t1_str = reg_names[MIPS_TEMP1_REGNUM];
   rtx epilogue_delay = current_function_epilogue_delay_list;
@@ -4111,6 +4411,9 @@ function_epilogue (file, size)
   int noepilogue = FALSE;
   int load_nop = FALSE;
   int load_only_r31;
+  rtx tmp_rtx = (rtx)0;
+  rtx restore_rtx;
+  int i;
 
   /* The epilogue does not depend on any registers, but the stack
      registers, so we assume that if we have 1 pending nop, it can be
@@ -4191,20 +4494,16 @@ function_epilogue (file, size)
 	fprintf (file, "\t.set\tnoreorder\n");
 
       if (tsize > 32767)
-	fprintf (file, "\tli\t%s,%d\n", t1_str, tsize);
-
-      if (frame_pointer_needed)
 	{
-	  char *fp_str = reg_names[FRAME_POINTER_REGNUM];
-	  if (tsize > 32767)
-	    fprintf (file,"\tsubu\t%s,%s,%s\t\t# sp not trusted  here\n",
-		     sp_str, fp_str, t1_str);
-	  else
-	    fprintf (file,"\tsubu\t%s,%s,%d\t\t# sp not trusted  here\n",
-		     sp_str, fp_str, tsize);
+	  fprintf (file, "\tli\t%s,0x%.08lx\t# %ld\n", t1_str, (long)tsize, (long)tsize);
+	  tmp_rtx = gen_rtx (REG, Pmode, MIPS_TEMP1_REGNUM);
 	}
 
-      save_restore (file, "lw", "ld", "l.d");
+      if (frame_pointer_needed)
+	fprintf (file, "\tmove\t%s,%s\t\t\t# sp not trusted here\n",
+		 sp_str, reg_names[FRAME_POINTER_REGNUM]);
+
+      save_restore_insns (FALSE, tmp_rtx, tsize, file);
 
       load_only_r31 = (current_frame_info.mask == (1 << 31)
 		       && current_frame_info.fmask == 0);
@@ -4270,6 +4569,10 @@ function_epilogue (file, size)
       int num_gp_regs = current_frame_info.gp_reg_size / 4;
       int num_fp_regs = current_frame_info.fp_reg_size / 8;
       int num_regs    = num_gp_regs + num_fp_regs;
+      char *name      = current_function_name;
+
+      if (name[0] == '*')
+	name++;
 
       dslots_load_total += num_regs;
 
@@ -4292,7 +4595,7 @@ function_epilogue (file, size)
 
       fprintf (stderr,
 	       "%-20s fp=%c leaf=%c alloca=%c setjmp=%c stack=%4ld arg=%3ld reg=%2d/%d delay=%3d/%3dL %3d/%3dJ refs=%3d/%3d/%3d",
-	       current_function_name,
+	       name,
 	       (frame_pointer_needed) ? 'y' : 'n',
 	       ((current_frame_info.mask & (1 << 31)) != 0) ? 'n' : 'y',
 	       (current_function_calls_alloca) ? 'y' : 'n',
@@ -4304,11 +4607,17 @@ function_epilogue (file, size)
 	       dslots_jump_total, dslots_jump_filled,
 	       num_refs[0], num_refs[1], num_refs[2]);
 
-      if (HALF_PIC_NUMBER_PTRS)
-	fprintf (stderr, " half-pic=%3d", HALF_PIC_NUMBER_PTRS);
+      if (HALF_PIC_NUMBER_PTRS > prev_half_pic_ptrs)
+	{
+	  fprintf (stderr, " half-pic=%3d", HALF_PIC_NUMBER_PTRS - prev_half_pic_ptrs);
+	  prev_half_pic_ptrs = HALF_PIC_NUMBER_PTRS;
+	}
 
-      if (HALF_PIC_NUMBER_REFS)
-	fprintf (stderr, " pic-ref=%3d", HALF_PIC_NUMBER_REFS);
+      if (HALF_PIC_NUMBER_REFS > prev_half_pic_refs)
+	{
+	  fprintf (stderr, " pic-ref=%3d", HALF_PIC_NUMBER_REFS - prev_half_pic_refs);
+	  prev_half_pic_refs = HALF_PIC_NUMBER_REFS;
+	}
 
       fputc ('\n', stderr);
     }
@@ -4325,7 +4634,6 @@ function_epilogue (file, size)
   num_refs[2]	     = 0;
   mips_load_reg      = (rtx)0;
   mips_load_reg2     = (rtx)0;
-  number_functions_processed++;
   current_frame_info = zero_frame_info;
 
   /* Restore the output file if optimizing the GP (optimizing the GP causes
@@ -4334,6 +4642,36 @@ function_epilogue (file, size)
 
   if (TARGET_GP_OPT)
     asm_out_file = asm_out_data_file;
+}
+
+
+/* Expand the epilogue into a bunch of separate insns.  */
+
+void
+mips_expand_epilogue ()
+{
+  long tsize = current_frame_info.total_size;
+  rtx tsize_rtx = GEN_INT (tsize);
+  rtx tmp_rtx = (rtx)0;
+
+  if (tsize > 32767)
+    {
+      tmp_rtx = gen_rtx (REG, SImode, MIPS_TEMP1_REGNUM);
+      emit_move_insn (tmp_rtx, tsize_rtx);
+      tsize_rtx = tmp_rtx;
+    }
+
+  if (tsize > 0)
+    {
+      if (frame_pointer_needed)
+	emit_insn (gen_movsi (stack_pointer_rtx, frame_pointer_rtx));
+
+      save_restore_insns (FALSE, tmp_rtx, tsize, (FILE *)0);
+
+      emit_insn (gen_addsi3 (stack_pointer_rtx, stack_pointer_rtx, tsize_rtx));
+    }
+
+  emit_jump_insn (gen_return_internal (gen_rtx (REG, Pmode, GP_REG_FIRST+31)));
 }
 
 
@@ -4363,7 +4701,7 @@ mips_epilogue_delay_slots ()
    was created.  */
 
 int
-null_epilogue ()
+simple_epilogue_p ()
 {
   if (!reload_completed)
     return 0;
@@ -4373,4 +4711,3 @@ null_epilogue ()
 
   return (compute_frame_size (get_frame_size ())) == 0;
 }
-

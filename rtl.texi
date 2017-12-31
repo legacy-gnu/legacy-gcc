@@ -48,12 +48,15 @@ form uses nested parentheses to indicate the pointers in the internal form.
 @cindex RTL vectors
 @cindex RTL expression
 @cindex RTX (See RTL)
-RTL uses four kinds of objects: expressions, integers, strings and vectors.
-Expressions are the most important ones.  An RTL expression (``RTX'', for
-short) is a C structure, but it is usually referred to with a pointer; a
-type that is given the typedef name @code{rtx}.
+RTL uses five kinds of objects: expressions, integers, wide integers,
+strings and vectors.  Expressions are the most important ones.  An RTL
+expression (``RTX'', for short) is a C structure, but it is usually
+referred to with a pointer; a type that is given the typedef name
+@code{rtx}.
 
 An integer is simply an @code{int}; their written form uses decimal digits.
+A wide integer is an integral object whose type is @code{HOST_WIDE_INT}
+(@pxref{Config}); their written form used decimal digits.
 
 A string is a sequence of characters.  In core it is represented as a
 @code{char *} in usual C fashion, and it is written in C syntax as well.
@@ -112,12 +115,13 @@ wanted.  The written form of this is @code{(nil)}.
 @cindex operand access
 
 @cindex RTL format
-For each expression type @file{rtl.def} specifies the number of contained
-objects and their kinds, with four possibilities: @samp{e} for expression
-(actually a pointer to an expression), @samp{i} for integer, @samp{s} for
-string, and @samp{E} for vector of expressions.  The sequence of letters
-for an expression code is called its @dfn{format}.  Thus, the format of
-@code{subreg} is @samp{ei}.@refill
+For each expression type @file{rtl.def} specifies the number of
+contained objects and their kinds, with four possibilities: @samp{e} for
+expression (actually a pointer to an expression), @samp{i} for integer,
+@samp{w} for wide integer, @samp{s} for string, and @samp{E} for vector
+of expressions.  The sequence of letters for an expression code is
+called its @dfn{format}.  Thus, the format of @code{subreg} is
+@samp{ei}.@refill
 
 @cindex RTL format characters
 A few other format characters are used occasionally:
@@ -211,11 +215,12 @@ All other RTX codes.
 
 @findex XEXP
 @findex XINT
+@findex XWINT
 @findex XSTR
 Operands of expressions are accessed using the macros @code{XEXP},
-@code{XINT} and @code{XSTR}.  Each of these macros takes two arguments: an
-expression-pointer (RTX) and an operand number (counting from zero).
-Thus,@refill
+@code{XINT}, @code{XWINT} and @code{XSTR}.  Each of these macros takes
+two arguments: an expression-pointer (RTX) and an operand number
+(counting from zero).  Thus,@refill
 
 @example
 XEXP (@var{x}, 2)
@@ -336,6 +341,28 @@ The same hard register may be used also for collecting the values of
 functions called by this one, but @code{REG_FUNCTION_VALUE_P} is zero
 in this kind of use.
 
+@findex SUBREG_PROMOTED_VAR_P
+@cindex @code{subreg} and @samp{/s}
+@cindex @code{in_struct}, in @code{subreg}
+@item SUBREG_PROMOTED_VAR_P
+Nonzero in a @code{subreg} if it was made when accessing an object that
+was promoted to a wider mode in accord with the @code{PROMOTED_MODE} machine
+description macro (@pxref{Storage Layout}).  In this case, the mode of
+the @code{subreg} is the declared mode of the object and the mode of
+@code{SUBREG_REG} is the mode of the register that holds the object.
+Promoted variables are always either sign- or zero-extended to the wider
+mode on every assignment.  Stored in the @code{in_struct} field and
+printed as @samp{/s}.
+
+@findex SUBREG_PROMOTED_UNSIGNED_P
+@cindex @code{subreg} and @samp{/u}
+@cindex @code{unchanging}, in @code{subreg}
+@item SUBREG_PROMOTED_UNSIGNED_P
+Nonzero in a @code{subreg} that has @code{SUBREG_PROMOTED_VAR_P} nonzero
+if the object being referenced is kept zero-extended and zero if it
+is kept sign-extended.  Stored in the @code{unchanging} field and
+printed as @samp{/u}.
+
 @findex RTX_UNCHANGING_P 
 @cindex @code{reg} and @samp{/u}
 @cindex @code{mem} and @samp{/u}
@@ -427,7 +454,7 @@ function.  Stored in the @code{unchanging} field and printed as @samp{/u}.
 @cindex @code{in_struct}, in @code{code_label}
 @item LABEL_PRESERVE_P (@var{x})
 In a @code{code_label}, indicates that the label can never be deleted.
-Labels referenced by a a non-local goto will have this bit set.  Stored
+Labels referenced by a non-local goto will have this bit set.  Stored
 in the @code{in_struct} field and printed as @samp{/s}.
 
 @findex SCHED_GROUP_P
@@ -460,7 +487,7 @@ that each register is only renumbered once.
 
 @findex volatil
 @item volatil
-This flag is used in @code{mem},@code{symbol_ref} and @code{reg}
+This flag is used in @code{mem}, @code{symbol_ref} and @code{reg}
 expressions and in insns.  In RTL dump files, it is printed as
 @samp{/v}.
 
@@ -493,6 +520,9 @@ scheduled as part of a group together with the previous insn.
 In @code{reg} expressions, it is 1 if the register has its entire life
 contained within the test expression of some loopl.
 
+In @code{subreg} expressions, 1 means that the @code{subreg} is accessing
+an object that has had its mode promoted from a wider mode.
+
 In @code{label_ref} expressions, 1 means that the referenced label is
 outside the innermost loop containing the insn in which the @code{label_ref}
 was found.
@@ -506,6 +536,9 @@ In an RTL dump, this flag is represented as @samp{/s}.
 @item unchanging
 In @code{reg} and @code{mem} expressions, 1 means
 that the value of the expression never changes.
+
+In @code{subreg} expressions, it is 1 if the @code{subreg} references an
+unsigned object whose mode has been promoted to a wider mode.
 
 In an insn, 1 means that this is an annulling branch.
 
@@ -785,14 +818,7 @@ The simplest RTL expressions are those that represent constant values.
 @item (const_int @var{i})
 This type of expression represents the integer value @var{i}.  @var{i}
 is customarily accessed with the macro @code{INTVAL} as in
-@code{INTVAL (@var{exp})}, which is equivalent to @code{XINT (@var{exp}, 0)}.
-
-Keep in mind that the result of @code{INTVAL} is an integer on the host
-machine.  If the host machine has more bits in an @code{int} than the
-target machine has in the mode in which the constant will be used, then
-some of the bits you get from @code{INTVAL} will be superfluous.  In
-many cases, for proper results, you must carefully disregard the values
-of those bits.
+@code{INTVAL (@var{exp})}, which is equivalent to @code{XWINT (@var{exp}, 0)}.
 
 @findex const0_rtx
 @findex const1_rtx
@@ -819,7 +845,7 @@ Similarly, there is only one object for the integer whose value is
 @findex const_double
 @item (const_double:@var{m} @var{addr} @var{i0} @var{i1} @dots{})
 Represents either a floating-point constant of mode @var{m} or an
-integer constant that is too large to fit into @code{HOST_BITS_PER_INT}
+integer constant that is too large to fit into @code{HOST_BITS_PER_WIDE_INT}
 bits but small enough to fit within twice that number of bits (GNU CC
 does not provide a mechanism to represent even larger constants).  In
 the latter case, @var{m} will be @code{VOIDmode}.
@@ -1668,7 +1694,7 @@ but rather state assertions about their operands.
 @findex strict_low_part
 @cindex @code{subreg}, in @code{strict_low_part}
 @item (strict_low_part (subreg:@var{m} (reg:@var{n} @var{r}) 0))
-This expression code is used in only one context: operand 0 of a
+This expression code is used in only one context: as the destination operand of a
 @code{set} expression.  In addition, the operand of this expression
 must be a non-paradoxical @code{subreg} expression.
 
@@ -2310,7 +2336,7 @@ An expression for the side effect performed by this insn.  This must be
 one of the following codes: @code{set}, @code{call}, @code{use},
 @code{clobber}, @code{return}, @code{asm_input}, @code{asm_output},
 @code{addr_vec}, @code{addr_diff_vec}, @code{trap_if}, @code{unspec},
-@code{unspec_volatile}, or @code{parallel}.  If it is a @code{parallel},
+@code{unspec_volatile}, @code{parallel}, or @code{sequence}.  If it is a @code{parallel},
 each element of the @code{parallel} must be one these codes, except that
 @code{parallel} expressions cannot be nested and @code{addr_vec} and
 @code{addr_diff_vec} are not permitted inside a @code{parallel} expression.
@@ -2377,7 +2403,7 @@ the kind of note.
 
 @findex REG_NOTE_KIND
 @findex PUT_REG_NOTE_KIND
-The macro @code{REG_NOTE_KIND (@var{x})} returns the the kind of
+The macro @code{REG_NOTE_KIND (@var{x})} returns the kind of
 register note.  Its counterpart, the macro @code{PUT_REG_NOTE_KIND
 (@var{x}, @var{newkind})} sets the register note type of @var{x} to be
 @var{newkind}.

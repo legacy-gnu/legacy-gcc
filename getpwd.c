@@ -28,6 +28,8 @@ extern char *getcwd ();
 char *getenv ();
 char *xmalloc ();
 
+#ifndef VMS
+
 /* Get the working directory.  Use the PWD environment variable if it's
    set correctly, since this is faster and gives more uniform answers
    to the user.  Yield the working directory if successful; otherwise,
@@ -57,7 +59,9 @@ getpwd ()
 	  {
 	    int e = errno;
 	    free (p);
+#ifdef ERANGE
 	    if (e != ERANGE)
+#endif
 	      {
 		errno = failure_errno = e;
 		p = 0;
@@ -71,3 +75,20 @@ getpwd ()
     }
   return p;
 }
+
+#else	/* VMS */
+
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 255
+#endif
+
+char *
+getpwd ()
+{
+  static char *pwd = 0;
+
+  if (!pwd) pwd = getcwd (xmalloc (MAXPATHLEN+1), MAXPATHLEN+1);
+  return pwd;
+}
+
+#endif	/* VMS */

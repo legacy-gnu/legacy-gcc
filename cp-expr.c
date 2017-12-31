@@ -25,7 +25,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "flags.h"
 #include "expr.h"
 #include "cp-tree.h"
-#include "assert.h"
 
 #define NULL 0
 
@@ -83,8 +82,8 @@ cplus_expand_expr (exp, target, tmode, modifier)
 	if (target == 0)
 	  {
 	    /* Should always be called with a target in BLKmode case.  */
-	    assert (mode != BLKmode);
-	    assert (DECL_RTL (slot) != 0);
+	    my_friendly_assert (mode != BLKmode, 205);
+	    my_friendly_assert (DECL_RTL (slot) != 0, 206);
 
 	    target = gen_reg_rtx (mode);
 	  }

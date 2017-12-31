@@ -28,12 +28,17 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Standard GCC variables that we reference.  */
 
-extern int target_flags;
-extern int optimize;
-extern int may_call_alloca;
-extern int current_function_calls_alloca;
-extern int frame_pointer_needed;
-extern int flag_omit_frame_pointer;
+extern char    *asm_file_name;
+extern char	call_used_regs[];
+extern int	current_function_calls_alloca;
+extern int	flag_omit_frame_pointer;
+extern int	frame_pointer_needed;
+extern char    *language_string;
+extern int	may_call_alloca;
+extern int	optimize;
+extern char   **save_argv;
+extern int	target_flags;
+extern char    *version_string;
 
 /* MIPS external variables defined in mips.c.  */
 
@@ -121,10 +126,12 @@ extern int		arith32_operand ();
 extern int		arith_operand ();
 extern int		cmp_op ();
 extern int		cmp2_op ();
-extern unsigned long	compute_frame_size ();
+extern long		compute_frame_size ();
+extern int		epilogue_reg_mentioned_p ();
 extern void		expand_block_move ();
 extern int		equality_op ();
 extern int		fcmp_op ();
+extern void		final_prescan_insn ();
 extern int		fpsw_register_operand ();
 extern struct rtx_def *	function_arg ();
 extern void		function_arg_advance ();
@@ -139,11 +146,13 @@ extern int		md_register_operand ();
 extern int		mips_address_cost ();
 extern void		mips_asm_file_end ();
 extern void		mips_asm_file_start ();
-extern void		mips_declare_object ();
 extern int		mips_const_double_ok ();
 extern void		mips_count_memory_refs ();
 extern int		mips_debugger_offset ();
+extern void		mips_declare_object ();
 extern int		mips_epilogue_delay_slots ();
+extern void		mips_expand_epilogue ();
+extern void		mips_expand_prologue ();
 extern char	       *mips_fill_delay_slot ();
 extern char	       *mips_move_1word ();
 extern char	       *mips_move_2words ();
@@ -159,18 +168,49 @@ extern void		print_operand_address ();
 extern void		print_operand ();
 extern void		print_options ();
 extern int		reg_or_0_operand ();
+extern int		simple_epilogue_p ();
 extern int		simple_memory_operand ();
 extern int		small_int ();
 extern void		trace();
 extern int		uns_arith_operand ();
 extern int		uns_cmp_op ();
 
-/* Functions in varasm.c that we reference.  */
+/* Recognition functions that return if a condition is true.  */
+extern int		address_operand ();
+extern int		const_double_operand ();
+extern int		const_int_operand ();
+extern int		general_operand ();
+extern int		immediate_operand ();
+extern int		memory_address_p ();
+extern int		memory_operand ();
+extern int		nonimmediate_operand ();
+extern int		nonmemory_operand ();
+extern int		register_operand ();
+extern int		scratch_operand ();
+
+/* Functions to change what output section we are using.  */
 extern void		data_section ();
 extern void		rdata_section ();
 extern void		readonly_data_section ();
 extern void		sdata_section ();
 extern void		text_section ();
+
+/* Functions in the rest of the compiler that we reference.  */
+extern void		abort_with_insn ();
+extern void		debug_rtx ();
+extern void		fatal_io_error ();
+extern int		get_frame_size ();
+extern int		offsettable_address_p ();
+extern void		output_address ();
+extern char	       *permalloc ();
+extern int		reg_mentioned_p ();
+
+/* Functions in the standard library that we reference.  */
+extern void		abort ();
+extern int		atoi ();
+extern char	       *getenv ();
+extern char	       *mktemp ();
+
 
 /* Stubs for half-pic support if not OSF/1 reference platform.  */
 
@@ -333,7 +373,8 @@ while (0)
 /* Names to predefine in the preprocessor for this target machine.  */
 
 #ifndef CPP_PREDEFINES
-#define CPP_PREDEFINES "-Dmips -Dunix -Dhost_mips -DMIPSEB -DR3000 -DSYSTYPE_BSD43"
+#define CPP_PREDEFINES "-Dmips -Dunix -Dhost_mips -DMIPSEB -DR3000 -DSYSTYPE_BSD43 \
+-D_mips -D_unix -D_host_mips -D_MIPSEB -D_R3000 -D_SYSTYPE_BSD43"
 #endif
 
 /* Extra switches sometimes passed to the assembler.  */
@@ -355,17 +396,31 @@ while (0)
 /* Specify to run a post-processor, mips-tfile after the assembler
    has run to stuff the mips debug information into the object file.
    This is needed because the $#!%^ MIPS assembler provides no way
-   of specifying such information in the assembly file.  */
+   of specifying such information in the assembly file.  If we are
+   cross compiling, disable mips-tfile unless the user specifies
+   -mmips-tfile.  */
 
 #ifndef ASM_FINAL_SPEC
+#ifndef CROSS_COMPILE
 #define ASM_FINAL_SPEC "\
 %{!mgas: %{!mno-mips-tfile: \
 	\n mips-tfile %{v*: -v} \
 		%{K: -I %b.o~} \
 		%{!K: %{save-temps: -I %b.o~}} \
-		%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %b.o} \
+		%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
 		%{.s:%i} %{!.s:%g.s}}}"
-#endif
+
+#else				/* CROSS_COMPILE */
+#define ASM_FINAL_SPEC "\
+%{!mgas: %{mmips-tfile: \
+	\n mips-tfile %{v*: -v} \
+		%{K: -I %b.o~} \
+		%{!K: %{save-temps: -I %b.o~}} \
+		%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
+		%{.s:%i} %{!.s:%g.s}}}"
+
+#endif	/* CROSS_COMPILE */
+#endif	/* ASM_FINAL_SPEC */
 
 /* Redefinition of libraries used.  Mips doesn't support normal
    UNIX style profiling via calling _mcount.  It does offer
@@ -385,7 +440,7 @@ while (0)
 	%{EB} %{!EB:-EB} \
 	%{EL: %e-EL not supported} \
 	%{mips1} %{mips2} %{mips3} \
-	%{bestGnum}}"
+	%{bestGnum} %{shared} %{non_shared}}"
 #endif				/* LINK_SPEC defined */
 
 /* Specs for the compiler proper */
@@ -428,7 +483,7 @@ while (0)
 
 /* Print subsidiary information on the compiler version in use.  */
 
-#define MIPS_VERSION "[AL 1.1, MM 19]"
+#define MIPS_VERSION "[AL 1.1, MM 33]"
 
 #ifndef MACHINE_TYPE
 #define MACHINE_TYPE "BSD Mips"
@@ -606,8 +661,12 @@ do {							\
 #define SDB_GENERATE_FAKE(BUFFER, NUMBER) \
   sprintf ((BUFFER), ".%dfake", (NUMBER));
 
-/* Correct the offset of automatic variables and arguments
-   if the frame pointer has been eliminated.  */
+/* Correct the offset of automatic variables and arguments.  Note that
+   the MIPS debug format wants all automatic variables and arguments
+   to be in terms of the virtual frame pointer (stack pointer before
+   any adjustment in the function), while the MIPS 3.0 linker wants
+   the frame pointer to be the stack pointer after the initial
+   adjustment.  */
 
 #define DEBUGGER_AUTO_OFFSET(X)		mips_debugger_offset (X, 0)
 #define DEBUGGER_ARG_OFFSET(OFFSET, X)	mips_debugger_offset (X, OFFSET)
@@ -1136,13 +1195,13 @@ extern char mips_hard_regno_mode_ok[][FIRST_PSEUDO_REGISTER];
 /* #define PC_REGNUM xx				*/
 
 /* Register to use for pushing function arguments.  */
-#define STACK_POINTER_REGNUM 29
+#define STACK_POINTER_REGNUM (GP_REG_FIRST + 29)
 
 /* Offset from the stack pointer to the first available location.  */
 #define STACK_POINTER_OFFSET 0
 
 /* Base register for access to local variables of the function.  */
-#define FRAME_POINTER_REGNUM 30
+#define FRAME_POINTER_REGNUM (GP_REG_FIRST + 30)
 
 /* Value should be nonzero if functions must have frame pointers.
    Zero means the frame pointer need not be set up (and parms
@@ -1151,22 +1210,29 @@ extern char mips_hard_regno_mode_ok[][FIRST_PSEUDO_REGISTER];
 #define FRAME_POINTER_REQUIRED (current_function_calls_alloca)
 
 /* Base register for access to arguments of the function.  */
-#define ARG_POINTER_REGNUM FRAME_POINTER_REGNUM
+#define ARG_POINTER_REGNUM GP_REG_FIRST
 
 /* Register in which static-chain is passed to a function.  */
-#define STATIC_CHAIN_REGNUM 2
+#define STATIC_CHAIN_REGNUM (GP_REG_FIRST + 2)
 
-/* Register in which address to store a structure value
-   is passed to a function.  */
-#define STRUCT_VALUE_REGNUM 4
+/* If the structure value address is passed in a register, then
+   `STRUCT_VALUE_REGNUM' should be the number of that register.  */
+/* #define STRUCT_VALUE_REGNUM (GP_REG_FIRST + 4) */
+
+/* If the structure value address is not passed in a register, define
+   `STRUCT_VALUE' as an expression returning an RTX for the place
+   where the address is passed.  If it returns 0, the address is
+   passed as an "invisible" first argument.  */
+#define STRUCT_VALUE ((rtx)0)
 
 /* Mips registers used in prologue/epilogue code when the stack frame
    is larger than 32K bytes.  These registers must come from the
    scratch register set, and not used for passing and returning
    arguments and any other information used in the calling sequence
    (such as pic).  */
-#define MIPS_TEMP1_REGNUM 8
-#define MIPS_TEMP2_REGNUM 9
+
+#define MIPS_TEMP1_REGNUM (GP_REG_FIRST + 8)
+#define MIPS_TEMP2_REGNUM (GP_REG_FIRST + 9)
 
 /* Define this macro if it is as good or better to call a constant
    function address than to call an address kept in a register.  */
@@ -1184,7 +1250,7 @@ extern char mips_hard_regno_mode_ok[][FIRST_PSEUDO_REGISTER];
    once, as with the stack pointer and frame pointer registers.  If
    this macro is not defined, it is up to the machine-dependent
    files to allocate such a register (if necessary).  */
-#define PIC_OFFSET_TABLE_REGNUM 28
+#define PIC_OFFSET_TABLE_REGNUM (GP_REG_FIRST + 28)
 
 
 /* Define the classes of registers for register constraints in the
@@ -1256,8 +1322,8 @@ enum reg_class
   { 0x00000000, 0x00000000, 0x00000000 },	/* no registers */	\
   { 0xffffffff, 0x00000000, 0x00000000 },	/* integer registers */	\
   { 0x00000000, 0xffffffff, 0x00000000 },	/* floating registers*/	\
-  { 0x00000000, 0x00000000, 0x00000001 },	/* lo register */	\
-  { 0x00000000, 0x00000000, 0x00000002 },	/* hi register */	\
+  { 0x00000000, 0x00000000, 0x00000001 },	/* hi register */	\
+  { 0x00000000, 0x00000000, 0x00000002 },	/* lo register */	\
   { 0x00000000, 0x00000000, 0x00000003 },	/* mul/div registers */	\
   { 0x00000000, 0x00000000, 0x00000004 },	/* status registers */	\
   { 0xffffffff, 0xffffffff, 0x00000007 }	/* all registers */	\
@@ -1342,12 +1408,12 @@ extern enum reg_class mips_char_to_class[];
    : (C) == 'J' ? ((VALUE) == 0)					\
    : (C) == 'K' ? ((unsigned) (VALUE) < 0x10000)			\
    : (C) == 'L' ? (((VALUE) & 0xffff0000) == (VALUE))			\
-   : (C) == 'M' ? ((((VALUE) & 0xffff0000) != 0)			\
-		   && (((VALUE) & 0xffff0000) != 0xffff0000)		\
+   : (C) == 'M' ? ((((VALUE) & ~0x0000ffff) != 0)			\
+		   && (((VALUE) & ~0x0000ffff) != ~0x0000ffff)		\
 		   && ((VALUE) & 0x0000ffff) != 0)			\
-   : (C) == 'N' ? (((VALUE) & 0xffff0000) == 0xffff0000)		\
+   : (C) == 'N' ? (((VALUE) & ~0x0000ffff) == ~0x0000ffff)		\
    : (C) == 'O' ? (exact_log2 (VALUE) >= 0)				\
-   : (C) == 'P' ? ((VALUE) != 0 && (((VALUE) & 0xffff0000) == 0))	\
+   : (C) == 'P' ? ((VALUE) != 0 && (((VALUE) & ~0x0000ffff) == 0))	\
    : 0)
 
 /* Similar, but for floating constants, and defining letters G and H.
@@ -1393,6 +1459,21 @@ extern enum reg_class mips_char_to_class[];
 		? GR_REGS						\
 		: CLASS))
 
+/* Certain machines have the property that some registers cannot be
+   copied to some other registers without using memory.  Define this
+   macro on those machines to be a C expression that is non-zero if
+   objects of mode MODE in registers of CLASS1 can only be copied to
+   registers of class CLASS2 by storing a register of CLASS1 into
+   memory and loading that memory location into a register of CLASS2.
+
+   Do not define this macro if its value would always be zero.  */
+
+#define SECONDARY_MEMORY_NEEDED(CLASS1, CLASS2, MODE)			\
+  (!TARGET_DEBUG_H_MODE							\
+   && GET_MODE_CLASS (MODE) == MODE_INT					\
+   && ((CLASS1 == FP_REGS && CLASS2 == GR_REGS)				\
+       || (CLASS1 == GR_REGS && CLASS2 == FP_REGS)))
+
 /* Return the maximum number of consecutive registers
    needed to represent mode MODE in a register of class CLASS.  */
 
@@ -1425,32 +1506,57 @@ extern enum reg_class mips_char_to_class[];
    is at the high-address end of the local variables;
    that is, each additional local variable allocated
    goes at a more negative offset in the frame.  */
-#define FRAME_GROWS_DOWNWARD
+/* #define FRAME_GROWS_DOWNWARD */
 
 /* Offset within stack frame to start allocating local variables at.
    If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
    first local allocated.  Otherwise, it is the offset to the BEGINNING
    of the first local allocated.  */
-#define STARTING_FRAME_OFFSET (-8)
+#define STARTING_FRAME_OFFSET current_function_outgoing_args_size
+
+/* Offset from the stack pointer register to an item dynamically
+   allocated on the stack, e.g., by `alloca'.
+
+   The default value for this macro is `STACK_POINTER_OFFSET' plus the
+   length of the outgoing arguments.  The default is correct for most
+   machines.  See `function.c' for details.
+
+   The MIPS ABI states that functions which dynamically allocate the
+   stack must not have 0 for STACK_DYNAMIC_OFFSET, since it looks like
+   we are trying to create a second frame pointer to the function, so
+   allocate some stack space to make it happy.
+
+   However, the linker currently complains about linking any code that
+   dynamically allocates stack space, and there seems to be a bug in
+   STACK_DYNAMIC_OFFSET, so don't define this right now.  */
+
+#if 0
+#define STACK_DYNAMIC_OFFSET(FUNDECL)					\
+  ((current_function_outgoing_args_size == 0 && current_function_calls_alloca) \
+	? 4*UNITS_PER_WORD						\
+	: current_function_outgoing_args_size)
+#endif
 
 /* Structure to be filled in by compute_frame_size with register
    save masks, and offsets for the current function.  */
 
 struct mips_frame_info
 {
-  unsigned long total_size;	/* # bytes that the entire frame takes up */
-  unsigned long var_size;	/* # bytes that variables take up */
-  unsigned long args_size;	/* # bytes that outgoing arguments take up */
-  unsigned long extra_size;	/* # bytes of extra gunk */
-  unsigned int  gp_reg_size;	/* # bytes needed to store gp regs */
-  unsigned int  fp_reg_size;	/* # bytes needed to store fp regs */
-  unsigned long mask;		/* mask of saved gp registers */
-  unsigned long fmask;		/* mask of saved fp registers */
-  long		gp_save_offset;	/* offset from vfp to store gp registers */
-  long		fp_save_offset;	/* offset from vfp to store fp registers */
-  unsigned long gp_sp_offset;	/* offset from new sp to store gp registers */
-  unsigned long fp_sp_offset;	/* offset from new sp to store fp registers */
-  int		initialized;	/* != 0 if frame size already calculated */
+  long total_size;		/* # bytes that the entire frame takes up */
+  long var_size;		/* # bytes that variables take up */
+  long args_size;		/* # bytes that outgoing arguments take up */
+  long extra_size;		/* # bytes of extra gunk */
+  int  gp_reg_size;		/* # bytes needed to store gp regs */
+  int  fp_reg_size;		/* # bytes needed to store fp regs */
+  long mask;			/* mask of saved gp registers */
+  long fmask;			/* mask of saved fp registers */
+  long gp_save_offset;		/* offset from vfp to store gp registers */
+  long fp_save_offset;		/* offset from vfp to store fp registers */
+  long gp_sp_offset;		/* offset from new sp to store gp registers */
+  long fp_sp_offset;		/* offset from new sp to store fp registers */
+  int  initialized;		/* != 0 if frame size already calculated */
+  int  num_gp;			/* number of gp registers saved */
+  int  num_fp;			/* number of fp registers saved */
 };
 
 extern struct mips_frame_info current_frame_info;
@@ -1460,8 +1566,69 @@ extern struct mips_frame_info current_frame_info;
    as of the start of the function body.  This depends on the layout
    of the fixed parts of the stack frame and on how registers are saved.  */
 
-#define INITIAL_FRAME_POINTER_OFFSET(VAR)				\
- ((VAR) = compute_frame_size (get_frame_size ()))
+/* #define INITIAL_FRAME_POINTER_OFFSET(VAR)				\
+    ((VAR) = compute_frame_size (get_frame_size ())) */
+
+/* If defined, this macro specifies a table of register pairs used to
+   eliminate unneeded registers that point into the stack frame.  If
+   it is not defined, the only elimination attempted by the compiler
+   is to replace references to the frame pointer with references to
+   the stack pointer.
+
+   The definition of this macro is a list of structure
+   initializations, each of which specifies an original and
+   replacement register.
+
+   On some machines, the position of the argument pointer is not
+   known until the compilation is completed.  In such a case, a
+   separate hard register must be used for the argument pointer. 
+   This register can be eliminated by replacing it with either the
+   frame pointer or the argument pointer, depending on whether or not
+   the frame pointer has been eliminated.
+
+   In this case, you might specify:
+        #define ELIMINABLE_REGS  \
+        {{ARG_POINTER_REGNUM, STACK_POINTER_REGNUM}, \
+         {ARG_POINTER_REGNUM, FRAME_POINTER_REGNUM}, \
+         {FRAME_POINTER_REGNUM, STACK_POINTER_REGNUM}}
+
+   Note that the elimination of the argument pointer with the stack
+   pointer is specified first since that is the preferred elimination.  */
+
+#define ELIMINABLE_REGS							\
+{{ ARG_POINTER_REGNUM,   STACK_POINTER_REGNUM},				\
+ { ARG_POINTER_REGNUM,   FRAME_POINTER_REGNUM},				\
+ { FRAME_POINTER_REGNUM, STACK_POINTER_REGNUM}}
+
+
+/* A C expression that returns non-zero if the compiler is allowed to
+   try to replace register number FROM-REG with register number
+   TO-REG.  This macro need only be defined if `ELIMINABLE_REGS' is
+   defined, and will usually be the constant 1, since most of the
+   cases preventing register elimination are things that the compiler
+   already knows about.  */
+
+#define CAN_ELIMINATE(FROM, TO)						\
+  (!frame_pointer_needed						\
+   || ((FROM) == ARG_POINTER_REGNUM && (TO) == FRAME_POINTER_REGNUM))
+
+/* This macro is similar to `INITIAL_FRAME_POINTER_OFFSET'.  It
+   specifies the initial difference between the specified pair of
+   registers.  This macro must be defined if `ELIMINABLE_REGS' is
+   defined.  */
+
+#define INITIAL_ELIMINATION_OFFSET(FROM, TO, OFFSET)			 \
+{  compute_frame_size (get_frame_size ());				 \
+  if ((FROM) == FRAME_POINTER_REGNUM && (TO) == STACK_POINTER_REGNUM)	 \
+    (OFFSET) = 0;							 \
+  else if ((FROM) == ARG_POINTER_REGNUM && (TO) == FRAME_POINTER_REGNUM) \
+    (OFFSET) = current_frame_info.total_size;				 \
+  else if ((FROM) == ARG_POINTER_REGNUM && (TO) == STACK_POINTER_REGNUM) \
+    (OFFSET) = current_frame_info.total_size;				 \
+  else									 \
+    abort ();								 \
+}
+
 
 /* If we generate an insn to push BYTES bytes,
    this says how many the stack pointer really advances by.
@@ -1479,16 +1646,30 @@ extern struct mips_frame_info current_frame_info;
    `ACCUMULATE_OUTGOING_ARGS'.  */
 #define ACCUMULATE_OUTGOING_ARGS
 
-/* Offset of first parameter from the argument pointer register value.  */
+/* Offset from the argument pointer register to the first argument's
+   address.  On some machines it may depend on the data type of the
+   function.
+
+   If `ARGS_GROW_DOWNWARD', this is the offset to the location above
+   the first argument's address.
+
+   On the MIPS, we must skip the first argument position if we are
+   returning a structure or a union, to account for it's address being
+   passed in $4.  However, at the current time, this produces a compiler
+   that can't bootstrap, so comment it out for now.  */
+
+#if 0
+#define FIRST_PARM_OFFSET(FNDECL)					\
+  (FNDECL != 0								\
+   && TREE_TYPE (FNDECL) != 0						\
+   && TREE_TYPE (TREE_TYPE (FNDECL)) != 0				\
+   && (TREE_CODE (TREE_TYPE (TREE_TYPE (FNDECL))) == RECORD_TYPE	\
+       || TREE_CODE (TREE_TYPE (TREE_TYPE (FNDECL))) == UNION_TYPE)	\
+		? UNITS_PER_WORD					\
+		: 0)
+#else
 #define FIRST_PARM_OFFSET(FNDECL) 0
-
-/* Offset from top-of-stack address to location to store the
-   function parameter if it can't go in a register.
-   Addresses for following parameters are computed relative to this one.
-
-   It also has the effect of counting register arguments in the total
-   argument size. */
-#define FIRST_PARM_CALLER_OFFSET(FNDECL) 0
+#endif
 
 /* When a parameter is passed in a register, stack space is still
    allocated for it.  For the MIPS, stack space must be allocated, cf
@@ -1498,7 +1679,7 @@ extern struct mips_frame_info current_frame_info;
    in register. In case an argument list is of form GF used registers
    are a0 (a2,a3), but we should push over a1...  */
 
-#define REG_PARM_STACK_SPACE(FNDECL) (4*4)
+#define REG_PARM_STACK_SPACE(FNDECL) ((4*UNITS_PER_WORD) - FIRST_PARM_OFFSET (FNDECL))
 
 /* Define this if it is the responsibility of the caller to
    allocate the area reserved for arguments passed in registers. 
@@ -1628,9 +1809,12 @@ extern struct mips_frame_info current_frame_info;
 */
 
 typedef struct mips_args {
-  int gp_reg_found;
-  int arg_number;
-  int arg_words;
+  int gp_reg_found;		/* whether a gp register was found yet */
+  int arg_number;		/* argument number */
+  int arg_words;		/* # total words the arguments take */
+  int num_adjusts;		/* number of adjustments made */
+				/* Adjustments made to args pass in regs.  */
+  struct rtx_def *adjust[MAX_ARGS_IN_REGISTERS];
 } CUMULATIVE_ARGS;
 
 /* Initialize a variable CUM of type CUMULATIVE_ARGS
@@ -1717,19 +1901,18 @@ typedef struct mips_args {
 #define ELIGIBLE_FOR_EPILOGUE_DELAY(INSN,N)				\
   (get_attr_dslot (INSN) == DSLOT_NO					\
    && get_attr_length (INSN) == 1					\
-   && ! reg_mentioned_p (stack_pointer_rtx, PATTERN (INSN))		\
-   && ! reg_mentioned_p (frame_pointer_rtx, PATTERN (INSN)))
+   && ! epilogue_reg_mentioned_p (PATTERN (INSN)))
 
 /* Tell prologue and epilogue if register REGNO should be saved / restored.  */
 
 #define MUST_SAVE_REGISTER(regno) \
  ((regs_ever_live[regno] && !call_used_regs[regno])		\
   || (regno == FRAME_POINTER_REGNUM && frame_pointer_needed)	\
-  || (regno == 31 && regs_ever_live[31]))
+  || (regno == (GP_REG_FIRST + 31) && regs_ever_live[GP_REG_FIRST + 31]))
 
 /* ALIGN FRAMES on double word boundaries */
 
-#define MIPS_STACK_ALIGN(LOC) (((LOC)+7) & 0xfffffff8)
+#define MIPS_STACK_ALIGN(LOC) (((LOC)+7) & ~7)
 
 
 /* Output assembler code to FILE to increment profiler label # LABELNO
@@ -1748,6 +1931,12 @@ typedef struct mips_args {
   fprintf (FILE, "\t.set\treorder\n");					\
   fprintf (FILE, "\t.set\tat\n");					\
 }
+
+/* Define this macro if the code for function profiling should come
+   before the function prologue.  Normally, the profiling code comes
+   after.  */
+
+/* #define PROFILE_BEFORE_PROLOGUE */
 
 /* EXIT_IGNORE_STACK should be nonzero if, when returning from a function,
    the stack pointer does not matter.  The value is tested only in
@@ -2055,9 +2244,67 @@ __enable_execute_stack (addr)						\
    It is not necessary for this macro to come up with a legitimate
    address.  The compiler has standard ways of doing so in all
    cases.  In fact, it is safe for this macro to do nothing.  But
-   often a machine-dependent strategy can generate better code.  */
+   often a machine-dependent strategy can generate better code.
 
-#define LEGITIMIZE_ADDRESS(X,OLDX,MODE,WIN) {}
+   For the MIPS, transform:
+
+	memory(X + <large int>)
+
+   into:
+
+	Y = <large int> & ~0x7fff;
+	Z = X + Y
+	memory (Z + (<large int> & 0x7fff));
+
+   This is for CSE to find several similar references, and only use one Z.  */
+
+#define LEGITIMIZE_ADDRESS(X,OLDX,MODE,WIN)				\
+{									\
+  register rtx xinsn = (X);						\
+									\
+  if (TARGET_DEBUG_B_MODE)						\
+    {									\
+      GO_PRINTF ("\n========== LEGITIMIZE_ADDRESS\n");			\
+      GO_DEBUG_RTX (xinsn);						\
+    }									\
+									\
+  if (GET_CODE (xinsn) == PLUS)						\
+    {									\
+      register rtx xplus0 = XEXP (xinsn, 0);				\
+      register rtx xplus1 = XEXP (xinsn, 1);				\
+      register enum rtx_code code0 = GET_CODE (xplus0);			\
+      register enum rtx_code code1 = GET_CODE (xplus1);			\
+									\
+      if (code0 != REG && code1 == REG)					\
+	{								\
+	  xplus0 = XEXP (xinsn, 1);					\
+	  xplus1 = XEXP (xinsn, 0);					\
+	  code0 = GET_CODE (xplus0);					\
+	  code1 = GET_CODE (xplus1);					\
+	}								\
+									\
+      if (code0 == REG && REG_OK_FOR_BASE_P (xplus0)			\
+	  && code1 == CONST_INT && !SMALL_INT (xplus1))			\
+	{								\
+	  rtx int_reg = gen_reg_rtx (Pmode);				\
+	  rtx ptr_reg = gen_reg_rtx (Pmode);				\
+									\
+	  emit_move_insn (int_reg,					\
+			  GEN_INT (INTVAL (xplus1) & ~ 0x7fff));	\
+									\
+	  emit_insn (gen_rtx (SET, VOIDmode,				\
+			      ptr_reg,					\
+			      gen_rtx (PLUS, Pmode, xplus0, int_reg)));	\
+									\
+	  X = gen_rtx (PLUS, Pmode, ptr_reg,				\
+		       GEN_INT (INTVAL (xplus1) & 0x7fff));		\
+	  goto WIN;							\
+	}								\
+    }									\
+									\
+  if (TARGET_DEBUG_B_MODE)						\
+    GO_PRINTF ("LEGITIMIZE_ADDRESS could not fix.\n");			\
+}
 
 
 /* A C statement or compound statement with a conditional `goto
@@ -2226,7 +2473,6 @@ while (0)
 									\
   case CONST:								\
     {									\
-      extern rtx eliminate_constant_term ();				\
       rtx offset = const0_rtx;						\
       rtx symref = eliminate_constant_term (X, &offset);		\
 									\
@@ -2504,47 +2750,7 @@ while (0)
    statistics.  */
 
 #define FINAL_PRESCAN_INSN(INSN, OPVEC, NOPERANDS)			\
-do									\
-  {									\
-    if (dslots_number_nops > 0 && mips_load_reg != (rtx)0)		\
-      {									\
-	enum machine_mode mode = GET_MODE (mips_load_reg);		\
-	rtx pattern = PATTERN (INSN);					\
-									\
-	if (reg_mentioned_p (mips_load_reg, pattern)			\
-	    || (mips_load_reg2 != (rtx)0				\
-		&& reg_mentioned_p (mips_load_reg2, pattern))		\
-	    || (mips_load_reg3 != (rtx)0				\
-		&& reg_mentioned_p (mips_load_reg3, pattern))		\
-	    || (mips_load_reg4 != (rtx)0				\
-		&& reg_mentioned_p (mips_load_reg4, pattern))		\
-	    || get_attr_length (INSN) == 0)				\
-	  {								\
-	    fputs ((set_noreorder) ? "\tnop\n" : "\t#nop\n", asm_out_file); \
-	  }								\
-	else								\
-	  dslots_load_filled++;						\
-									\
-	while (--dslots_number_nops > 0)				\
-	  fputs ((set_noreorder) ? "\tnop\n" : "\t#nop\n", asm_out_file); \
-									\
-	mips_load_reg  = (rtx)0;					\
-	mips_load_reg2 = (rtx)0;					\
-	mips_load_reg3 = (rtx)0;					\
-	mips_load_reg4 = (rtx)0;					\
-									\
-	if (set_noreorder && --set_noreorder == 0)			\
-	  fputs ("\t.set\treorder\n", asm_out_file);			\
-      }									\
-									\
-    if (TARGET_STATS)							\
-      {									\
-	enum rtx_code code = GET_CODE (INSN);				\
-	if (code == JUMP_INSN || code == CALL_INSN)			\
-	  dslots_jump_total++;						\
-      }									\
-  }									\
-while (0)
+  final_prescan_insn (INSN, OPVEC, NOPERANDS)
 
 
 /* Tell final.c how to eliminate redundant test instructions.
@@ -2592,7 +2798,7 @@ while (0)
 /* Returns a mode from class `MODE_CC' to be used when comparison
    operation code OP is applied to rtx X.  */
 
-#define SELECT_CC_MODE(OP, X)						\
+#define SELECT_CC_MODE(OP, X, Y)					\
   (GET_MODE_CLASS (GET_MODE (X)) != MODE_FLOAT				\
 	? SImode							\
 	: ((OP == NE) ? CC_REV_FPmode : CC_FPmode))
@@ -2696,6 +2902,21 @@ while (0)
   &mips_reg_names[64][0],						\
   &mips_reg_names[65][0],						\
   &mips_reg_names[66][0],						\
+}
+
+/* print-rtl.c can't use REGISTER_NAMES, since it depends on mips.c.
+   So define this for it.  */
+#define DEBUG_REGISTER_NAMES						\
+{									\
+  "$0",   "at",   "v0",   "v1",   "a0",   "a1",   "a2",   "a3",		\
+  "t0",   "t1",   "t2",   "t3",   "t4",   "t5",   "t6",   "t7",		\
+  "s0",   "s1",   "s2",   "s3",   "s4",   "s5",   "s6",   "s7",		\
+  "t8",   "t9",   "k0",   "k1",   "gp",   "sp",   "$fp",   "ra",	\
+  "$f0",  "$f1",  "$f2",  "$f3",  "$f4",  "$f5",  "$f6",  "$f7",	\
+  "$f8",  "$f9",  "$f10", "$f11", "$f12", "$f13", "$f14", "$f15",	\
+  "$f16", "$f17", "$f18", "$f19", "$f20", "$f21", "$f22", "$f23",	\
+  "$f24", "$f25", "$f26", "$f27", "$f28", "$f29", "$f30", "$f31",	\
+  "hi",   "lo",   "$fcr31"						\
 }
 
 /* If defined, a C initializer for an array of structures
@@ -2897,8 +3118,7 @@ while (0)
 	$Lb[0-9]+	Begin blocks for MIPS debug support
 	$Lc[0-9]+	Label for use in s<xx> operation.
 	$Le[0-9]+	End blocks for MIPS debug support
-	$Lp\..+		Half-pic labels.
-	$Ls[0-9]+	FP-SP difference if -fomit-frame-pointer  */
+	$Lp\..+		Half-pic labels. */
 
 /* This is how to output the definition of a user-level label named NAME,
    such as the label on a static function or variable NAME.
@@ -3217,9 +3437,8 @@ rdata_section ()							\
 /* Given a decl node or constant node, choose the section to output it in
    and select that section.  */
 
-#define SELECT_SECTION_MODE(MODE,RTX)					\
+#define SELECT_RTX_SECTION(MODE,RTX)					\
 {									\
-  extern int mips_section_threshold;					\
   if ((GET_MODE_SIZE(MODE) / BITS_PER_UNIT) <= mips_section_threshold	\
       && mips_section_threshold > 0)					\
     sdata_section ();							\
@@ -3229,7 +3448,6 @@ rdata_section ()							\
 
 #define SELECT_SECTION(DECL,RELOC)					\
 {									\
-  extern int mips_section_threshold;					\
   if (int_size_in_bytes (TREE_TYPE (DECL)) <= mips_section_threshold	\
       && mips_section_threshold > 0)					\
     sdata_section ();							\
@@ -3310,4 +3528,15 @@ while (0)
 #define MIPS_IS_STAB(sym) (((sym)->index & 0xFFF00) == CODE_MASK)
 #define MIPS_MARK_STAB(code) ((code)+CODE_MASK)
 #define MIPS_UNMARK_STAB(code) ((code)-CODE_MASK)
+
+
+/* Default definitions for size_t and ptrdiff_t.  */
+
+#ifndef SIZE_TYPE
+#define SIZE_TYPE	"unsigned int"
+#endif
+
+#ifndef PTRDIFF_TYPE
+#define PTRDIFF_TYPE	"int"
+#endif
 

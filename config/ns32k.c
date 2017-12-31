@@ -46,7 +46,7 @@ trace (s, s1, s2)
 int
 hard_regno_mode_ok (regno, mode)
      int regno;
-     int mode;
+     enum machine_mode mode;
 {
   switch (mode)
     {
@@ -107,7 +107,10 @@ hard_regno_mode_ok (regno, mode)
       else
 	return 0;
     }
-  abort(0);
+
+  /* Used to abort here, but simply saying "no" handles TImode
+     much better.  */
+  return 0;
 }
 
 /* ADDRESS_COST calls this.  This function is not optimal
@@ -420,10 +423,10 @@ print_operand (file, x, code)
     }
   else
     {
-#ifndef NO_IMMEDIATE_PREFIX_IF_SYMBOLIC
+#ifdef NO_IMMEDIATE_PREFIX_IF_SYMBOLIC
       if (GET_CODE (x) == CONST_INT)
 #endif
-	PUT_IMMEDIATE_PREFIX(file);
+	PUT_IMMEDIATE_PREFIX (file);
       output_addr_const (file, x);
     }
 }
@@ -526,7 +529,7 @@ print_operand_address (file, addr)
 #ifdef INDEX_RATHER_THAN_BASE
   /* This is a re-implementation of the SEQUENT_ADDRESS_BUG fix.  */
   if (base && !indexexp && GET_CODE (base) == REG
-      && REG_OK_FOR_INDEX_P (REGNO (base))
+      && REG_OK_FOR_INDEX_P (base))
     {
       indexexp = base;
       base = 0;

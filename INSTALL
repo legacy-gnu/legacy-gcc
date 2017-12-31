@@ -1,8 +1,5 @@
-This is Info file INSTALL, produced by Makeinfo-1.47 from the input
-file install1.texi.
-
-   This file documents the installation of the GNU compiler. Copyright
-(C) 1988, 1989, 1992 Free Software Foundation, Inc. You may copy,
+This file documents the installation of the GNU compiler. Copyright (C)
+1988, 1989, 1992 Free Software Foundation, Inc. You may copy,
 distribute, and modify it freely as long as you preserve this copyright
 notice and permission notice.
 
@@ -14,7 +11,10 @@ Installing GNU CC
 
   1. If you have built GNU CC previously in the same directory for a
      different target machine, do `make distclean' to delete all files
-     that might be invalid.
+     that might be invalid.  One of the files this deletes is
+     `Makefile'; if `make distclean' complains that `Makefile' does not
+     exist, it probably means that the directory is already suitably
+     clean.
 
   2. On a System V release 4 system, make sure `/usr/bin' precedes
      `/usr/ucb' in `PATH'.  The `cc' command in `/usr/ucb' uses
@@ -54,15 +54,16 @@ Installing GNU CC
 
      Here are the possible CPU types:
 
-          a29k, arm, cN, hppa1.0, hppa1.1, i386, i860, i960, m68000,
-          m68k, m88k, mips, ns32k, romp, rs6000, sparc, vax, we32k.
+          a29k, alpha, arm, cN, elxsi, hppa1.0, hppa1.1, i386, i860,
+          i960, m68000, m68k, m88k, mips, ns32k, pyramid, romp, rs6000,
+          sparc, vax, we32k.
 
      Here are the recognized company names.  As you can see, customary
      abbreviations are used rather than the longer official names.
 
-          alliant, altos, apollo, att, convergent, convex, crds, dec,
-          dg, encore, harris, hp, ibm, mips, motorola, ncr, next, ns,
-          omron, sequent, sgi, sony, sun, tti, unicom.
+          alliant, altos, apollo, att, cbm, convergent, convex, crds,
+          dec, dg, encore, harris, hp, ibm, mips, motorola, ncr, next,
+          ns, omron, sequent, sgi, sony, sun, tti, unicom.
 
      The company name is meaningful only to disambiguate when the rest
      of the information supplied is insufficient.  You can omit it,
@@ -71,9 +72,9 @@ Installing GNU CC
 
      Here is a list of system types:
 
-          bsd, sysv, mach, minix, genix, ultrix, vms, sco, isc, aix,
-          sunos, hpux, unos, luna, dgux, newsos, osfrose, osf, dynix,
-          aos, ctix.
+          aix, aos, bsd, ctix, dgux, dynix, genix, hpux, isc, linux,
+          luna, mach, minix, newsos, osf, osfrose, riscos, sco, sunos,
+          sysv, ultrix, unos, vms.
 
      You can omit the system type; then `configure' guesses the
      operating system from the CPU and company.
@@ -108,9 +109,9 @@ Installing GNU CC
      Remember that a machine name specifies both the cpu type and the
      company name.
 
-     There are three additional options you can specify independently to
+     There are four additional options you can specify independently to
      describe variant hardware and software configurations.  These are
-     `--with-gnu-as', `--with-gnu-ld', and `--nfp'.
+     `--with-gnu-as', `--with-gnu-ld', `--with-stabs' and `--nfp'.
 
     `--with-gnu-as'
           On certain systems, you must specify whether you want GNU CC
@@ -119,7 +120,7 @@ Installing GNU CC
           argument when you run `configure', if you want to use the GNU
           tools.  (Specify `--with-gnu-ld' as well, since on these
           systems GAS works only with the GNU linker.)  The systems
-          were this makes a difference are `i386-ANYTHING-sysv',
+          where this makes a difference are `i386-ANYTHING-sysv',
           `i860-ANYTHING-bsd', `m68k-hp-hpux', `m68k-sony-bsd',
           `m68k-altos-sysv', `m68000-hp-hpux', and `m68000-att-sysv'. 
           On any other system, `--with-gnu-as' has no effect.
@@ -129,6 +130,23 @@ Installing GNU CC
           linker.  This inhibits the installation of `collect2', a
           program which otherwise serves as a front-end for the
           system's linker on most configurations.
+
+    `--with-stabs'
+          On MIPS based systems, you must specify whether you want GNU
+          CC to create the normal ECOFF debugging format, or to use
+          BSD-style stabs passed through the ECOFF symbol table.  The
+          normal ECOFF debug format cannot fully handle languages other
+          than C.  BSD stabs format can handle other languages, but it
+          only works with the GNU debugger GDB.
+
+          Normally, GNU CC uses the ECOFF debugging format by default;
+          if you prefer BSD stabs, specify `--with-stabs' when you
+          configure GNU CC.
+
+          No matter which default you choose when you configure GNU CC,
+          the user can use the `-gcoff' and `-gstabs+' options to
+          specify explicitly the debug format for a particular
+          compilation.
 
     `--nfp'
           On certain systems, you must specify whether the machine has
@@ -149,15 +167,73 @@ Installing GNU CC
      Here is a list of configurations that have special treatment or
      special things you must know:
 
+    `alpha-*-osf1'
+          Systems using processors that implement the DEC Alpha
+          architecture and are running the OSF/1 operating system. (VMS
+          on the Alpha is not currently supported by GNU CC.)  As of
+          this writing, the only Alpha-based product currently
+          available from DEC is the 21064 (EV4) processor chip; no
+          system-level products can be ordered.  This port is provided
+          for those developers who might have early Alpha hardware from
+          DEC or other vendors and run the OSF/1 operating system.  It
+          has not been extensively tested and both the C++ and
+          Objective-C languages may not work, except in a
+          cross-compilation environment.
+
+          The `ASSEMBLE_FILE_START' macro writes a `.verstamp' directive
+          containing the version of the calling sequence.  Currently,
+          we use `9 0', which we believe will work until the official
+          release by DEC of their system, at which point `3 11' is the
+          correct value.  If you get a mismatch error from the
+          assembler on a `.verstamp' line, consult the file
+          `/usr/include/stamp.h' for the present value.  GNU C on the
+          Alpha does not support versions of DEC's OSF/1 earlier than
+          BL9; if you are running an older version, we suggest you ask
+          your DEC contact for an update.
+
+          Note that since the Alpha is a 64-bit architecture,
+          cross-compilers from 32-bit machines will not generate as
+          efficient code as that generated when the compiler is running
+          on a 64-bit machine because many optimizations that depend on
+          being able to represent a word on the target in an integral
+          value on the host cannot be performed.
+
+    `a29k'
+          AMD Am29K-family processors.  These are normally used in
+          embedded applications.  There are no standard Unix
+          configurations. This configuration corresponds to AMD's
+          standard calling sequence and binary interface and is
+          compatible with other 29K tools.
+
+          You may need to make a variant of the file `a29k.h' for your
+          particular configuration.
+
+    `a29k-*-bsd'
+          AMD Am29050 used in a system running a variant of BSD Unix.
+
+    `elxsi-elxsi-bsd'
+          The Elxsi's C compiler has known limitations that prevent it
+          from compiling GNU C.  Please contact `mrs@cygnus.com' for
+          more details.
+
     `i386-*-sco'
-          Compilation with RCC is recommended, but it produces lots of
-          spurious warnings.  They do not necessarily indicate that
-          anything is wrong.
+          Compilation with RCC is recommended.
+
+    `i386-ibm-aix'
+          You need a version of GAS that you can get from
+          `tranle@intellicorp.com'.
 
     `i386-sequent'
           Go to the Berkeley universe before compiling.  In addition,
           you probably need to create a file named `string.h'
           containing just one line: `#include <strings.h>'.
+
+    `i386-sun-sunos4'
+          You may find that you need another version of GNU CC to begin
+          bootstrapping with, since the current version when built with
+          the system's own compiler seems to get an infinite loop
+          compiling part of `libgcc2.c'.  GNU CC version 2 compiled
+          with GNU CC (any version) seems not to have this problem.
 
     `m68000-att'
           AT&T 3b1, a.k.a. 7300 PC.  Special procedures are needed to
@@ -192,7 +268,7 @@ Installing GNU CC
           the FPA.
 
     `m88k-svr3'
-          Motorola m88k running the AT&T/Unisoft/Motorla V.3 reference
+          Motorola m88k running the AT&T/Unisoft/Motorola V.3 reference
           port. These systems tend to use the Green Hills C, revision
           1.8.5, as the standard C compiler.  There are apparently bugs
           in this compiler that result in object files differences
@@ -246,11 +322,19 @@ Installing GNU CC
     `romp-*-mach'
           The only operating systems supported for the IBM RT PC are
           AOS and MACH.  GNU CC does not support AIX running on the RT.
+           We recommend you compile GNU CC with an earlier version of
+          itself; if you compile GNU CC with `hc', the Metaware
+          compiler, it will work, but you will get mismatches between
+          the stage 2 and stage 3 compilers in various files. These
+          errors are minor differences in some floating-point constants
+          and can be safely ignored; the stage 3 compiler is correct.
 
     `rs6000-*-aix'
-          Read the file `README.RS6000' for information on how to get a
-          fix for a problem in the IBM assembler that prevents use of
-          GNU CC.
+          *Read the file `README.RS6000' for information on how to get
+          a fix for a problem in the IBM assembler that prevents use of
+          GNU CC.* You must either obtain the new assembler or avoid
+          using the `-g' switch.  Note that `Makefile.in' uses `-g' by
+          default when compiling `libgcc2.c'.
 
     `vax-dec-ultrix'
           Don't try compiling with Vax C (`vcc').  It produces
@@ -262,11 +346,6 @@ Installing GNU CC
           compiler.  To avoid this problem, compile just the GNU C
           compiler first, and use it to recompile building all the
           languages that you want to run.
-
-    `we32k-att-sysv'
-          Don't use `-g' when compiling GNU CC.  The system's linker
-          seems to be unable to handle such a large program with
-          debugging information.
 
      Here we spell out what files will be set up by `configure'. 
      Normally you need not be concerned with these files.
@@ -369,7 +448,7 @@ Installing GNU CC
 
   9. Recompile the compiler with itself, with this command:
 
-          make CC="stage1/gcc -Bstage1/" CFLAGS="-g -O"
+          make CC="stage1/xgcc -Bstage1/" CFLAGS="-g -O"
 
      This is called making the stage 2 compiler.
 
@@ -392,22 +471,21 @@ Installing GNU CC
      you have selected a `tm.h' file that expects by default that there
      is no such hardware, do this instead:
 
-          make CC="stage1/gcc -Bstage1/" CFLAGS="-g -O -msoft-float"
+          make CC="stage1/xgcc -Bstage1/" CFLAGS="-g -O -msoft-float"
 
  10. If you wish to test the compiler by compiling it with itself one
      more time, do this:
 
           make stage2
-          make CC="stage2/gcc -Bstage2/" CFLAGS="-g -O"
+          make CC="stage2/xgcc -Bstage2/" CFLAGS="-g -O"
 
      This is called making the stage 3 compiler.  Aside from the `-B'
-     option, the options should be the same as when you made the stage 2
-     compiler.
-
-     The command shown above builds compilers for all the supported
-     languages.  If you don't want them all, you can specify the
-     languages to build by typing the argument `LANGUAGES="LIST"', as
-     described above.
+     option, the compiler options should be the same as when you made
+     the stage 2 compiler.  But the `LANGUAGES' option need not be the
+     same.  The command shown above builds compilers for all the
+     supported languages; if you don't want them all, you can specify
+     the languages to build by typing the argument `LANGUAGES="LIST"',
+     as described above.
 
      Then compare the latest object files with the stage 2 object
      files--they ought to be identical, unless they contain time stamps.
@@ -435,7 +513,7 @@ Installing GNU CC
  11. Install the compiler driver, the compiler's passes and run-time
      support. You can use the following command:
 
-          make CC="stage2/gcc -Bstage2/" CFLAGS="-g -O" install LANGUAGES="LIST"
+          make install CC="stage2/xgcc -Bstage2/" CFLAGS="-g -O" LANGUAGES="LIST"
 
      (Use the same value for `CC', `CFLAGS' and `LANGUAGES' that you
      used when compiling the files that are being installed.  One
@@ -470,24 +548,28 @@ Installing GNU CC
      or 3, since they usually run faster than the ones compiled with
      some other compiler.)
 
- 12. Correct errors in the header files on your machine.
+ 12. Install the Objective C library (if you have built the Objective C
+     compiler).  Here is the command to do this:
+
+          make install-libobjc CC="stage2/xgcc -Bstage2/" CFLAGS="-g -O"
+
+ 13. Correct errors in the header files on your machine.
 
      Various system header files often contain constructs which are
-     incompatible with ANSI C, and they will not work when you compile
-     programs with GNU CC.  This behavior consists of substituting for
-     macro argument names when they appear inside of character
-     constants.  The most common offender is `ioctl.h'.
+     erroneous, incompatible with ANSI C or otherwise unsuitable, and
+     they will not work when you compile programs with GNU CC.
 
-     You can overcome this problem when you compile by specifying the
-     `-traditional' option.
+     The most common erroneous construct is found in `ioctl.h', where a
+     macro expects argument values to be substituted for argument names
+     inside of character constants--something not done in ANSI C.  This
+     particular problem can be prevented by using `-traditional'.  Other
+     problems are not so easy to work around.
 
-     Alternatively, on Sun systems and 4.3BSD at least, you can correct
-     the include files by running the shell script `fixincludes'.  This
-     installs modified, corrected copies of the files `ioctl.h',
-     `ttychars.h' and many others, in a special directory where only
-     GNU CC will normally look for them.  This script will work on
-     various systems because it chooses the files by searching all the
-     system headers for the problem cases that we know about.
+     GNU CC comes with shell scripts to fix known header file problems.
+      They install corrected copies of various header files in a
+     special directory where only GNU CC will normally look for them. 
+     The scripts adapt to various systems by searching all the system
+     header files for the problem cases that we know about.
 
      Use the following command to do this:
 
@@ -498,8 +580,22 @@ Installing GNU CC
      `libdir', specify it the same way in this command.
 
      Note that some systems are starting to come with ANSI C system
-     header files.  On these systems, don't run `fixincludes'; it may
-     not work, and is certainly not necessary.
+     header files.  On these systems, don't run `install-fixincludes';
+     it may not work, and is certainly not necessary.  One exception:
+     there are is a special script for System V release 4, which you
+     should run.
+
+     It is not the purpose of `install-fixincludes' to add prototypes to
+     the system header files.  We support headers with ANSI C
+     prototypes in the GNU C Library, and we have no time to support
+     adding them to other systems' header files.
+
+ 14. If you're going to use C++, it's likely that you need to also
+     install the `libg++' distribution.  It should be available from
+     the same place where you got the GCC distribution.  Just as GCC
+     does not distribute a C runtime library, it also does not include
+     a C++ run-time library.  All I/O functionality, special class
+     libraries, etc., are available in the `libg++' distribution.
 
    If you cannot install the compiler's passes and run-time support in
 `/usr/local/lib', you can alternatively use the `-B' option to specify
@@ -578,7 +674,7 @@ cross-linker as well.  You also need header files and libraries suitable
 for the target machine that you can install on the host machine.
 
    To build GNU CC as a cross-compiler, you start out by running
-`configure'.  You must specify two different configureations, the host
+`configure'.  You must specify two different configurations, the host
 and the target.  Use the `--host=HOST' option for the host and
 `--target=TARGET' to specify the target type.  For example, here is how
 to configure for a cross-compiler that runs on a hypothetical Intel 386
@@ -587,8 +683,8 @@ system and produces code for an HP 68030 system running BSD:
      configure --target=m68k-hp-bsd4.3 --host=i386-bozotheclone-bsd4.3
 
    Next you should install the cross-assembler and cross-linker (and
-`ar' and `ranlib').  Put them in the directory `/usr/local/TARGET'. 
-The installation of GNU CC will find them there and copy or link them
+`ar' and `ranlib').  Put them in the directory `/usr/local/TARGET/bin'.
+ The installation of GNU CC will find them there and copy or link them
 to the proper place to find them when you run the cross-compiler later.
 
    If you want to install any additional libraries to use with the
@@ -597,22 +693,11 @@ files in that subdirectory will be installed in the proper place when
 you install the cross-compiler. Likewise, put the header files for the
 target machine in `/usr/local/TARGET/include'.
 
-   Then you can proceed just as for compiling a single-machine compiler
-through the step of building stage 1.
-
-   When you are using a cross-compiler configuration, building stage 1
-does not compile all of GNU CC.  This is because one part of building,
-the compilation of `libgcc2.c', requires use of the cross-compiler.
-
-   However, when you type `make install' to install the bulk of the
-cross-compiler, that will also compile `libgcc2.c' and install the
-resulting `libgcc.a'.
-
-   You will find it necessary to produce a substitute for `libgcc1.a'.
-Normally this file is compiled with the "native compiler" for the
-target machine; compiling it with GNU CC does not work.  But compiling
-it with the host machine's compiler also doesn't work--that produces a
-file that would run on the host, and you need it to run on the target.
+   You must now produce a substitute for `libgcc1.a'.  Normally this
+file is compiled with the "native compiler" for the target machine;
+compiling it with GNU CC does not work.  But compiling it with the host
+machine's compiler also doesn't work--that produces a file that would
+run on the host, and you need it to run on the target.
 
    We can't give you any automatic way to produce this substitute.  For
 some targets, the subroutines in `libgcc1.c' are not actually used. You
@@ -622,7 +707,26 @@ routines--many RISC machines rely on the library for this.  One way to
 make them work is to define the appropriate `perform_...' macros for
 the subroutines that you need.  If these definitions do not use the C
 arithmetic operators that they are meant to implement, you might be
-able to compile them with the cross-compiler you have just built.
+able to compile them with the cross-compiler you are building. To do
+this, specify `LIBGCC1=libgcc1.a OLDCC=./xgcc' when building the
+compiler.
+
+   Now you can proceed just as for compiling a single-machine compiler
+through the step of building stage 1.  If you have not provided some
+sort of `libgcc1.a', then compilation will give up at the point where
+it needs that file, printing a suitable error message.  If you do
+provide `libgcc1.a', then building the compiler will automatically
+compile and link a test program called `cross-test'; if you get errors
+in the linking, it means that not all of the necessary routines in
+`libgcc1.a' are available.
+
+   When you are using a cross-compiler configuration, building stage 1
+does not compile all of GNU CC.  This is because one part of building,
+the compilation of `libgcc2.c', requires use of the cross-compiler.
+
+   However, when you type `make install' to install the bulk of the
+cross-compiler, that will also compile `libgcc2.c' and install the
+resulting `libgcc.a'.
 
    Do not try to build stage 2 for a cross-compiler.  It doesn't work to
 rebuild GNU CC as a cross-compiler using the cross-compiler, because
@@ -649,23 +753,30 @@ machine.  Then `configure' will figure out if the machine is a 1.0 or
 1.1.  Use `uname -a' to find out the model number of your machine.
 
    `-g' does not work on HP-UX, since that system uses a peculiar
-debugging format which GNU CC does not know about.  There is a
-preliminary version available of some modified GNU tools including the
-GDB debugger which do work with GNU CC for debugging.  You can get them
-by anonymous ftp from `mancos.cs.utah.edu' in the `dist' subdirectory. 
-You would need to install GAS in the file
+debugging format which GNU CC does not know about.  There are
+preliminary versions of GAS and GDB for the HP-PA which do work with
+GNU CC for debugging.  You can get them by anonymous ftp from
+`jaguar.cs.utah.edu' `dist' subdirectory.  You would need to install
+GAS in the file
 
      /usr/local/lib/gcc-lib/CONFIGURATION/GCCVERSION/as
 
 where CONFIGURATION is the configuration name (perhaps `hpNNN-hpux')
-and GCCVERSION is the GNU CC version number.
+and GCCVERSION is the GNU CC version number.  Do this *before* starting
+the build process, otherwise you will get errors from the HPUX
+assembler while building `libgcc2.a'.  The command
 
-   If you do this, delete the line
+     make install-dir
 
-     #undef DBX_DEBUGGING_INFO
+will create the necessary directory hierarchy so you can install GAS
+before building GCC.
 
-from `tm.h' before you build GNU CC, to enable generation of debugging
-information.
+   If you obtained GAS before October 6, 1992 it is highly recommended
+you get a new one to avoid several bugs which have been discovered
+recently.
+
+   To enable debugging, configure GNU CC with the `--gas' option before
+building.
 
 
 Installing GNU CC on the Sun
@@ -765,9 +876,9 @@ the same manner as you use the VMS C compiler, you must install the VMS
 CLD file for GNU CC as follows:
 
   1. Define the VMS logical names `GNU_CC' and `GNU_CC_INCLUDE' to
-     point to the directories where the GNU CC executables (`gcc-cpp',
-     `gcc-cc1', etc.) and the C include files are kept.  This should be
-     done with the commands:
+     point to the directories where the GNU CC executables
+     (`gcc-cpp.exe', `gcc-cc1.exe', etc.) and the C include files are
+     kept respectively.  This should be done with the commands:
 
           $ assign /system /translation=concealed -
             disk:[gcc.] gnu_cc
@@ -787,7 +898,7 @@ CLD file for GNU CC as follows:
 
   3. To install the help file, do the following:
 
-          $ lib/help sys$library:helplib.hlb gcc.hlp
+          $ library/help sys$library:helplib.hlb gcc.hlp
 
      Now you can invoke the compiler with a command like `gcc /verbose
      file.c', which is equivalent to the command `gcc -v -c file.c' in
@@ -816,18 +927,20 @@ perform the following steps:
 
    We try to put corresponding binaries and sources on the VMS
 distribution tape.  But sometimes the binaries will be from an older
-version that the sources, because we don't always have time to update
+version than the sources, because we don't always have time to update
 them.  (Use the `/version' option to determine the version number of
 the binaries and compare it with the source file `version.c' to tell
 whether this is so.)  In this case, you should use the binaries you get
 to recompile the sources.  If you must recompile, here is how:
 
-  1. Copy the file `vms.h' to `tm.h', `xm-vms.h' to `config.h',
-     `vax.md' to `md.' and `vax.c' to `aux-output.c'.  The files to be
-     copied are found in the subdirectory named `config'; they should
-     be copied to the main directory of GNU CC.  If you wish, you may
-     use the command file `config-gcc.com' to perform these steps for
-     you.
+  1. Execute the command procedure `vmsconfig.com' to copy files
+     `vax-vms.h', `xm-vax-vms.h', `vax.c' and `vax.md' to `tm.h',
+     `config.h', `aux-output.c', and `md.' respectively, and to create
+     files `tconfig.h' and `hconfig.h'.  This procedure also creates
+     several linker option files used by `make-cc1.com' and a data file
+     used by `make-l2.com'.
+
+          $ @vmsconfig.com
 
   2. Setup the logical names and command tables as defined above.  In
      addition, define the VMS logical name `GNU_BISON' to point at the
@@ -864,9 +977,9 @@ to recompile the sources.  If you must recompile, here is how:
 
      To install the library, use the following commands:
 
-          $ lib gnu_cc:[000000]gcclib/delete=(new,eprintf)
-          $ lib libgcc2/extract=*/output=libgcc2.obj
-          $ lib gnu_cc:[000000]gcclib libgcc2.obj
+          $ library gnu_cc:[000000]gcclib/delete=(new,eprintf)
+          $ library libgcc2/extract=*/output=libgcc2.obj
+          $ library gnu_cc:[000000]gcclib libgcc2.obj
 
      The first command simply removes old modules that will be replaced
      with modules from libgcc2.  If the VMS librarian complains about
@@ -876,25 +989,25 @@ to recompile the sources.  If you must recompile, here is how:
      Whenever you update the compiler on your system, you should also
      update the library with the above procedure.
 
-     You may wish to build GCC in such a way that no files are written
+  6. You may wish to build GCC in such a way that no files are written
      to the directory where the source files reside.  An example would
      be the when the source files are on a read-only disk.  In these
      cases, execute the following DCL commands (substituting your
      actual path names):
 
-          $ assign dua0:[gcc.build_dir.]tran=conc, -
-                   dua1:[gcc.source_dir.]/tran=conc gcc_build
+          $ assign dua0:[gcc.build_dir.]/translation=concealed, -
+                   dua1:[gcc.source_dir.]/translation=concealed  gcc_build
           $ set default gcc_build:[000000]
 
-     where `dua1:[gcc.source_dir.]' contains the source code, and
-     `dua0:[gcc.build_dir.]' is meant to contain all of the generated
+     where `dua1:[gcc.source_dir]' contains the source code, and
+     `dua0:[gcc.build_dir]' is meant to contain all of the generated
      object files and executables.  Once you have done this, you can
      proceed building GCC as described above.  (Keep in mind that
      `gcc_build' is a rooted logical name, and thus the device names in
      each element of the search list must be an actual physical device
      name rather than another rooted logical name).
 
-     *If you are building GNU CC with a previous version of GNU CC, you
+  7. *If you are building GNU CC with a previous version of GNU CC, you
      also should check to see that you have the newest version of the
      assembler*.  In particular, GNU CC version 2 treats global constant
      variables slightly differently from GNU CC version 1, and GAS
@@ -912,29 +1025,129 @@ to recompile the sources.  If you must recompile, here is how:
      `inline'.)  Once you have a working 1.33 or newer GNU CC, you can
      change this file back.
 
+  8. If you want to build GNU CC with the VAX C compiler, you will need
+     to make minor changes in `make-cccp.com' and `make-cc1.com' to
+     choose alternate definitions of `CC', `CFLAGS', and `LIBS'.  See
+     comments in those files.  However, you must also have a working
+     version of the GNU assembler (GNU as, aka GAS) as it is used as
+     the back-end for GNU CC to produce binary object modules and is
+     not included in the GNU CC sources.  GAS is also needed to compile
+     `libgcc2' in order to build `gcclib' (see above); `make-l2.com'
+     expects to be able to find it operational in
+     `gnu_cc:[000000]gnu-as.exe'.
+
+     To use GNU CC on VMS, you need the VMS driver programs `gcc.exe',
+     `gcc.com', and `gcc.cld'.  They are distributed with the VMS
+     binaries (`gcc-vms') rather than the GNU CC sources.  GAS is also
+     included in `gcc-vms', as is Bison.
+
+     Once you have successfully built GNU CC with VAX C, you should use
+     the resulting compiler to rebuild itself.  Before doing this, be
+     sure to restore the `CC', `CFLAGS', and `LIBS' definitions in
+     `make-cccp.com' and `make-cc1.com'.  The second generation
+     compiler will be able to take advantage of many optimizations that
+     must be suppressed when building with other compilers.
+
    Under previous versions of GNU CC, the generated code would
-occasionally give strange results when linked to the sharable `VAXCRTL'
-library. Now this should work.
+occasionally give strange results when linked with the sharable
+`VAXCRTL' library. Now this should work.
 
    Even with this version, however, GNU CC itself should not be linked
-to the sharable `VAXCRTL'.  The `qsort' routine supplied with `VAXCRTL'
-has a bug which can cause a compiler crash.
-
-   Similarly, the preprocessor should not be linked to the sharable
-`VAXCRTL'.  The `strncat' routine supplied with `VAXCRTL' has a bug
-which can cause the preprocessor to go into an infinite loop.
-
-   If you attempt to link to the sharable `VAXCRTL', the VMS linker
-will strongly resist any effort to force it to use the `qsort' and
-`strncat' routines from `gcclib'.  Until the bugs in `VAXCRTL' have
-been fixed, linking any of the compiler components to the sharable
-VAXCRTL is not recommended.  (These routines can be bypassed by placing
-duplicate copies of `qsort' and `strncat' in `gcclib' under different
-names, and patching the compiler sources to use these routines).  Both
-of the bugs in `VAXCRTL' are still present in VMS version 5.4-1, which
-is the most recent version as of this writing.
+with the sharable `VAXCRTL'.  The version of `qsort' in `VAXCRTL' has a
+bug (known to be present in VMS versions V4.6 through V5.5) which
+causes the compiler to fail.
 
    The executables that are generated by `make-cc1.com' and
-`make-cccp.com' use the nonshared version of `VAXCRTL' (and thus use
-the `qsort' and `strncat' routines from `gcclib.olb').
+`make-cccp.com' use the object library version of `VAXCRTL' in order to
+make use of the `qsort' routine in `gcclib.olb'.  If you wish to link
+the compiler executables with the shareable image version of `VAXCRTL',
+you should edit the file `tm.h' (created by `vmsconfig.com') to define
+the macro `QSORT_WORKAROUND'.
+
+   `QSORT_WORKAROUND' is always defined when GNU CC is compiled with
+VAX C, to avoid a problem in case `gcclib.olb' is not yet available.
+
+
+Installing GNU CC on the WE32K
+===============================
+
+   These computers are also known as the 3b2, 3b5, 3b20 and other
+similar names.  (However, the 3b1 is actually a 68000; see *Note 3b1
+Install::.)
+
+   Don't use `-g' when compiling with the system's compiler.  The
+system's linker seems to be unable to handle such a large program with
+debugging information.
+
+   The system's compiler runs out of capacity when compiling `stmt.c'
+in GNU CC.  You can work around this by building `cpp' in GNU CC first,
+then use that instead of the system's preprocessor with the system's C
+compiler to compile `stmt.c'.  Here is how:
+
+     mv /lib/cpp /lib/cpp.att
+     cp cpp /lib/cpp.gnu
+     echo "/lib/cpp.gnu -traditional $*" > /lib/cpp
+     chmod +x /lib/cpp
+
+   The system's compiler produces bad code for some of the GNU CC
+optimization files.  So you must build the stage 2 compiler without
+optimization.  Then build a stage 3 compiler with optimization. That
+executable should work.  Here are the necessary commands:
+
+     make LANGUAGES=c CC=stage1/xgcc CFLAGS="-Bstage1/ -g"
+     make stage2
+     make CC=stage2/xgcc CFLAGS="-Bstage2/ -g -O"
+
+   You may need to raise the ULIMIT setting to build a C++ compiler, as
+the file `cc1plus' is larger than one megabyte.
+
+
+Installing GNU CC on the MIPS
+==============================
+
+   See *Note Installation:: about whether to use `--with-stabs' or not.
+
+   The MIPS C compiler needs to be told to increase its table size for
+switch statements with the `-Wf,-XNg1500' option in order to compile
+`cp-parse.c'.  If you use the `-O2' optimization option, you also need
+to use `-Olimit 3000'. Both of these options are automatically
+generated in the `Makefile' that the shell script `configure' builds.
+If you override the `CC' make variable and use the MIPS compilers, you
+may need to add `-Wf,-XNg1500 -Olimit 3000'.
+
+   MIPS computers running RISC-OS can support four different
+personalities: default, BSD 4.3, System V.3, and System V.4 (older
+versions of RISC-OS don't support V.4).  To configure GCC for these
+platforms use the following configurations:
+
+`mips-mips-riscos`rev''
+     Default configuration for RISC-OS, revision `rev'.
+
+`mips-mips-riscos`rev'bsd'
+     BSD 4.3 configuration for RISC-OS, revision `rev'.
+
+`mips-mips-riscos`rev'sysv4'
+     System V.4 configuration for RISC-OS, revision `rev'.
+
+`mips-mips-riscos`rev'sysv'
+     System V.3 configuration for RISC-OS, revision `rev'.
+
+   The revision `rev' mentioned above is the revision of RISC-OS to
+use.  You must reconfigure GCC when going from a RISC-OS revision 4 to
+RISC-OS revision 5.  This has the effect of avoiding a linker bug.
+
+   DECstations can support three different personalities: Ultrix, DEC
+OSF/1, and OSF/rose.  To configure GCC for these platforms use the
+following configurations:
+
+`decstation-ultrix'
+     Ultrix configuration.
+
+`decstation-osf1'
+     Dec's version of OSF/1.
+
+`decstation-osfrose'
+     Open Software Foundation reference port of OSF/1 which uses the
+     OSF/rose object file format instead of ECOFF.  Normally, you would
+     not select this configuration.
 

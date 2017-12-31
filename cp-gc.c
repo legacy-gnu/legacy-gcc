@@ -23,7 +23,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "cp-tree.h"
 #include "flags.h"
-#include "assert.h"
 
 #define NULL 0
 
@@ -473,7 +472,7 @@ build_t_desc (type, definition)
   if (tdecl == NULL_TREE)
     {
       tdecl = build_decl (VAR_DECL, tname, __t_desc_type_node);
-      TREE_EXTERNAL (tdecl) = 1;
+      DECL_EXTERNAL (tdecl) = 1;
       TREE_PUBLIC (tdecl) = 1;
       tdecl = pushdecl_top_level (tdecl);
     }
@@ -503,7 +502,7 @@ build_t_desc (type, definition)
 	      TREE_PUBLIC (tdecl) = !(CLASSTYPE_INTERFACE_ONLY (taggr)
 				      || CLASSTYPE_INTERFACE_UNKNOWN (taggr));
 	      TREE_STATIC (tdecl) = 1;
-	      TREE_EXTERNAL (tdecl) = 0;
+	      DECL_EXTERNAL (tdecl) = 0;
 	    }
 	  else
 	    {
@@ -513,13 +512,13 @@ build_t_desc (type, definition)
 	}
       else
 	{
-	  TREE_EXTERNAL (tdecl) = 0;
+	  DECL_EXTERNAL (tdecl) = 0;
 	  TREE_STATIC (tdecl) = 1;
 	  TREE_PUBLIC (tdecl) = (definition > 1);
 	}
     }
   SET_IDENTIFIER_AS_DESC (tname, build_unary_op (ADDR_EXPR, tdecl, 0));
-  if (!definition || TREE_EXTERNAL (tdecl))
+  if (!definition || DECL_EXTERNAL (tdecl))
     {
       /* That's it!  */
       finish_decl (tdecl, 0, 0, 0);
@@ -672,7 +671,8 @@ build_m_desc (decl)
     vindex = DECL_VINDEX (decl);
   else
     vindex = integer_zero_node;
-  if (DECL_CONTEXT (decl))
+  if (DECL_CONTEXT (decl)
+      && TREE_CODE_CLASS (TREE_CODE (DECL_CONTEXT (decl))) == 't')
     vcontext = build_t_desc (DECL_CONTEXT (decl), 0);
   else
     vcontext = integer_zero_node;

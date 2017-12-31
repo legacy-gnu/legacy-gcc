@@ -18,20 +18,26 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
+/* Number of bits in each actual element of a regset.  */
+
+#define REGSET_ELT_BITS HOST_BITS_PER_WIDE_INT
+
+/* Type to use for a regset element.  Note that lots of code assumes
+   that the initial part of a regset that contains information on the
+   hard registers is the same format as a HARD_REG_SET.  */
+
+#define REGSET_ELT_TYPE HOST_WIDE_INT
+
 /* Define the type for a pointer to a set with a bit for each
    (hard or pseudo) register.  */
 
-typedef long *regset;
+typedef REGSET_ELT_TYPE *regset;
 
 /* Size of a regset for the current function,
    in (1) bytes and (2) elements.  */
 
 extern int regset_bytes;
 extern int regset_size;
-
-/* Number of bits in each actual element of a regset.  */
-
-#define REGSET_ELT_BITS HOST_BITS_PER_INT
 
 /* Number of basic blocks in the current function.  */
 

@@ -1,4 +1,4 @@
-This is Info file gcc.info, produced by Makeinfo-1.47 from the input
+This is Info file gcc.info, produced by Makeinfo-1.49 from the input
 file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
@@ -11,1080 +11,1064 @@ preserved on all copies.
 
    Permission is granted to copy and distribute modified versions of
 this manual under the conditions for verbatim copying, provided also
-that the sections entitled "GNU General Public License" and "Boycott"
-are included exactly as in the original, and provided that the entire
-resulting derived work is distributed under the terms of a permission
-notice identical to this one.
+that the sections entitled "GNU General Public License" and "Protect
+Your Freedom--Fight `Look And Feel'" are included exactly as in the
+original, and provided that the entire resulting derived work is
+distributed under the terms of a permission notice identical to this
+one.
 
    Permission is granted to copy and distribute translations of this
 manual into another language, under the above conditions for modified
 versions, except that the sections entitled "GNU General Public
-License" and "Boycott", and this permission notice, may be included in
-translations approved by the Free Software Foundation instead of in the
-original English.
+License" and "Protect Your Freedom--Fight `Look And Feel'", and this
+permission notice, may be included in translations approved by the Free
+Software Foundation instead of in the original English.
 
 
-File: gcc.info,  Node: Incompatibilities,  Next: Disappointments,  Prev: Interoperation,  Up: Trouble
+File: gcc.info,  Node: Function Attributes,  Next: Function Prototypes,  Prev: Case Ranges,  Up: Extensions
 
-Incompatibilities of GNU CC
-===========================
+Declaring Attributes of Functions
+=================================
 
-   There are several noteworthy incompatibilities between GNU C and most
-existing (non-ANSI) versions of C.  The `-traditional' option
-eliminates many of these incompatibilities, *but not all*, by telling
-GNU C to behave like the other C compilers.
+   In GNU C, you declare certain things about functions called in your
+program which help the compiler optimize function calls.
 
-   * GNU CC normally makes string constants read-only.  If several
-     identical-looking string constants are used, GNU CC stores only one
-     copy of the string.
+   A few standard library functions, such as `abort' and `exit', cannot
+return.  GNU CC knows this automatically.  Some programs define their
+own functions that never return.  You can declare them `volatile' to
+tell the compiler this fact.  For example,
 
-     One consequence is that you cannot call `mktemp' with a string
-     constant argument.  The function `mktemp' always alters the string
-     its argument points to.
+     extern void volatile fatal ();
+     
+     void
+     fatal (...)
+     {
+       ... /* Print error message. */ ...
+       exit (1);
+     }
 
-     Another consequence is that `sscanf' does not work on some systems
-     when passed a string constant as its format control string or
-     input. This is because `sscanf' incorrectly tries to write into
-     the string constant.  Likewise `fscanf' and `scanf'.
+   The `volatile' keyword tells the compiler to assume that `fatal'
+cannot return.  This makes slightly better code, but more importantly
+it helps avoid spurious warnings of uninitialized variables.
 
-     The best solution to these problems is to change the program to use
-     `char'-array variables with initialization strings for these
-     purposes instead of string constants.  But if this is not possible,
-     you can use the `-fwritable-strings' flag, which directs GNU CC to
-     handle string constants the same way most C compilers do.
-     `-traditional' also has this effect, among others.
+   It does not make sense for a `volatile' function to have a return
+type other than `void'.
 
-   * `-2147483648' is positive.
+   Many functions do not examine any values except their arguments, and
+have no effects except the return value.  Such a function can be subject
+to common subexpression elimination and loop optimization just as an
+arithmetic operator would be.  These functions should be declared
+`const'.  For example,
 
-     This is because 2147483648 cannot fit in the type `int', so
-     (following the ANSI C rules) its data type is `unsigned long int'.
-     Negating this value yields 2147483648 again.
+     extern int const square ();
 
-   * GNU CC does not substitute macro arguments when they appear inside
-     of string constants.  For example, the following macro in GNU CC
+says that the hypothetical function `square' is safe to call fewer
+times than the program says.
 
-          #define foo(a) "a"
+   Note that a function that has pointer arguments and examines the data
+pointed to must *not* be declared `const'.  Likewise, a function that
+calls a non-`const' function usually must not be `const'.  It does not
+make sense for a `const' function to return `void'.
 
-     will produce output `"a"' regardless of what the argument A is.
+   We recommend placing the keyword `const' after the function's return
+type.  It makes no difference in the example above, but when the return
+type is a pointer, it is the only way to make the function itself
+const.  For example,
 
-     The `-traditional' option directs GNU CC to handle such cases
-     (among others) in the old-fashioned (non-ANSI) fashion.
+     const char *mincp (int);
 
-   * When you use `setjmp' and `longjmp', the only automatic variables
-     guaranteed to remain valid are those declared `volatile'.  This is
-     a consequence of automatic register allocation.  Consider this
-     function:
+says that `mincp' returns `const char *'--a pointer to a const object. 
+To declare `mincp' const, you must write this:
 
-          jmp_buf j;
-          
-          foo ()
-          {
-            int a, b;
-          
-            a = fun1 ();
-            if (setjmp (j))
-              return a;
-          
-            a = fun2 ();
-            /* `longjmp (j)' may occur in `fun3'. */
-            return a + fun3 ();
-          }
+     char * const mincp (int);
 
-     Here `a' may or may not be restored to its first value when the
-     `longjmp' occurs.  If `a' is allocated in a register, then its
-     first value is restored; otherwise, it keeps the last value stored
-     in it.
+   Some people object to this feature, suggesting that ANSI C's
+`#pragma' should be used instead.  There are two reasons for not doing
+this.
 
-     If you use the `-W' option with the `-O' option, you will get a
-     warning when GNU CC thinks such a problem might be possible.
+  1. It is impossible to generate `#pragma' commands from a macro.
 
-     The `-traditional' option directs GNU C to put variables in the
-     stack by default, rather than in registers, in functions that call
-     `setjmp'.  This results in the behavior found in traditional C
-     compilers.
+  2. The `#pragma' command is just as likely as these keywords to mean
+     something else in another compiler.
 
-   * Programs that use preprocessor directives in the middle of macro
-     arguments do not work with GNU CC.  For example, a program like
-     this will not work:
+   These two reasons apply to almost any application that might be
+proposed for `#pragma'.  It is basically a mistake to use `#pragma' for
+*anything*.
 
-          foobar (
-          #define luser
-                  hack)
+   The keyword `__attribute__' allows you to specify special attributes
+when making a declaration.  This keyword is followed by an attribute
+specification inside double parentheses.  One attribute, `format', is
+currently defined for functions.  Others are implemented for variables
+and structure fields (*note Function Attributes::.).
 
-     ANSI C does not permit such a construct.  It would make sense to
-     support it when `-traditional' is used, but it is too much work to
-     implement.
+`format (ARCHETYPE, STRING-INDEX, FIRST-TO-CHECK)'
+     The `format' attribute specifies that a function takes `printf' or
+     `scanf' style arguments which should be type-checked against a
+     format string.  For example, the declaration:
 
-   * Declarations of external variables and functions within a block
-     apply only to the block containing the declaration.  In other
-     words, they have the same scope as any other declaration in the
-     same place.
+          extern int
+          my_printf (void *my_object, const char *my_format, ...)
+                __attribute__ ((format (printf, 2, 3)));
 
-     In some other C compilers, a `extern' declaration affects all the
-     rest of the file even if it happens within a block.
+     causes the compiler to check the arguments in calls to `my_printf'
+     for consistency with the `printf' style format string argument
+     `my_format'.
 
-     The `-traditional' option directs GNU C to treat all `extern'
-     declarations as global, like traditional compilers.
+     The parameter ARCHETYPE determines how the format string is
+     interpreted, and should be either `printf' or `scanf'.  The
+     parameter STRING-INDEX specifies which argument is the format
+     string argument (starting from 1), while FIRST-TO-CHECK is the
+     number of the first argument to check against the format string. 
+     For functions where the arguments are not available to be checked
+     (such as `vprintf'), specify the third parameter as zero.  In this
+     case the compiler only checks the format string for consistency.
 
-   * In traditional C, you can combine `long', etc., with a typedef
-     name, as shown here:
+     In the example above, the format string (`my_format') is the second
+     argument of the function `my_print', and the arguments to check
+     start with the third argument, so the correct parameters for the
+     format attribute are 2 and 3.
 
-          typedef int foo;
-          typedef long foo bar;
-
-     In ANSI C, this is not allowed: `long' and other type modifiers
-     require an explicit `int'.  Because this criterion is expressed by
-     Bison grammar rules rather than C code, the `-traditional' flag
-     cannot alter it.
-
-   * PCC allows typedef names to be used as function parameters.  The
-     difficulty described immediately above applies here too.
-
-   * PCC allows whitespace in the middle of compound assignment
-     operators such as `+='.  GNU CC, following the ANSI standard, does
-     not allow this.  The difficulty described immediately above
-     applies here too.
-
-   * GNU CC will flag unterminated character constants inside of
-     preprocessor conditionals that fail.  Some programs have English
-     comments enclosed in conditionals that are guaranteed to fail; if
-     these comments contain apostrophes, GNU CC will probably report an
-     error.  For example, this code would produce an error:
-
-          #if 0
-          You can't expect this to work.
-          #endif
-
-     The best solution to such a problem is to put the text into an
-     actual C comment delimited by `/*...*/'.  However, `-traditional'
-     suppresses these error messages.
-
-   * When compiling functions that return `float', PCC converts it to a
-     double.  GNU CC actually returns a `float'.  If you are concerned
-     with PCC compatibility, you should declare your functions to return
-     `double'; you might as well say what you mean.
-
-   * When compiling functions that return structures or unions, GNU CC
-     output code normally uses a method different from that used on most
-     versions of Unix.  As a result, code compiled with GNU CC cannot
-     call a structure-returning function compiled with PCC, and vice
-     versa.
-
-     The method used by GNU CC is as follows: a structure or union
-     which is 1, 2, 4 or 8 bytes long is returned like a scalar.  A
-     structure or union with any other size is stored into an address
-     supplied by the caller (usually in a special, fixed register, but
-     on some machines it is passed on the stack).  The
-     machine-description macros `STRUCT_VALUE' and
-     `STRUCT_INCOMING_VALUE' tell GNU CC where to pass this address.
-
-     By contrast, PCC on most target machines returns structures and
-     unions of any size by copying the data into an area of static
-     storage, and then returning the address of that storage as if it
-     were a pointer value. The caller must copy the data from that
-     memory area to the place where the value is wanted.  GNU CC does
-     not use this method because it is slower and nonreentrant.
-
-     On some newer machines, PCC uses a reentrant convention for all
-     structure and union returning.  GNU CC on most of these machines
-     uses a compatible convention when returning structures and unions
-     in memory, but still returns small structures and unions in
-     registers.
-
-     You can tell GNU CC to use a compatible convention for all
-     structure and union returning with the option
-     `-fpcc-struct-return'.
+     The `format' attribute allows you to identify your own functions
+     which take format strings as arguments, so that GNU CC can check
+     the calls to these functions for errors.  The compiler always
+     checks formats for the ANSI library functions `printf', `fprintf',
+     `sprintf', `scanf', `fscanf', `sscanf', `vprintf', `vfprintf' and
+     `vsprintf' whenever such warnings are requested (using
+     `-Wformat'), so there is no need to modify the header file
+     `stdio.h'.
 
 
-File: gcc.info,  Node: Disappointments,  Next: Non-bugs,  Prev: Incompatibilities,  Up: Trouble
+File: gcc.info,  Node: Function Prototypes,  Next: Dollar Signs,  Prev: Function Attributes,  Up: Extensions
 
-Disappointments and Misunderstandings
-=====================================
+Prototypes and Old-Style Function Definitions
+=============================================
 
-   These problems are perhaps regrettable, but we don't know any
-practical way around them.
+   GNU C extends ANSI C to allow a function prototype to override a
+later old-style non-prototype definition.  Consider the following
+example:
 
-   * Certain local variables aren't recognized by debuggers when you
-     compile with optimization.
+     /* Use prototypes unless the compiler is old-fashioned.  */
+     #if __STDC__
+     #define P(x) (x)
+     #else
+     #define P(x) ()
+     #endif
+     
+     /* Prototype function declaration.  */
+     int isroot P((uid_t));
+     
+     /* Old-style function definition.  */
+     int
+     isroot (x)   /* ??? lossage here ??? */
+          uid_t x;
+     {
+       return x == 0;
+     }
 
-     This occurs because sometimes GNU CC optimizes the variable out of
-     existence.  There is no way to tell the debugger how to compute the
-     value such a variable "would have had", and it is not clear that
-     would be desirable anyway.  So GNU CC simply does not mention the
-     eliminated variable when it writes debugging information.
+   Suppose the type `uid_t' happens to be `short'.  ANSI C does not
+allow this example, because subword arguments in old-style
+non-prototype definitions are promoted.  Therefore in this example the
+function definition's argument is really an `int', which does not match
+the prototype argument type of `short'.
 
-     You have to expect a certain amount of disagreement between the
-     executable and your source code, when you use optimization.
+   This restriction of ANSI C makes it hard to write code that is
+portable to traditional C compilers, because the programmer does not
+know whether the `uid_t' type is `short', `int', or `long'.  Therefore,
+in cases like these GNU C allows a prototype to override a later
+old-style definition.  More precisely, in GNU C, a function prototype
+argument type overrides the argument type specified by a later
+old-style definition if the former type is the same as the latter type
+before promotion.  Thus in GNU C the above example is equivalent to the
+following:
 
-   * Users often think it is a bug when GNU CC reports an error for code
-     like this:
-
-          int foo (struct mumble *);
-          
-          struct mumble { ... };
-          
-          int foo (struct mumble *x)
-          { ... }
-
-     This code really is erroneous, because the scope of `struct
-     mumble' the prototype is limited to the argument list containing
-     it. It does not refer to the `struct mumble' defined with file
-     scope immediately below--they are two unrelated types with similar
-     names in different scopes.
-
-     But in the definition of `foo', the file-scope type is used
-     because that is available to be inherited.  Thus, the definition
-     and the prototype do not match, and you get an error.
-
-     This behavior may seem silly, but it's what the ANSI standard
-     specifies. It is easy enough for you to make your code work by
-     moving the definition of `struct mumble' above the prototype. 
-     It's not worth being incompatible with ANSI C just to avoid an
-     error for the example shown above.
-
-
-File: gcc.info,  Node: Non-bugs,  Prev: Disappointments,  Up: Trouble
-
-Certain Changes We Don't Want to Make
-=====================================
-
-   This section lists changes that people frequently request, but which
-we do not make because we think GNU CC is better without them.
-
-   * Checking the number and type of arguments to a function which has
-     an old-fashioned definition and no prototype.
-
-     Such a feature would work only occasionally--only for calls that
-     appear in the same file as the called function, following the
-     definition.  The only way to check all calls reliably is to add a
-     prototype for the function.  But adding a prototype eliminates the
-     motivation for this feature.  So the feature is not worthwhile.
-
-   * Warning about using an expression whose type is signed as a shift
-     count.
-
-     Shift count operands are probably signed more often than unsigned.
-     Warning about this would cause far more annoyance than good.
-
-   * Warning about assigning a signed value to an unsigned variable.
-
-     Such assignments must be very common; warning about them would
-     cause more annoyance than good.
-
-   * Warning when a non-void function value is ignored.
-
-     Coming as I do from a Lisp background, I balk at the idea that
-     there is something dangerous about discarding a value.  There are
-     functions that return values which some callers may find useful;
-     it makes no sense to clutter the program with a cast to `void'
-     whenever the value isn't useful.
-
-   * Assuming (for optimization) that the address of an external symbol
-     is never zero.
-
-     This assumption is false on certain systems when `#pragma weak' is
-     used.
-
-   * Making `-fshort-enums' the default.
-
-     This would cause storage layout to be incompatible with most other
-     C compilers.  And it doesn't seem very important, given that you
-     can get the same result in other ways.  The case where it matters
-     most is when the enumeration-valued object is inside a structure,
-     and in that case you can specify a field width explicitly.
-
-   * Making bitfields unsigned by default on particular machines where
-     "the ABI standard" says to do so.
-
-     The ANSI C standard leaves it up to the implementation whether a
-     bitfield declared plain `int' is signed or not.  This in effect
-     creates two alternative dialects of C.
-
-     The GNU C compiler supports both dialects; you can specify the
-     dialect you want with the option `-fsigned-bitfields' or
-     `-funsigned-bitfields'.  However, this leaves open the question of
-     which dialect to use by default.
-
-     Currently, the preferred dialect makes plain bitfields signed,
-     because this is simplest.  Since `int' is the same as `signed int'
-     in every other context, it is cleanest for them to be the same in
-     bitfields as well.
-
-     Some computer manufacturers have published Application Binary
-     Interface standards which specify that plain bitfields should be
-     unsigned.  It is a mistake, however, to say anything about this
-     issue in an ABI.  This is because the handling of plain bitfields
-     distinguishes two dialects of C. Both dialects are meaningful on
-     every type of machine.  Whether a particular object file was
-     compiled using signed bitfields or unsigned is of no concern to
-     other object files, even if they access the same bitfields in the
-     same data structures.
-
-     A given program is written in one or the other of these two
-     dialects. The program stands a chance to work on most any machine
-     if it is compiled with the proper dialect.  It is unlikely to work
-     at all if compiled with the wrong dialect.
-
-     Many users appreciate the GNU C compiler because it provides an
-     environment that is uniform across machines.  These users would be
-     inconvenienced if the compiler treated plain bitfields differently
-     on certain machines.
-
-     Occasionally users write programs intended only for a particular
-     machine type.  On these occasions, the users would benefit if the
-     GNU C compiler were to support by default the same dialect as the
-     other compilers on that machine.  But such applications are rare. 
-     And users writing a program to run on more than one type of
-     machine cannot possibly benefit from this kind of compatibility.
-
-     This is why GNU CC does and will treat plain bitfields in the same
-     fashion on all types of machines (by default).
-
-     There are some arguments for making bitfields unsigned by default
-     on all machines.  If, for example, this becomes a universal de
-     facto standard, it would make sense for GNU CC to go along with
-     it.  This is something to be considered in the future.
-
-     (Of course, users strongly concerned about portability should
-     indicate explicitly in each bitfield whether it is signed or not. 
-     In this way, they write programs which have the same meaning in
-     both C dialects.)
-
-   * Undefining `__STDC__' when `-ansi' is not used.
-
-     Currently, GNU CC defines `__STDC__' as long as you don't use
-     `-traditional'.  This provides good results in practice.
-
-     Programmers normally use conditionals on `__STDC__' to ask whether
-     it is safe to use certain features of ANSI C, such as function
-     prototypes or ANSI token concatenation.  Since plain `gcc' supports
-     all the features of ANSI C, the correct answer to these questions
-     is "yes".
-
-     Some users try to use `__STDC__' to check for the availability of
-     certain library facilities.  This is actually incorrect usage in
-     an ANSI C program, because the ANSI C standard says that a
-     conforming freestanding implementation should define `__STDC__'
-     even though it does not have the library facilities.  `gcc -ansi
-     -pedantic' is a conforming freestanding implementation, and it is
-     therefore required to define `__STDC__', even though it does not
-     come with an ANSI C library.
-
-     Sometimes people say that defining `__STDC__' in a compiler that
-     does not completely conform to the ANSI C standard somehow
-     violates the standard.  This is illogical.  The standard is a
-     standard for compilers that claim to support ANSI C, such as `gcc
-     -ansi'--not for other compilers such as plain `gcc'.  Whatever the
-     ANSI C standard says is relevant to the design of plain `gcc'
-     without `-ansi' only for pragmatic reasons, not as a requirement.
-
-   * Undefining `__STDC__' in C++.
-
-     Programs written to compile with C++-to-C translators get the
-     value of `__STDC__' that goes with the C compiler that is
-     subsequently used.  These programs must test `__STDC__' to
-     determine what kind of C preprocessor that compiler uses: whether
-     they should concatenate tokens in the ANSI C fashion or in the
-     traditional fashion.
-
-     These programs work properly with GNU C++ if `__STDC__' is defined.
-     They would not work otherwise.
-
-     In addition, many header files are written to provide prototypes
-     in ANSI C but not in traditional C.  Many of these header files
-     can work without change in C++ provided `__STDC__' is defined.  If
-     `__STDC__' is not defined, they will all fail, and will all need
-     to be changed to test explicitly for C++ as well.
-
-   * Deleting "empty" loops.
-
-     GNU CC does not delete "empty" loops because the most likely reason
-     you would put one in a program is to have a delay.  Deleting them
-     will not make real programs run any faster, so it would be
-     pointless.
-
-     It would be different if optimization of a nonempty loop could
-     produce an empty one.  But this generally can't happen.
+     int isroot (uid_t);
+     
+     int
+     isroot (uid_t x)
+     {
+       return x == 0;
+     }
 
 
-File: gcc.info,  Node: Bugs,  Next: Service,  Prev: Trouble,  Up: Top
+File: gcc.info,  Node: Dollar Signs,  Next: Character Escapes,  Prev: Function Prototypes,  Up: Extensions
 
-Reporting Bugs
-**************
+Dollar Signs in Identifier Names
+================================
 
-   Your bug reports play an essential role in making GNU CC reliable.
+   In GNU C, you may use dollar signs in identifier names.  This is
+because many traditional C implementations allow such identifiers.
 
-   When you encounter a problem, the first thing to do is to see if it
-is already known.  *Note Trouble::.  If it isn't known, then you should
-report the problem.
+   On some machines, dollar signs are allowed in identifiers if you
+specify `-traditional'.  On a few systems they are allowed by default,
+even if you do not use `-traditional'.  But they are never allowed if
+you specify `-ansi'.
 
-   Reporting a bug may help you by bringing a solution to your problem,
-or it may not.  (If it does not, look in the service directory; see
-*Note Service::.)  In any case, the principal function of a bug report
-is to help the entire community by making the next version of GNU CC
-work better.  Bug reports are your contribution to the maintenance of
-GNU CC.
+   There are certain ANSI C programs (obscure, to be sure) that would
+compile incorrectly if dollar signs were permitted in identifiers.  For
+example:
 
-   In order for a bug report to serve its purpose, you must include the
-information that makes for fixing the bug.
+     #define foo(a) #a
+     #define lose(b) foo (b)
+     #define test$
+     lose (test)
+
+
+File: gcc.info,  Node: Character Escapes,  Next: Variable Attributes,  Prev: Dollar Signs,  Up: Extensions
+
+The Character ESC in Constants
+==============================
+
+   You can use the sequence `\e' in a string or character constant to
+stand for the ASCII character ESC.
+
+
+File: gcc.info,  Node: Alignment,  Next: Inline,  Prev: Variable Attributes,  Up: Extensions
+
+Inquiring on Alignment of Types or Variables
+============================================
+
+   The keyword `__alignof__' allows you to inquire about how an object
+is aligned, or the minimum alignment usually required by a type.  Its
+syntax is just like `sizeof'.
+
+   For example, if the target machine requires a `double' value to be
+aligned on an 8-byte boundary, then `__alignof__ (double)' is 8. This
+is true on many RISC machines.  On more traditional machine designs,
+`__alignof__ (double)' is 4 or even 2.
+
+   Some machines never actually require alignment; they allow reference
+to any data type even at an odd addresses.  For these machines,
+`__alignof__' reports the *recommended* alignment of a type.
+
+   When the operand of `__alignof__' is an lvalue rather than a type,
+the value is the largest alignment that the lvalue is known to have. 
+It may have this alignment as a result of its data type, or because it
+is part of a structure and inherits alignment from that structure. For
+example, after this declaration:
+
+     struct foo { int x; char y; } foo1;
+
+the value of `__alignof__ (foo1.y)' is probably 2 or 4, the same as
+`__alignof__ (int)', even though the data type of `foo1.y' does not
+itself demand any alignment.
+
+   A related feature which lets you specify the alignment of an object
+is `__attribute__ ((aligned (ALIGNMENT)))'; see the following section.
+
+
+File: gcc.info,  Node: Variable Attributes,  Next: Alignment,  Prev: Character Escapes,  Up: Extensions
+
+Specifying Attributes of Variables
+==================================
+
+   The keyword `__attribute__' allows you to specify special attributes
+of variables or structure fields.  This keyword is followed by an
+attribute specification inside double parentheses.  Four attributes are
+currently defined: `aligned', `format', `mode' and `packed'.  `format'
+is used for functions, and thus not documented here; see *Note Function
+Attributes::.
+
+`aligned (ALIGNMENT)'
+     This attribute specifies the alignment of the variable or structure
+     field, measured in bytes.  For example, the declaration:
+
+          int x __attribute__ ((aligned (16))) = 0;
+
+     causes the compiler to allocate the global variable `x' on a
+     16-byte boundary.  On a 68040, this could be used in conjunction
+     with an `asm' expression to access the `move16' instruction which
+     requires 16-byte aligned operands.
+
+     You can also specify the alignment of structure fields.  For
+     example, to create a double-word aligned `int' pair, you could
+     write:
+
+          struct foo { int x[2] __attribute__ ((aligned (8))); };
+
+     This is an alternative to creating a union with a `double' member
+     that forces the union to be double-word aligned.
+
+     It is not possible to specify the alignment of functions; the
+     alignment of functions is determined by the machine's requirements
+     and cannot be changed.  You cannot specify alignment for a typedef
+     name because such a name is just an alias, not a distinct type.
+
+     The linker of your operating system imposes a maximum alignment. 
+     If the linker aligns each object file on a four byte boundary,
+     then it is beyond the compiler's power to cause anything to be
+     aligned to a larger boundary than that.  For example, if  the
+     linker happens to put this object file at address 136 (eight more
+     than a multiple of 64), then the compiler cannot guarantee an
+     alignment of more than 8 just by aligning variables in the object
+     file.
+
+`mode (MODE)'
+     This attribute specifies the data type for the
+     declaration--whichever type corresponds to the mode MODE.  This in
+     effect lets you request an integer or floating point type
+     according to its width.
+
+`packed'
+     The `packed' attribute specifies that a variable or structure field
+     should have the smallest possible alignment--one byte for a
+     variable, and one bit for a field, unless you specify a larger
+     value with the `aligned' attribute.
+
+
+File: gcc.info,  Node: Inline,  Next: Extended Asm,  Prev: Alignment,  Up: Extensions
+
+An Inline Function is As Fast As a Macro
+========================================
+
+   By declaring a function `inline', you can direct GNU CC to integrate
+that function's code into the code for its callers.  This makes
+execution faster by eliminating the function-call overhead; in
+addition, if any of the actual argument values are constant, their known
+values may permit simplifications at compile time so that not all of the
+inline function's code needs to be included.  Inlining of functions is
+an optimization and it really "works" only in optimizing compilation.
+If you don't use `-O', no function is really inline.
+
+   To declare a function inline, use the `inline' keyword in its
+declaration, like this:
+
+     inline int
+     inc (int *a)
+     {
+       (*a)++;
+     }
+
+   (If you are writing a header file to be included in ANSI C programs,
+write `__inline__' instead of `inline'.  *Note Alternate Keywords::.)
+
+   You can also make all "simple enough" functions inline with the
+option `-finline-functions'.  Note that certain usages in a function
+definition can make it unsuitable for inline substitution.
+
+   When a function is both inline and `static', if all calls to the
+function are integrated into the caller, and the function's address is
+never used, then the function's own assembler code is never referenced.
+In this case, GNU CC does not actually output assembler code for the
+function, unless you specify the option `-fkeep-inline-functions'. Some
+calls cannot be integrated for various reasons (in particular, calls
+that precede the function's definition cannot be integrated, and
+neither can recursive calls within the definition).  If there is a
+nonintegrated call, then the function is compiled to assembler code as
+usual.  The function must also be compiled as usual if the program
+refers to its address, because that can't be inlined.
+
+   When an inline function is not `static', then the compiler must
+assume that there may be calls from other source files; since a global
+symbol can be defined only once in any program, the function must not
+be defined in the other source files, so the calls therein cannot be
+integrated. Therefore, a non-`static' inline function is always
+compiled on its own in the usual fashion.
+
+   If you specify both `inline' and `extern' in the function
+definition, then the definition is used only for inlining.  In no case
+is the function compiled on its own, not even if you refer to its
+address explicitly.  Such an address becomes an external reference, as
+if you had only declared the function, and had not defined it.
+
+   This combination of `inline' and `extern' has almost the effect of a
+macro.  The way to use it is to put a function definition in a header
+file with these keywords, and put another copy of the definition
+(lacking `inline' and `extern') in a library file. The definition in
+the header file will cause most calls to the function to be inlined. 
+If any uses of the function remain, they will refer to the single copy
+in the library.
+
+   GNU C does not inline any functions when not optimizing.  It is not
+clear whether it is better to inline or not, in this case, but we found
+that a correct implementation when not optimizing was difficult.  So we
+did the easy thing, and turned it off.
+
+
+File: gcc.info,  Node: Extended Asm,  Next: Asm Labels,  Prev: Inline,  Up: Extensions
+
+Assembler Instructions with C Expression Operands
+=================================================
+
+   In an assembler instruction using `asm', you can now specify the
+operands of the instruction using C expressions.  This means no more
+guessing which registers or memory locations will contain the data you
+want to use.
+
+   You must specify an assembler instruction template much like what
+appears in a machine description, plus an operand constraint string for
+each operand.
+
+   For example, here is how to use the 68881's `fsinx' instruction:
+
+     asm ("fsinx %1,%0" : "=f" (result) : "f" (angle));
+
+Here `angle' is the C expression for the input operand while `result'
+is that of the output operand.  Each has `"f"' as its operand
+constraint, saying that a floating point register is required.  The `='
+in `=f' indicates that the operand is an output; all output operands'
+constraints must use `='.  The constraints use the same language used
+in the machine description (*note Constraints::.).
+
+Each operand is described by an operand-constraint string followed by
+the C expression in parentheses.  A colon separates the assembler
+template from the first output operand, and another separates the last
+output operand from the first input, if any.  Commas separate output
+operands and separate inputs.  The total number of operands is limited
+to ten or to the maximum number of operands in any instruction pattern
+in the machine description, whichever is greater.
+
+   If there are no output operands, and there are input operands, then
+there must be two consecutive colons surrounding the place where the
+output operands would go.
+
+   Output operand expressions must be lvalues; the compiler can check
+this. The input operands need not be lvalues.  The compiler cannot
+check whether the operands have data types that are reasonable for the
+instruction being executed.  It does not parse the assembler
+instruction template and does not know what it means, or whether it is
+valid assembler input.  The extended `asm' feature is most often used
+for machine instructions that the compiler itself does not know exist.
+
+   The output operands must be write-only; GNU CC will assume that the
+values in these operands before the instruction are dead and need not be
+generated.  Extended asm does not support input-output or read-write
+operands.  For this reason, the constraint character `+', which
+indicates such an operand, may not be used.
+
+   When the assembler instruction has a read-write operand, or an
+operand in which only some of the bits are to be changed, you must
+logically split its function into two separate operands, one input
+operand and one write-only output operand.  The connection between them
+is expressed by constraints which say they need to be in the same
+location when the instruction executes.  You can use the same C
+expression for both operands, or different expressions.  For example,
+here we write the (fictitious) `combine' instruction with `bar' as its
+read-only source operand and `foo' as its read-write destination:
+
+     asm ("combine %2,%0" : "=r" (foo) : "0" (foo), "g" (bar));
+
+The constraint `"0"' for operand 1 says that it must occupy the same
+location as operand 0.  A digit in constraint is allowed only in an
+input operand, and it must refer to an output operand.
+
+   Only a digit in the constraint can guarantee that one operand will
+be in the same place as another.  The mere fact that `foo' is the value
+of both operands is not enough to guarantee that they will be in the
+same place in the generated assembler code.  The following would not
+work:
+
+     asm ("combine %2,%0" : "=r" (foo) : "r" (foo), "g" (bar));
+
+   Various optimizations or reloading could cause operands 0 and 1 to
+be in different registers; GNU CC knows no reason not to do so.  For
+example, the compiler might find a copy of the value of `foo' in one
+register and use it for operand 1, but generate the output operand 0 in
+a different register (copying it afterward to `foo''s own address).  Of
+course, since the register for operand 1 is not even mentioned in the
+assembler code, the result will not work, but GNU CC can't tell that.
+
+   Some instructions clobber specific hard registers.  To describe
+this, write a third colon after the input operands, followed by the
+names of the clobbered hard registers (given as strings).  Here is a
+realistic example for the Vax:
+
+     asm volatile ("movc3 %0,%1,%2"
+                   : /* no outputs */
+                   : "g" (from), "g" (to), "g" (count)
+                   : "r0", "r1", "r2", "r3", "r4", "r5");
+
+   If you refer to a particular hardware register from the assembler
+code, then you will probably have to list the register after the third
+colon to tell the compiler that the register's value is modified.  In
+many assemblers, the register names begin with `%'; to produce one `%'
+in the assembler code, you must write `%%' in the input.
+
+   If your assembler instruction can alter the condition code register,
+add `cc' to the list of clobbered registers.  GNU CC on some machines
+represents the condition codes as a specific hardware register; `cc'
+serves to name this register.  On other machines, the condition code is
+handled differently, and specifying `cc' has no effect.  But it is
+valid no matter what the machine.
+
+   If your assembler instruction modifies memory in an unpredicable
+fashion, add `memory' to the list of clobbered registers. This will
+cause GNU CC to not keep memory values cached in registers across the
+assembler instruction.
+
+   You can put multiple assembler instructions together in a single
+`asm' template, separated either with newlines (written as `\n') or with
+semicolons if the assembler allows such semicolons.  The GNU assembler
+allows semicolons and all Unix assemblers seem to do so.  The input
+operands are guaranteed not to use any of the clobbered registers, and
+neither will the output operands' addresses, so you can read and write
+the clobbered registers as many times as you like.  Here is an example
+of multiple instructions in a template; it assumes that the subroutine
+`_foo' accepts arguments in registers 9 and 10:
+
+     asm ("movl %0,r9;movl %1,r10;call _foo"
+          : /* no outputs */
+          : "g" (from), "g" (to)
+          : "r9", "r10");
+
+   Unless an output operand has the `&' constraint modifier, GNU CC may
+allocate it in the same register as an unrelated input operand, on the
+assumption that the inputs are consumed before the outputs are produced.
+This assumption may be false if the assembler code actually consists of
+more than one instruction.  In such a case, use `&' for each output
+operand that may not overlap an input. *Note Modifiers::.
+
+   If you want to test the condition code produced by an assembler
+instruction, you must include a branch and a label in the `asm'
+construct, as follows:
+
+     asm ("clr %0;frob %1;beq 0f;mov #1,%0;0:"
+          : "g" (result)
+          : "g" (input));
+
+This assumes your assembler supports local labels, as the GNU assembler
+and most Unix assemblers do.
+
+   Usually the most convenient way to use these `asm' instructions is to
+encapsulate them in macros that look like functions.  For example,
+
+     #define sin(x)       \
+     ({ double __value, __arg = (x);   \
+        asm ("fsinx %1,%0": "=f" (__value): "f" (__arg));  \
+        __value; })
+
+Here the variable `__arg' is used to make sure that the instruction
+operates on a proper `double' value, and to accept only those arguments
+`x' which can convert automatically to a `double'.
+
+   Another way to make sure the instruction operates on the correct
+data type is to use a cast in the `asm'.  This is different from using a
+variable `__arg' in that it converts more different types.  For
+example, if the desired type were `int', casting the argument to `int'
+would accept a pointer with no complaint, while assigning the argument
+to an `int' variable named `__arg' would warn about using a pointer
+unless the caller explicitly casts it.
+
+   If an `asm' has output operands, GNU CC assumes for optimization
+purposes that the instruction has no side effects except to change the
+output operands.  This does not mean that instructions with a side
+effect cannot be used, but you must be careful, because the compiler
+may eliminate them if the output operands aren't used, or move them out
+of loops, or replace two with one if they constitute a common
+subexpression.  Also, if your instruction does have a side effect on a
+variable that otherwise appears not to change, the old value of the
+variable may be reused later if it happens to be found in a register.
+
+   You can prevent an `asm' instruction from being deleted, moved
+significantly, or combined, by writing the keyword `volatile' after the
+`asm'.  For example:
+
+     #define set_priority(x)  \
+     asm volatile ("set_priority %0": /* no outputs */ : "g" (x))
+
+An instruction without output operands will not be deleted or moved
+significantly, regardless, unless it is unreachable.
+
+   Note that even a volatile `asm' instruction can be moved in ways
+that appear insignificant to the compiler, such as across jump
+instructions.  You can't expect a sequence of volatile `asm'
+instructions to remain perfectly consecutive.  If you want consecutive
+output, use a single `asm'.
+
+   It is a natural idea to look for a way to give access to the
+condition code left by the assembler instruction.  However, when we
+attempted to implement this, we found no way to make it work reliably. 
+The problem is that output operands might need reloading, which would
+result in additional following "store" instructions.  On most machines,
+these instructions would alter the condition code before there was time
+to test it.  This problem doesn't arise for ordinary "test" and
+"compare" instructions because they don't have any output operands.
+
+   If you are writing a header file that should be includable in ANSI C
+programs, write `__asm__' instead of `asm'.  *Note Alternate Keywords::.
+
+
+File: gcc.info,  Node: Asm Labels,  Next: Explicit Reg Vars,  Prev: Extended Asm,  Up: Extensions
+
+Controlling Names Used in Assembler Code
+========================================
+
+   You can specify the name to be used in the assembler code for a C
+function or variable by writing the `asm' (or `__asm__') keyword after
+the declarator as follows:
+
+     int foo asm ("myfoo") = 2;
+
+This specifies that the name to be used for the variable `foo' in the
+assembler code should be `myfoo' rather than the usual `_foo'.
+
+   On systems where an underscore is normally prepended to the name of
+a C function or variable, this feature allows you to define names for
+the linker that do not start with an underscore.
+
+   You cannot use `asm' in this way in a function *definition*; but you
+can get the same effect by writing a declaration for the function
+before its definition and putting `asm' there, like this:
+
+     extern func () asm ("FUNC");
+     
+     func (x, y)
+          int x, y;
+     ...
+
+   It is up to you to make sure that the assembler names you choose do
+not conflict with any other assembler symbols.  Also, you must not use a
+register name; that would produce completely invalid assembler code. 
+GNU CC does not as yet have the ability to store static variables in
+registers. Perhaps that will be added.
+
+
+File: gcc.info,  Node: Explicit Reg Vars,  Next: Alternate Keywords,  Prev: Asm Labels,  Up: Extensions
+
+Variables in Specified Registers
+================================
+
+   GNU C allows you to put a few global variables into specified
+hardware registers.  You can also specify the register in which an
+ordinary register variable should be allocated.
+
+   * Global register variables reserve registers throughout the program.
+     This may be useful in programs such as programming language
+     interpreters which have a couple of global variables that are
+     accessed very often.
+
+   * Local register variables in specific registers do not reserve the
+     registers.  The compiler's data flow analysis is capable of
+     determining where the specified registers contain live values, and
+     where they are available for other uses.
+
+     These local variables are sometimes convenient for use with the
+     extended `asm' feature (*note Extended Asm::.), if you want to
+     write one output of the assembler instruction directly into a
+     particular register. (This will work provided the register you
+     specify fits the constraints specified for that operand in the
+     `asm'.)
 
 * Menu:
 
-* Criteria:  Bug Criteria.   Have you really found a bug?
-* Where: Bug Lists.	     Where to send your bug report.
-* Reporting: Bug Reporting.  How to report a bug effectively.
-* Patches: Sending Patches.  How to send a patch for GNU CC.
-* Known: Trouble.            Known problems.
-* Help: Service.             Where to ask for help.
+* Global Reg Vars::
+* Local Reg Vars::
 
 
-File: gcc.info,  Node: Bug Criteria,  Next: Bug Lists,  Up: Bugs
+File: gcc.info,  Node: Global Reg Vars,  Next: Local Reg Vars,  Up: Explicit Reg Vars
 
-Have You Found a Bug?
-=====================
+Defining Global Register Variables
+----------------------------------
 
-   If you are not sure whether you have found a bug, here are some
-guidelines:
+   You can define a global register variable in GNU C like this:
 
-   * If the compiler gets a fatal signal, for any input whatever, that
-     is a compiler bug.  Reliable compilers never crash.
+     register int *foo asm ("a5");
 
-   * If the compiler produces invalid assembly code, for any input
-     whatever (except an `asm' statement), that is a compiler bug,
-     unless the compiler reports errors (not just warnings) which would
-     ordinarily prevent the assembler from being run.
+Here `a5' is the name of the register which should be used.  Choose a
+register which is normally saved and restored by function calls on your
+machine, so that library routines will not clobber it.
 
-   * If the compiler produces valid assembly code that does not
-     correctly execute the input source code, that is a compiler bug.
+   Naturally the register name is cpu-dependent, so you would need to
+conditionalize your program according to cpu type.  The register `a5'
+would be a good choice on a 68000 for a variable of pointer type.  On
+machines with register windows, be sure to choose a "global" register
+that is not affected magically by the function call mechanism.
 
-     However, you must double-check to make sure, because you may have
-     run into an incompatibility between GNU C and traditional C (*note
-     Incompatibilities::.).  These incompatibilities might be considered
-     bugs, but they are inescapable consequences of valuable features.
+   In addition, operating systems on one type of cpu may differ in how
+they name the registers; then you would need additional conditionals. 
+For example, some 68000 operating systems call this register `%a5'.
 
-     Or you may have a program whose behavior is undefined, which
-     happened by chance to give the desired results with another C or
-     C++ compiler.
+   Eventually there may be a way of asking the compiler to choose a
+register automatically, but first we need to figure out how it should
+choose and how to enable you to guide the choice.  No solution is
+evident.
 
-     For example, in many nonoptimizing compilers, you can write `x;'
-     at the end of a function instead of `return x;', with the same
-     results.  But the value of the function is undefined if `return'
-     is omitted; it is not a bug when GNU CC produces different results.
+   Defining a global register variable in a certain register reserves
+that register entirely for this use, at least within the current
+compilation. The register will not be allocated for any other purpose
+in the functions in the current compilation.  The register will not be
+saved and restored by these functions.  Stores into this register are
+never deleted even if they would appear to be dead, but references may
+be deleted or moved or simplified.
 
-     Problems often result from expressions with two increment
-     operators, as in `f (*p++, *p++)'.  Your previous compiler might
-     have interpreted that expression the way you intended; GNU CC might
-     interpret it another way.  Neither compiler is wrong.  The bug is
-     in your code.
+   It is not safe to access the global register variables from signal
+handlers, or from more than one thread of control, because the system
+library routines may temporarily use the register for other things
+(unless you recompile them specially for the task at hand).
 
-     After you have localized the error to a single source line, it
-     should be easy to check for these things.  If your program is
-     correct and well defined, you have found a compiler bug.
+   It is not safe for one function that uses a global register variable
+to call another such function `foo' by way of a third function `lose'
+that was compiled without knowledge of this variable (i.e. in a
+different source file in which the variable wasn't declared).  This is
+because `lose' might save the register and put some other value there.
+For example, you can't expect a global register variable to be
+available in the comparison-function that you pass to `qsort', since
+`qsort' might have put something else in that register.  (If you are
+prepared to recompile `qsort' with the same global register variable,
+you can solve this problem.)
 
-   * If the compiler produces an error message for valid input, that is
-     a compiler bug.
+   If you want to recompile `qsort' or other source files which do not
+actually use your global register variable, so that they will not use
+that register for any other purpose, then it suffices to specify the
+compiler option `-ffixed-REG'.  You need not actually add a global
+register declaration to their source code.
 
-   * If the compiler does not produce an error message for invalid
-     input, that is a compiler bug.  However, you should note that your
-     idea of "invalid input" might be my idea of "an extension" or
-     "support for traditional practice".
+   A function which can alter the value of a global register variable
+cannot safely be called from a function compiled without this variable,
+because it could clobber the value the caller expects to find there on
+return. Therefore, the function which is the entry point into the part
+of the program that uses the global register variable must explicitly
+save and restore the value which belongs to its caller.
 
-   * If you are an experienced user of C or C++ compilers, your
-     suggestions for improvement of GNU CC or GNU C++ are welcome in
-     any case.
+   On most machines, `longjmp' will restore to each global register
+variable the value it had at the time of the `setjmp'.  On some
+machines, however, `longjmp' will not change the value of global
+register variables.  To be portable, the function that called `setjmp'
+should make other arrangements to save the values of the global register
+variables, and to restore them in a `longjmp'.  This way, the same
+thing will happen regardless of what `longjmp' does.
 
-
-File: gcc.info,  Node: Bug Lists,  Next: Bug Reporting,  Prev: Bug Criteria,  Up: Bugs
+   All global register variable declarations must precede all function
+definitions.  If such a declaration could appear after function
+definitions, the declaration would be too late to prevent the register
+from being used for other purposes in the preceding functions.
 
-Where to Report Bugs
-====================
+   Global register variables may not have initial values, because an
+executable file has no means to supply initial contents for a register.
 
-   Send bug reports for GNU C to one of these addresses:
+   On the Sparc, there are reports that g3 ... g7 are suitable
+registers, but certain library functions, such as `getwd', as well as
+the subroutines for division and remainder, modify g3 and g4.  g1 and
+g2 are local temporaries.
 
-     bug-gcc@prep.ai.mit.edu
-     {ucbvax|mit-eddie|uunet}!prep.ai.mit.edu!bug-gcc
-
-   Send bug reports for GNU C++ to one of these addresses:
-
-     bug-g++@prep.ai.mit.edu
-     {ucbvax|mit-eddie|uunet}!prep.ai.mit.edu!bug-g++
-
-   *Do not send bug reports to `help-gcc', or to the newsgroup
-`gnu.gcc.help'.*  Most users of GNU CC do not want to receive bug
-reports.  Those that do, have asked to be on `bug-gcc' and/or `bug-g++'.
-
-   The mailing lists `bug-gcc' and `bug-g++' both have newsgroups which
-serve as repeaters: `gnu.gcc.bug' and `gnu.g++.bug'. Each mailing list
-and its newsgroup carry exactly the same messages.
-
-   Often people think of posting bug reports to the newsgroup instead of
-mailing them.  This appears to work, but it has one problem which can be
-crucial: a newsgroup posting does not contain a mail path back to the
-sender.  Thus, if maintaners need more information, they may be unable
-to reach you.  For this reason, you should always send bug reports by
-mail to the proper mailing list.
-
-   As a last resort, send bug reports on paper to:
-
-     GNU Compiler Bugs
-     Free Software Foundation
-     675 Mass Ave
-     Cambridge, MA 02139
+   On the 68000, a2 ... a5 should be suitable, as should d2 ... d7. Of
+course, it will not do to use more than a few of those.
 
 
-File: gcc.info,  Node: Bug Reporting,  Next: Sending Patches,  Prev: Bug Lists,  Up: Bugs
+File: gcc.info,  Node: Local Reg Vars,  Prev: Global Reg Vars,  Up: Explicit Reg Vars
 
-How to Report Bugs
+Specifying Registers for Local Variables
+----------------------------------------
+
+   You can define a local register variable with a specified register
+like this:
+
+     register int *foo asm ("a5");
+
+Here `a5' is the name of the register which should be used.  Note that
+this is the same syntax used for defining global register variables,
+but for a local variable it would appear within a function.
+
+   Naturally the register name is cpu-dependent, but this is not a
+problem, since specific registers are most often useful with explicit
+assembler instructions (*note Extended Asm::.).  Both of these things
+generally require that you conditionalize your program according to cpu
+type.
+
+   In addition, operating systems on one type of cpu may differ in how
+they name the registers; then you would need additional conditionals. 
+For example, some 68000 operating systems call this register `%a5'.
+
+   Eventually there may be a way of asking the compiler to choose a
+register automatically, but first we need to figure out how it should
+choose and how to enable you to guide the choice.  No solution is
+evident.
+
+   Defining such a register variable does not reserve the register; it
+remains available for other uses in places where flow control determines
+the variable's value is not live.  However, these registers are made
+unavailable for use in the reload pass.  I would not be surprised if
+excessive use of this feature leaves the compiler too few available
+registers to compile certain functions.
+
+
+File: gcc.info,  Node: Alternate Keywords,  Next: Incomplete Enums,  Prev: Explicit Reg Vars,  Up: Extensions
+
+Alternate Keywords
 ==================
 
-   The fundamental principle of reporting bugs usefully is this:
-*report all the facts*.  If you are not sure whether to state a fact or
-leave it out, state it!
+   The option `-traditional' disables certain keywords; `-ansi'
+disables certain others.  This causes trouble when you want to use GNU C
+extensions, or ANSI C features, in a general-purpose header file that
+should be usable by all programs, including ANSI C programs and
+traditional ones.  The keywords `asm', `typeof' and `inline' cannot be
+used since they won't work in a program compiled with `-ansi', while
+the keywords `const', `volatile', `signed', `typeof' and `inline' won't
+work in a program compiled with `-traditional'.
 
-   Often people omit facts because they think they know what causes the
-problem and they conclude that some details don't matter.  Thus, you
-might assume that the name of the variable you use in an example does
-not matter. Well, probably it doesn't, but one cannot be sure.  Perhaps
-the bug is a stray memory reference which happens to fetch from the
-location where that name is stored in memory; perhaps, if the name were
-different, the contents of that location would fool the compiler into
-doing the right thing despite the bug.  Play it safe and give a
-specific, complete example.  That is the easiest thing for you to do,
-and the most helpful.
+   The way to solve these problems is to put `__' at the beginning and
+end of each problematical keyword.  For example, use `__asm__' instead
+of `asm', `__const__' instead of `const', and `__inline__' instead of
+`inline'.
 
-   Keep in mind that the purpose of a bug report is to enable someone to
-fix the bug if it is not known.  It isn't very important what happens if
-the bug is already known.  Therefore, always write your bug reports on
-the assumption that the bug is not known.
+   Other C compilers won't accept these alternative keywords; if you
+want to compile with another compiler, you can define the alternate
+keywords as macros to replace them with the customary keywords.  It
+looks like this:
 
-   Sometimes people give a few sketchy facts and ask, "Does this ring a
-bell?"  This cannot help us fix a bug, so it is basically useless.  We
-respond by asking for enough details to enable us to investigate. You
-might as well expedite matters by sending them to begin with.
+     #ifndef __GNUC__
+     #define __asm__ asm
+     #endif
 
-   Try to make your bug report self-contained.  If we have to ask you
-for more information, it is best if you include all the previous
-information in your response, as well as the information that was
-missing.
-
-   To enable someone to investigate the bug, you should include all
-these things:
-
-   * The version of GNU CC.  You can get this by running it with the
-     `-v' option.
-
-     Without this, we won't know whether there is any point in looking
-     for the bug in the current version of GNU CC.
-
-   * A complete input file that will reproduce the bug.  If the bug is
-     in the C preprocessor, send a source file and any header files
-     that it requires.  If the bug is in the compiler proper (`cc1'),
-     run your source file through the C preprocessor by doing `gcc -E
-     SOURCEFILE > OUTFILE', then include the contents of OUTFILE in the
-     bug report.  (When you do this, use the same `-I', `-D' or `-U'
-     options that you used in actual compilation.)
-
-     A single statement is not enough of an example.  In order to
-     compile it, it must be embedded in a function definition; and the
-     bug might depend on the details of how this is done.
-
-     Without a real example one can compile, all anyone can do about
-     your bug report is wish you luck.  It would be futile to try to
-     guess how to provoke the bug.  For example, bugs in register
-     allocation and reloading frequently depend on every little detail
-     of the function they happen in.
-
-   * The command arguments you gave GNU CC or GNU C++ to compile that
-     example and observe the bug.  For example, did you use `-O'?  To
-     guarantee you won't omit something important, list all the options.
-
-     If we were to try to guess the arguments, we would probably guess
-     wrong and then we would not encounter the bug.
-
-   * The type of machine you are using, and the operating system name
-     and version number.
-
-   * The operands you gave to the `configure' command when you installed
-     the compiler.
-
-   * A complete list of any modifications you have made to the compiler
-     source.  (We don't promise to investigate the bug unless it
-     happens in an unmodified compiler.  But if you've made
-     modifications and don't tell us, then you are sending us on a wild
-     goose chase.)
-
-     Be precise about these changes--show a context diff for them.
-
-     Adding files of your own (such as a machine description for a
-     machine we don't support) is a modification of the compiler source.
-
-   * Details of any other deviations from the standard procedure for
-     installing GNU CC.
-
-   * A description of what behavior you observe that you believe is
-     incorrect.  For example, "The compiler gets a fatal signal," or,
-     "The assembler instruction at line 208 in the output is incorrect."
-
-     Of course, if the bug is that the compiler gets a fatal signal,
-     then one can't miss it.  But if the bug is incorrect output, the
-     maintainer might not notice unless it is glaringly wrong.  None of
-     us has time to study all the assembler code from a 50-line C
-     program just on the chance that one instruction might be wrong. 
-     We need `you' to do this part!
-
-     Even if the problem you experience is a fatal signal, you should
-     still say so explicitly.  Suppose something strange is going on,
-     such as, your copy of the compiler is out of synch, or you have
-     encountered a bug in the C library on your system.  (This has
-     happened!)  Your copy might crash and the copy here would not.  If
-     you said to expect a crash, then when the compiler here fails to
-     crash, we would know that the bug was not happening.  If you don't
-     say to expect a crash, then we would not know whether the bug was
-     happening.  We would not be able to draw any conclusion from our
-     observations.
-
-     Often the observed symptom is incorrect output when your program
-     is run. Sad to say, this is not enough information unless the
-     program is short and simple.  None of us has time to study a large
-     program to figure out how it would work if compiled correctly,
-     much less which line of it was compiled wrong.  So you will have
-     to do that.  Tell us which source line it is, and what incorrect
-     result happens when that line is executed.  A person who
-     understands the program can find this as easily as finding a bug
-     in the program itself.
-
-   * If you send examples of assembler code output from GNU CC or GNU
-     C++, please use `-g' when you make them.  The debugging information
-     includes source line numbers which are essential for correlating
-     the output with the input.
-
-   * If you wish to suggest changes to the GNU CC source, send them as
-     context diffs.  If you even discuss something in the GNU CC source,
-     refer to it by context, not by line number.
-
-     The line numbers in the development sources don't match those in
-     your sources.  Your line numbers would convey no useful
-     information to the maintainers.
-
-   * Additional information from a debugger might enable someone to
-     find a problem on a machine which he does not have available. 
-     However, you need to think when you collect this information if
-     you want it to have any chance of being useful.
-
-     For example, many people send just a backtrace, but that is never
-     useful by itself.  A simple backtrace with arguments conveys little
-     about GNU CC because the compiler is largely data-driven; the same
-     functions are called over and over for different RTL insns, doing
-     different things depending on the details of the insn.
-
-     Most of the arguments listed in the backtrace are useless because
-     they are pointers to RTL list structure.  The numeric values of the
-     pointers, which the debugger prints in the backtrace, have no
-     significance whatever; all that matters is the contents of the
-     objects they point to (and most of the contents are other such
-     pointers).
-
-     In addition, most compiler passes consist of one or more loops that
-     scan the RTL insn sequence.  The most vital piece of information
-     about such a loop--which insn it has reached--is usually in a
-     local variable, not in an argument.
-
-     What you need to provide in addition to a backtrace are the values
-     of the local variables for several stack frames up.  When a local
-     variable or an argument is an RTX, first print its value and then
-     use the GDB command `pr' to print the RTL expression that it points
-     to.  (If GDB doesn't run on your machine, use your debugger to call
-     the function `debug_rtx' with the RTX as an argument.)  In
-     general, whenever a variable is a pointer, its value is no use
-     without the data it points to.
-
-     In addition, include a debugging dump from just before the pass in
-     which the crash happens.  Most bugs involve a series of insns, not
-     just one.
-
-   Here are some things that are not necessary:
-
-   * A description of the envelope of the bug.
-
-     Often people who encounter a bug spend a lot of time investigating
-     which changes to the input file will make the bug go away and which
-     changes will not affect it.
-
-     This is often time consuming and not very useful, because the way
-     we will find the bug is by running a single example under the
-     debugger with breakpoints, not by pure deduction from a series of
-     examples.  You might as well save your time for something else.
-
-     Of course, if you can find a simpler example to report *instead* of
-     the original one, that is a convenience.  Errors in the output
-     will be easier to spot, running under the debugger will take less
-     time, etc. Most GNU CC bugs involve just one function, so the most
-     straightforward way to simplify an example is to delete all the
-     function definitions except the one where the bug occurs.  Those
-     earlier in the file may be replaced by external declarations if
-     the crucial function depends on them.  (Exception: inline
-     functions may affect compilation of functions defined later in the
-     file.)
-
-     However, simplification is not vital; if you don't want to do this,
-     report the bug anyway and send the entire test case you used.
-
-   * A patch for the bug.
-
-     A patch for the bug is useful if it is a good one.  But don't omit
-     the necessary information, such as the test case, on the
-     assumption that a patch is all we need.  We might see problems
-     with your patch and decide to fix the problem another way, or we
-     might not understand it at all.
-
-     Sometimes with a program as complicated as GNU CC it is very hard
-     to construct an example that will make the program follow a
-     certain path through the code.  If you don't send the example, we
-     won't be able to construct one, so we won't be able to verify that
-     the bug is fixed.
-
-     And if we can't understand what bug you are trying to fix, or why
-     your patch should be an improvement, we won't install it.  A test
-     case will help us to understand.
-
-     *Note Sending Patches::, for guidelines on how to make it easy for
-     us to understand and install your patches.
-
-   * A guess about what the bug is or what it depends on.
-
-     Such guesses are usually wrong.  Even I can't guess right about
-     such things without first using the debugger to find the facts.
+   `-pedantic' causes warnings for many GNU C extensions.  You can
+prevent such warnings within one expression by writing `__extension__'
+before the expression.  `__extension__' has no effect aside from this.
 
 
-File: gcc.info,  Node: Sending Patches,  Prev: Bug Reporting,  Up: Bugs
+File: gcc.info,  Node: Incomplete Enums,  Prev: Alternate Keywords,  Up: Extensions
 
-Sending Patches for GNU CC
-==========================
+Incomplete `enum' Types
+=======================
 
-   If you would like to write bug fixes or improvements for the GNU C
-compiler, that is very helpful.  When you send your changes, please
-follow these guidelines to avoid causing extra work for us in studying
-the patches.
+   You can define an `enum' tag without specifying its possible values.
+This results in an incomplete type, much like what you get if you write
+`struct foo' without describing the elements.  A later declaration
+which does specify the possible values completes the type.
 
-   If you don't follow these guidelines, your information might still be
-useful, but using it will take extra work.  Maintaining GNU C is a lot
-of work in the best of circumstances, and we can't keep up unless you do
-your best to help.
+   You can't allocate variables or storage using the type while it is
+incomplete.  However, you can work with pointers to that type.
 
-   * Send an explanation with your changes of what problem they fix or
-     what improvement they bring about.  For a bug fix, just include a
-     copy of the bug report, and explain why the change fixes the bug.
-
-     (Referring to a bug report is not as good as including it, because
-     then we will have to look it up, and we have probably already
-     deleted it if we've already fixed the bug.)
-
-   * Always include a proper bug report for the problem you think you
-     have fixed.  We need to convince ourselves that the change is
-     right before installing it.  Even if it is right, we might have
-     trouble judging it if we don't have a way to reproduce the problem.
-
-   * Include all the comments that are appropriate to help people
-     reading the source in the future understand why this change was
-     needed.
-
-   * Don't mix together changes made for different reasons. Send them
-     *individually*.
-
-     If you make two changes for separate reasons, then we might not
-     want to install them both.  We might want to install just one.  If
-     you send them all jumbled together in a single set of diffs, we
-     have to do extra work to disentangle them--to figure out which
-     parts of the change serve which purpose.  If we don't have time
-     for this, we might have to ignore your changes entirely.
-
-     If you send each change as soon as you have written it, with its
-     own explanation, then the two changes never get tangled up, and we
-     can consider each one properly without any extra work to
-     disentangle them.
-
-     Ideally, each change you send should be impossible to subdivide
-     into parts that we might want to consider separately, because each
-     of its parts gets its motivation from the other parts.
-
-   * Send each change as soon as that change is finished.  Sometimes
-     people think they are helping us by accumulating many changes to
-     send them all together.  As explained above, this is absolutely
-     the worst thing you could do.
-
-     Since you should send each change separately, you might as well
-     send it right away.  That gives us the option of installing it
-     immediately if it is important.
-
-   * Use `diff -c' to make your diffs.  Diffs without context are hard
-     for us to install reliably.  More than that, they make it hard for
-     us to study the diffs to decide whether we want to install them. 
-     Unidiff format is better than contextless diffs, but not as easy
-     to read as `-c' format.
-
-     If you have GNU diff, use `diff -cp', which shows the name of the
-     function that each change occurs in.
-
-   * Write the change log entries for your changes.  We get lots of
-     changes, and we don't have time to do all the change log writing
-     ourselves.
-
-     Read the `ChangeLog' file to see what sorts of information to put
-     in, and to learn the style that we use.  The purpose of the change
-     log is to show people where to find what was changed.  So you need
-     to be specific about what functions you changed; in large
-     functions, it's often helpful to indicate where within the
-     function the change was.
-
-     On the other hand, once you have shown people where to find the
-     change, you need not explain its purpose. Thus, if you add a new
-     function, all you need to say about it is that it is new.  If you
-     feel that the purpose needs explaining, it probably does--but the
-     explanation will be much more useful if you put it in comments in
-     the code.
-
-     If you would like your name to appear in the header line for who
-     made the change, send us the header line.
-
-   * When you write the fix, keep in mind that I can't install a change
-     that would break other systems.
-
-     People often suggest fixing a problem by changing
-     machine-independent files such as `toplev.c' to do something
-     special that a particular system needs.  Sometimes it is totally
-     obvious that such changes would break GNU CC for almost all users.
-      We can't possibly make a change like that.  At best it might tell
-     us how to write another patch that would solve the problem
-     acceptably.
-
-     Sometimes people send fixes that *might* be an improvement in
-     general--but it is hard to be sure of this.  It's hard to install
-     such changes because we have to study them very carefully.  Of
-     course, a good explanation of the reasoning by which you concluded
-     the change was correct can help convince us.
-
-     The safest changes are changes to the configuration files for a
-     particular machine.  These are safe because they can't create new
-     bugs on other machines.
-
-     Please help us keep up with the workload by designing the patch in
-     a form that is good to install.
+   This extension may not be very useful, but it makes the handling of
+`enum' more consistent with the way `struct' and `union' are handled.
 
 
-File: gcc.info,  Node: Service,  Next: VMS,  Prev: Bugs,  Up: Top
+File: gcc.info,  Node: Trouble,  Next: Bugs,  Prev: Extensions,  Up: Top
 
-How To Get Help with GNU CC
-***************************
+Known Causes of Trouble with GNU CC
+***********************************
 
-   If you need help installing, using or changing GNU CC, there are two
-ways to find it:
+   This section describes known problems that affect users of GNU CC. 
+Most of these are not GNU CC bugs per se--if they were, we would fix
+them. But the result for a user may be like the result of a bug.
 
-   * Send a message to a suitable network mailing list.  First try
-     `bug-gcc@prep.ai.mit.edu', and if that brings no response, try
-     `help-gcc@prep.ai.mit.edu'.
-
-   * Look in the service directory for someone who might help you for a
-     fee. The service directory is found in the file named `SERVICE' in
-     the GNU CC distribution.
-
-
-File: gcc.info,  Node: VMS,  Next: Portability,  Prev: Service,  Up: Top
-
-Using GNU CC on VMS
-*******************
+   Some of these problems are due to bugs in other software, some are
+missing features that are too much work to add, and some are places
+where people's opinions differ as to what is best.
 
 * Menu:
 
-* Include Files and VMS::  Where the preprocessor looks for the include files.
-* Global Declarations::    How to do globaldef, globalref and globalvalue with
-                           GNU CC.
-* VMS Misc::		   Misc information.
+* Actual Bugs::		      Bugs we will fix later.
+* Installation Problems::     Problems that manifest when you install GNU CC.
+* Cross-Compiler Problems::   Common problems of cross compiling with GNU CC.
+* Interoperation::      Problems using GNU CC with other compilers,
+			   and with certain linkers, assemblers and debuggers.
+* Incompatibilities::   GNU CC is incompatible with traditional C.
+* Disappointments::     Regrettable things we can't change, but not quite bugs.
+* Protoize Caveats::    Things to watch out for when using `protoize'.
+* Non-bugs::		Things we think are right, but some others disagree.
 
 
-File: gcc.info,  Node: Include Files and VMS,  Next: Global Declarations,  Up: VMS
+File: gcc.info,  Node: Actual Bugs,  Next: Installation Problems,  Up: Trouble
 
-Include Files and VMS
+Actual Bugs We Haven't Fixed Yet
+================================
+
+   * Loop unrolling doesn't work properly for certain C++ programs. 
+     This is because of difficulty in updating the debugging
+     information within the loop being unrolled.  We plan to revamp the
+     representation of debugging information so that this will work
+     properly, but we have not done this in version 2.3 because we
+     don't want to delay it any further.
+
+
+File: gcc.info,  Node: Installation Problems,  Next: Cross-Compiler Problems,  Prev: Actual Bugs,  Up: Trouble
+
+Installation Problems
 =====================
 
-   Due to the differences between the filesystems of Unix and VMS, GNU
-CC attempts to translate file names in `#include' into names that VMS
-will understand.  The basic strategy is to prepend a prefix to the
-specification of the include file, convert the whole filename to a VMS
-filename, and then try to open the file.  GNU CC tries various prefixes
-one by one until one of them succeeds:
+   This is a list of problems (and some apparent problems which don't
+really mean anything is wrong) that show up during installation of GNU
+CC.
 
-  1. The first prefix is the `GNU_CC_INCLUDE:' logical name: this is
-     where GNU C header files are traditionally stored.  If you wish to
-     store header files in non-standard locations, then you can assign
-     the logical `GNU_CC_INCLUDE' to be a search list, where each
-     element of the list is suitable for use with a rooted logical.
+   * On certain systems, defining certain environment variables such as
+     `CC' can interfere with the functioning of `make'.
 
-  2. The next prefix tried is `SYS$SYSROOT:[SYSLIB.]'.  This is where
-     VAX-C header files are traditionally stored.
+   * If you encounter seemingly strange errors when trying to build the
+     compiler in a directory other than the source directory, it could
+     be because you have previously configured the compiler in the
+     source directory.  Make sure you have done all the necessary
+     preparations. *Note Other Dir::.
 
-  3. If the include file specification by itself is a valid VMS
-     filename, the preprocessor then uses this name with no prefix in
-     an attempt to open the include file.
+   * In previous versions of GNU CC, the `gcc' driver program looked for
+     `as' and `ld' in various places such as files beginning with
+     `/usr/local/lib/gcc-'.  GNU CC version 2 looks for them in the
+     directory `/usr/local/lib/gcc-lib/TARGET/VERSION'.
 
-  4. If the file specification is not a valid VMS filename (i.e. does
-     not contain a device or a directory specifier, and contains a `/'
-     character), the preprocessor tries to convert it from Unix syntax
-     to VMS syntax.
+     Thus, to use a version of `as' or `ld' that is not the system
+     default, for example `gas' or GNU `ld', you must put them in that
+     directory (or make links to them from that directory).
 
-     Conversion works like this: the first directory name becomes a
-     device, and the rest of the directories are converted into
-     VMS-format directory names.  For example, `X11/foobar.h' is
-     translated to `X11:[000000]foobar.h' or `X11:foobar.h', whichever
-     one can be opened.  This strategy allows you to assign a logical
-     name to point to the actual location of the header files.
+   * Some commands executed when making the compiler may fail (return a
+     non-zero status) and be ignored by `make'.  These failures, which
+     are often due to files that were not found, are expected, and can
+     safely be ignored.
 
-  5. If none of these strategies succeeds, the `#include' fails.
+   * It is normal to have warnings in compiling certain files about
+     unreachable code and about enumeration type clashes.  These files'
+     names begin with `insn-'.
 
-   Include directives of the form:
+   * Sometimes `make' recompiles parts of the compiler when installing
+     the compiler.  In one case, this was traced down to a bug in
+     `make'.  Either ignore the problem or switch to GNU Make.
 
-     #include foobar
+   * On some 386 systems, building the compiler never finishes because
+     `enquire' hangs due to a hardware problem in the motherboard--it
+     reports floating point exceptions to the kernel incorrectly.  You
+     can install GNU CC except for `float.h' by patching out the
+     command to run `enquire'.  You may also be able to fix the problem
+     for real by getting a replacement motherboard.  This problem was
+     observed in Revision E of the Micronics motherboard, and is fixed
+     in Revision F.
 
-are a common source of incompatibility between VAX-C and GNU CC.  VAX-C
-treats this much like a standard `#include <foobar.h>' directive. That
-is incompatible with the ANSI C behavior implemented by GNU CC: to
-expand the name `foobar' as a macro.  Macro expansion should eventually
-yield one of the two standard formats for `#include':
+   * On some 386 systems, GNU CC crashes trying to compile `enquire.c'.
+     This happens on machines that don't have a 387 FPU chip.  On 386
+     machines, the system kernel is supposed to emulate the 387 when you
+     don't have one.  The crash is due to a bug in the emulator.
 
-     #include "FILE"
-     #include <FILE>
+     One of these systems is the Unix from Interactive Systems: 386/ix.
+     On this system, an alternate emulator is provided, and it does
+     work. To use it, execute this command as super-user:
 
-   If you have this problem, the best solution is to modify the source
-to convert the `#include' directives to one of the two standard forms.
-That will work with either compiler.  If you want a quick and dirty fix,
-define the file names as macros with the proper expansion, like this:
+          ln /etc/emulator.rel1 /etc/emulator
 
-     #define stdio <stdio.h>
+     and then reboot the system.  (The default emulator file remains
+     present under the name `emulator.dflt'.)
 
-This will work, as long as the name doesn't conflict with anything else
-in the program.
+     If you have such a problem on the SCO system, try using
+     `/etc/emulator.att'.
 
-   Another source of incompatibility is that VAX-C assumes that:
+     Another system which has this problem is Esix.  We don't know
+     whether it has an alternate emulator that works.
 
-     #include "foobar"
+   * Sometimes on a Sun 4 you may observe a crash in the program
+     `genflags' or `genoutput' while building GNU CC.  This is said to
+     be due to a bug in `sh'.  You can probably get around it by running
+     `genflags' or `genoutput' manually and then retrying the `make'.
 
-is actually asking for the file `foobar.h'.  GNU CC does not make this
-assumption, and instead takes what you ask for literally; it tries to
-read the file `foobar'.  The best way to avoid this problem is to
-always specify the desired file extension in your include directives.
+   * If you use the 1.31 version of the MIPS assembler (such as was
+     shipped with Ultrix 3.1), you will need to use the
+     -fno-delayed-branch switch when optimizing floating point code. 
+     Otherwise, the assembler will complain when the GCC compiler fills
+     a branch delay slot with a floating point instruction, such as
+     add.d.
 
-   GNU CC for VMS is distributed with a set of include files that is
-sufficient to compile most general purpose programs.  Even though the
-GNU CC distribution does not contain header files to define constants
-and structures for some VMS system-specific functions, there is no
-reason why you cannot use GNU CC with any of these functions.  You first
-may have to generate or create header files, either by using the public
-domain utility `UNSDL' (which can be found on a DECUS tape), or by
-extracting the relevant modules from one of the system macro libraries,
-and using an editor to construct a C header file.
+   * Users have reported some problems with version 2.0 of the MIPS
+     compiler tools that were shipped with Ultrix 4.1.  Version 2.10
+     which came with Ultrix 4.2 seems to work fine.
+
+   * Some versions of the MIPS linker will issue an assertion failure
+     when linking code that uses `alloca' against shared libraries on
+     RISC-OS 5.0, and DEC's OSF/1 systems.  This is a bug in the
+     linker, that is supposed to be fixed in future revisions. To
+     protect against this, GCC passes `-non_shared' to the linker
+     unless you pass an explicit `-shared' or `-call_shared' switch.
+
+   * On System V release 3, you may get this error message while
+     linking:
+
+          ld fatal: failed to write symbol name SOMETHING
+           in strings table for file WHATEVER
+
+     This indicates that the disk is full or your ULIMIT won't allow
+     the file to be as large as it needs to be.
+
+   * On HP 9000 series 300 or 400 running HP-UX release 8.0, there is a
+     bug in the assembler that must be fixed before GNU CC can be
+     built.  This bug manifests itself during the first stage of
+     compilation, while building `libgcc2.a':
+
+          _floatdisf
+          cc1: warning: `-g' option not supported on this version of GCC
+          cc1: warning: `-g1' option not supported on this version of GCC
+          ./gcc: Internal compiler error: program as got fatal signal 11
+
+     A patched version of the assembler is available by anonymous ftp
+     from `altdorf.ai.mit.edu' as the file
+     `archive/cph/hpux-8.0-assembler'.  If you have HP software support,
+     the patch can also be obtained directly from HP, as described in
+     the following note:
+
+          This is the patched assembler, to patch SR#1653-010439, where
+          the assembler aborts on floating point constants.
+
+          The bug is not really in the assembler, but in the shared
+          library version of the function "cvtnum(3c)".  The bug on
+          "cvtnum(3c)" is SR#4701-078451.  Anyway, the attached
+          assembler uses the archive library version of "cvtnum(3c)"
+          and thus does not exhibit the bug.
+
+     This patch is also known as PHCO_0800.
+
+   * Another assembler problem on the HP PA results in an error message
+     like this while compiling part of `libgcc2.a':
+
+          as: /usr/tmp/cca08196.s @line#30 [err#1060]
+            Argument 1 or 3 in FARG upper
+                   - lookahead = RTNVAL=GR
+
+     This happens because HP changed the assembler syntax after system
+     release 8.02.  GNU CC assumes the newer syntax; if your assembler
+     wants the older syntax, comment out this line in the file
+     `pa1-hpux.h':
+
+          #define HP_FP_ARG_DESCRIPTOR_REVERSED
+
+   * Some versions of the Pyramid C compiler are reported to be unable
+     to compile GNU CC.  You must use an older version of GNU CC for
+     bootstrapping.  One indication of this problem is if you get a
+     crash when GNU CC compiles the function `muldi3' in file
+     `libgcc2.c'.
+
+     You may be able to succeed by getting GNU CC version 1, installing
+     it, and using it to compile GNU CC version 2.  The bug in the
+     Pyramid C compiler does not seem to affect GNU CC version 1.
+
+   * On the Tower models 4N0 and 6N0, by default a process is not
+     allowed to have more than one megabyte of memory.  GNU CC cannot
+     compile itself (or many other programs) with `-O' in that much
+     memory.
+
+     To solve this problem, reconfigure the kernel adding the following
+     line to the configuration file:
+
+          MAXUMEM = 4096
+
+   * On the Altos 3068, programs compiled with GNU CC won't work unless
+     you fix a kernel bug.  This happens using system versions V.2.2
+     1.0gT1 and V.2.2 1.0e and perhaps later versions as well.  See the
+     file `README.ALTOS'.
+
+   * You will get several sorts of compilation and linking errors on the
+     we32k if you don't follow the special instructions.  *Note WE32K
+     Install::.
 
 
-File: gcc.info,  Node: Global Declarations,  Next: VMS Misc,  Prev: Include Files and VMS,  Up: VMS
+File: gcc.info,  Node: Cross-Compiler Problems,  Next: Interoperation,  Prev: Installation Problems,  Up: Trouble
 
-Global Declarations and VMS
-===========================
+Cross-Compiler Problems
+=======================
 
-   GNU CC does not provide the `globalref', `globaldef' and
-`globalvalue' keywords of VAX-C.  You can get the same effect with an
-obscure feature of GAS, the GNU assembler.  (This requires GAS version
-1.39 or later.)  The following macros allow you to use this feature in
-a fairly natural way:
+   * Cross compilation can run into trouble for certain machines because
+     some target machines' assemblers require floating point numbers to
+     be written as *integer* constants in certain contexts.
 
-     #ifdef __GNUC__
-     #define GLOBALREF(TYPE,NAME)                      \
-       TYPE NAME                                       \
-       asm ("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME)
-     #define GLOBALDEF(TYPE,NAME,VALUE)                \
-       TYPE NAME                                       \
-       asm ("_$$PsectAttributes_GLOBALSYMBOL$$" #NAME) \
-         = VALUE
-     #define GLOBALVALUEREF(TYPE,NAME)                 \
-       const TYPE NAME[1]                              \
-       asm ("_$$PsectAttributes_GLOBALVALUE$$" #NAME)
-     #define GLOBALVALUEDEF(TYPE,NAME,VALUE)           \
-       const TYPE NAME[1]                              \
-       asm ("_$$PsectAttributes_GLOBALVALUE$$" #NAME)  \
-         = {VALUE}
-     #else
-     #define GLOBALREF(TYPE,NAME) \
-       globalref TYPE NAME
-     #define GLOBALDEF(TYPE,NAME,VALUE) \
-       globaldef TYPE NAME = VALUE
-     #define GLOBALVALUEDEF(TYPE,NAME,VALUE) \
-       globalvalue TYPE NAME = VALUE
-     #define GLOBALVALUEREF(TYPE,NAME) \
-       globalvalue TYPE NAME
-     #endif
+     The compiler writes these integer constants by examining the
+     floating point value as an integer and printing that integer,
+     because this is simple to write and independent of the details of
+     the floating point representation.  But this does not work if the
+     compiler is running on a different machine with an incompatible
+     floating point format, or even a different byte-ordering.
 
-(The `_$$PsectAttributes_GLOBALSYMBOL' prefix at the start of the name
-is removed by the assembler, after it has modified the attributes of
-the symbol).  These macros are provided in the VMS binaries
-distribution in a header file `GNU_HACKS.H'.  An example of the usage
-is:
+     In addition, correct constant folding of floating point values
+     requires representing them in the target machine's format. (The C
+     standard does not quite require this, but in practice it is the
+     only way to win.)
 
-     GLOBALREF (int, ijk);
-     GLOBALDEF (int, jkl, 0);
+     It is now possible to overcome these problems by defining macros
+     such as `REAL_VALUE_TYPE'.  But doing so is a substantial amount of
+     work for each target machine.  *Note Cross-compilation::.
 
-   The macros `GLOBALREF' and `GLOBALDEF' cannot be used
-straightforwardly for arrays, since there is no way to insert the array
-dimension into the declaration at the right place.  However, you can
-declare an array with these macros if you first define a typedef for the
-array type, like this:
-
-     typedef int intvector[10];
-     GLOBALREF (intvector, foo);
-
-   Array and structure initializers will also break the macros; you can
-define the initializer to be a macro of its own, or you can expand the
-`GLOBALDEF' macro by hand.  You may find a case where you wish to use
-the `GLOBALDEF' macro with a large array, but you are not interested in
-explicitly initializing each element of the array.  In such cases you
-can use an initializer like: `{0,}', which will initialize the entire
-array to `0'.
-
-   A shortcoming of this implementation is that a variable declared with
-`GLOBALVALUEREF' or `GLOBALVALUEDEF' is always an array.  For example,
-the declaration:
-
-     GLOBALVALUEREF(int, ijk);
-
-declares the variable `ijk' as an array of type `int [1]'. This is done
-because a globalvalue is actually a constant; its "value" is what the
-linker would normally consider an address.  That is not how an integer
-value works in C, but it is how an array works.  So treating the symbol
-as an array name gives consistent results--with the exception that the
-value seems to have the wrong type.  *Don't try to access an element of
-the array.*  It doesn't have any elements. The array "address" may not
-be the address of actual storage.
-
-   The fact that the symbol is an array may lead to warnings where the
-variable is used.  Insert type casts to avoid the warnings.  Here is an
-example; it takes advantage of the ANSI C feature allowing macros that
-expand to use the same name as the macro itself.
-
-     GLOBALVALUEREF (int, ss$_normal);
-     GLOBALVALUEDEF (int, xyzzy,123);
-     #ifdef __GNUC__
-     #define ss$_normal ((int) ss$_normal)
-     #define xyzzy ((int) xyzzy)
-     #endif
-
-   Don't use `globaldef' or `globalref' with a variable whose type is
-an enumeration type; this is not implemented.  Instead, make the
-variable an integer, and use a `globalvaluedef' for each of the
-enumeration values.  An example of this would be:
-
-     #ifdef __GNUC__
-     GLOBALDEF (int, color, 0);
-     GLOBALVALUEDEF (int, RED, 0);
-     GLOBALVALUEDEF (int, BLUE, 1);
-     GLOBALVALUEDEF (int, GREEN, 3);
-     #else
-     enum globaldef color {RED, BLUE, GREEN = 3};
-     #endif
+   * At present, the program `mips-tfile' which adds debug support to
+     object files on MIPS systems does not work in a cross compile
+     environment.
 
 

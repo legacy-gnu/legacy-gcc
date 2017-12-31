@@ -6,24 +6,28 @@
    Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify it
-   under the terms of the GNU Library General Public License as published
-   by the Free Software Foundation; either version 2, or (at your option)
-   any later version.
-
+   under the terms of the GNU General Public License as published by the
+   Free Software Foundation; either version 2, or (at your option) any
+   later version.
+   
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
-   You should have received a copy of the GNU Library General Public
-   License along with this program; if not, write to the Free Software
-   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+   
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-/* AIX requires this to be the first thing in the file. */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+/* AIX requires this to be the first thing in the file.  */
 #ifdef __GNUC__
 #define alloca __builtin_alloca
 #else /* not __GNUC__ */
-#if defined(sparc) && (defined(sun) || (!defined(USG) && !defined(SVR4) && !defined(__svr4__)))
+#if defined (HAVE_ALLOCA_H) || (defined(sparc) && (defined(sun) || (!defined(USG) && !defined(SVR4) && !defined(__svr4__))))
 #include <alloca.h>
 #else
 #ifdef _AIX
@@ -31,8 +35,12 @@
 #else
 char *alloca ();
 #endif
-#endif /* sparc */
+#endif /* alloca.h */
 #endif /* not __GNUC__ */
+
+#if !__STDC__ && !defined(const)
+#define const
+#endif
 
 #include <stdio.h>
 
@@ -40,20 +48,16 @@ char *alloca ();
    to get __GNU_LIBRARY__ defined.  */
 #ifdef	__GNU_LIBRARY__
 #undef	alloca
+/* Don't include stdlib.h for non-GNU C libraries because some of them
+   contain conflicting prototypes for getopt.  */
 #include <stdlib.h>
-#include <string.h>
 #else	/* Not GNU C library.  */
 #define	__alloca	alloca
 #endif	/* GNU C library.  */
 
-
-#ifndef __STDC__
-#define const
-#endif
-
 /* If GETOPT_COMPAT is defined, `+' as well as `--' can introduce a
    long-named option.  Because this is not POSIX.2 compliant, it is
-   being phased out. */
+   being phased out.  */
 #define GETOPT_COMPAT
 
 /* This version of `getopt' appears to the caller like standard Unix `getopt'
@@ -143,6 +147,10 @@ static enum
 } ordering;
 
 #ifdef	__GNU_LIBRARY__
+/* We want to avoid inclusion of string.h with non-GNU libraries
+   because there are many ways it can cause trouble.
+   On some systems, it contains special magic macros that don't work
+   in GCC.  */
 #include <string.h>
 #define	my_index	strchr
 #define	my_bcopy(src, dst, n)	memcpy ((dst), (src), (n))
@@ -205,10 +213,12 @@ exchange (argv)
 
   /* Interchange the two blocks of data in ARGV.  */
 
-  my_bcopy (&argv[first_nonopt], temp, nonopts_size);
-  my_bcopy (&argv[last_nonopt], &argv[first_nonopt],
+  my_bcopy ((char *) &argv[first_nonopt], (char *) temp, nonopts_size);
+  my_bcopy ((char *) &argv[last_nonopt], (char *) &argv[first_nonopt],
 	    (optind - last_nonopt) * sizeof (char *));
-  my_bcopy (temp, &argv[first_nonopt + optind - last_nonopt], nonopts_size);
+  my_bcopy ((char *) temp,
+	    (char *) &argv[first_nonopt + optind - last_nonopt],
+	    nonopts_size);
 
   /* Update records for the slots the non-options now occupy.  */
 
@@ -452,7 +462,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
 	  if (*s)
 	    {
 	      /* Don't test has_arg with >, because some C compilers don't
-		 allow it to be used on enums. */
+		 allow it to be used on enums.  */
 	      if (pfound->has_arg)
 		optarg = s + 1;
 	      else
@@ -500,7 +510,7 @@ _getopt_internal (argc, argv, optstring, longopts, longind, long_only)
       /* Can't find it as a long option.  If this is not getopt_long_only,
 	 or the option starts with '--' or is not a valid short
 	 option, then it's an error.
-	 Otherwise interpret it as a short option. */
+	 Otherwise interpret it as a short option.  */
       if (!long_only || argv[optind][1] == '-'
 #ifdef GETOPT_COMPAT
 	  || argv[optind][0] == '+'

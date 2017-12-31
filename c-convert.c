@@ -137,7 +137,20 @@ convert_to_integer (type, expr)
       register unsigned inprec = TYPE_PRECISION (intype);
       register enum tree_code ex_form = TREE_CODE (expr);
 
-      if (outprec >= inprec)
+      /* If we are widening the type, put in an explicit conversion.
+	 Similarly if we are not changing the width.  However, if this is
+	 a logical operation that just returns 0 or 1, we can change the
+	 type of the expression (see below).  */
+
+      if (TREE_CODE_CLASS (ex_form) == '<'
+	  || ex_form == TRUTH_AND_EXPR || ex_form == TRUTH_ANDIF_EXPR
+	  || ex_form == TRUTH_OR_EXPR || ex_form == TRUTH_ORIF_EXPR
+	  || ex_form == TRUTH_NOT_EXPR)
+	{
+	  TREE_TYPE (expr) = type;
+	  return expr;
+	}
+      else if (outprec >= inprec)
 	return build1 (NOP_EXPR, type, expr);
 
 /* Here detect when we can distribute the truncation down past some arithmetic.
@@ -164,20 +177,32 @@ convert_to_integer (type, expr)
 	{
 	case RSHIFT_EXPR:
 	  /* We can pass truncation down through right shifting
-	     when the shift count is a negative constant.  */
-	  if (TREE_CODE (TREE_OPERAND (expr, 1)) != INTEGER_CST
-	      || TREE_INT_CST_LOW (TREE_OPERAND (expr, 1)) > 0)
-	    break;
-	  goto trunc1;
+	     when the shift count is a nonpositive constant.  */
+	  if (TREE_CODE (TREE_OPERAND (expr, 1)) == INTEGER_CST
+	      && tree_int_cst_lt (TREE_OPERAND (expr, 1), integer_one_node))
+	    goto trunc1;
+	  break;
 
 	case LSHIFT_EXPR:
 	  /* We can pass truncation down through left shifting
-	     when the shift count is a positive constant.  */
-	  if (TREE_CODE (TREE_OPERAND (expr, 1)) != INTEGER_CST
-	      || TREE_INT_CST_LOW (TREE_OPERAND (expr, 1)) < 0)
-	    break;
-	  /* In this case, shifting is like multiplication.  */
-	  goto trunc1;
+	     when the shift count is a nonnegative constant.  */
+	  if (TREE_CODE (TREE_OPERAND (expr, 1)) == INTEGER_CST
+	      && ! tree_int_cst_lt (TREE_OPERAND (expr, 1), integer_zero_node)
+	      && TREE_CODE (TYPE_SIZE (type)) == INTEGER_CST)
+	    {
+	      /* If shift count is less than the width of the truncated type,
+		 really shift.  */
+	      if (tree_int_cst_lt (TREE_OPERAND (expr, 1), TYPE_SIZE (type)))
+		/* In this case, shifting is like multiplication.  */
+		goto trunc1;
+	      else
+		/* If it is >= that width, result is zero.
+		   Handling this with trunc1 would give the wrong result:
+		   (int) ((long long) a << 32) is well defined (as 0)
+		   but (int) a << 32 is undefined and would get a warning.  */
+		return convert_to_integer (type, integer_zero_node);
+	    }
+	  break;
 
 	case MAX_EXPR:
 	case MIN_EXPR:
@@ -250,22 +275,6 @@ convert_to_integer (type, expr)
 	  }
 	  break;
 
-	case EQ_EXPR:
-	case NE_EXPR:
-	case GT_EXPR:
-	case GE_EXPR:
-	case LT_EXPR:
-	case LE_EXPR:
-	case TRUTH_AND_EXPR:
-	case TRUTH_ANDIF_EXPR:
-	case TRUTH_OR_EXPR:
-	case TRUTH_ORIF_EXPR:
-	case TRUTH_NOT_EXPR:
-	  /* If we want result of comparison converted to a byte,
-	     we can just regard it as a byte, since it is 0 or 1.  */
-	  TREE_TYPE (expr) = type;
-	  return expr;
-
 	case NEGATE_EXPR:
 	case BIT_NOT_EXPR:
 	  {
@@ -335,6 +344,13 @@ convert_to_integer (type, expr)
 						 convert (typex, arg1),
 						 convert (typex, arg2))));
 		  }
+		else
+		  /* It is sometimes worthwhile
+		     to push the narrowing down through the conditional.  */
+		  return fold (build (COND_EXPR, type,
+				      TREE_OPERAND (expr, 0),
+				      convert (type, TREE_OPERAND (expr, 1)), 
+				      convert (type, TREE_OPERAND (expr, 2))));
 	      }
 	  }
 	}
@@ -367,8 +383,11 @@ convert (type, expr)
   register tree e = expr;
   register enum tree_code code = TREE_CODE (type);
 
-  if (type == TREE_TYPE (expr) || TREE_CODE (expr) == ERROR_MARK)
+  if (type == TREE_TYPE (expr)
+      || TREE_CODE (expr) == ERROR_MARK)
     return expr;
+  if (TYPE_MAIN_VARIANT (type) == TYPE_MAIN_VARIANT (TREE_TYPE (expr)))
+    return fold (build1 (NOP_EXPR, type, expr));
   if (TREE_CODE (TREE_TYPE (expr)) == ERROR_MARK)
     return error_mark_node;
   if (TREE_CODE (TREE_TYPE (expr)) == VOID_TYPE)

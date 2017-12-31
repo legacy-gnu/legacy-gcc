@@ -40,7 +40,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
   */
 
 %{
-#ifdef GATHER_STATISTICS
+#if defined(GATHER_STATISTICS) || defined(SPEW_DEBUG)
 #undef YYDEBUG
 #define YYDEBUG 1
 #endif
@@ -52,11 +52,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "tree.h"
 #include "input.h"
+#include "flags.h"
 #include "cp-lex.h"
 #include "cp-tree.h"
-#include "assert.h"
 
 extern tree void_list_node;
+extern struct obstack permanent_obstack;
 
 #ifndef errno
 extern int errno;
@@ -71,20 +72,13 @@ void yyerror ();
 
 static void position_after_white_space ();
 
-/* The elements of `ridpointers' are identifier nodes
-   for the reserved type names and storage classes.
-   It is indexed by a RID_... value.  */
-
-tree ridpointers[(int) RID_MAX];
-#define NORID RID_UNUSED
-
 /* Contains error message to give if user tries to declare
    a variable where one does not belong.  */
 static char *stmt_decl_msg = 0;
 
 /* Nonzero if we have an `extern "C"' acting as an extern specifier.  */
-
-static int have_extern_spec;
+int have_extern_spec;
+int used_extern_spec;
 
 void yyhook ();
 
@@ -239,18 +233,19 @@ empty_parms ()
 %type <ttype> base_class maybe_base_class_list base_class.1
 %type <ttype> after_type_declarator_no_typename
 %type <ttype> maybe_raises raise_identifier raise_identifiers ansi_raise_identifier ansi_raise_identifiers
-%type <ttype> component_declarator0 scoped_id scoped_typename
+%type <ttype> component_declarator0 scoped_id scoped_typename scoped_base_class
 %type <ttype> forhead.1 identifier_or_opname operator_name
 %type <ttype> new delete object object_star aggr
 /* %type <ttype> primary_no_id */
 %type <ttype> nonmomentary_expr
-%type <itype> forhead.2 initdcl0 notype_initdcl0 wrapper member_init_list
+%type <itype> forhead.2 initdcl0 notype_initdcl0 member_init_list
 %type <itype> .scope try ansi_try
 %type <ttype> template_header template_parm_list template_parm
 %type <ttype> template_type template_arg_list template_arg
 %type <ttype> template_instantiation template_type_name tmpl.1 tmpl.2
 %type <ttype> template_instantiate_once template_instantiate_some
-%type <itype> fn_tmpl_end try_for_typename
+%type <itype> fn_tmpl_end
+/* %type <itype> try_for_typename */
 
 /* in order to recognize aggr tags as defining and thus shadowing. */
 %token TYPENAME_DEFN IDENTIFIER_DEFN PTYPENAME_DEFN
@@ -264,36 +259,19 @@ empty_parms ()
 %token END_OF_SAVED_INPUT
 
 %{
-/* the declaration found for the last IDENTIFIER token read in.
-   yylex must look this up to detect typedefs, which get token type TYPENAME,
-   so it is left around in case the identifier is not a typedef but is
-   used in a context which makes it a reference to a variable.  */
-tree lastiddecl;
-
-/* Back-door communication channel to the lexer.  */
-extern int looking_for_typename;
-
-tree make_pointer_declarator (), make_reference_declarator ();
-
-void reinit_parse_for_function ();
-void reinit_parse_for_method ();
-
 /* List of types and structure classes of the current declaration.  */
-tree current_declspecs;
+static tree current_declspecs;
 
 /* When defining an aggregate, this is the most recent one being defined.  */
 static tree current_aggr;
 
-int undeclared_variable_notice;	/* 1 if we explained undeclared var errors.  */
+/* 1 if we explained undeclared var errors.  */
+int undeclared_variable_notice;
 
-int yylex ();
+/* Tell yyparse how to print a token's value, if yydebug is set.  */
 
-static
-#ifdef __GNUC__
-__inline
-#endif
-void yyprint ();
 #define YYPRINT(FILE,YYCHAR,YYLVAL) yyprint(FILE,YYCHAR,YYLVAL)
+extern void yyprint ();
 %}
 
 %%
@@ -315,6 +293,7 @@ extdefs:
 
 .hush_warning:
 		{ have_extern_spec = 1;
+		  used_extern_spec = 0;
 		  $<ttype>$ = NULL_TREE; }
 	;
 .warning_ok:
@@ -331,7 +310,7 @@ extdef:
 	| overloaddef
 	| ASM_KEYWORD '(' string ')' ';'
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C++ forbids use of `asm' keyword");
 		  if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  assemble_asm ($3); }
 	| extern_lang_string '{' extdefs '}'
@@ -447,16 +426,8 @@ template_def:
 		  int momentary;
 		  momentary = suspend_momentary ();
 		  d = start_decl ($2, /*current_declspecs*/0, 0, $3);
-		  decl_attributes (d, $5);
+		  cplus_decl_attributes (d, $5);
 		  finish_decl (d, NULL_TREE, $4, 0);
-
-#if 0 /* Need to sort out destructor templates, and not give warnings
-         for them.  */
-		  if (pedantic)
-		    error ("ANSI C forbids data definition with no type or storage class");
-  		  else if (! flag_traditional && ! have_extern_spec)
-  		    warning ("data definition has no type or storage class");
-#endif
 		  end_template_decl ($1, d, 0);
 		  if ($6 != ';')
 		    reinit_parse_for_template ($6, $1, d);
@@ -472,7 +443,7 @@ template_def:
 		  current_declspecs = $2;
 		  momentary = suspend_momentary ();
 		  d = start_decl ($3, current_declspecs, 0, $4);
-		  decl_attributes (d, $6);
+		  cplus_decl_attributes (d, $6);
 		  finish_decl (d, NULL_TREE, $5, 0);
 		  end_exception_decls ();
 		  end_template_decl ($1, d, 0);
@@ -507,7 +478,7 @@ fn_tmpl_end: '{'		{ $$ = '{'; }
 datadef:
 	  notype_initdecls ';'
 		{ if (pedantic)
-		    error ("ANSI C forbids data definition with no type or storage class");
+		    pedwarn ("ANSI C++ forbids data definition with no type or storage class");
   		  else if (! flag_traditional && ! have_extern_spec)
   		    warning ("data definition has no type or storage class"); }
 	| declmods notype_initdecls ';'
@@ -532,7 +503,7 @@ datadef:
 		  note_list_got_semicolon ($<ttype>$);
 		}
         | declmods ';'
-	  { error ("empty declaration"); }
+	  { pedwarn ("empty declaration"); }
 	| typed_declspecs ';'
 	  {
 	    tree t = $<ttype>$;
@@ -713,7 +684,7 @@ return_id: RETURN IDENTIFIER
 return_init: return_id
 		{ store_return_init ($<ttype>$, NULL_TREE); }
 	| return_id '=' init
-		{ store_return_init ($<ttype>$, $2); }
+		{ store_return_init ($<ttype>$, $3); }
 	| return_id '(' nonnull_exprlist ')'
 		{ store_return_init ($<ttype>$, $3); }
 	| return_id LEFT_RIGHT
@@ -763,15 +734,15 @@ member_init_list:
 
 member_init: '(' nonnull_exprlist ')'
 		{
-		  if (current_class_name && pedantic)
-		    pedwarn ("old style base class initialization; use `%s (...)'",
+		  if (current_class_name && !flag_traditional)
+		    pedwarn ("ANSI C++ forbids old style base class initialization",
 			     IDENTIFIER_POINTER (current_class_name));
 		  expand_member_init (C_C_D, NULL_TREE, $2);
 		}
 	| LEFT_RIGHT
 		{
-		  if (current_class_name && pedantic)
-		    pedwarn ("old style base class initialization; use `%s (...)'",
+		  if (current_class_name && !flag_traditional)
+		    pedwarn ("ANSI C++ forbids old style base class initialization",
 			     IDENTIFIER_POINTER (current_class_name));
 		  expand_member_init (C_C_D, NULL_TREE, void_type_node);
 		}
@@ -784,6 +755,10 @@ member_init: '(' nonnull_exprlist ')'
 	| template_type_name '(' nonnull_exprlist ')'
 		{ expand_member_init (C_C_D, $<ttype>$, $3); }
 	| template_type_name LEFT_RIGHT
+		{ expand_member_init (C_C_D, $<ttype>$, void_type_node); }
+	| scoped_typename '(' nonnull_exprlist ')'
+		{ expand_member_init (C_C_D, $<ttype>$, $3); }
+	| scoped_typename LEFT_RIGHT
 		{ expand_member_init (C_C_D, $<ttype>$, void_type_node); }
 	| scoped_id identifier '(' nonnull_exprlist ')'
 		{
@@ -816,38 +791,34 @@ identifier_or_opname:
 	/* get rid of the next line, replace it with the above */
 	| '~' identifier { $$ = build_parse_node (BIT_NOT_EXPR,$2);}
 	| operator_name
-	| wrapper IDENTIFIER
-		{ $$ = hack_wrapper ($$, NULL_TREE, $2); }
-	| wrapper TYPENAME
-		{ $$ = hack_wrapper ($$, NULL_TREE, $2); }
-	| wrapper operator_name
-		{ $$ = hack_wrapper ($$, NULL_TREE, $2); }
-	| wrapper scoped_id IDENTIFIER
-		{ $$ = hack_wrapper ($$, $2, $3); }
-	| wrapper scoped_id operator_name
-		{ $$ = hack_wrapper ($$, $2, $3); }
-	;
-
-wrapper:  LEFT_RIGHT
-		{ $$ = 0; }
-	| '~' LEFT_RIGHT
-		{ $$ = 1; }
-	| LEFT_RIGHT '?'
-		{ $$ = 2; }
 	;
 
 template_type:
 	  template_type_name tmpl.1 template_instantiation
 		{
+  		  extern tree template_type_seen_before_scope;
+
 		  if ($3) 
 		    $$ = $3;
 		  else if ($$ != error_mark_node)
 		    $$ = IDENTIFIER_TYPE_VALUE ($$);
+		  /* This is a kludge: In order to detect nested types inside
+		   * template classes, we have to tell the lexer that it should
+		   * try to replace a following SCOPE token with the correct
+		   * SCOPED_TYPENAME for the nested type.  This SCOPED_TYPENAME
+		   * token will be handled in the rule "scoped_typename".
+		   * - niklas@appli.se */
+		  if (yychar == SCOPE) {
+		    template_type_seen_before_scope = TYPE_IDENTIFIER ($$);
+		    yychar = YYLEX;
+		  }
 		}
 	;
 
 template_type_name:
 	  PTYPENAME '<' template_arg_list '>'
+		{ $$ = lookup_template_class ($$, $3); }
+	| TYPENAME  '<' template_arg_list '>'
 		{ $$ = lookup_template_class ($$, $3); }
 	;
 
@@ -887,7 +858,7 @@ template_instantiate_once:
 		  tmpl = TREE_PURPOSE (IDENTIFIER_TEMPLATE (id));
 		  t = xref_tag (DECL_TEMPLATE_INFO (tmpl)->aggr, id, $2);
 		  set_current_level_tags_transparency (1);
-		  assert (TREE_CODE (t) == RECORD_TYPE);
+		  my_friendly_assert (TREE_CODE (t) == RECORD_TYPE, 257);
 		  $<ttype>$ = t;
 
 		  /* Now, put a copy of the decl in global scope, to avoid
@@ -901,8 +872,7 @@ template_instantiate_once:
                     {
 		      /* Need to copy it to clear the chain pointer,
 			 and need to get it into permanent storage.  */
-		      extern struct obstack permanent_obstack;
-                      assert (TREE_CODE (decl) == TYPE_DECL);
+                      my_friendly_assert (TREE_CODE (decl) == TYPE_DECL, 258);
 		      push_obstacks (&permanent_obstack, &permanent_obstack);
                       decl = copy_node (decl);
 		      if (DECL_LANG_SPECIFIC (decl))
@@ -914,15 +884,20 @@ template_instantiate_once:
 	  left_curly opt.component_decl_list '}'
 		{
 		  extern void end_template_instantiation ();
-		  tree id, members;
+		  int old_interface = interface_unknown;
 
+		  interface_unknown = 1;
 		  $$ = finish_struct ($<ttype>3, $5, 0, 0);
 
 		  pop_obstacks ();
 		  end_template_instantiation ($1, $<ttype>3);
 
                   /* Now go after the methods & class data.  */
+		  old_interface = interface_unknown;
+		  interface_unknown = 1;
                   instantiate_member_templates ($1);
+		  interface_unknown = old_interface;
+		  CLASSTYPE_GOT_SEMICOLON ($$) = 1;
 		}
 	;
 
@@ -991,6 +966,12 @@ unary_expr:
 		  if ($1 == NEGATE_EXPR && TREE_CODE ($2) == INTEGER_CST)
 		    TREE_NEGATED_INT ($$) = 1;
 		}
+	/* Refer to the address of a label as a pointer.  */
+	| ANDAND identifier
+		{ tree label = lookup_label ($2);
+		  TREE_USED (label) = 1;
+		  $$ = build1 (ADDR_EXPR, ptr_type_node, label);
+		  TREE_CONSTANT ($$) = 1; }
 	| SIZEOF unary_expr  %prec UNARY
 		{ if (TREE_CODE ($2) == COMPONENT_REF
 		      && DECL_BIT_FIELD (TREE_OPERAND ($2, 1)))
@@ -1044,71 +1025,97 @@ unary_expr:
 
 	| .scope new typename %prec '='
 		{ $$ = build_new ($2, $3, NULL_TREE, $$); }
+	| .scope new '(' nonnull_exprlist ')' typename %prec '='
+		{ $$ = build_new ($4, $6, NULL_TREE, $$); }
 	| .scope new typespec '(' nonnull_exprlist ')'
 		{ $$ = build_new ($2, $3, $5, $$); }
+	| .scope new '(' nonnull_exprlist ')' typespec '(' nonnull_exprlist ')'
+		{ $$ = build_new ($4, $6, $8, $$); }
 	| .scope new typespec LEFT_RIGHT
 		{ $$ = build_new ($2, $3, NULL_TREE, $$); }
+	| .scope new '(' nonnull_exprlist ')' typespec LEFT_RIGHT
+		{ $$ = build_new ($4, $6, NULL_TREE, $$); }
 	| .scope new typename '=' init %prec '='
 		{ $$ = build_new ($2, $3, $5, $$); }
+	| .scope new '(' nonnull_exprlist ')' typename '=' init %prec '='
+		{ $$ = build_new ($4, $6, $8, $$); }
 
+	/* I am not going to add placement syntax to the below complex rules
+	   because Ken says the syntax is illegal. (mrs) */
 	/* I'm not sure why this is disallowed.  But since it is, and it
 	   doesn't seem difficult to catch it, let's give a message, so
 	   the programmer can fix it.  --Ken Raeburn  */
 	| .scope new '(' typed_typespecs absdcl ')' '[' nonmomentary_expr ']'
 		{
 		  tree absdcl, typename;
-		  static int gave_warning = 0;
 
 		illegal_new_array:
 		  absdcl = build_parse_node (ARRAY_REF, $5, $8);
 		  typename = build_decl_list ($4, absdcl);
-		  pedwarn ("array dimensions with parenthesized type is disallowed in standard C++");
-		  if (!gave_warning)
-		    {
-		      gave_warning++;
-		      pedwarn ("  (per grammar in Ellis & Stroustrup [1990], chapter 17)");
-		      pedwarn ("  try rewriting, perhaps with a typedef");
-		    }
+		  pedwarn ("ANSI C++ forbids array dimensions with parenthesized type");
 		  $$ = build_new ($2, typename, NULL_TREE, $$);
 		}
 	| .scope new '(' nonempty_type_quals absdcl ')' '[' nonmomentary_expr ']'
 		{ goto illegal_new_array; }
 
 	| .scope new '(' typed_typespecs absdcl ')'
-		{
-		  $$ = build_new ($2, build_decl_list ($4, $5), NULL_TREE, $$);
-		}
+		{ $$ = build_new ($2, build_decl_list ($4, $5), NULL_TREE, $$); }
+	| .scope new '(' nonnull_exprlist ')' '(' typed_typespecs absdcl ')'
+		{ $$ = build_new ($4, build_decl_list ($7, $8), NULL_TREE, $$); }
 	| .scope new '(' nonempty_type_quals absdcl ')'
 		{ $$ = build_new ($2, build_decl_list ($4, $5), NULL_TREE, $$); }
+	| .scope new '(' nonnull_exprlist ')' '(' nonempty_type_quals absdcl ')'
+		{ $$ = build_new ($4, build_decl_list ($7, $8), NULL_TREE, $$); }
 	/* Unswallow a ':' which is probably meant for ?: expression.  */
 	| .scope new TYPENAME_COLON
-		{ yyungetc (':', 1);
-		  $$ = build_new ($2, $3, NULL_TREE, $$); }
+		{ yyungetc (':', 1); $$ = build_new ($2, $3, NULL_TREE, $$); }
+	| .scope new '(' nonnull_exprlist ')' TYPENAME_COLON
+		{ yyungetc (':', 1); $$ = build_new ($4, $6, NULL_TREE, $$); }
 
 	| delete cast_expr  %prec UNARY
 		{ tree expr = stabilize_reference (convert_from_reference ($2));
 		  tree type = TREE_TYPE (expr);
 
-		  if (integer_zerop (expr))
-		    $$ = build1 (NOP_EXPR, void_type_node, expr);
-		  else if (TREE_CODE (type) != POINTER_TYPE)
+		  if (TREE_CODE (type) != POINTER_TYPE)
 		    {
 		      error ("non-pointer type to `delete'");
 		      $$ = error_mark_node;
 		      break;
 		    }
+		  else if (integer_zerop (expr))
+		    {
+		      /* ANSI C++ June 5 1992 WP 5.3.4.  Deleting a pointer
+			 with the value zero is legal and has no effect.  */
+		      $$ = build1 (NOP_EXPR, void_type_node, expr);
+		      break;
+		    }
+		  else if (TREE_READONLY (TREE_TYPE (type)))
+		    {
+		      error ("`const *' cannot be deleted");
+		      $$ = error_mark_node;
+		      break;
+		    }
 		  $$ = build_delete (type, expr, integer_three_node,
 				     LOOKUP_NORMAL|LOOKUP_HAS_IN_CHARGE,
-				     TYPE_HAS_DESTRUCTOR (TREE_TYPE (type)) ? $$ : 0, 1);
+				     TYPE_HAS_DESTRUCTOR (TREE_TYPE (type)),
+				     0);
 		}
 	| delete '[' ']' cast_expr  %prec UNARY
 		{
 		  tree exp = stabilize_reference (convert_from_reference ($4));
-		  tree elt_size = c_sizeof (TREE_TYPE (exp));
+		  tree type = TREE_TYPE (exp);
+		  tree elt_size = c_sizeof (type);
 
 		  if (yychar == YYEMPTY)
 		    yychar = YYLEX;
 
+		  if (TREE_CODE (type) == POINTER_TYPE
+		      && TREE_READONLY (TREE_TYPE (type)))
+		    {
+		      error ("`const *' cannot be deleted");
+		      $$ = error_mark_node;
+		      break;
+		    }
 		  $$ = build_vec_delete (exp, NULL_TREE, elt_size, NULL_TREE,
 					 integer_one_node, integer_two_node);
 		}
@@ -1117,12 +1124,21 @@ unary_expr:
 		  tree maxindex = build_binary_op (MINUS_EXPR, $3,
 						   integer_one_node);
 		  tree exp = stabilize_reference (convert_from_reference ($5));
-		  tree elt_size = c_sizeof (TREE_TYPE (exp));
+		  tree type = TREE_TYPE (exp);
+		  tree elt_size = c_sizeof (type);
 
 		  if (yychar == YYEMPTY)
 		    yychar = YYLEX;
 
-		  pedwarn ("use of array size with vector delete is anachronistic");
+		  if (! flag_traditional)
+		    pedwarn ("ANSI C++ forbids array size in vector delete");
+		  if (TREE_CODE (type) == POINTER_TYPE
+		      && TREE_READONLY (TREE_TYPE (type)))
+		    {
+		      error ("`const *' cannot be deleted");
+		      $$ = error_mark_node;
+		      break;
+		    }
 		  $$ = build_vec_delete (exp, maxindex, elt_size, NULL_TREE,
 					 integer_one_node, integer_two_node);
 		}
@@ -1137,7 +1153,7 @@ cast_expr:
 		{ tree type = groktypename ($2);
 		  tree init = build_nt (CONSTRUCTOR, NULL_TREE, nreverse ($5));
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids constructor-expressions");
+		    pedwarn ("ANSI C++ forbids constructor-expressions");
 		  /* Indicate that this was a GNU C constructor expression.  */
 		  TREE_HAS_CONSTRUCTOR (init) = 1;
 		  $$ = digest_init (type, init, 0);
@@ -1205,7 +1221,8 @@ expr_no_commas:
 		{ $$ = build_modify_expr ($$, NOP_EXPR, $3); }
 	| expr_no_commas ASSIGN expr_no_commas
 		{ register tree rval;
-		  if (rval = build_opfncall (MODIFY_EXPR, LOOKUP_NORMAL, $$, $3, $2))
+		  if (rval = build_opfncall (MODIFY_EXPR, LOOKUP_NORMAL, $$, $3,
+			make_node ($2)))
 		    $$ = rval;
 		  else
 		    $$ = build_modify_expr ($$, $2, $3); }
@@ -1237,7 +1254,7 @@ primary:
 		    $$ = op;
 		  else
 		    {
-		      $$ = lookup_name (op);
+		      $$ = lookup_name (op, 0);
 		      if ($$ == NULL_TREE)
 			{
 			  error ("operator %s not defined", operator_name_string (op));
@@ -1263,21 +1280,23 @@ primary:
 	  compstmt ')'
 		{ tree rtl_exp;
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids braced-groups within expressions");
+		    pedwarn ("ANSI C++ forbids braced-groups within expressions");
 		  rtl_exp = expand_end_stmt_expr ($<ttype>2);
 		  /* The statements have side effects, so the group does.  */
 		  TREE_SIDE_EFFECTS (rtl_exp) = 1;
-
 		  /* Make a BIND_EXPR for the BLOCK already made.  */
 		  $$ = build (BIND_EXPR, TREE_TYPE (rtl_exp),
 			      NULL_TREE, rtl_exp, $3);
+		  /* Remove the block from the tree at this point.
+		     It gets put back at the proper place
+		     when the BIND_EXPR is expanded.  */
+		  delete_block ($3);
 		}
 	| primary '(' nonnull_exprlist ')'
                 { /* [eichin:19911016.1902EST] */
-                  extern struct pending_template* pending_templates;
                   $<ttype>$ = build_x_function_call ($1, $3, current_class_decl); 
                   /* here we instantiate_class_template as needed... */
-                  if (pending_templates) do_pending_templates ();
+                  do_pending_templates ();
                 } template_instantiate_some {
                   if (TREE_CODE ($<ttype>5) == CALL_EXPR
                       && TREE_TYPE ($<ttype>5) != void_type_node)
@@ -1287,10 +1306,14 @@ primary:
                 }
 	| primary LEFT_RIGHT
                 { 
-                $$ = build_x_function_call ($$, NULL_TREE, current_class_decl);
-                if (TREE_CODE ($$) == CALL_EXPR
-                    && TREE_TYPE ($$) != void_type_node)
-                  $$ = require_complete_type ($$);
+		if ($$ != error_mark_node)
+		  {
+		    $$ = build_x_function_call ($$, NULL_TREE,
+						current_class_decl);
+		    if (TREE_CODE ($$) == CALL_EXPR
+			&& TREE_TYPE ($$) != void_type_node)
+		      $$ = require_complete_type ($$);
+		  }
                 }
 	| primary '[' expr ']'
 		{
@@ -1409,20 +1432,26 @@ primary:
 		      break;
 		    }
 #endif
+#if 0
+		  /* type is not set! (mrs) */
 		  if (type == error_mark_node)
 		    $$ = error_mark_node;
 		  else
+#endif
 		    {
 		      if (id == ridpointers[(int) RID_CONST])
 		        type = build_type_variant (integer_type_node, 1, 0);
 		      else if (id == ridpointers[(int) RID_VOLATILE])
 		        type = build_type_variant (integer_type_node, 0, 1);
+#if 0
+		      /* should not be able to get here (mrs) */
 		      else if (id == ridpointers[(int) RID_FRIEND])
 		        {
 		          error ("cannot cast expression to `friend' type");
 		          $$ = error_mark_node;
 		          break;
 		        }
+#endif
 		      else my_friendly_abort (79);
 		      $$ = build_c_cast (type, build_compound_expr ($3));
 		    }
@@ -1431,6 +1460,10 @@ primary:
 		{ $$ = build_functional_cast ($$, $3); }
 	| typespec LEFT_RIGHT
 		{ $$ = build_functional_cast ($$, NULL_TREE); }
+	| SCOPE typespec '(' nonnull_exprlist ')'
+		{ $$ = build_functional_cast ($2, $4); }
+	| SCOPE typespec LEFT_RIGHT
+		{ $$ = build_functional_cast ($2, NULL_TREE); }
 	| SCOPE IDENTIFIER
 		{
 		do_scoped_id:
@@ -1457,8 +1490,15 @@ primary:
 		      TREE_USED ($$) = 1;
 		    }
 		  if (TREE_CODE ($$) == CONST_DECL)
-		    $$ = DECL_INITIAL ($$);
-		    /* XXX CHS - should we set TREE_USED of the constant? */
+		    {
+		      /* XXX CHS - should we set TREE_USED of the constant? */
+		      $$ = DECL_INITIAL ($$);
+		      /* This is to prevent an enum whose value is 0
+			 from being considered a null pointer constant.  */
+		      $$ = build1 (NOP_EXPR, TREE_TYPE ($$), $$);
+		      TREE_CONSTANT ($$) = 1;
+		    }
+
 		}
 	| SCOPE operator_name
 		{
@@ -1501,7 +1541,7 @@ primary_no_id:
 		  $<ttype>$ = expand_start_stmt_expr (); }
 	  compstmt ')'
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids braced-groups within expressions");
+		    pedwarn ("ANSI C++ forbids braced-groups within expressions");
 		  $$ = expand_end_stmt_expr ($<ttype>2); }
 	| primary_no_id '(' nonnull_exprlist ')'
 		{ $$ = build_x_function_call ($$, $3, current_class_decl); }
@@ -1526,7 +1566,10 @@ primary_no_id:
 new:	  NEW
 		{ $$ = NULL_TREE; }
 	| NEW '{' nonnull_exprlist '}'
-		{ $$ = $3; }
+		{
+		  $$ = $3;
+		  pedwarn ("old style placement syntax, use () instead");
+		}
 	| NEW DYNAMIC  %prec EMPTY
 		{ $$ = void_type_node; }
 	| NEW DYNAMIC '(' string ')'
@@ -1582,7 +1625,7 @@ object:	  primary '.'
 		}
 	| primary POINTSAT
 		{
-		  $$ = build_x_arrow ($$, 0);
+		  $$ = build_x_arrow ($$);
 		}
 	;
 
@@ -1655,11 +1698,17 @@ reserved_declspecs:  /* empty
 	  typespecqual_reserved
 		{ $$ = build_decl_list (NULL_TREE, $$); }
 	| SCSPEC
-		{ $$ = build_decl_list (NULL_TREE, $$); }
+		{ if (extra_warnings)
+		    warning ("`%s' is not at beginning of declaration",
+			     IDENTIFIER_POINTER ($$));
+		  $$ = build_decl_list (NULL_TREE, $$); }
 	| reserved_declspecs typespecqual_reserved
 		{ $$ = decl_tree_cons (NULL_TREE, $2, $$); }
 	| reserved_declspecs SCSPEC
-		{ $$ = decl_tree_cons (NULL_TREE, $2, $$); }
+		{ if (extra_warnings)
+		    warning ("`%s' is not at beginning of declaration",
+			     IDENTIFIER_POINTER ($2));
+		  $$ = decl_tree_cons (NULL_TREE, $2, $$); }
 	;
 
 /* List of just storage classes and type modifiers.
@@ -1668,13 +1717,19 @@ reserved_declspecs:  /* empty
 
 declmods:
 	  TYPE_QUAL
-		{ $$ = IDENTIFIER_AS_LIST ($$); }
+		{ $$ = IDENTIFIER_AS_LIST ($$);
+		  TREE_STATIC ($$) = 1; }
 	| SCSPEC
 		{ $$ = IDENTIFIER_AS_LIST ($$); }
 	| declmods TYPE_QUAL
-		{ $$ = hash_tree_chain ($2, $$); }
+		{ $$ = hash_tree_chain ($2, $$);
+		  TREE_STATIC ($$) = 1; }
 	| declmods SCSPEC
-		{ $$ = hash_tree_chain ($2, $$); }
+		{ if (extra_warnings && TREE_STATIC ($$))
+		    warning ("`%s' is not at beginning of declaration",
+			     IDENTIFIER_POINTER ($2));
+		  $$ = hash_tree_chain ($2, $$);
+		  TREE_STATIC ($$) = TREE_STATIC ($1); }
 	;
 
 
@@ -1713,11 +1768,11 @@ typespec: structsp
 	| TYPEOF '(' expr ')'
 		{ $$ = TREE_TYPE ($3);
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids `typeof'"); }
+		    pedwarn ("ANSI C++ forbids `typeof'"); }
 	| TYPEOF '(' typename ')'
 		{ $$ = groktypename ($3);
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids `typeof'"); }
+		    pedwarn ("ANSI C++ forbids `typeof'"); }
 	| template_type
 	;
 
@@ -1745,7 +1800,7 @@ maybeasm:
 		{ if (TREE_CHAIN ($3)) $3 = combine_strings ($3);
 		  $$ = $3;
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C++ forbids use of `asm' keyword");
 		}
 	;
 
@@ -1754,7 +1809,7 @@ initdcl0:
 		{ current_declspecs = $<ttype>0;
 		  $<itype>5 = suspend_momentary ();
 		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
-		  decl_attributes ($<ttype>$, $4); }
+		  cplus_decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
 		{ finish_decl ($<ttype>6, $7, $3, 0);
@@ -1764,20 +1819,20 @@ initdcl0:
 		  current_declspecs = $<ttype>0;
 		  $$ = suspend_momentary ();
 		  d = start_decl ($1, current_declspecs, 0, $2);
-		  decl_attributes (d, $4);
+		  cplus_decl_attributes (d, $4);
 		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
 initdcl:
 	  declarator maybe_raises maybeasm maybe_attribute '='
 		{ $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
-		  decl_attributes ($<ttype>$, $4); }
+		  cplus_decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
 		{ finish_decl ($<ttype>6, $7, $3, 0); }
 	| declarator maybe_raises maybeasm maybe_attribute
 		{ tree d = start_decl ($$, current_declspecs, 0, $2);
-		  decl_attributes ($<ttype>$, $4);
+		  cplus_decl_attributes ($<ttype>$, $4);
 		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
@@ -1786,7 +1841,7 @@ notype_initdcl0:
 		{ current_declspecs = $<ttype>0;
 		  $<itype>5 = suspend_momentary ();
 		  $<ttype>$ = start_decl ($1, current_declspecs, 1, $2);
-		  decl_attributes ($<ttype>$, $4); }
+		  cplus_decl_attributes ($<ttype>$, $4); }
 	  init
 /* Note how the declaration of the variable is in effect while its init is parsed! */
 		{ finish_decl ($<ttype>6, $7, $3, 0);
@@ -1796,7 +1851,7 @@ notype_initdcl0:
 		  current_declspecs = $<ttype>0;
 		  $$ = suspend_momentary ();
 		  d = start_decl ($1, current_declspecs, 0, $2);
-		  decl_attributes (d, $4);
+		  cplus_decl_attributes (d, $4);
 		  finish_decl (d, NULL_TREE, $3, 0); }
 	;
 
@@ -1832,7 +1887,7 @@ attrib
 	      $$ = $1;
 	    }
 	  else
-	    $$ = tree_cons ($1, $3); }
+	    $$ = tree_cons ($1, $3, NULL_TREE); }
     | IDENTIFIER '(' IDENTIFIER ',' CONSTANT ',' CONSTANT ')'
 	{ /* if not "format(...)", then issue warning */
 	  if (strcmp (IDENTIFIER_POINTER ($1), "format") != 0
@@ -1844,7 +1899,7 @@ attrib
 	      $$ = $1;
 	    }
 	  else
-	    $$ = tree_cons ($1, tree_cons ($3, tree_cons ($5, $7))); }
+	    $$ = tree_cons ($1, tree_cons ($3, tree_cons ($5, $7, NULL_TREE), NULL_TREE), NULL_TREE); }
     ;
 
 /* A nonempty list of identifiers, including typenames.  */
@@ -1861,7 +1916,7 @@ init:
 		{ $$ = build_nt (CONSTRUCTOR, NULL_TREE, NULL_TREE);
 		  TREE_HAS_CONSTRUCTOR ($$) = 1;
 		  if (pedantic)
-		    pedwarn ("ANSI C forbids empty initializer braces"); }
+		    pedwarn ("ANSI C++ forbids empty initializer braces"); }
 	| '{' initlist '}'
 		{ $$ = build_nt (CONSTRUCTOR, NULL_TREE, nreverse ($2));
 		  TREE_HAS_CONSTRUCTOR ($$) = 1; }
@@ -1918,14 +1973,21 @@ structsp:
 	| class_head left_curly opt.component_decl_list '}'
 		{
 		  int semi;
+		  tree id;
+
 #if 0
 		  /* Need to rework class nesting in the
 		     presence of nested classes, etc.  */
 		  shadow_tag (CLASSTYPE_AS_LIST ($$)); */
 #endif
+		  if (yychar == YYEMPTY)
+		    yychar = YYLEX;
 		  semi = yychar == ';';
+		  /* finish_struct nukes this anyway; if
+		     finish_exception does too, then it can go. */
 		  if (semi)
 		    note_got_semicolon ($$);
+
 		  if (TREE_CODE ($$) == ENUMERAL_TYPE)
 		    /* $$ = $1 from default rule.  */;
 		  else if (CLASSTYPE_DECLARED_EXCEPTION ($$))
@@ -1936,9 +1998,31 @@ structsp:
 			warning ("empty exception declaration\n");
 		    }
 		  else
-		    $$ = finish_struct ($$, $3, semi, semi);
+		    {
+		      $$ = finish_struct ($$, $3, semi, semi);
+		      if (semi) note_got_semicolon ($$);
+		    }
 
 		  pop_obstacks ();
+
+		  id = TYPE_IDENTIFIER ($$);
+		  if (IDENTIFIER_TEMPLATE (id))
+		    {
+		      tree decl;
+
+		      /* I don't know if the copying of this TYPE_DECL is
+		       * really needed.  However, it's such a small per-
+		       * formance penalty that the extra safety is a bargain.
+		       * - niklas@appli.se
+		       */
+		      push_obstacks (&permanent_obstack, &permanent_obstack);
+		      decl = copy_node (lookup_name (id));
+		      if (DECL_LANG_SPECIFIC (decl))
+			copy_lang_decl (decl);
+		      pop_obstacks ();
+		      undo_template_name_overload (id, 0);
+		      pushdecl_top_level (decl);
+		    }
 		  if (! semi)
 		    check_for_missing_semicolon ($$); }
 	| class_head  %prec EMPTY
@@ -1964,7 +2048,8 @@ maybecomma:
 maybecomma_warn:
 	  /* empty */
 	| ','
-		{ if (pedantic) pedwarn ("comma at end of enumerator list"); }
+		{ if (pedantic)
+		    pedwarn ("ANSI C++ forbids comma at end of enumerator list"); }
 	;
 
 aggr:	  AGGR
@@ -1997,7 +2082,8 @@ named_class_head_sans_basetype:
 		{ yyungetc ('{', 1);
 		aggr2:
 		  current_aggr = $$;
-		  $$ = $2; }
+		  $$ = $2;
+		  overload_template_name ($$, 0); }
 	| aggr template_type_name ':'
 		{ yyungetc (':', 1); goto aggr2; }
 	;
@@ -2060,26 +2146,48 @@ base_class:
 		{ if (! is_aggr_typedef ($$, 1))
 		    $$ = NULL_TREE;
 		  else $$ = build_tree_list ((tree)visibility_default, $$); }
+	| scoped_base_class
+		{ if (! is_aggr_typedef ($$, 1))
+		    $$ = NULL_TREE;
+		  else $$ = build_tree_list ((tree)visibility_default, $$); }
 	| base_class_visibility_list base_class.1
+		{ if (! is_aggr_typedef ($2, 1))
+		    $$ = NULL_TREE;
+		  else $$ = build_tree_list ((tree) $$, $2); }
+	| base_class_visibility_list scoped_base_class
 		{ if (! is_aggr_typedef ($2, 1))
 		    $$ = NULL_TREE;
 		  else $$ = build_tree_list ((tree) $$, $2); }
 	;
 
+scoped_base_class:
+	  base_class.1 SCOPED_TYPENAME
+		{
+  		  /* Kludge!!! See rule "template_type" and the code
+		   * dealing with "template_type_seen_before_scope" in
+		   * yylex(). */
+  		  $$ = $2;
+		}
+	;
 base_class.1:
 	  template_type_name tmpl.2 template_instantiation
+		{
+  		  extern tree template_type_seen_before_scope;
+		  tree id = $3 ? TYPE_IDENTIFIER ($3) : $1;
+
+  		  /* Check the rule template_type to get this... */
+		  if (yychar == YYEMPTY)
+		    yychar = YYLEX;
+		  if (yychar == SCOPE) {
+		    template_type_seen_before_scope = id;
+		    yychar = YYLEX;
+		  }
+		}
 	| identifier
 	;
 
 base_class_visibility_list:
 	  VISSPEC
-		{
-		  if ($$ == visibility_protected)
-		    {
-		      warning ("`protected' visibility not implemented");
-		      $$ = visibility_public;
-		    }
-		}
 	| SCSPEC
 		{ if ($<ttype>$ != ridpointers[(int)RID_VIRTUAL])
 		    sorry ("non-virtual visibility");
@@ -2163,7 +2271,7 @@ component_decl_list:
 		    $$ = chainon ($$, $2); }
 	| component_decl_list ';'
 		{ if (pedantic)
-		    pedwarn ("extra semicolon in struct or union specified"); }
+		    pedwarn ("ANSI C++ forbids extra semicolons here"); }
 	;
 
 component_decl:
@@ -2185,9 +2293,25 @@ component_decl:
 		      else if (TREE_CODE (t) == UNION_TYPE)
 			{
 			  /* handle anonymous unions */
-			  if (CLASSTYPE_METHOD_VEC (t))
-			    sorry ("methods in anonymous unions");
-			  $$ = build_lang_field_decl (FIELD_DECL, NULL_TREE, t);
+			  if (ANON_AGGRNAME_P (TYPE_IDENTIFIER (t)))
+			    $$ = build_lang_field_decl (FIELD_DECL,
+							NULL_TREE, t);
+			  else
+			    {
+			      /* This is a local union decl with a name, but
+				 no components, I think this is the right thing
+				 to do.  (mrs)  */
+#if 0
+			      /* I copied this from below, it is probably
+				 needed, but I cannot prove that to myself
+				 right now, but if you find it is needed
+				 please turn it on. (mrs)  */
+			      if (TYPE_LANG_SPECIFIC (t)
+				  && CLASSTYPE_DECLARED_EXCEPTION (t))
+				shadow_tag ($$);
+#endif
+			      $$ = NULL_TREE;
+			    }
 			}
 		      else if (TREE_CODE (t) == ENUMERAL_TYPE)
 			$$ = grok_enum_decls (t, NULL_TREE);
@@ -2290,19 +2414,19 @@ component_declarator0:
 	  declarator maybe_raises maybeasm maybe_attribute
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| declarator maybe_raises maybeasm maybe_attribute '=' init
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokfield ($$, current_declspecs, $2, $6, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| IDENTIFIER ':' expr_no_commas maybe_attribute
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokbitfield ($$, current_declspecs, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| TYPENAME_COLON expr_no_commas maybe_attribute
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokbitfield ($$, current_declspecs, $2);
-		  decl_attributes ($$, $3); }
+		  cplus_decl_attributes ($$, $3); }
 	| ':' expr_no_commas
 		{ current_declspecs = $<ttype>0;
 		  $$ = grokbitfield (NULL_TREE, NULL_TREE, $2); }
@@ -2311,16 +2435,16 @@ component_declarator0:
 component_declarator:
 	  declarator maybe_raises maybeasm maybe_attribute
 		{ $$ = grokfield ($$, current_declspecs, $2, NULL_TREE, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| declarator maybe_raises maybeasm maybe_attribute '=' init
 		{ $$ = grokfield ($$, current_declspecs, $2, $6, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| IDENTIFIER ':' expr_no_commas maybe_attribute
 		{ $$ = grokbitfield ($$, current_declspecs, $3);
-		  decl_attributes ($$, $4); }
+		  cplus_decl_attributes ($$, $4); }
 	| TYPENAME_COLON expr_no_commas maybe_attribute
 		{ $$ = grokbitfield ($$, current_declspecs, $2);
-		  decl_attributes ($$, $3); }
+		  cplus_decl_attributes ($$, $3); }
 	| ':' expr_no_commas
 		{ $$ = grokbitfield (NULL_TREE, NULL_TREE, $2); }
 	;
@@ -2473,20 +2597,6 @@ notype_declarator:
 		{ goto destructor_name; }
         | '~' PTYPENAME
                 { goto destructor_name; }
-	| LEFT_RIGHT identifier
-		{
-		  see_typename ();
-		  $$ = build_parse_node (WRAPPER_EXPR, $2);
-		}
-	| LEFT_RIGHT '?' identifier
-		{
-		  see_typename ();
-		  $$ = build_parse_node (WRAPPER_EXPR,
-				 build_parse_node (COND_EXPR, $3, NULL_TREE, NULL_TREE));
-		}
-	| '~' LEFT_RIGHT identifier
-		{ see_typename ();
-		  $$ = build_parse_node (ANTI_WRAPPER_EXPR, $3); }
 	| scoped_id see_typename notype_declarator  %prec '('
 		{ see_typename ();
 		  if (TREE_CODE ($$) != SCOPE_REF)
@@ -2529,7 +2639,7 @@ scoped_id:	typename_scope
 		      $$ = error_mark_node; 
 		    }
 		}
-	| template_type SCOPE try_for_typename %prec EMPTY
+	| template_type SCOPE /* try_for_typename %prec EMPTY */
 		{
                   if ($$ == error_mark_node)
                     /* leave it alone */;
@@ -2542,7 +2652,7 @@ scoped_id:	typename_scope
 			  $$ = error_mark_node; 
 			}
 		    }
-                  if ($3) popclass (1);
+/*                  if ($3) popclass (1); */
 		}
 	;
 
@@ -2550,6 +2660,13 @@ typename_scope:
 	TYPENAME SCOPE;
 
 scoped_typename: SCOPED_TYPENAME
+	| template_type SCOPED_TYPENAME
+		{
+  		  /* Kludge!!! See rule "template_type" and the code
+		   * dealing with "template_type_seen_before_scope" in
+		   * yylex(). */
+		  $$ = $2;
+		}
 /*	| template_type SCOPE try_for_typename TYPENAME
 		{
                   if ($$ == error_mark_node)
@@ -2681,7 +2798,7 @@ maybe_label_decls:
 	  /* empty */
 	| label_decls
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids label declarations"); }
+		    pedwarn ("ANSI C++ forbids label declarations"); }
 	;
 
 label_decls:
@@ -2835,7 +2952,7 @@ stmt:
 		  pop_implicit_try_blocks (NULL_TREE);
 		  if ($1)
 		    {
-		      register keep = $1 > 0;
+		      register int keep = $1 > 0;
 		      if (keep) expand_end_bindings (0, keep, 1);
 		      poplevel (keep, 1, 0);
 		      pop_momentary ();
@@ -2912,12 +3029,8 @@ stmt:
 		    = build_decl (LABEL_DECL, NULL_TREE, NULL_TREE);
 
 		  if (pedantic)
-		    {
-		      error ("ANSI C does not allow range expressions in switch statement");
-		      value1 = error_mark_node;
-		      value2 = error_mark_node;
-		      break;
-		    }
+		    pedwarn ("ANSI C++ forbids range expressions in switch statement");
+
 		  /* build_c_cast puts on a NOP_EXPR to make a non-lvalue.
 		     Strip such NOP_EXPRs.  */
 		  if (TREE_CODE (value1) == NOP_EXPR
@@ -3054,6 +3167,9 @@ stmt:
 					 input_filename, lineno);
 		  finish_stmt ();
 		}
+	| GOTO '*' expr ';'
+		{ emit_line_note (input_filename, lineno);
+		  expand_computed_goto ($3); }
 	| GOTO identifier ';'
 		{ tree decl;
 		  emit_line_note (input_filename, lineno);
@@ -3347,12 +3463,13 @@ except_stmts:
 		}
 	  compstmt
 		{
+		  extern struct rtx_def *get_insns ();
 		  do_pending_stack_adjust ();
 		  if (! expand_catch (NULL_TREE))
 		    compiler_error ("except nesting botch");
 		  if (! expand_end_catch ())
 		    compiler_error ("except nesting botch");
-		  RTL_EXPR_SEQUENCE ($1) = (struct rtx_def *)get_insns ();
+		  RTL_EXPR_SEQUENCE ($1) = get_insns ();
 		  if ($4)
 		    {
 		      /* Mark this block as the default catch block.  */
@@ -3433,11 +3550,11 @@ forhead.2:
 maybe_type_qual:
 	/* empty */
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C++ forbids use of `asm' keyword");
 		  emit_line_note (input_filename, lineno); }
 	| TYPE_QUAL
 		{ if (pedantic)
-		    pedwarn ("ANSI C forbids use of `asm' keyword");
+		    pedwarn ("ANSI C++ forbids use of `asm' keyword");
 		  emit_line_note (input_filename, lineno); }
 	;
 
@@ -3502,6 +3619,9 @@ parmlist:  /* empty */
 		}
 	| ELLIPSIS
 		{
+		  /* ARM $8.2.5 has this as a boxed-off comment.  */
+		  if (pedantic)
+		    warning ("use of `...' without a first argument is non-portable");
 		  $$ = NULL_TREE;
 		}
 	| TYPENAME_ELLIPSIS
@@ -3580,6 +3700,7 @@ dont_see_typename: /* empty */
 	{ dont_see_typename (); }
 	;
 
+/*
 try_for_typename:
         {
 	  if ($<ttype>-1 == error_mark_node)
@@ -3591,6 +3712,7 @@ try_for_typename:
             }
         }
 	;
+*/
 
 bad_parm:
 	  abs_or_notype_decl
@@ -3815,9 +3937,7 @@ operator_name:
 	/* These should do `groktypename' and set up TREE_HAS_X_CONVERSION
 	   here, rather than doing it in class.c .  */
 	| OPERATOR typed_typespecs absdcl
-		{
-		  $$ = build1 (TYPE_EXPR, $2, $3);
-		}
+		{ $$ = build1 (TYPE_EXPR, $2, $3); }
 	| OPERATOR error
 		{ $$ = ansi_opname[ERROR_MARK]; }
 	;
@@ -3829,243 +3949,3 @@ get_current_declspecs ()
 {
   return current_declspecs;
 }
-
-#if YYDEBUG != 0
-db_yyerror (s, yyps, yychar)
-     char *s;
-     short *yyps;
-     int yychar;
-{
-  FILE *yyout;
-  char buf[1024];
-  int st;
-
-  yyerror (s);
-  printf ("State is %d, input token number is %d.\n", *yyps, yychar);
-
-#ifdef PARSE_OUTPUT
-  if (*yyps < 1) fatal ("Cannot start from here");
-  else if ((yyout = fopen (PARSE_OUTPUT, "r")) == NULL)
-    error ("cannot open file %s", PARSE_OUTPUT);
-  else
-    {
-      printf ("That is to say,\n\n");
-      while (fgets(buf, sizeof (buf)-1, yyout))
-	{
-	  if (buf[0] != 's') continue;
-	  st = atoi (buf+6);
-	  if (st != *yyps) continue;
-	  printf ("%s", buf);
-	  while (fgets (buf, sizeof (buf)-1, yyout))
-	    {
-	      if (buf[0] == 's') break;
-	      printf ("%s", buf);
-	    }
-	  break;
-	}
-      printf ("With the token %s\n", yytname[YYTRANSLATE (yychar)]);
-      fclose (yyout);
-    }
-#endif
-}
-#endif
-
-void
-yyerror (string)
-     char *string;
-{
-  extern int end_of_file;
-  extern char *token_buffer;
-  extern int input_redirected ();
-  char buf[200];
-
-  strcpy (buf, string);
-
-  /* We can't print string and character constants well
-     because the token_buffer contains the result of processing escapes.  */
-  if (end_of_file)
-    strcat (buf, input_redirected ()
-	    ? " at end of saved text"
-	    : " at end of input");
-  else if (token_buffer[0] == 0)
-    strcat (buf, " at null character");
-  else if (token_buffer[0] == '"')
-    strcat (buf, " before string constant");
-  else if (token_buffer[0] == '\'')
-    strcat (buf, " before character constant");
-  else if (token_buffer[0] < 040 || (unsigned char) token_buffer[0] >= 0177)
-    sprintf (buf + strlen (buf), " before character 0%o",
-	     (unsigned char) token_buffer[0]);
-  else
-    strcat (buf, " before `%s'");
-
-  error (buf, token_buffer);
-}
-
-static
-#ifdef __GNUC__
-__inline
-#endif
-void
-yyprint (file, yychar, yylval)
-     FILE *file;
-     int yychar;
-     YYSTYPE yylval;
-{
-  tree t;
-  switch (yychar)
-    {
-    case IDENTIFIER:
-    case TYPENAME:
-    case TYPESPEC:
-    case PTYPENAME:
-    case IDENTIFIER_DEFN:
-    case TYPENAME_DEFN:
-    case PTYPENAME_DEFN:
-    case TYPENAME_COLON:
-    case TYPENAME_ELLIPSIS:
-    case SCOPED_TYPENAME:
-    case SCSPEC:
-      t = yylval.ttype;
-    print_id:
-      assert (TREE_CODE (t) == IDENTIFIER_NODE);
-      if (IDENTIFIER_POINTER (t))
-	  fprintf (file, " `%s'", IDENTIFIER_POINTER (t));
-      break;
-    case AGGR:
-      if (yylval.ttype == class_type_node)
-	fprintf (file, " `class'");
-      else if (yylval.ttype == record_type_node)
-	fprintf (file, " `struct'");
-      else if (yylval.ttype == union_type_node)
-	fprintf (file, " `union'");
-      else if (yylval.ttype == enum_type_node)
-	fprintf (file, " `enum'");
-      else
-	my_friendly_abort (80);
-      break;
-    case PRE_PARSED_CLASS_DECL:
-      t = yylval.ttype;
-      assert (TREE_CODE (t) == TREE_LIST);
-      t = TREE_VALUE (t);
-      goto print_id;
-    }
-}
-
-static int *reduce_count;
-int *token_count;
-
-#define REDUCE_LENGTH (sizeof (yyr2) / sizeof (yyr2[0]))
-#define TOKEN_LENGTH (256 + sizeof (yytname) / sizeof (yytname[0]))
-
-int *
-init_parse ()
-{
-#ifdef GATHER_STATISTICS
-  reduce_count = (int *)malloc (sizeof (int) * (REDUCE_LENGTH + 1));
-  bzero (reduce_count, sizeof (int) * (REDUCE_LENGTH + 1));
-  reduce_count += 1;
-  token_count = (int *)malloc (sizeof (int) * (TOKEN_LENGTH + 1));
-  bzero (token_count, sizeof (int) * (TOKEN_LENGTH + 1));
-  token_count += 1;
-#endif
-  return token_count;
-}
-
-#ifdef GATHER_STATISTICS
-void
-yyhook (yyn)
-     int yyn;
-{
-  reduce_count[yyn] += 1;
-}
-#endif
-
-static int
-reduce_cmp (p, q)
-     int *p, *q;
-{
-  return reduce_count[*q] - reduce_count[*p];
-}
-
-static int
-token_cmp (p, q)
-     int *p, *q;
-{
-  return token_count[*q] - token_count[*p];
-}
-
-void
-print_parse_statistics ()
-{
-#if YYDEBUG != 0
-  int i;
-  int maxlen = REDUCE_LENGTH;
-  unsigned *sorted;
-  
-  if (reduce_count[-1] == 0)
-    return;
-
-  if (TOKEN_LENGTH > REDUCE_LENGTH)
-    maxlen = TOKEN_LENGTH;
-  sorted = (unsigned *) alloca (sizeof (int) * maxlen);
-
-  for (i = 0; i < TOKEN_LENGTH; i++)
-    sorted[i] = i;
-  qsort (sorted, TOKEN_LENGTH, sizeof (int), token_cmp);
-  for (i = 0; i < TOKEN_LENGTH; i++)
-    {
-      int index = sorted[i];
-      if (token_count[index] == 0)
-	break;
-      if (token_count[index] < token_count[-1])
-	break;
-      fprintf (stderr, "token %d, `%s', count = %d\n",
-	       index, yytname[YYTRANSLATE (index)], token_count[index]);
-    }
-  fprintf (stderr, "\n");
-  for (i = 0; i < REDUCE_LENGTH; i++)
-    sorted[i] = i;
-  qsort (sorted, REDUCE_LENGTH, sizeof (int), reduce_cmp);
-  for (i = 0; i < REDUCE_LENGTH; i++)
-    {
-      int index = sorted[i];
-      if (reduce_count[index] == 0)
-	break;
-      if (reduce_count[index] < reduce_count[-1])
-	break;
-      fprintf (stderr, "rule %d, line %d, count = %d\n",
-	       index, yyrline[index], reduce_count[index]);
-    }
-  fprintf (stderr, "\n");
-#endif
-}
-
-
-/* Sets the value of the 'yydebug' variable to VALUE.
-   This is a function so we don't have to have YYDEBUG defined
-   in order to build the compiler.  */
-void
-set_yydebug (value)
-     int value;
-{
-#if YYDEBUG != 0
-  yydebug = value;
-#else
-  warning ("YYDEBUG not defined.");
-#endif
-}
-
-#ifdef SPEW_DEBUG
-const char *
-debug_yytranslate (value)
-    int value;
-{
-#if YYDEBUG != 0
-  return yytname[YYTRANSLATE (value)];
-#else
-  return "YYDEBUG not defined.";
-#endif
-}
-
-#endif

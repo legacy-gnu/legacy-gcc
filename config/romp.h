@@ -83,6 +83,9 @@ extern int target_flags;
       flag_force_mem = 1;		\
     }					\
 }
+
+/* Match <sys/types.h>'s definition.  */
+#define SIZE_TYPE "long int"
 
 /* target machine storage layout */
 
@@ -418,7 +421,7 @@ enum reg_class { NO_REGS, R0_REGS, R15_REGS, BASE_REGS, GENERAL_REGS,
      && REGNO (OP) >= FIRST_PSEUDO_REGISTER		\
      && reg_renumber != 0				\
      && reg_renumber[REGNO (OP)] < 0)			\
-    || (memory_operand (OP, VOIDmode)			\
+    || (GET_CODE (OP) == MEM				\
         && ! symbolic_memory_operand (OP, VOIDmode)))	\
    : (C) == 'R' ? current_function_operand (OP, VOIDmode) \
    : (C) == 'S' ? constant_pool_address_operand (OP, VOIDmode) \
@@ -1223,8 +1226,12 @@ struct rt_cargs {int gregs, fregs; };
 #define NO_FUNCTION_CSE
 
 /* Define this if shift instructions ignore all but the low-order
-   few bits. */
-#define SHIFT_COUNT_TRUNCATED
+   few bits.
+
+   This is not true on the RT since it uses the low-order 6, not 5, bits.
+   At some point, this should be extended to see how to express that.  */
+
+/* #define SHIFT_COUNT_TRUNCATED */
 
 /* Compute the cost of computing a constant rtl expression RTX whose
    rtx-code is CODE, contained within an expression of code OUTER_CODE.
@@ -1336,9 +1343,16 @@ struct rt_cargs {int gregs, fregs; };
 
 #define ASM_FILE_START(FILE)				\
 { extern char *version_string;				\
+  char *p;						\
+							\
   fprintf (FILE, "\t.globl .oVncs\n\t.set .oVncs,0\n") ; \
-  fprintf (FILE, "\t.globl .oVgcc%s\n\t.set .oVgcc%s,0\n", \
-	   version_string, version_string);		\
+  fprintf (FILE, "\t.globl .oVgcc");			\
+  for (p = version_string; *p != ' ' && *p != 0; p++)	\
+    fprintf (FILE, "%c", *p);				\
+  fprintf (FILE, "\n\t.set .oVgcc");			\
+  for (p = version_string; *p != ' ' && *p != 0; p++)	\
+    fprintf (FILE, "%c", *p);				\
+  fprintf (FILE, ",0\n");				\
 }
 
 /* Output to assembler file text saying following lines

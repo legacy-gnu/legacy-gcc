@@ -77,7 +77,9 @@ VMS_fopen (fname, type)
 
 extern int rtx_equal_function_value_matters;
 
+#if ! (defined (VMS) || defined (OS2))
 extern char **environ;
+#endif
 extern char *version_string, *language_string;
 
 extern void init_lex ();
@@ -187,11 +189,11 @@ enum debug_info_type write_symbols = NO_DEBUG;
    for the definitions of the different possible levels.  */
 enum debug_info_level debug_info_level = DINFO_LEVEL_NONE;
 
-#if defined (DBX_DEBUGGING_INFO) || defined (XCOFF_DEBUGGING_INFO)
-/* Nonzero means can use our own extensions to DBX format.
-   Relevant only when write_symbols == DBX_DEBUG or XCOFF_DEBUG.  */
-int use_gdb_dbx_extensions = 0;
-#endif
+/* Nonzero means use GNU-only extensions in the generated symbolic
+   debugging information.  */
+/* Currently, this only has an effect when write_symbols is set to
+   DBX_DEBUG, XCOFF_DEBUG, or DWARF_DEBUG.  */
+int use_gnu_debug_info_extensions = 0;
 
 /* Nonzero means do optimizations.  -O.
    Particular numeric values stand for particular amounts of optimization;
@@ -493,6 +495,131 @@ struct { char *string; int *variable; int on_value;} f_options[] =
   {"verbose-asm", &flag_verbose_asm, 1},
   {"gnu-linker", &flag_gnu_linker, 1}
 };
+
+/* Table of language-specific options.  */
+
+char *lang_options[] =
+{
+  "-ftraditional",
+  "-traditional",
+  "-fnotraditional",
+  "-fno-traditional",
+  "-fsigned-char",
+  "-funsigned-char",
+  "-fno-signed-char",
+  "-fno-unsigned-char",
+  "-fsigned-bitfields",
+  "-funsigned-bitfields",
+  "-fno-signed-bitfields",
+  "-fno-unsigned-bitfields",
+  "-fshort-enums",
+  "-fno-short-enums",
+  "-fcond-mismatch",
+  "-fno-cond-mismatch",
+  "-fshort-double",
+  "-fno-short-double",
+  "-fasm",
+  "-fno-asm",
+  "-fbuiltin",
+  "-fno-builtin",
+  "-fno-ident",
+  "-fident",
+  "-ansi",
+  "-Wimplicit",
+  "-Wno-implicit",
+  "-Wwrite-strings",
+  "-Wno-write-strings",
+  "-Wcast-qual",
+  "-Wno-cast-qual",
+  "-Wpointer-arith",
+  "-Wno-pointer-arith",
+  "-Wstrict-prototypes",
+  "-Wno-strict-prototypes",
+  "-Wmissing-prototypes",
+  "-Wno-missing-prototypes",
+  "-Wredundant-decls",
+  "-Wno-redundant-decls",
+  "-Wnested-externs",
+  "-Wno-nested-externs",
+  "-Wtraditional",
+  "-Wno-traditional",
+  "-Wformat",
+  "-Wno-format",
+  "-Wchar-subscripts",
+  "-Wno-char-subscripts",
+  "-Wconversion",
+  "-Wno-conversion",
+  "-Wparentheses",
+  "-Wno-parentheses",
+  "-Wcomment",
+  "-Wno-comment",
+  "-Wcomments",
+  "-Wno-comments",
+  "-Wtrigraphs",
+  "-Wno-trigraphs",
+  "-Wimport",
+  "-Wno-import",
+  "-Wall",
+
+  /* These are for C++.  */
+  "-+e0",			/* gcc.c tacks the `-' on the front.  */
+  "-+e1",
+  "-+e2",
+  "-fsave-memoized",
+  "-fno-save-memoized",
+  "-fSOS",
+  "-fno-SOS",
+  "-fcadillac",
+  "-fno-cadillac",
+  "-fgc",
+  "-fno-gc",
+  "-flabels-ok",
+  "-fno-labels-ok",
+  "-fstats",
+  "-fno-stats",
+  "-fthis-is-variable",
+  "-fno-this-is-variable",
+  "-fstrict-prototype",
+  "-fno-strict-prototype",
+  "-fall-virtual",
+  "-fno-all-virtual",
+  "-fmemoize-lookups",
+  "-fno-memoize-lookups",
+  "-felide-constructors",
+  "-fno-elide-constructors",
+  "-finline-debug",
+  "-fno-inline-debug",
+  "-fhandle-exceptions",
+  "-fno-handle-exceptions",
+  "-fansi-exceptions",
+  "-fno-ansi-exceptions",
+  "-fspring-exceptions",
+  "-fno-spring-exceptions",
+  "-fdefault-inline",
+  "-fno-default-inline",
+  "-fenum-int-equiv",
+  "-fno-enum-int-equiv",
+  "-fdossier",
+  "-fno-dossier",
+  "-fxref",
+  "-fno-xref",
+  "-fnonnull-objects",
+  "-fno-nonnull-objects",
+
+  "-Wreturn-type",
+  "-Wno-return-type",
+  "-Woverloaded-virtual",
+  "-Wno-overloaded-virtual",
+  "-Wenum-clash",
+  "-Wno-enum-clash",
+
+  /* these are for obj c */
+  "-lang-objc",
+  "-gen-decls",
+  "-Wselector",
+  "-Wno-selector",
+  0
+};
 
 /* Options controlling warnings */
 
@@ -558,7 +685,6 @@ struct { char *string; int *variable; int on_value;} W_options[] =
   {"error", &warnings_are_errors, 1},
   {"shadow", &warn_shadow, 1},
   {"switch", &warn_switch, 1},
-  {"return-type", &warn_return_type, 1},
   {"aggregate-return", &warn_aggregate_return, 1},
   {"cast-align", &warn_cast_align, 1},
   {"uninitialized", &warn_uninitialized, 1},
@@ -853,13 +979,16 @@ report_error_function (file)
 }
 
 /* Report an error at the current line number.
-   S and V are a string and an arg for `printf'.  */
+   S is a string and V and V2 are args for `printf'.  We use HOST_WIDE_INT
+   as the type for these args assuming it is wide enough to hold a
+   pointer.  This isn't terribly portable, but is the best we can do
+   without vprintf universally available.  */
 
 void
 error (s, v, v2)
      char *s;
-     int v;			/* @@also used as pointer */
-     int v2;			/* @@also used as pointer */
+     HOST_WIDE_INT v;		/* Also used as pointer */
+     HOST_WIDE_INT v2;		/* Also used as pointer */
 {
   error_with_file_and_line (input_filename, lineno, s, v, v2);
 }
@@ -872,8 +1001,8 @@ error_with_file_and_line (file, line, s, v, v2)
      char *file;
      int line;
      char *s;
-     int v;
-     int v2;
+     HOST_WIDE_INT v;
+     HOST_WIDE_INT v2;
 {
   count_error (0);
 
@@ -888,13 +1017,14 @@ error_with_file_and_line (file, line, s, v, v2)
 }
 
 /* Report an error at the declaration DECL.
-   S and V are a string and an arg which uses %s to substitute the declaration name.  */
+   S and V are a string and an arg which uses %s to substitute
+   the declaration name.  */
 
 void
 error_with_decl (decl, s, v)
      tree decl;
      char *s;
-     int v;
+     HOST_WIDE_INT v;
 {
   char *junk;
   count_error (0);
@@ -920,8 +1050,8 @@ void
 error_for_asm (insn, s, v, v2)
      rtx insn;
      char *s;
-     int v;			/* @@also used as pointer */
-     int v2;			/* @@also used as pointer */
+     HOST_WIDE_INT v;		/* Also used as pointer */
+     HOST_WIDE_INT v2;		/* Also used as pointer */
 {
   char *filename;
   int line;
@@ -954,9 +1084,7 @@ warning_with_file_and_line (file, line, s, v, v2, v3)
      char *file;
      int line;
      char *s;
-     int v;
-     int v2;
-     int v3;
+     HOST_WIDE_INT v, v2, v3;
 {
   if (count_error (1) == 0)
     return;
@@ -979,9 +1107,7 @@ warning_with_file_and_line (file, line, s, v, v2, v3)
 void
 warning (s, v, v2, v3)
      char *s;
-     int v;			/* @@also used as pointer */
-     int v2;
-     int v3;
+     HOST_WIDE_INT v, v2, v3;	/* Also used as pointer */
 {
   warning_with_file_and_line (input_filename, lineno, s, v, v2, v3);
 }
@@ -994,7 +1120,7 @@ void
 warning_with_decl (decl, s, v)
      tree decl;
      char *s;
-     int v;
+     HOST_WIDE_INT v;
 {
   char *junk;
 
@@ -1023,8 +1149,8 @@ void
 warning_for_asm (insn, s, v, v2)
      rtx insn;
      char *s;
-     int v;			/* @@also used as pointer */
-     int v2;			/* @@also used as pointer */
+     HOST_WIDE_INT v;		/* Also used as pointer */
+     HOST_WIDE_INT v2;		/* Also used as pointer */
 {
   char *filename;
   int line;
@@ -1055,8 +1181,8 @@ warning_for_asm (insn, s, v, v2)
 void
 pedwarn (s, v, v2)
      char *s;
-     int v;			/* @@also used as pointer */
-     int v2;
+     HOST_WIDE_INT v;		/* Also used as pointer */
+     HOST_WIDE_INT v2;
 {
   if (flag_pedantic_errors)
     error (s, v, v2);
@@ -1068,7 +1194,7 @@ void
 pedwarn_with_decl (decl, s, v)
      tree decl;
      char *s;
-     int v;
+     HOST_WIDE_INT v;
 {
   if (flag_pedantic_errors)
     error_with_decl (decl, s, v);
@@ -1081,8 +1207,8 @@ pedwarn_with_file_and_line (file, line, s, v, v2)
      char *file;
      int line;
      char *s;
-     int v;
-     int v2;
+     HOST_WIDE_INT v;
+     HOST_WIDE_INT v2;
 {
   if (flag_pedantic_errors)
     error_with_file_and_line (file, line, s, v, v2);
@@ -1096,7 +1222,7 @@ pedwarn_with_file_and_line (file, line, s, v, v2)
 void
 sorry (s, v, v2)
      char *s;
-     int v, v2;
+     HOST_WIDE_INT v, v2;
 {
   sorrycount++;
   if (input_filename)
@@ -1115,7 +1241,7 @@ sorry (s, v, v2)
 void
 really_sorry (s, v, v2)
      char *s;
-     int v, v2;
+     HOST_WIDE_INT v, v2;
 {
   if (input_filename)
     fprintf (stderr, "%s:%d: ", input_filename, lineno);
@@ -1161,11 +1287,11 @@ botch (s)
 
 /* Same as `malloc' but report error if no memory available.  */
 
-int
+char *
 xmalloc (size)
      unsigned size;
 {
-  register int value = (int) malloc (size);
+  register char *value = (char *) malloc (size);
   if (value == 0)
     fatal ("virtual memory exhausted");
   return value;
@@ -1173,23 +1299,25 @@ xmalloc (size)
 
 /* Same as `realloc' but report error if no memory available.  */
 
-int
+char *
 xrealloc (ptr, size)
      char *ptr;
      int size;
 {
-  int result = realloc (ptr, size);
+  char *result = (char *) realloc (ptr, size);
   if (!result)
     fatal ("virtual memory exhausted");
   return result;
 }
 
 /* Return the logarithm of X, base 2, considering X unsigned,
-   if X is a power of 2.  Otherwise, returns -1.  */
+   if X is a power of 2.  Otherwise, returns -1.
+
+   This should be used via the `exact_log2' macro.  */
 
 int
-exact_log2 (x)
-     register unsigned int x;
+exact_log2_wide (x)
+     register unsigned HOST_WIDE_INT x;
 {
   register int log = 0;
   /* Test for 0 or a power of 2.  */
@@ -1201,11 +1329,13 @@ exact_log2 (x)
 }
 
 /* Given X, an unsigned number, return the largest int Y such that 2**Y <= X.
-   If X is 0, return -1.  */
+   If X is 0, return -1.
+
+   This should be used via the floor_log2 macro.  */
 
 int
-floor_log2 (x)
-     register unsigned int x;
+floor_log2_wide (x)
+     register unsigned HOST_WIDE_INT x;
 {
   register int log = -1;
   while (x != 0)
@@ -1226,6 +1356,36 @@ set_float_handler (handler)
 {
   float_handled = (handler != 0);
   if (handler)
+    bcopy (handler, float_handler, sizeof (float_handler));
+}
+
+/* Specify, in HANDLER, where to longjmp to when a floating arithmetic
+   error happens, pushing the previous specification into OLD_HANDLER.
+   Return an indication of whether there was a previous handler in effect.  */
+
+int
+push_float_handler (handler, old_handler)
+     jmp_buf handler, old_handler;
+{
+  int was_handled = float_handled;
+
+  float_handled = 1;
+  if (was_handled)
+    bcopy (float_handler, old_handler, sizeof (float_handler));
+  bcopy (handler, float_handler, sizeof (float_handler));
+  return was_handled;
+}
+
+/* Restore the previous specification of whether and where to longjmp to
+   when a floating arithmetic error happens.  */
+
+void
+pop_float_handler (handled, handler)
+     int handled;
+     jmp_buf handler;
+{
+  float_handled = handled;
+  if (handled)
     bcopy (handler, float_handler, sizeof (float_handler));
 }
 
@@ -1276,6 +1436,10 @@ strip_off_ending (name, len)
     name[len - 3] = 0;
   else if (len > 3 && ! strcmp (".cc", name + len - 3))
     name[len - 3] = 0;
+  else if (len > 2 && ! strcmp (".C", name + len - 2))
+    name[len - 2] = 0;
+  else if (len > 4 && ! strcmp (".cxx", name + len - 4))
+    name[len - 4] = 0;
   else if (len > 2 && ! strcmp (".f", name + len - 2))
     name[len - 2] = 0;
   else if (len > 4 && ! strcmp (".ada", name + len - 4))
@@ -1376,6 +1540,7 @@ compile_file (name)
   init_optabs ();
   init_stmt ();
   init_expmed ();
+  init_expr_once ();
   init_loop ();
   init_reload ();
 
@@ -1681,7 +1846,7 @@ compile_file (name)
 		|| TREE_USED (decl)
 		|| TREE_ADDRESSABLE (decl)
 		|| TREE_ADDRESSABLE (DECL_ASSEMBLER_NAME (decl)))
-	      rest_of_decl_compilation (decl, 0, 1, 1);
+	      rest_of_decl_compilation (decl, NULL_PTR, 1, 1);
 	    else
 	      /* Cancel the RTL for this decl so that, if debugging info
 		 output for global variables is still to come,
@@ -1694,7 +1859,7 @@ compile_file (name)
 	    && DECL_INITIAL (decl) != 0
 	    && (TREE_ADDRESSABLE (decl)
 		|| TREE_ADDRESSABLE (DECL_ASSEMBLER_NAME (decl)))
-	    && ! TREE_EXTERNAL (decl))
+	    && ! DECL_EXTERNAL (decl))
 	  output_inline_function (decl);
 
 	/* Warn about any function
@@ -1707,7 +1872,7 @@ compile_file (name)
 	     || (DECL_NAME (decl) && TREE_USED (DECL_NAME (decl))))
 	    && TREE_CODE (decl) == FUNCTION_DECL
 	    && DECL_INITIAL (decl) == 0
-	    && TREE_EXTERNAL (decl)
+	    && DECL_EXTERNAL (decl)
 	    && ! TREE_PUBLIC (decl))
 	  warning_with_decl (decl, "`%s' declared `static' but never defined");
 	/* Warn about static fns or vars defined but not used,
@@ -1716,10 +1881,11 @@ compile_file (name)
 	if (warn_unused
 	    && (TREE_CODE (decl) == FUNCTION_DECL
 		|| TREE_CODE (decl) == VAR_DECL)
-	    && ! TREE_EXTERNAL (decl)
+	    && ! DECL_IN_SYSTEM_HEADER (decl)
+	    && ! DECL_EXTERNAL (decl)
 	    && ! TREE_PUBLIC (decl)
 	    && ! TREE_USED (decl)
-	    && ! TREE_INLINE (decl)
+	    && ! DECL_INLINE (decl)
 	    /* The TREE_USED bit for file-scope decls
 	       is kept in the identifier, to handle multiple
 	       external decls in different scopes.  */
@@ -1902,7 +2068,7 @@ rest_of_decl_compilation (decl, asmspec, top_level, at_end)
 
   /* Forward declarations for nested functions are not "external",
      but we need to treat them as if they were.  */
-  if (TREE_STATIC (decl) || TREE_EXTERNAL (decl)
+  if (TREE_STATIC (decl) || DECL_EXTERNAL (decl)
       || TREE_CODE (decl) == FUNCTION_DECL)
     TIMEVAR (varconst_time,
 	     {
@@ -1921,7 +2087,7 @@ rest_of_decl_compilation (decl, asmspec, top_level, at_end)
 			    || DECL_IGNORED_P (decl))))
 		   assemble_variable (decl, top_level, at_end);
 	     });
-  else if (TREE_REGDECL (decl) && asmspec != 0)
+  else if (DECL_REGISTER (decl) && asmspec != 0)
     {
       if (decode_reg_name (asmspec) >= 0)
 	{
@@ -1977,13 +2143,16 @@ rest_of_compilation (decl)
      to be restored after we finish compiling the function
      (for use when compiling inline calls to this function).  */
   tree saved_block_tree = 0;
+  /* Likewise, for DECL_ARGUMENTS.  */
+  tree saved_arguments = 0;
+  int failure = 0;
 
   /* If we are reconsidering an inline function
      at the end of compilation, skip the stuff for making it inline.  */
 
   if (DECL_SAVED_INSNS (decl) == 0)
     {
-      int specd = TREE_INLINE (decl);
+      int specd = DECL_INLINE (decl);
       char *lose;
 
       /* If requested, consider whether to make this function inline.  */
@@ -1995,10 +2164,10 @@ rest_of_compilation (decl)
 		     {
 		       if (warn_inline && specd)
 			 warning_with_decl (decl, lose);
-		       TREE_INLINE (decl) = 0;
+		       DECL_INLINE (decl) = 0;
 		     }
 		   else
-		     TREE_INLINE (decl) = 1;
+		     DECL_INLINE (decl) = 1;
 		 });
 
       insns = get_insns ();
@@ -2021,28 +2190,47 @@ rest_of_compilation (decl)
 	 finish_compilation will call rest_of_compilation again
 	 for those functions that need to be output.  */
 
-      if (TREE_INLINE (decl)
+      if (DECL_INLINE (decl)
 	  && ((! TREE_PUBLIC (decl) && ! TREE_ADDRESSABLE (decl)
 	       && ! flag_keep_inline_functions)
-	      || TREE_EXTERNAL (decl)))
+	      || DECL_EXTERNAL (decl)))
 	{
+#ifdef DWARF_DEBUGGING_INFO
+	  /* Generate the DWARF info for the "abstract" instance
+	     of a function which we may later generate inlined and/or
+	     out-of-line instances of.  */
+	  if (write_symbols == DWARF_DEBUG)
+	    {
+	      set_decl_abstract_flags (decl, 1);
+	      TIMEVAR (symout_time, dwarfout_file_scope_decl (decl, 0));
+	      set_decl_abstract_flags (decl, 0);
+	    }
+#endif
 	  TIMEVAR (integration_time, save_for_inline_nocopy (decl));
 	  goto exit_rest_of_compilation;
 	}
 
-      /* If we have to compile the function now, save its rtl
+      /* If we have to compile the function now, save its rtl and subdecls
 	 so that its compilation will not affect what others get.  */
-      if (TREE_INLINE (decl))
+      if (DECL_INLINE (decl))
 	{
+#ifdef DWARF_DEBUGGING_INFO
+	  /* Generate the DWARF info for the "abstract" instance of
+	     a function which we will generate an out-of-line instance
+	     of almost immediately (and which we may also later generate
+	     various inlined instances of).  */
+	  if (write_symbols == DWARF_DEBUG)
+	    {
+	      set_decl_abstract_flags (decl, 1);
+	      TIMEVAR (symout_time, dwarfout_file_scope_decl (decl, 0));
+	      set_decl_abstract_flags (decl, 0);
+	    }
+#endif
 	  saved_block_tree = DECL_INITIAL (decl);
+	  saved_arguments = DECL_ARGUMENTS (decl);
 	  TIMEVAR (integration_time, save_for_inline_copying (decl));
 	}
     }
-
-  /* Suppress warnings for unused static functions
-     defined (not just declared) in system headers.  */
-  if (in_system_header && TREE_STATIC (decl) && !TREE_INLINE (decl))
-    TREE_USED (decl) = 1;
 
   TREE_ASM_WRITTEN (decl) = 1;
 
@@ -2165,7 +2353,7 @@ rest_of_compilation (decl)
     {
       TIMEVAR (loop_time,
 	       {
-		 loop_optimize (insns, loop_dump ? loop_dump_file : 0);
+		 loop_optimize (insns, loop_dump_file);
 	       });
     }
 
@@ -2343,10 +2531,9 @@ rest_of_compilation (decl)
   TIMEVAR (global_alloc_time,
 	   {
 	     if (!obey_regdecls)
-	       global_alloc (global_reg_dump ? global_reg_dump_file : 0);
+	       failure = global_alloc (global_reg_dump_file);
 	     else
-	       reload (insns, 0,
-		       global_reg_dump ? global_reg_dump_file : 0);
+	       failure = reload (insns, 0, global_reg_dump_file);
 	   });
 
   if (global_reg_dump)
@@ -2357,7 +2544,17 @@ rest_of_compilation (decl)
 	       fflush (global_reg_dump_file);
 	     });
 
+  if (failure)
+    goto exit_rest_of_compilation;
+
   reload_completed = 1;
+
+  /* On some machines, the prologue and epilogue code, or parts thereof,
+     can be represented as RTL.  Doing so lets us schedule insns between
+     it and the rest of the code and also allows delayed branch
+     scheduling to operate in the epilogue.  */
+
+  thread_prologue_and_epilogue_insns (insns);
 
   if (optimize > 0 && flag_schedule_insns_after_reload)
     {
@@ -2386,7 +2583,7 @@ rest_of_compilation (decl)
 #ifdef LEAF_REGISTERS
   leaf_function = 0;
   if (optimize > 0 && only_leaf_regs_used () && leaf_function_p ())
-      leaf_function = 1;
+    leaf_function = 1;
 #endif
 
   /* One more attempt to remove jumps to .+1
@@ -2505,15 +2702,18 @@ rest_of_compilation (decl)
      queued up for sdb output.  */
 #ifdef SDB_DEBUGGING_INFO
   if (write_symbols == SDB_DEBUG)
-    sdbout_types (0);
+    sdbout_types (NULL_TREE);
 #endif
 
-  /* Put back the tree of subblocks from before we copied it.
+  /* Put back the tree of subblocks and list of arguments
+     from before we copied them.
      Code generation and the output of debugging info may have modified
      the copy, but the original is unchanged.  */
 
   if (saved_block_tree != 0)
     DECL_INITIAL (decl) = saved_block_tree;
+  if (saved_arguments != 0)
+    DECL_ARGUMENTS (decl) = saved_arguments;
 
   reload_completed = 0;
 
@@ -2646,7 +2846,18 @@ main (argc, argv, envp)
 
   for (i = 1; i < argc; i++)
     {
-      if (argv[i][0] == '-' && argv[i][1] != 0)
+      int j;
+      /* If this is a language-specific option,
+	 decode it in a language-specific way.  */
+      for (j = 0; lang_options[j] != 0; j++)
+	if (!strncmp (argv[i], lang_options[j],
+		      strlen (lang_options[j])))
+	  break;
+      if (lang_options[j] != 0)
+	/* If the option is valid for *some* language,
+	   treat it as valid even if this language doesn't understand it.  */
+	lang_decode_option (argv[i]);
+      else if (argv[i][0] == '-' && argv[i][1] != 0)
 	{
 	  register char *str = argv[i] + 1;
 	  if (str[0] == 'Y')
@@ -2738,7 +2949,6 @@ main (argc, argv, envp)
 	    }
 	  else if (str[0] == 'f')
 	    {
-	      int j;
 	      register char *p = &str[1];
 	      int found = 0;
 
@@ -2773,7 +2983,7 @@ main (argc, argv, envp)
 		fix_register (&p[10], 0, 1);
 	      else if (!strncmp (p, "call-saved-", 11))
 		fix_register (&p[11], 0, 0);
-	      else if (! lang_decode_option (argv[i]))
+	      else
 		error ("Invalid option `%s'", argv[i]);
 	    }
 	  else if (str[0] == 'O')
@@ -2790,8 +3000,6 @@ main (argc, argv, envp)
 	    pedantic = 1;
 	  else if (!strcmp (str, "pedantic-errors"))
 	    flag_pedantic_errors = pedantic = 1;
-	  else if (lang_decode_option (argv[i]))
-	    ;
 	  else if (!strcmp (str, "quiet"))
 	    quiet_flag = 1;
 	  else if (!strcmp (str, "version"))
@@ -2805,7 +3013,6 @@ main (argc, argv, envp)
 	    }
 	  else if (str[0] == 'W')
 	    {
-	      int j;
 	      register char *p = &str[1];
 	      int found = 0;
 
@@ -2843,10 +3050,14 @@ main (argc, argv, envp)
 		      if (*endp >= '0' && *endp <= '9')
 			endp++;
 		      else
-			error ("Invalid option `%s'", argv[i]);
+			{
+			  error ("Invalid option `%s'", argv[i]);
+			  goto id_clash_lose;
+			}
 		    }
 		  warn_id_clash = 1;
 		  id_clash_len = atoi (str + 10);
+		id_clash_lose: ;
 		}
 	      else
 		error ("Invalid option `%s'", argv[i]);
@@ -2889,8 +3100,8 @@ main (argc, argv, envp)
 	      /* If more than one debugging type is supported,
 		 you must define PREFERRED_DEBUGGING_TYPE
 		 to choose a format in a system-dependent way.  */
-#if 1 < (defined (DBX_DEBUGGING_INFO) + defined (SDB_DEBUGGING_INFO) \
-	 + defined (DWARF_DEBUGGING_INFO) + defined (XCOFF_DEBUGGING_INFO))
+	      /* This is one long line cause VAXC can't handle a \-newline.  */
+#if 1 < (defined (DBX_DEBUGGING_INFO) + defined (SDB_DEBUGGING_INFO) + defined (DWARF_DEBUGGING_INFO) + defined (XCOFF_DEBUGGING_INFO))
 #ifdef PREFERRED_DEBUGGING_TYPE
 	      if (!strncmp (str, "ggdb", len))
 		write_symbols = PREFERRED_DEBUGGING_TYPE;
@@ -2905,34 +3116,54 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 		write_symbols = DBX_DEBUG;
 	      else if (!strncmp (str, "gstabs", len))
 		write_symbols = DBX_DEBUG;
+	      else if (!strncmp (str, "gstabs+", len))
+		write_symbols = DBX_DEBUG;
 
 	      /* Always enable extensions for -ggdb or -gstabs+, 
 		 always disable for -gstabs.
 		 For plain -g, use system-specific default.  */
 	      if (write_symbols == DBX_DEBUG && !strncmp (str, "ggdb", len)
 		  && len >= 2)
-		use_gdb_dbx_extensions = 1;
-	      else if (write_symbols == DBX_DEBUG && !strcmp (str, "gstabs+"))
-		use_gdb_dbx_extensions = 1;
+		use_gnu_debug_info_extensions = 1;
+	      else if (write_symbols == DBX_DEBUG && !strncmp (str, "gstabs+", len)
+		       && len >= 7)
+		use_gnu_debug_info_extensions = 1;
 	      else if (write_symbols == DBX_DEBUG
 		       && !strncmp (str, "gstabs", len) && len >= 2)
-		use_gdb_dbx_extensions = 0;
+		use_gnu_debug_info_extensions = 0;
 	      else
-		use_gdb_dbx_extensions = DEFAULT_GDB_EXTENSIONS;
+		use_gnu_debug_info_extensions = DEFAULT_GDB_EXTENSIONS;
 #endif /* DBX_DEBUGGING_INFO */
 #ifdef DWARF_DEBUGGING_INFO
 	      if (write_symbols != NO_DEBUG)
 		;
+	      else if (!strncmp (str, "g", len))
+		write_symbols = DWARF_DEBUG;
 	      else if (!strncmp (str, "ggdb", len))
 		write_symbols = DWARF_DEBUG;
-	      /* For orthogonality.  */
 	      else if (!strncmp (str, "gdwarf", len))
 		write_symbols = DWARF_DEBUG;
+
+	      /* Always enable extensions for -ggdb or -gdwarf+, 
+		 always disable for -gdwarf.
+		 For plain -g, use system-specific default.  */
+	      if (write_symbols == DWARF_DEBUG && !strncmp (str, "ggdb", len)
+		  && len >= 2)
+		use_gnu_debug_info_extensions = 1;
+	      else if (write_symbols == DWARF_DEBUG && !strcmp (str, "gdwarf+"))
+		use_gnu_debug_info_extensions = 1;
+	      else if (write_symbols == DWARF_DEBUG
+		       && !strncmp (str, "gdwarf", len) && len >= 2)
+		use_gnu_debug_info_extensions = 0;
+	      else
+		use_gnu_debug_info_extensions = DEFAULT_GDB_EXTENSIONS;
 #endif
 #ifdef SDB_DEBUGGING_INFO
 	      if (write_symbols != NO_DEBUG)
 		;
-	      else if (!strncmp (str, "ggdb", len))
+	      else if (!strncmp (str, "g", len))
+		write_symbols = SDB_DEBUG;
+	      else if (!strncmp (str, "gdb", len))
 		write_symbols = SDB_DEBUG;
 	      else if (!strncmp (str, "gcoff", len))
 		write_symbols = SDB_DEBUG;
@@ -2940,22 +3171,26 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 #ifdef XCOFF_DEBUGGING_INFO
 	      if (write_symbols != NO_DEBUG)
 		;
+	      else if (!strncmp (str, "g", len))
+		write_symbols = XCOFF_DEBUG;
 	      else if (!strncmp (str, "ggdb", len))
 		write_symbols = XCOFF_DEBUG;
 	      else if (!strncmp (str, "gxcoff", len))
 		write_symbols = XCOFF_DEBUG;
 
-	      /* Always enable extensions for -ggdb,
+	      /* Always enable extensions for -ggdb or -gxcoff+,
 		 always disable for -gxcoff.
 		 For plain -g, use system-specific default.  */
 	      if (write_symbols == XCOFF_DEBUG && !strncmp (str, "ggdb", len)
 		  && len >= 2)
-		use_gdb_dbx_extensions = 1;
+		use_gnu_debug_info_extensions = 1;
+	      else if (write_symbols == XCOFF_DEBUG && !strcmp (str, "gxcoff+"))
+		use_gnu_debug_info_extensions = 1;
 	      else if (write_symbols == XCOFF_DEBUG
 		       && !strncmp (str, "gxcoff", len) && len >= 2)
-		use_gdb_dbx_extensions = 0;
+		use_gnu_debug_info_extensions = 0;
 	      else
-		use_gdb_dbx_extensions = DEFAULT_GDB_EXTENSIONS;
+		use_gnu_debug_info_extensions = DEFAULT_GDB_EXTENSIONS;
 #endif	      
 	      if (write_symbols == NO_DEBUG)
 		warning ("`-%s' option not supported on this version of GCC", str);
@@ -2982,12 +3217,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
 	    error ("Invalid option `%s'", argv[i]);
 	}
       else if (argv[i][0] == '+')
-	{
-	  if (lang_decode_option (argv[i]))
-	    ;
-	  else
-	    error ("Invalid option `%s'", argv[i]);
-	}
+	error ("Invalid option `%s'", argv[i]);
       else
 	filename = argv[i];
     }
@@ -3061,7 +3291,7 @@ You Lose!  You must define PREFERRED_DEBUGGING_TYPE!
       char *lim = (char *) sbrk (0);
 
       fprintf (stderr, "Data size %d.\n",
-	       (int) lim - (int) &environ);
+	       lim - (char *) &environ);
       fflush (stderr);
 
 #ifdef USG

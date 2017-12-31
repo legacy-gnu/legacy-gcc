@@ -61,7 +61,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #define TARGET_MEM_FUNCTIONS
 
-/ * size_t is unsigned int.  */
+/* size_t is unsigned int.  */
 
 #define SIZE_TYPE "unsigned int"
 
@@ -632,6 +632,18 @@ do { union { float f; long l;} tem;			\
     fprintf (FILE, "\tswbeg &%d\n%s%%%d:\n",				\
 	     XVECLEN (PATTERN (TABLE), 1), (PREFIX), (NUM))
 	     
+#if 0
+/* At end of a switch table, define LD%n iff the symbol LI%n was defined.  */
+#define ASM_OUTPUT_CASE_END(FILE,NUM,TABLE)		\
+{ if (switch_table_difference_label_flag)		\
+    asm_fprintf (FILE, "\t%s %LLD%d,%LL%d-%LLI%d-2.b\n",\
+		 SET_ASM_OP, (NUM), (NUM), (NUM))	\
+  switch_table_difference_label_flag = 0; }
+#endif
+
+/* We have to define this to avoid errors.  */
+int switch_table_difference_label_flag;
+
 /* Translate some opcodes to fit the sysV68 assembler syntax.  */
 /* The opcodes fdmov and fsmov are guesses.  */
 

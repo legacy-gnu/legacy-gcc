@@ -29,9 +29,9 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "config.h"
 #include "tree.h"
+#include "rtl.h"
 #include "cp-tree.h"
 #include "flags.h"
-#include "assert.h"
 /* On Suns this can get you to the right definition if you
    set the right value for TARGET.  */
 #include <setjmp.h>
@@ -43,9 +43,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #ifndef _JBLEN
 #define _JBLEN (sizeof(jmp_buf)/sizeof(int))
 #endif
-
-extern struct rtx_def *expand_expr ();
-extern struct rtx_def *const0_rtx, *const1_rtx;
 
 void init_exception_processing ();
 void init_exception_processing_1 ();
@@ -65,8 +62,8 @@ tree current_exception_type;
 
 /* The exception handler object for the given scope.  */
 tree current_exception_decl;
-struct rtx_def *current_exception_name_as_rtx;
-struct rtx_def *current_exception_parms_as_rtx;
+rtx current_exception_name_as_rtx;
+rtx current_exception_parms_as_rtx;
 
 /* The ``object'' view of the current exception parameters.
    We cast up from the `parms' field to `current_exception_type'.  */
@@ -87,7 +84,7 @@ tree EHS_decl;
 
 /* Cached component refs to fields of `EHS_decl'.  */
 static tree EHS_prev, EHS_handler, EHS_parms, EHS_name;
-static struct rtx_def *EHS_parms_as_rtx, *EHS_name_as_rtx;
+static rtx EHS_parms_as_rtx, EHS_name_as_rtx;
 
 /* The parameter names of this exception type.  */
 
@@ -397,10 +394,10 @@ finish_exception_decl (cname, decl)
   DECL_CONSTRUCTOR_P (ctor) = 1;
   TYPE_HAS_CONSTRUCTOR (t) = 1;
   grokclassfn (t, DECL_NAME (decl), ctor, NO_SPECIAL, NULL_TREE);
-  TREE_EXTERNAL (ctor) = 1;
+  DECL_EXTERNAL (ctor) = 1;
   TREE_STATIC (ctor) = 1;
   TREE_PUBLIC (ctor) = 0;
-  TREE_INLINE (ctor) = 1;
+  DECL_INLINE (ctor) = 1;
   make_decl_rtl (ctor, 0, 1);
   finish_decl (ctor, NULL_TREE, 0, 0);
   TREE_CHAIN (ctor) = TREE_VALUE (list_of_fieldlists);
@@ -539,7 +536,8 @@ cplus_expand_end_try (keep)
       break;
     }
 
-  assert (TREE_CODE (decl) == VAR_DECL && TREE_TYPE (decl) == EHS_type);
+  my_friendly_assert (TREE_CODE (decl) == VAR_DECL
+		      && TREE_TYPE (decl) == EHS_type, 203);
   if (block)
     {
       BLOCK_HANDLER_BLOCK (block) = 1;
@@ -773,6 +771,7 @@ extern tree cplus_exception_name ();
 
 tree
 ansi_exception_object_lookup (type)
+     tree type;
 {
   tree raise_id = cplus_exception_name (type);
   tree decl;
@@ -804,11 +803,8 @@ cplus_expand_throw (exp)
   int for_reraise;
   /* Allocate new exception of appropriate type, passing
      PARMS to its constructor.  */
-  tree cname, name;
   tree decl = ansi_exception_object_lookup (TREE_TYPE (exp));
   tree xexp = exp;
-  tree raise_id;
-
 
   if (in_try_block (1))
     {
@@ -975,7 +971,7 @@ cplus_expand_reraise (exceptions)
 {
   tree ex_ptr;
   tree ex_object = current_exception_object;
-  struct rtx_def *ex_ptr_as_rtx;
+  rtx ex_ptr_as_rtx;
 
   if (exceptions && TREE_CODE (exceptions) == IDENTIFIER_NODE)
     {
@@ -986,7 +982,8 @@ cplus_expand_reraise (exceptions)
 	  error ("`%s' is not an exception decl", IDENTIFIER_POINTER (exceptions));
 	  return;
 	}
-      assert (TREE_CODE (TREE_OPERAND (ex_object, 0)) == VAR_DECL);
+      my_friendly_assert (TREE_CODE (TREE_OPERAND (ex_object, 0)) == VAR_DECL,
+			  204);
       exceptions = NULL_TREE;
     }
 
@@ -999,7 +996,7 @@ cplus_expand_reraise (exceptions)
       /* Now treat reraise like catch/raise.  */
       expand_catch (error_mark_node);
       expand_raise (error_mark_node);
-      emit_move_insn (EHS_name_as_rtx, current_exception_name_as_rtx, 0);
+      emit_move_insn (EHS_name_as_rtx, current_exception_name_as_rtx);
       store_expr (EHS_parms_as_rtx, current_exception_parms_as_rtx, 0);
       if (in_try_block (1) == 0)
 	{
@@ -1149,7 +1146,7 @@ init_exception_processing ()
   DECL_CONSTRUCTOR_P (ctor) = 1;
   TREE_STATIC (ctor) = 1;
   TREE_PUBLIC (ctor) = 1;
-  TREE_EXTERNAL (ctor) = 1;
+  DECL_EXTERNAL (ctor) = 1;
   grokclassfn (EHS_type, cname, ctor, NO_SPECIAL, 0);
   grok_ctor_properties (EHS_type, ctor);
   finish_decl (pushdecl (ctor), 0, 0, 0);
@@ -1164,7 +1161,7 @@ init_exception_processing ()
 			  build_cplus_method_type (EHS_type, TYPE_POINTER_TO (EHS_type), void_list_node));
   TREE_STATIC (dtor) = 1;
   TREE_PUBLIC (dtor) = 1;
-  TREE_EXTERNAL (dtor) = 1;
+  DECL_EXTERNAL (dtor) = 1;
   grokclassfn (EHS_type, cname, dtor, DTOR_FLAG, 0);
   finish_decl (pushdecl (dtor), 0, 0, 0);
   /* Copy for the same reason as copying ctor.  */
@@ -1192,7 +1189,7 @@ init_exception_processing_1 ()
       /* If we don't push this, its definition, should it be encountered,
 	 will not be seen.  */
       EHS_decl = pushdecl (EHS_decl);
-      TREE_EXTERNAL (EHS_decl) = 1;
+      DECL_EXTERNAL (EHS_decl) = 1;
       TREE_STATIC (EHS_decl) = 1;
       TREE_PUBLIC (EHS_decl) = 1;
       finish_decl (EHS_decl, 0, 0, 0);

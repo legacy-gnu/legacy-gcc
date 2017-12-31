@@ -20,10 +20,10 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
-/* This file is part of the C front end.
-   It contains routines to build C expressions given their operands,
-   including computing the types of the result, C-specific error checks,
-   and some optimization.
+/* This file is part of the C++ front end.
+   It contains routines to build C++ expressions given their operands,
+   including computing the types of the result, C and C++ specific error
+   checks, and some optimization.
 
    There are also routines to build RETURN_STMT nodes and CASE_STMT nodes,
    and to process initializations in declarations (since they work
@@ -34,13 +34,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "cp-tree.h"
 #include "flags.h"
-#include "assert.h"
 
 static tree process_init_constructor ();
 tree digest_init ();
 void incomplete_type_error ();
 void readonly_warning_or_error ();
 extern tree convert_for_initialization ();
+
+extern int errorcount;
+extern int sorrycount;
 
 /* Print an error message stemming from an attempt to use
    BASETYPE as a base class for TYPE.  */
@@ -286,18 +288,34 @@ incomplete_type_error (value, type)
    impossible to ever call abort.  The same is not yet true for C++,
    one day, maybe it will be.  (mrs) */
 
+/* First used: 0 (reserved), Last used: 345 */
+
 void
-my_friendly_abort(i)
+my_friendly_abort (i)
      int i;
 {
-  extern int errorcount;
-  extern int sorrycount;
-  if (errorcount + sorrycount == 1)
+  if (i == 0)
+    error ("Internal compiler error.");
+  else if (errorcount + sorrycount == 1)
     fatal ("please fix above error, and try recompiling.");
-  if (errorcount > 0 || sorrycount > 0)
+  else if (errorcount > 0 || sorrycount > 0)
     fatal ("please fix above errors, and try recompiling.");
   else
-    fatal ("internal compiler error %d, please report", i);
+    error ("Internal compiler error %d.", i);
+  fatal ("Please report this to `bug-g++@prep.ai.mit.edu'.");
+}
+
+void
+my_friendly_assert (cond, where)
+     int cond, where;
+{
+  if (cond == 0)
+    {
+      /* Don't say "please fix above errors", since it's quite
+	 possible that we've lost somewhere unrelated to an error.  */
+      errorcount = sorrycount = 0;
+      my_friendly_abort (where);
+    }
 }
 
 /* Return nonzero if VALUE is a valid constant-valued expression
@@ -467,10 +485,8 @@ store_init_value (decl, init)
     {
       if (pedantic && TREE_CODE (value) == CONSTRUCTOR)
 	{
-	  if (! TREE_CONSTANT (value))
-	    warning ("aggregate initializer is not constant");
-	  else if (! TREE_STATIC (value))
-	    warning ("aggregate initializer uses complicated arithmetic");
+	  if (! TREE_CONSTANT (value) || ! TREE_STATIC (value))
+	    pedwarn ("ANSI C++ forbids non-constant aggregate initializer expressions");
 	}
     }
   DECL_INITIAL (decl) = value;
@@ -507,8 +523,9 @@ digest_init (type, init, tail)
       *tail = TREE_CHAIN (*tail);
     }
 
-  if (init == error_mark_node)
-    return init;
+  if (init == error_mark_node || (TREE_CODE (init) == TREE_LIST
+				  && TREE_VALUE (init) == error_mark_node))
+    return error_mark_node;
 
   /* Strip NON_LVALUE_EXPRs since we aren't using as an lvalue.  */
   if (TREE_CODE (init) == NON_LVALUE_EXPR)
@@ -535,7 +552,7 @@ digest_init (type, init, tail)
     {
       if (pedantic && code == ARRAY_TYPE
 	  && TREE_CODE (init) != STRING_CST)
-	pedwarn ("ANSI C forbids initializing array from array expression");
+	pedwarn ("ANSI C++ forbids initializing array from array expression");
       if (TREE_CODE (init) == CONST_DECL)
 	init = DECL_INITIAL (init);
       else if (TREE_READONLY_DECL_P (init))
@@ -548,9 +565,9 @@ digest_init (type, init, tail)
 		      && comptypes (TREE_TYPE (element), type, 1))))
     {
       if (pedantic && code == ARRAY_TYPE)
-	pedwarn ("ANSI C forbids initializing array from array expression");
+	pedwarn ("ANSI C++ forbids initializing array from array expression");
       if (pedantic && (code == RECORD_TYPE || code == UNION_TYPE))
-	pedwarn ("single-expression nonscalar initializer has braces");
+	pedwarn ("ANSI C++ forbids single nonscalar initializer with braces");
       if (TREE_CODE (element) == CONST_DECL)
 	element = DECL_INITIAL (element);
       else if (TREE_READONLY_DECL_P (element))
@@ -633,7 +650,7 @@ digest_init (type, init, tail)
 	    }
 
 	  if (pedantic && typ1 != char_type_node)
-	    pedwarn ("ANSI C forbids string initializer except for `char' elements");
+	    pedwarn ("ANSI C++ forbids string initializer except for `char' elements");
 	  TREE_TYPE (string) = type;
 	  if (TYPE_DOMAIN (type) != 0
 	      && TREE_CONSTANT (TYPE_SIZE (type)))
@@ -641,9 +658,11 @@ digest_init (type, init, tail)
 	      register int size
 		= TREE_INT_CST_LOW (TYPE_SIZE (type));
 	      size = (size + BITS_PER_UNIT - 1) / BITS_PER_UNIT;
-	      /* Subtract 1 because it's ok to ignore the terminating null char
-		 that is counted in the length of the constant.  */
-	      if (size < TREE_STRING_LENGTH (string) - 1)
+	      /* In C it is ok to subtract 1 from the length of the string
+		 because it's ok to ignore the terminating null char that is
+		 counted in the length of the constant, but in C++ this would
+		 be invalid.  */
+	      if (size < TREE_STRING_LENGTH (string))
 		warning ("initializer-string for array of chars is too long");
 	    }
 	  return string;
@@ -741,7 +760,11 @@ process_init_constructor (type, init, elts)
      no matter how the data was given to us.  */
 
   if (elts)
-    tail = *elts;
+    {
+      if (extra_warnings)
+	warning ("aggregate has a partly bracketed initializer");
+      tail = *elts;
+    }
   else
     tail = CONSTRUCTOR_ELTS (init);
 
@@ -771,7 +794,8 @@ process_init_constructor (type, init, elts)
 	      tree tail1 = tail;
 	      next1 = digest_init (TYPE_MAIN_VARIANT (TREE_TYPE (type)),
 				   TREE_VALUE (tail), &tail1);
-	      assert (tail1 == 0 || TREE_CODE (tail1) == TREE_LIST);
+	      my_friendly_assert (tail1 == 0
+				  || TREE_CODE (tail1) == TREE_LIST, 319);
 	      if (tail == tail1 && len < 0)
 		{
 		  error ("non-empty initializer for array of empty elements");
@@ -841,7 +865,8 @@ process_init_constructor (type, init, elts)
 	      tree tail1 = tail;
 	      next1 = digest_init (TREE_TYPE (field),
 				   TREE_VALUE (tail), &tail1);
-	      assert (tail1 == 0 || TREE_CODE (tail1) == TREE_LIST);
+	      my_friendly_assert (tail1 == 0
+				  || TREE_CODE (tail1) == TREE_LIST, 320);
 	      if (TREE_CODE (field) == VAR_DECL
 		  && ! global_bindings_p ())
 		warning_with_decl (field, "initialization of static member `%s'");
@@ -954,7 +979,7 @@ build_scoped_ref (datum, types)
   if (TREE_CODE (types) == SCOPE_REF)
     {
       /* We have some work to do.  */
-      struct type_chain { tree type; struct type_chain *next; } *chain = 0, *head = 0;
+      struct type_chain { tree type; struct type_chain *next; } *chain = 0, *head = 0, scratch;
       orig_ref = ref = build_unary_op (ADDR_EXPR, datum, 0);
       while (TREE_CODE (types) == SCOPE_REF)
 	{
@@ -972,7 +997,7 @@ build_scoped_ref (datum, types)
       if (! is_aggr_typedef (types, 1))
 	return error_mark_node;
 
-      head = (struct type_chain *)alloca (sizeof (struct type_chain));
+      head = &scratch;
       head->type = IDENTIFIER_TYPE_VALUE (types);
       head->next = chain;
       chain = head;
@@ -1162,7 +1187,7 @@ build_functional_cast (exp, parms)
   tree expr_as_fncall = NULL_TREE;
   tree expr_as_conversion = NULL_TREE;
 
-  if (parms == error_mark_node)
+  if (exp == error_mark_node || parms == error_mark_node)
     return error_mark_node;
 
   if (TREE_CODE (exp) == IDENTIFIER_NODE)
@@ -1320,7 +1345,7 @@ build_functional_cast (exp, parms)
   if (TREE_CODE (name) == TYPE_DECL)
     name = DECL_NAME (name);
 
-  assert (TREE_CODE (name) == IDENTIFIER_NODE);
+  my_friendly_assert (TREE_CODE (name) == IDENTIFIER_NODE, 321);
 
   {
     int flags = LOOKUP_SPECULATIVELY|LOOKUP_COMPLAIN;
@@ -1335,7 +1360,7 @@ build_functional_cast (exp, parms)
       {
 #if 0
 	/* mrs Mar 12, 1992 I claim that if it is a constructor, it is
-	   impossible to be a expr_as_method, without being a
+	   impossible to be an expr_as_method, without being a
 	   constructor call. */
 	if (expr_as_method
 	    || (expr_as_fncall && expr_as_fncall != error_mark_node))
@@ -1349,19 +1374,26 @@ build_functional_cast (exp, parms)
 	  }
 	else if (expr_as_conversion && expr_as_conversion != error_mark_node)
 	  {
+	    /* ANSI C++ June 5 1992 WP 12.3.2.6.1 */
 	    error ("ambiguity between conversion to `%s' and constructor",
 		   IDENTIFIER_POINTER (name));
 	    return error_mark_node;
 	  }
+
 	if (current_function_decl)
 	  return build_cplus_new (type, expr_as_ctor, 1);
-	/* Initializers for static variables and parameters have
-	   to handle doing the initialization and cleanup themselves.  */
-	assert (TREE_CODE (expr_as_ctor) == CALL_EXPR);
-	assert (TREE_CALLS_NEW (TREE_VALUE (TREE_OPERAND (expr_as_ctor, 1))));
-	TREE_VALUE (TREE_OPERAND (expr_as_ctor, 1)) = NULL_TREE;
-	expr_as_ctor = build_indirect_ref (expr_as_ctor, 0);
-	TREE_HAS_CONSTRUCTOR (expr_as_ctor) = 1;
+
+	{
+	  register tree parm = TREE_OPERAND (expr_as_ctor, 1);
+
+	  /* Initializers for static variables and parameters have
+	     to handle doing the initialization and cleanup themselves.  */
+	  my_friendly_assert (TREE_CODE (expr_as_ctor) == CALL_EXPR, 322);
+	  my_friendly_assert (TREE_CALLS_NEW (TREE_VALUE (parm)), 323);
+	  TREE_VALUE (parm) = NULL_TREE;
+	  expr_as_ctor = build_indirect_ref (expr_as_ctor, 0);
+	  TREE_HAS_CONSTRUCTOR (expr_as_ctor) = 1;
+	}
 	return expr_as_ctor;
       }
 
@@ -1407,9 +1439,9 @@ enum_name_string (value, type)
      tree type;
 {
   register tree values = TYPE_VALUES (type);
-  register int intval = TREE_INT_CST_LOW (value);
+  register HOST_WIDE_INT intval = TREE_INT_CST_LOW (value);
 
-  assert (TREE_CODE (type) == ENUMERAL_TYPE);
+  my_friendly_assert (TREE_CODE (type) == ENUMERAL_TYPE, 324);
   while (values
 	 && TREE_INT_CST_LOW (TREE_VALUE (values)) != intval)
     values = TREE_CHAIN (values);

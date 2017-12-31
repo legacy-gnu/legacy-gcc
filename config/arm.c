@@ -20,7 +20,7 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include <stdio.h>
-#include <assert.h>
+#include "assert.h"
 #include "config.h"
 #include "rtl.h"
 #include "regs.h"
@@ -38,7 +38,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define MAX_INSNS_SKIPPED  5
 
 /* Some function declarations.  */
-extern void *xmalloc ();
 extern FILE *asm_out_file;
 extern char *output_multi_immediate ();
 extern char *arm_output_asm_insn ();
@@ -919,6 +918,14 @@ output_epilogue (f, frame_size)
     }
   else
     {
+      /* Restore stack pointer if necessary.  */
+      if (frame_size)
+	{
+	  operands[0] = operands[1] = stack_pointer_rtx;
+	  operands[2] = gen_rtx (CONST_INT, VOIDmode, frame_size);
+	  output_add_immediate (operands);
+	}
+
       if (current_function_pretend_args_size == 0 && regs_ever_live[14])
 	{
 	  print_multi_reg (f, "ldmfd\tsp!",
@@ -1012,7 +1019,7 @@ arm_asm_output_label (stream, name)
   for (s = real_name; *s; s++)
     hash += *s;
   hash = hash % LABEL_HASH_SIZE;
-  cur = xmalloc (sizeof (struct label_offset));
+  cur = (struct label_offset *) xmalloc (sizeof (struct label_offset));
   cur->name = real_name;
   cur->offset = arm_text_location;
   cur->cdr = offset_table[hash];

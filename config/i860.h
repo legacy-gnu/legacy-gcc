@@ -75,6 +75,12 @@ extern int target_flags;
 /* Define this if most significant word of a multiword number is the lowest
    numbered.  */
 /* For the i860 this goes with BYTES_BIG_ENDIAN.  */
+/* NOTE: GCC probably cannot support a big-endian i860
+   because GCC fundamentally assumes that the order of words
+   in memory as the same as the order in registers.
+   That's not true for the big-endian i860.
+   The big-endian i860 isn't important enough to
+   justify the trouble of changing this assumption.  */
 #define WORDS_BIG_ENDIAN 0
 
 /* number of bits in an addressable storage unit */
@@ -201,7 +207,7 @@ extern int target_flags;
 */
 #define HARD_REGNO_MODE_OK(REGNO, MODE)					\
   (((REGNO) < 32) 							\
-   || ((MODE) == VOIDmode)						\
+   || (MODE) == VOIDmode || (MODE) == BLKmode				\
    || REGNO_MODE_ALIGNED (REGNO, MODE))
 
 /* Value is 1 if it is a good idea to tie two pseudo registers
@@ -1055,8 +1061,11 @@ struct cumulative_args { int ints, floats; };
 /* This is how to output an internal numbered label which
    labels a jump table.  */
 
-#define ASM_OUTPUT_CASE_LABEL(FILE,PREFIX,NUM,JUMPTABLE)	\
-  fprintf (FILE, "\t.align\t4\n.%s%d:\n", PREFIX, NUM)
+#undef ASM_OUTPUT_CASE_LABEL
+#define ASM_OUTPUT_CASE_LABEL(FILE, PREFIX, NUM, JUMPTABLE)		\
+do { ASM_OUTPUT_ALIGN ((FILE), 2);					\
+     ASM_OUTPUT_INTERNAL_LABEL ((FILE), PREFIX, NUM);			\
+   } while (0)
 
 /* Output at the end of a jump table.  */
 
@@ -1277,26 +1286,26 @@ extern unsigned long sfmode_constant_to_ulong ();
   else if ((CODE) == 'm')						\
     output_address (XEXP (X, 0));					\
   else if ((CODE) == 'L')						\
-    if (GET_CODE (X) == MEM)						\
-      PRINT_OPERAND_PART (FILE, XEXP (X, 0), OPERAND_LOW_PART);		\
-    else								\
-      PRINT_OPERAND_PART (FILE, X, OPERAND_LOW_PART);			\
+    {									\
+      if (GET_CODE (X) == MEM)						\
+	PRINT_OPERAND_PART (FILE, XEXP (X, 0), OPERAND_LOW_PART);	\
+      else								\
+	PRINT_OPERAND_PART (FILE, X, OPERAND_LOW_PART);			\
+    }									\
   else if ((CODE) == 'H')						\
-    if (GET_CODE (X) == MEM)						\
-      PRINT_OPERAND_PART (FILE, XEXP (X, 0), OPERAND_HIGH_PART);	\
-    else								\
-      PRINT_OPERAND_PART (FILE, X, OPERAND_HIGH_PART);			\
+    {									\
+      if (GET_CODE (X) == MEM)						\
+	PRINT_OPERAND_PART (FILE, XEXP (X, 0), OPERAND_HIGH_PART);	\
+      else								\
+	PRINT_OPERAND_PART (FILE, X, OPERAND_HIGH_PART);		\
+    }									\
   else if ((CODE) == 'h')						\
-    if (GET_CODE (X) == MEM)						\
-      PRINT_OPERAND_PART (FILE, XEXP (X, 0),				\
-		const_int_operand (XEXP (X, 0))				\
-			? OPERAND_HIGH_PART				\
-			: OPERAND_HIGH_ADJ_PART);			\
-    else								\
-      PRINT_OPERAND_PART (FILE, X, 					\
-		const_int_operand (X)					\
-			? OPERAND_HIGH_PART				\
-			: OPERAND_HIGH_ADJ_PART);			\
+    {									\
+      if (GET_CODE (X) == MEM)						\
+	PRINT_OPERAND_PART (FILE, XEXP (X, 0), OPERAND_HIGH_ADJ_PART);	\
+      else								\
+	PRINT_OPERAND_PART (FILE, X, OPERAND_HIGH_ADJ_PART);		\
+    }									\
   else if (GET_CODE (X) == MEM)						\
     output_address (XEXP (X, 0));					\
   else if ((CODE) == 'r' && (X) == const0_rtx)				\

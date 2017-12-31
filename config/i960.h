@@ -84,11 +84,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define LIB_SPEC "%{!nostdlib:-lcg %{p:-lprof}%{pg:-lgprof}\
 	  %{mka:-lfpg}%{msa:-lfpg}%{mca:-lfpg}%{mcf:-lfpg} -lgnu}"
 
-/* These compiler options take an argument.  */
-#define WORD_SWITCH_TAKES_ARG(STR)			\
- (!strcmp (STR, "Tdata") || !strcmp (STR, "include")	\
-  || !strcmp (STR, "imacros") || !strcmp (STR, "Ttext"))
-
 /* Omit frame pointer at -O2.  Inline functions at -O3.  */
 #define OPTIMIZATION_OPTIONS(LEVEL)		\
 {						\
@@ -292,12 +287,6 @@ extern int target_flags;
       flag_signed_char = 1;					\
       target_flags |= TARGET_FLAG_CLEAN_LINKAGE;		\
     }								\
-  /* ??? Function inlining is not supported, because the i960	\
-     calling convention requires the caller to manage the arg	\
-     pointer in a wierd fashion.  This is ordinarily done by	\
-     expand_call, but this is never called when inlining	\
-     functions, and no replacement for it exists.  */		\
-  flag_no_inline = 1;						\
   i960_initialize ();						\
 }
 
@@ -826,8 +815,8 @@ extern struct rtx_def *i960_function_arg ();
    If the precise function being called is known, FUNC is its FUNCTION_DECL;
    otherwise, FUNC is 0.  */
 
-extern struct rtx_def *i960_function_value ();
-#define FUNCTION_VALUE(TYPE, FUNC) i960_function_value (TYPE)
+#define FUNCTION_VALUE(TYPE, FUNC) \
+  gen_rtx (REG, TYPE_MODE (TYPE), 0)
 
 /* Force objects larger than 16 bytes to be returned in memory, since we
    only have 4 registers available for return values.  */
@@ -1105,7 +1094,7 @@ extern struct rtx_def *gen_compare_reg ();
    should be used.  CC_NOOVmode should be used when the first operand is a
    PLUS, MINUS, or NEG.  CCmode should be used when no special processing is
    needed.  */
-#define SELECT_CC_MODE(OP,X) select_cc_mode (OP, X)
+#define SELECT_CC_MODE(OP,X,Y) select_cc_mode (OP, X,Y)
 
 /* A function address in a call instruction is a byte address
    (for indexing purposes) so give the MEM rtx a byte's mode.  */

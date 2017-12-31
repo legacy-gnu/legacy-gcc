@@ -49,14 +49,15 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    -bnodelcsect undoes a poor choice of default relating to multiply-defined
    csects.  See AIX documentation for more information about this.  */
 
-#define LINK_SPEC "-T512 -H512 -btextro -bhalt:4 -bnodelcsect"
+#define LINK_SPEC "-T512 -H512 -btextro -bhalt:4 -bnodelcsect\
+   %{static:-bnso -bI:/lib/syscalls.exp}"
 
 /* Profiled library versions are used by linking with special directories.  */
 #define LIB_SPEC "%{pg:-L/lib/profiled -L/usr/lib/profiled}\
    %{p:-L/lib/profiled -L/usr/lib/profiled} %{g*:-lg} -lc"
 
 /* gcc must do the search itself to find libgcc.a, not use -l.  */
-#define LINK_LIBGCC_SPECIAL
+#define LINK_LIBGCC_SPECIAL_1
 
 /* Don't turn -B into -L if the argument specifies a relative file name.  */
 #define RELATIVE_PREFIX_NOT_LINKDIR
@@ -102,6 +103,17 @@ extern int target_flags;
 }
 
 /* target machine storage layout */
+
+/* Define this macro if it is advisible to hold scalars in registers
+   in a wider mode than that declared by the program.  In such cases, 
+   the value is constrained to be within the bounds of the declared
+   type, but kept valid in the wider mode.  The signedness of the
+   extension may differ from that of the type.  */
+
+#define PROMOTE_MODE(MODE,UNSIGNEDP,TYPE)  \
+  if (GET_MODE_CLASS (MODE) == MODE_INT	\
+      && GET_MODE_SIZE (MODE) < 4)  	\
+    (MODE) == SImode;
 
 /* Define this if most significant bit is lowest numbered
    in instructions that operate on numbered bit-fields. */
@@ -330,15 +342,15 @@ extern int target_flags;
 
    On the RS/6000, bump this up a bit.  */
 
-#define MEMORY_MOVE_COST(MODE)  4
+#define MEMORY_MOVE_COST(MODE)  6
 
 /* Specify the cost of a branch insn; roughly the number of extra insns that
    should be added to avoid a branch.
 
-   Set this to 2 on the RS/6000 since that is roughly the average cost of an
+   Set this to 3 on the RS/6000 since that is roughly the average cost of an
    unscheduled conditional branch.  */
 
-#define BRANCH_COST 2
+#define BRANCH_COST 3
 
 /* Specify the registers used for certain standard purposes.
    The values of these macros are register numbers.  */
@@ -401,7 +413,8 @@ extern int target_flags;
 
 enum reg_class { NO_REGS, BASE_REGS, GENERAL_REGS, FLOAT_REGS,
   NON_SPECIAL_REGS, MQ_REGS, LINK_REGS, CTR_REGS, LINK_OR_CTR_REGS,
-  SPECIAL_REGS, CR0_REGS, CR_REGS, ALL_REGS, LIM_REG_CLASSES };
+  SPECIAL_REGS, SPEC_OR_GEN_REGS, CR0_REGS, CR_REGS, NON_FLOAT_REGS,
+  ALL_REGS, LIM_REG_CLASSES };
 
 #define N_REG_CLASSES (int) LIM_REG_CLASSES
 
@@ -410,7 +423,8 @@ enum reg_class { NO_REGS, BASE_REGS, GENERAL_REGS, FLOAT_REGS,
 #define REG_CLASS_NAMES					 	\
   { "NO_REGS", "BASE_REGS", "GENERAL_REGS", "FLOAT_REGS",	\
     "NON_SPECIAL_REGS", "MQ_REGS", "LINK_REGS", "CTR_REGS",	\
-    "LINK_OR_CTR_REGS", "SPECIAL_REGS", "CR0_REGS", "CR_REGS", "ALL_REGS" }
+    "LINK_OR_CTR_REGS", "SPECIAL_REGS", "SPEC_OR_GEN_REGS",	\
+    "CR0_REGS", "CR_REGS", "NON_FLOAT_REGS", "ALL_REGS" }
 
 /* Define which registers fit in which classes.
    This is an initializer for a vector of HARD_REG_SET
@@ -418,9 +432,10 @@ enum reg_class { NO_REGS, BASE_REGS, GENERAL_REGS, FLOAT_REGS,
 
 #define REG_CLASS_CONTENTS				\
   { {0, 0, 0}, {0xfffffffe, 0, 8}, {~0, 0, 8},		\
-    {0, ~0, 0}, {~0, ~0, 0}, {0, 0, 1}, {0, 0, 2},	\
-    {0, 0, 4}, {0, 0, 6}, {0, 0, 7}, {0, 0, 16}, 	\
-    {0, 0, 0xff0}, {~0, ~0, 0xfff5} }
+    {0, ~0, 0}, {~0, ~0, 8}, {0, 0, 1}, {0, 0, 2},	\
+    {0, 0, 4}, {0, 0, 6}, {0, 0, 7}, {~0, 0, 15},	\
+    {0, 0, 16}, {0, 0, 0xff0}, {~0, 0, 0xffff},		\
+    {~0, ~0, 0xffff} }
 
 /* The same information, inverted:
    Return the class number of the smallest class containing
@@ -496,8 +511,9 @@ enum reg_class { NO_REGS, BASE_REGS, GENERAL_REGS, FLOAT_REGS,
    For the RS/6000, `Q' means that this is a memory operand that is just
    an offset from a register.  */
 
-#define EXTRA_CONSTRAINT(OP, C)				\
-  ((C) == 'Q' ? indirect_operand (OP, VOIDmode) : 0)
+#define EXTRA_CONSTRAINT(OP, C)						\
+  ((C) == 'Q' ? GET_CODE (OP) == MEM && GET_CODE (XEXP (OP, 0)) == REG	\
+   : 0)
 
 /* Given an rtx X being reloaded into a reg required to be
    in class CLASS, return the class of reg to actually use.
@@ -710,13 +726,16 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
    and the rest are pushed.  The first 13 FP args are in registers.
 
    If this is floating-point and no prototype is specified, we use
-   both an FP and integer register (or possibly FP reg and stack).  */
+   both an FP and integer register (or possibly FP reg and stack).  Library
+   functions (when TYPE is zero) always have the proper types for args,
+   so we can pass the FP value just in one register.  emit_library_function
+   doesn't support EXPR_LIST anyway.  */
 
 #define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)				\
   (! (NAMED) ? 0							\
    : ((TYPE) != 0 && TREE_CODE (TYPE_SIZE (TYPE)) != INTEGER_CST) ? 0	\
    : USE_FP_FOR_ARG_P (CUM, MODE, TYPE)					\
-   ? ((CUM).nargs_prototype > 0						\
+   ? ((CUM).nargs_prototype > 0 || (TYPE) == 0				\
       ? gen_rtx (REG, MODE, (CUM).fregno)				\
       : ((CUM).words < 8						\
 	 ? gen_rtx (EXPR_LIST, VOIDmode,				\
@@ -832,14 +851,20 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
 
 #define INITIALIZE_TRAMPOLINE(ADDR, FNADDR, CXT)		\
 {								\
-  emit_move_insn (gen_rtx (MEM, SImode, memory_address (SImode, ADDR)), \
-		  force_reg (SImode, FNADDR));			\
   emit_move_insn (gen_rtx (MEM, SImode,				\
-			   memory_address (SImode, plus_constant (ADDR, 4))), \
-		  gen_rtx (REG, SImode, 2));			\
+			   memory_address (SImode, (ADDR))),	\
+		  gen_rtx (MEM, SImode,				\
+			   memory_address (SImode, (FNADDR))));	\
   emit_move_insn (gen_rtx (MEM, SImode,				\
-			   memory_address (SImode, plus_constant (ADDR, 8))), \
-		  force_reg (SImode, CXT));			\
+			   memory_address (SImode,		\
+					   plus_constant ((ADDR), 4))), \
+		  gen_rtx (MEM, SImode,				\
+			   memory_address (SImode,		\
+					   plus_constant ((FNADDR), 4)))); \
+  emit_move_insn (gen_rtx (MEM, SImode,				\
+			   memory_address (SImode,		\
+					   plus_constant ((ADDR), 8))), \
+		  force_reg (SImode, (CXT)));			\
 }
 
 /* Definitions for register eliminations.
@@ -1084,7 +1109,8 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
       goto WIN;							\
     }								\
   else if (GET_CODE (X) == PLUS && GET_CODE (XEXP (X, 0)) == REG \
-	   && GET_CODE (XEXP (X, 1)) != CONST_INT) 		\
+	   && GET_CODE (XEXP (X, 1)) != CONST_INT		\
+	   && (MODE) != DImode && (MODE) != TImode) 		\
     {								\
       (X) = gen_rtx (PLUS, SImode, XEXP (X, 0),			\
 		     force_reg (SImode, force_operand (XEXP (X, 1), 0))); \
@@ -1268,7 +1294,7 @@ struct rs6000_args {int words, fregno, nargs_prototype; };
    CCEQmode should be used when we are doing an inequality comparison on
    the result of a comparison. CCmode should be used in all other cases.  */
 
-#define SELECT_CC_MODE(OP,X) \
+#define SELECT_CC_MODE(OP,X,Y) \
   (GET_MODE_CLASS (GET_MODE (X)) == MODE_FLOAT ? CCFPmode	\
    : (OP) == GTU || (OP) == LTU || (OP) == GEU || (OP) == LEU ? CCUNSmode \
    : (((OP) == EQ || (OP) == NE) && GET_RTX_CLASS (GET_CODE (X)) == '<'   \

@@ -2,37 +2,40 @@
    Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify it
-   under the terms of the GNU Library General Public License as published
-   by the Free Software Foundation; either version 2, or (at your option)
-   any later version.
-
+   under the terms of the GNU General Public License as published by the
+   Free Software Foundation; either version 2, or (at your option) any
+   later version.
+   
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
-   You should have received a copy of the GNU Library General Public
-   License along with this program; if not, write to the Free Software
-   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+   
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-#ifdef	LIBC
-/* For when compiled as part of the GNU C library.  */
-#include <ansidecl.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
 #endif
 
 #include "getopt.h"
 
-#ifndef __STDC__
+#if !__STDC__ && !defined(const)
 #define const
 #endif
 
-#if defined(STDC_HEADERS) || defined(__GNU_LIBRARY__) || defined (LIBC)
-#include <stdlib.h>
-#else /* STDC_HEADERS or __GNU_LIBRARY__ */
-char *getenv ();
-#endif /* STDC_HEADERS or __GNU_LIBRARY__ */
+#include <stdio.h>
 
-#if !defined (NULL)
+/* This needs to come after some library #include
+   to get __GNU_LIBRARY__ defined.  */
+#ifdef __GNU_LIBRARY__
+#include <stdlib.h>
+#else
+char *getenv ();
+#endif
+
+#ifndef	NULL
 #define NULL 0
 #endif
 
@@ -50,7 +53,7 @@ getopt_long (argc, argv, options, long_options, opt_index)
 /* Like getopt_long, but '-' as well as '--' can indicate a long option.
    If an option that starts with '-' (not '--') doesn't match a long option,
    but does match a short option, it is parsed as a short option
-   instead. */
+   instead.  */
 
 int 
 getopt_long_only (argc, argv, options, long_options, opt_index)

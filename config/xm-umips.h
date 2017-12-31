@@ -31,3 +31,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define bcopy(a,b,c)	memcpy((b),(a),(c))
 #define bzero(a,b)	memset((a),0,(b))
 #define bcmp(a,b,c)	memcmp((a),(b),(c))
+
+#define rindex strrchr
+#define index strchr
+

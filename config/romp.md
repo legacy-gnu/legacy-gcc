@@ -26,7 +26,7 @@
 ;; Insn type.  Used to default other attribute values.
 
 (define_attr "type"
-  "branch,return,fp,load,loadz,store,call,address,arith,compare,multi,misc"
+  "branch,ibranch,return,fp,load,loadz,store,call,address,arith,compare,multi,misc"
   (const_string "arith"))
 
 ;; Length in bytes.
@@ -39,7 +39,7 @@
 				(const_int 254)))
 		       (const_int 2)
 		       (const_int 4))
-	 (eq_attr "type" "return")	(const_int 2)
+	 (eq_attr "type" "return,ibranch") (const_int 2)
 	 (eq_attr "type" "fp")		(const_int 10)
 	 (eq_attr "type" "call")	(const_int 4)
 	 (eq_attr "type" "load")
@@ -60,12 +60,19 @@
 
 (define_attr "in_delay_slot" "yes,no" 
   (cond [(eq_attr "length" "8,10,38")			(const_string "no")
-	 (eq_attr "type" "branch,return,call,multi")	(const_string "no")]
+	 (eq_attr "type" "branch,ibranch,return,call,multi")
+	 (const_string "no")]
 	(const_string "yes")))
 
-;; Whether insn needs a delay slot.
+;; Whether insn needs a delay slot.  We have to say that two-byte
+;; branches do not need a delay slot.  Otherwise, branch shortening will
+;; try to do something with delay slot insns (we want it to on the PA).
+;; This is a kludge, which should be cleaned up at some point.
+
 (define_attr "needs_delay_slot" "yes,no"
-  (if_then_else (eq_attr "type" "branch,return,call")
+  (if_then_else (ior (and (eq_attr "type" "branch")
+			  (eq_attr "length" "4"))
+		     (eq_attr "type" "ibranch,return,call"))
 		(const_string "yes") (const_string "no")))
 
 ;; What insn does to the condition code.
@@ -75,7 +82,7 @@
   (cond [(eq_attr "type" "load,loadz")		(const_string "change0")
 	 (eq_attr "type" "store")		(const_string "none")
 	 (eq_attr "type" "fp,call")		(const_string "clobber")
-	 (eq_attr "type" "branch,return")	(const_string "none")
+	 (eq_attr "type" "branch,ibranch,return") (const_string "none")
 	 (eq_attr "type" "address")		(const_string "change0")
 	 (eq_attr "type" "compare")		(const_string "compare")
 	 (eq_attr "type" "arith")		(const_string "sets")]
@@ -300,9 +307,9 @@
   [(set_attr "type" "store")])
 
 (define_expand "reload_outqi"
-  [(set (match_operand:QI 0 "symbolic_memory_operand" "=m")
-	(match_operand:QI 1 "" "r"))
-   (match_operand:SI 2 "" "=&b")]
+  [(parallel [(set (match_operand:QI 0 "symbolic_memory_operand" "=m")
+		   (match_operand:QI 1 "" "r"))
+	      (clobber (match_operand:SI 2 "" "=&b"))])]
   ""
   "")
 
@@ -355,9 +362,9 @@
   [(set_attr "type" "store")])
 
 (define_expand "reload_outhi"
-  [(set (match_operand:HI 0 "symbolic_memory_operand" "=m")
-	(match_operand:HI 1 "" "r"))
-   (match_operand:SI 2 "" "=&b")]
+  [(parallel [(set (match_operand:HI 0 "symbolic_memory_operand" "=m")
+		   (match_operand:HI 1 "" "r"))
+	      (clobber (match_operand:SI 2 "" "=&b"))])]
   ""
   "")
 
@@ -447,9 +454,9 @@
    (set_attr "length" "8,12")])
 
 (define_expand "reload_outdi"
-  [(set (match_operand:DI 0 "symbolic_memory_operand" "=m")
-	(match_operand:DI 1 "" "r"))
-   (match_operand:SI 2 "" "=&b")]
+  [(parallel [(set (match_operand:DI 0 "symbolic_memory_operand" "=m")
+		   (match_operand:DI 1 "" "r"))
+	      (clobber (match_operand:SI 2 "" "=&b"))])]
   ""
   "")
 
@@ -801,7 +808,7 @@
 { operands[2] = XEXP (operands[1], 0);
   operands[3] = operand_subword (operands[0], 0, 0, DFmode);
   operands[4] = gen_rtx (MEM, SImode, gen_rtx (REG, SImode, 15));
-  operands[5] = operand_subword (operands[0], 0, 1, DFmode);
+  operands[5] = operand_subword (operands[0], 1, 0, DFmode);
   operands[6] = gen_rtx (MEM, SImode,
 			 gen_rtx (PLUS, SImode, gen_rtx (REG, SImode, 15),
 				  gen_rtx (CONST_INT, VOIDmode, 4)));
@@ -980,7 +987,7 @@
 
 ;; Now zero extensions:
 (define_expand "zero_extendhisi2"
-  [(set (match_operand:SI 0 "register_operand" "b")
+  [(set (match_operand:SI 0 "register_operand" "")
 	(zero_extend:SI (match_operand:HI 1 "register_operand" "")))]
   ""
   "")
@@ -1602,7 +1609,7 @@
 (define_insn "ashrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashiftrt:SI (match_operand:SI 1 "register_operand" "0,0")
-		     (match_operand:QI 2 "reg_or_cint_operand" "r,n")))]
+		     (match_operand:SI 2 "reg_or_cint_operand" "r,n")))]
   ""
   "@
    sar %0,%2
@@ -1612,7 +1619,7 @@
 (define_insn "lshrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "0,0")
-		     (match_operand:QI 2 "reg_or_cint_operand" "r,n")))]
+		     (match_operand:SI 2 "reg_or_cint_operand" "r,n")))]
   ""
   "@
    sr %0,%2
@@ -1631,7 +1638,7 @@
 (define_insn "ashlsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashift:SI (match_operand:SI 1 "register_operand" "0,0")
-		   (match_operand:QI 2 "reg_or_cint_operand" "r,n")))]
+		   (match_operand:SI 2 "reg_or_cint_operand" "r,n")))]
   ""
   "@
    sl %0,%2
@@ -2711,8 +2718,7 @@
   [(set (pc) (match_operand:SI 0 "register_operand" "r"))]
   ""
   "br%# %0"
-  [(set_attr "type" "branch")
-   (set_attr "length" "2")])
+  [(set_attr "type" "ibranch")])
 
 ;; Table jump for switch statements:
 (define_insn "tablejump"
@@ -2721,8 +2727,7 @@
    (use (label_ref (match_operand 1 "" "")))]
   ""
   "br%# %0"
-  [(set_attr "type" "branch")
-   (set_attr "length" "2")])
+  [(set_attr "type" "ibranch")])
 
 ;;- Local variables:
 ;;- mode:emacs-lisp

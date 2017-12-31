@@ -25,7 +25,8 @@ Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Determine default alignment.  */
 struct fooalign {char x; double d;};
-#define DEFAULT_ALIGNMENT ((char *)&((struct fooalign *) 0)->d - (char *)0)
+#define DEFAULT_ALIGNMENT  \
+  ((PTR_INT_TYPE) ((char *)&((struct fooalign *) 0)->d - (char *)0))
 /* If malloc were really smart, it would round addresses to DEFAULT_ALIGNMENT.
    But in fact it might be less smart and round addresses to as much as
    DEFAULT_ROUNDING.  So we prepare for it to do that.  */
@@ -44,6 +45,26 @@ union fooround {long x; double d;};
    to avoid multiple evaluation.  */
 
 struct obstack *_obstack;
+
+/* Define a macro that either calls functions with the traditional malloc/free
+   calling interface, or calls functions with the mmalloc/mfree interface
+   (that adds an extra first argument), based on the state of use_extra_arg.
+   For free, do not use ?:, since some compilers, like the MIPS compilers,
+   do not allow (expr) ? void : void.  */
+
+#define CALL_CHUNKFUN(h, size) \
+  (((h) -> use_extra_arg) \
+   ? (*(h)->chunkfun) ((h)->extra_arg, (size)) \
+   : (*(h)->chunkfun) ((size)))
+
+#define CALL_FREEFUN(h, old_chunk) \
+  do { \
+    if ((h) -> use_extra_arg) \
+      (*(h)->freefun) ((h)->extra_arg, (old_chunk)); \
+    else \
+      (*(h)->freefun) ((old_chunk)); \
+  } while (0)
+
 
 /* Initialize an obstack H for use.  Specify chunk size SIZE (0 means default).
    Objects start on multiples of ALIGNMENT (0 means use default).
@@ -83,8 +104,55 @@ _obstack_begin (h, size, alignment, chunkfun, freefun)
   h->freefun = freefun;
   h->chunk_size = size;
   h->alignment_mask = alignment - 1;
+  h->use_extra_arg = 0;
 
-  chunk	= h->chunk = (*h->chunkfun) (h->chunk_size);
+  chunk = h->chunk = CALL_CHUNKFUN (h, h -> chunk_size);
+  h->next_free = h->object_base = chunk->contents;
+  h->chunk_limit = chunk->limit
+    = (char *) chunk + h->chunk_size;
+  chunk->prev = 0;
+  /* The initial chunk now contains no empty object.  */
+  h->maybe_empty_object = 0;
+}
+
+void
+_obstack_begin_1 (h, size, alignment, chunkfun, freefun, arg)
+     struct obstack *h;
+     int size;
+     int alignment;
+     POINTER (*chunkfun) ();
+     void (*freefun) ();
+     POINTER arg;
+{
+  register struct _obstack_chunk* chunk; /* points to new chunk */
+
+  if (alignment == 0)
+    alignment = DEFAULT_ALIGNMENT;
+  if (size == 0)
+    /* Default size is what GNU malloc can fit in a 4096-byte block.  */
+    {
+      /* 12 is sizeof (mhead) and 4 is EXTRA from GNU malloc.
+	 Use the values for range checking, because if range checking is off,
+	 the extra bytes won't be missed terribly, but if range checking is on
+	 and we used a larger request, a whole extra 4096 bytes would be
+	 allocated.
+
+	 These number are irrelevant to the new GNU malloc.  I suspect it is
+	 less sensitive to the size of the request.  */
+      int extra = ((((12 + DEFAULT_ROUNDING - 1) & ~(DEFAULT_ROUNDING - 1))
+		    + 4 + DEFAULT_ROUNDING - 1)
+		   & ~(DEFAULT_ROUNDING - 1));
+      size = 4096 - extra;
+    }
+
+  h->chunkfun = (struct _obstack_chunk * (*)()) chunkfun;
+  h->freefun = freefun;
+  h->chunk_size = size;
+  h->alignment_mask = alignment - 1;
+  h->extra_arg = arg;
+  h->use_extra_arg = 1;
+
+  chunk = h->chunk = CALL_CHUNKFUN (h, h -> chunk_size);
   h->next_free = h->object_base = chunk->contents;
   h->chunk_limit = chunk->limit
     = (char *) chunk + h->chunk_size;
@@ -117,7 +185,7 @@ _obstack_newchunk (h, length)
     new_size = h->chunk_size;
 
   /* Allocate and initialize the new chunk.  */
-  new_chunk = h->chunk = (*h->chunkfun) (new_size);
+  new_chunk = h->chunk = CALL_CHUNKFUN (h, new_size);
   new_chunk->prev = old_chunk;
   new_chunk->limit = h->chunk_limit = (char *) new_chunk + new_size;
 
@@ -147,7 +215,7 @@ _obstack_newchunk (h, length)
   if (h->object_base == old_chunk->contents && ! h->maybe_empty_object)
     {
       new_chunk->prev = old_chunk->prev;
-      (*h->freefun) (old_chunk);
+      CALL_FREEFUN (h, old_chunk);
     }
 
   h->object_base = new_chunk->contents;
@@ -203,7 +271,7 @@ _obstack_free (h, obj)
   while (lp != 0 && ((POINTER)lp >= obj || (POINTER)(lp)->limit < obj))
     {
       plp = lp->prev;
-      (*h->freefun) (lp);
+      CALL_FREEFUN (h, lp);
       lp = plp;
       /* If we switch chunks, we can't tell whether the new current
 	 chunk contains an empty object, so assume that it may.  */
@@ -237,7 +305,7 @@ obstack_free (h, obj)
   while (lp != 0 && ((POINTER)lp >= obj || (POINTER)(lp)->limit < obj))
     {
       plp = lp->prev;
-      (*h->freefun) (lp);
+      CALL_FREEFUN (h, lp);
       lp = plp;
       /* If we switch chunks, we can't tell whether the new current
 	 chunk contains an empty object, so assume that it may.  */

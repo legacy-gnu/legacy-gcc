@@ -79,8 +79,8 @@ print_node_brief (file, prefix, node, indent)
      name if any.  */
   if (indent > 0)
     fprintf (file, " ");
-  fprintf (file, "%s <%s %x", prefix,
-	   tree_code_name[(int) TREE_CODE (node)], (int) node);
+  fprintf (file, "%s <%s ", prefix, tree_code_name[(int) TREE_CODE (node)]);
+  fprintf (file, HOST_PTR_PRINTF, node);
 
   if (class == 'd')
     {
@@ -110,9 +110,21 @@ print_node_brief (file, prefix, node, indent)
 	       && TREE_INT_CST_LOW (node) != 0)
 	fprintf (file, " -%1u", -TREE_INT_CST_LOW (node));
       else
-	fprintf (file, " 0x%x%08x",
-		 TREE_INT_CST_HIGH (node),
-		 TREE_INT_CST_LOW (node));
+	fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == 64
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%016lx",
+#else
+		 " 0x%x%016x",
+#endif
+#else
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		 " 0x%lx%08lx",
+#else
+		 " 0x%x%08x",
+#endif
+#endif
+		 TREE_INT_CST_HIGH (node), TREE_INT_CST_LOW (node));
     }
   if (TREE_CODE (node) == REAL_CST)
     {
@@ -193,7 +205,7 @@ print_node (file, prefix, node, indent)
       return;
     }
 
-  hash = ((int) node & ~(1 << (HOST_BITS_PER_INT - 1))) % HASH_SIZE;
+  hash = ((unsigned HOST_WIDE_INT) node) % HASH_SIZE;
 
   /* If node is in the table, just mention its address.  */
   for (b = table[hash]; b; b = b->next)
@@ -213,8 +225,8 @@ print_node (file, prefix, node, indent)
   indent_to (file, indent);
 
   /* Print the slot this node is in, and its code, and address.  */
-  fprintf (file, "%s <%s %x", prefix,
-	   tree_code_name[(int) TREE_CODE (node)], (int) node);
+  fprintf (file, "%s <%s ", prefix, tree_code_name[(int) TREE_CODE (node)]);
+  fprintf (file, HOST_PTR_PRINTF, node);
 
   /* Print the name, if any.  */
   if (class == 'd')
@@ -275,6 +287,8 @@ print_node (file, prefix, node, indent)
     fputs (" asm_written", file);
   if (TREE_USED (node))
     fputs (" used", file);
+  if (TREE_RAISES (node))
+    fputs (" raises", file);
   if (TREE_PERMANENT (node))
     fputs (" permanent", file);
   if (TREE_PUBLIC (node))
@@ -303,22 +317,22 @@ print_node (file, prefix, node, indent)
     case 'd':
       mode = DECL_MODE (node);
 
-      if (TREE_EXTERNAL (node))
+      if (DECL_EXTERNAL (node))
 	fputs (" external", file);
-      if (TREE_NONLOCAL (node))
+      if (DECL_NONLOCAL (node))
 	fputs (" nonlocal", file);
-      if (TREE_REGDECL (node))
+      if (DECL_REGISTER (node))
 	fputs (" regdecl", file);
-      if (TREE_INLINE (node))
+      if (DECL_INLINE (node))
 	fputs (" inline", file);
       if (DECL_BIT_FIELD (node))
 	fputs (" bit-field", file);
       if (DECL_VIRTUAL_P (node))
 	fputs (" virtual", file);
-      if (DECL_FROM_INLINE (node))
-	fputs (" from_inline", file);
       if (DECL_IGNORED_P (node))
 	fputs (" ignored", file);
+      if (DECL_IN_SYSTEM_HEADER (node))
+	fputs (" in_system_header", file);
       if (DECL_LANG_FLAG_0 (node))
 	fputs (" decl_0", file);
       if (DECL_LANG_FLAG_1 (node))
@@ -345,13 +359,15 @@ print_node (file, prefix, node, indent)
       indent_to (file, indent + 3);
       if (TREE_CODE (node) != FUNCTION_DECL)
 	fprintf (file, " align %d", DECL_ALIGN (node));
-      else if (TREE_INLINE (node))
+      else if (DECL_INLINE (node))
 	fprintf (file, " frame_size %d", DECL_FRAME_SIZE (node));
       else if (DECL_BUILT_IN (node))
 	fprintf (file, " built-in code %d", DECL_FUNCTION_CODE (node));
       if (TREE_CODE (node) == FIELD_DECL)
 	print_node (file, "bitpos", DECL_FIELD_BITPOS (node), indent + 4);
       print_node_brief (file, "context", DECL_CONTEXT (node), indent + 4);
+      print_node_brief (file, "abstract_origin",
+			DECL_ABSTRACT_ORIGIN (node), indent + 4);
 
       print_node (file, "arguments", DECL_ARGUMENTS (node), indent + 4);
       print_node (file, "result", DECL_RESULT (node), indent + 4);
@@ -374,7 +390,10 @@ print_node (file, prefix, node, indent)
 	      print_rtl (file, DECL_INCOMING_RTL (node));
 	    }
 	  else if (TREE_CODE (node) == FUNCTION_DECL)
-	    fprintf (file, "saved-insns 0x%x", DECL_SAVED_INSNS (node));
+	    {
+	      fprintf (file, "saved-insns ");
+	      fprintf (file, HOST_PTR_PRINTF, DECL_SAVED_INSNS (node));
+	    }
 	}
 
       /* Print the decl chain only if decl is at second level.  */
@@ -413,7 +432,9 @@ print_node (file, prefix, node, indent)
 
       if (TREE_CODE (node) == ARRAY_TYPE || TREE_CODE (node) == SET_TYPE)
 	print_node (file, "domain", TYPE_DOMAIN (node), indent + 4);
-      else if (TREE_CODE (node) == INTEGER_TYPE)
+      else if (TREE_CODE (node) == INTEGER_TYPE
+	       || TREE_CODE (node) == BOOLEAN_TYPE
+	       || TREE_CODE (node) == CHAR_TYPE)
 	{
 	  fprintf (file, " precision %d", TYPE_PRECISION (node));
 	  print_node (file, "min", TYPE_MIN_VALUE (node), indent + 4);
@@ -448,6 +469,16 @@ print_node (file, prefix, node, indent)
       print_node_brief (file, "chain", TREE_CHAIN (node), indent + 4);
       break;
 
+    case 'b':
+      print_node (file, "vars", BLOCK_VARS (node), indent + 4);
+      print_node (file, "tags", BLOCK_TYPE_TAGS (node), indent + 4);
+      print_node (file, "supercontext", BLOCK_SUPERCONTEXT (node), indent + 4);
+      print_node (file, "subblocks", BLOCK_SUBBLOCKS (node), indent + 4);
+      print_node (file, "chain", BLOCK_CHAIN (node), indent + 4);
+      print_node (file, "abstract_origin",
+		  BLOCK_ABSTRACT_ORIGIN (node), indent + 4);
+      return;
+
     case 'e':
     case '<':
     case '1':
@@ -456,14 +487,6 @@ print_node (file, prefix, node, indent)
     case 's':
       switch (TREE_CODE (node))
 	{
-	case BLOCK:
-	  print_node (file, "vars", BLOCK_VARS (node), indent + 4);
-	  print_node (file, "tags", BLOCK_TYPE_TAGS (node), indent + 4);
-	  print_node (file, "supercontext", BLOCK_SUPERCONTEXT (node), indent + 4);
-	  print_node (file, "subblocks", BLOCK_SUBBLOCKS (node), indent + 4);
-	  print_node (file, "chain", BLOCK_CHAIN (node), indent + 4);
-	  return;
-
 	case BIND_EXPR:
 	  print_node (file, "vars", TREE_OPERAND (node, 0), indent + 4);
 	  print_node (file, "body", TREE_OPERAND (node, 1), indent + 4);
@@ -525,9 +548,21 @@ print_node (file, prefix, node, indent)
 		   && TREE_INT_CST_LOW (node) != 0)
 	    fprintf (file, " -%1u", -TREE_INT_CST_LOW (node));
 	  else
-	    fprintf (file, " 0x%x%08x",
-		     TREE_INT_CST_HIGH (node),
-		     TREE_INT_CST_LOW (node));
+	    fprintf (file,
+#if HOST_BITS_PER_WIDE_INT == 64
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		     " 0x%lx%016lx",
+#else
+		     " 0x%x%016x",
+#endif
+#else
+#if HOST_BITS_PER_WIDE_INT != HOST_BITS_PER_INT
+		     " 0x%lx%08lx",
+#else
+		     " 0x%x%08x",
+#endif
+#endif
+		     TREE_INT_CST_HIGH (node), TREE_INT_CST_LOW (node));
 	  break;
 
 	case REAL_CST:
@@ -566,12 +601,13 @@ print_node (file, prefix, node, indent)
 	case TREE_VEC:
 	  len = TREE_VEC_LENGTH (node);
 	  for (i = 0; i < len; i++)
-	    {
-	      char temp[10];
-	      sprintf (temp, "elt %d", i);
-	      indent_to (file, indent + 4);
-	      print_node_brief (file, temp, TREE_VEC_ELT (node, i), 0);
-	    }
+	    if (TREE_VEC_ELT (node, i))
+	      {
+		char temp[10];
+		sprintf (temp, "elt %d", i);
+		indent_to (file, indent + 4);
+		print_node_brief (file, temp, TREE_VEC_ELT (node, i), 0);
+	      }
 	  break;
 
 	case OP_IDENTIFIER:
@@ -581,4 +617,6 @@ print_node (file, prefix, node, indent)
 
       break;
     }
+
+  fprintf (file, ">");
 }

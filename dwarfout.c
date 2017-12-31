@@ -28,6 +28,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include "flags.h"
 #include "rtl.h"
+#include "hard-reg-set.h"
 #include "insn-config.h"
 #include "reload.h"
 #include "output.h"
@@ -38,7 +39,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #endif
 
 /* #define NDEBUG 1 */
-#include <assert.h>
+#include "assert.h"
 
 #if defined(DWARF_TIMESTAMPS)
 #if defined(POSIX)
@@ -53,14 +54,10 @@ extern time_t time ();
 #endif /* !defined(POSIX) */
 #endif /* defined(DWARF_TIMESTAMPS) */
 
-#if defined(USG) || defined(POSIX)
-#include <string.h>
-#else
-#include <strings.h>
-#define strrchr rindex
-#endif
-
 extern char *getpwd ();
+
+extern char *index ();
+extern char *rindex ();
 
 /* IMPORTANT NOTE: Please see the file README.DWARF for important details
    regarding the GNU implementation of Dwarf.  */
@@ -84,12 +81,11 @@ extern char *getpwd ();
 #define ASM_COMMENT_START ";#"
 #endif
 
-/* Define a macro which, when given a pointer to some BLOCK node, returns
-   a pointer to the FUNCTION_DECL node from which the given BLOCK node
-   was instantiated (as an inline expansion).  This macro needs to be
-   defined properly in tree.h, however for the moment, we just fake it.  */
-
-#define BLOCK_INLINE_FUNCTION(block) 0
+/* How to print out a register name.  */
+#ifndef PRINT_REG
+#define PRINT_REG(RTX, CODE, FILE) \
+  fprintf ((FILE), "%s", reg_names[REGNO (RTX)])
+#endif
 
 /* Define a macro which returns non-zero for any tagged type which is
    used (directly or indirectly) in the specification of either some
@@ -287,6 +283,13 @@ static tree fake_containing_scope;
    contained within various function definitions.  */
 
 static unsigned current_funcdef_number = 1;
+
+/* A pointer to the ..._DECL node which we have most recently been working
+   on.  We keep this around just in case something about it looks screwy
+   and we want to tell the user what the source coordinates for the actual
+   declaration are.  */
+
+static tree dwarf_last_decl;
 
 /* Forward declarations for functions defined in this file.  */
 
@@ -529,11 +532,20 @@ static unsigned lookup_filename ();
 #ifndef SL_END_LABEL_FMT
 #define SL_END_LABEL_FMT	".L_sl%u_e"
 #endif
+#ifndef BODY_BEGIN_LABEL_FMT
+#define BODY_BEGIN_LABEL_FMT	".L_b%u"
+#endif
+#ifndef BODY_END_LABEL_FMT
+#define BODY_END_LABEL_FMT	".L_b%u_e"
+#endif
 #ifndef FUNC_END_LABEL_FMT
 #define FUNC_END_LABEL_FMT	".L_f%u_e"
 #endif
 #ifndef TYPE_NAME_FMT
 #define TYPE_NAME_FMT		".L_T%u"
+#endif
+#ifndef DECL_NAME_FMT
+#define DECL_NAME_FMT		".L_E%u"
 #endif
 #ifndef LINE_CODE_LABEL_FMT
 #define LINE_CODE_LABEL_FMT	".L_LC%u"
@@ -750,6 +762,17 @@ is_pseudo_reg (rtl)
 	      && (REGNO (XEXP (rtl, 0)) >= FIRST_PSEUDO_REGISTER)));
 }
 
+/* Return non-zero if the given type node represents a tagged type.  */
+
+inline int
+is_tagged_type (type)
+     register tree type;
+{
+  register enum tree_code code = TREE_CODE (type);
+
+  return (code == RECORD_TYPE || code == UNION_TYPE || code == ENUMERAL_TYPE);
+}
+
 static char *
 dwarf_tag_name (tag)
      register unsigned tag;
@@ -796,7 +819,7 @@ dwarf_tag_name (tag)
     case TAG_function_template:		return "TAG_function_template";
     case TAG_class_template:		return "TAG_class_template";
 
-    default:				return "<unknown tag>";
+    default:				return "TAG_<unknown>";
     }
 }
 
@@ -856,7 +879,7 @@ dwarf_attr_name (attr)
     case AT_public:			return "AT_public";
     case AT_pure_virtual:		return "AT_pure_virtual";
     case AT_return_addr:		return "AT_return_addr";
-    case AT_specification:		return "AT_specification";
+    case AT_abstract_origin:		return "AT_abstract_origin";
     case AT_start_scope:		return "AT_start_scope";
     case AT_stride_size:		return "AT_stride_size";
     case AT_upper_bound_ref:		return "AT_upper_bound_ref";
@@ -871,8 +894,10 @@ dwarf_attr_name (attr)
     case AT_src_info:			return "AT_src_info";
     case AT_mac_info:			return "AT_mac_info";
     case AT_src_coords:			return "AT_src_coords";
+    case AT_body_begin:			return "AT_body_begin";
+    case AT_body_end:			return "AT_body_end";
 
-    default:				return "<unknown attribute>";
+    default:				return "AT_<unknown>";
     }
 }
 
@@ -889,7 +914,7 @@ dwarf_stack_op_name (op)
     case OP_DEREF2:		return "OP_DEREF2";
     case OP_DEREF4:		return "OP_DEREF4";
     case OP_ADD:		return "OP_ADD";
-    default:			return "<unknown stack operator>";
+    default:			return "OP_<unknown>";
     }
 }
 
@@ -903,7 +928,7 @@ dwarf_typemod_name (mod)
     case MOD_reference_to:	return "MOD_reference_to";
     case MOD_const:		return "MOD_const";
     case MOD_volatile:		return "MOD_volatile";
-    default:			return "<unknown modifier>";
+    default:			return "MOD_<unknown>";
     }
 }
 
@@ -922,7 +947,7 @@ dwarf_fmt_byte_name (fmt)
     case FMT_UT_X_C:	return "FMT_UT_X_C";
     case FMT_UT_X_X:	return "FMT_UT_X_X";
     case FMT_ET:	return "FMT_ET";
-    default:		return "<unknown array bound format byte>";
+    default:		return "FMT_<unknown>";
     }
 }
 static char *
@@ -978,11 +1003,156 @@ dwarf_fund_type_name (ft)
     case FT_real96:		return "FT_real96";
     case FT_real128:		return "FT_real128";
 
-    default:			return "<unknown fundamental type>";
+    default:			return "FT_<unknown>";
     }
+}
+
+/* Determine the "ultimate origin" of a decl.  The decl may be an
+   inlined instance of an inlined instance of a decl which is local
+   to an inline function, so we have to trace all of the way back
+   through the origin chain to find out what sort of node actually
+   served as the original seed for the given block.  */
+
+static tree
+decl_ultimate_origin (decl)
+     register tree decl;
+{
+  register tree immediate_origin = DECL_ABSTRACT_ORIGIN (decl);
+
+  if (immediate_origin == NULL)
+    return NULL;
+  else
+    {
+      register tree ret_val;
+      register tree lookahead = immediate_origin;
+
+      do
+	{
+	  ret_val = lookahead;
+	  lookahead = DECL_ABSTRACT_ORIGIN (ret_val);
+	}
+      while (lookahead != NULL && lookahead != ret_val);
+      return ret_val;
+    }
+}
+
+/* Determine the "ultimate origin" of a block.  The block may be an
+   inlined instance of an inlined instance of a block which is local
+   to an inline function, so we have to trace all of the way back
+   through the origin chain to find out what sort of node actually
+   served as the original seed for the given block.  */
+
+static tree
+block_ultimate_origin (block)
+     register tree block;
+{
+  register tree immediate_origin = BLOCK_ABSTRACT_ORIGIN (block);
+
+  if (immediate_origin == NULL)
+    return NULL;
+  else
+    {
+      register tree ret_val;
+      register tree lookahead = immediate_origin;
+
+      do
+	{
+	  ret_val = lookahead;
+	  lookahead = (TREE_CODE (ret_val) == BLOCK)
+		       ? BLOCK_ABSTRACT_ORIGIN (ret_val)
+		       : NULL;
+	}
+      while (lookahead != NULL && lookahead != ret_val);
+      return ret_val;
+    }
+}
+
+static void
+output_unsigned_leb128 (value)
+     register unsigned long value;
+{
+  register unsigned long orig_value = value;
+
+  do
+    {
+      register unsigned byte = (value & 0x7f);
+
+      value >>= 7;
+      if (value != 0)	/* more bytes to follow */
+	byte |= 0x80;
+      fprintf (asm_out_file, "\t%s\t0x%x", ASM_BYTE_OP, (unsigned) byte);
+      if (flag_verbose_asm && value == 0)
+	fprintf (asm_out_file, "\t%s ULEB128 number - value = %u",
+		 ASM_COMMENT_START, orig_value);
+      fputc ('\n', asm_out_file);
+    }
+  while (value != 0);
+}
+
+static void
+output_signed_leb128 (value)
+     register long value;
+{
+  register long orig_value = value;
+  register int negative = (value < 0);
+  register int more;
+
+  do
+    {
+      register unsigned byte = (value & 0x7f);
+
+      value >>= 7;
+      if (negative)
+	value |= 0xfe000000;  /* manually sign extend */
+      if (((value == 0) && ((byte & 0x40) == 0))
+          || ((value == -1) && ((byte & 0x40) == 1)))
+	more = 0;
+      else
+	{
+	  byte |= 0x80;
+	  more = 1;
+	}
+      fprintf (asm_out_file, "\t%s\t0x%x", ASM_BYTE_OP, (unsigned) byte);
+      if (flag_verbose_asm && more == 0)
+	fprintf (asm_out_file, "\t%s SLEB128 number - value = %d",
+		 ASM_COMMENT_START, orig_value);
+      fputc ('\n', asm_out_file);
+    }
+  while (more);
 }
 
 /**************** utility functions for attribute functions ******************/
+
+/* Given a pointer to a BLOCK node return non-zero if (and only if) the
+   node in question represents the outermost pair of curly braces (i.e.
+   the "body block") of a function or method.
+
+   For any BLOCK node representing a "body block" of a function or method,
+   the BLOCK_SUPERCONTEXT of the node will point to another BLOCK node
+   which represents the outermost (function) scope for the function or
+   method (i.e. the one which includes the formal parameters).  The
+   BLOCK_SUPERCONTEXT of *that* node in turn will point to the relevant
+   FUNCTION_DECL node.
+*/
+
+inline int
+is_body_block (stmt)
+     register tree stmt;
+{
+  if (TREE_CODE (stmt) == BLOCK)
+    {
+      register tree parent = BLOCK_SUPERCONTEXT (stmt);
+
+      if (TREE_CODE (parent) == BLOCK)
+	{
+	  register tree grandparent = BLOCK_SUPERCONTEXT (parent);
+
+	  if (TREE_CODE (grandparent) == FUNCTION_DECL)
+	    return 1;
+	}
+    }
+  return 0;
+}
 
 /* Given a pointer to a tree node for some type, return a Dwarf fundamental
    type code for the given type.
@@ -992,14 +1162,14 @@ dwarf_fund_type_name (ft)
 
    The current Dwarf draft specification calls for Dwarf fundamental types
    to accurately reflect the fact that a given type was either a "plain"
-   integral type or an explicitly "signed" integral type.  Unfortuantely,
+   integral type or an explicitly "signed" integral type.  Unfortunately,
    we can't always do this, because GCC may already have thrown away the
    information about the precise way in which the type was originally
    specified, as in:
 
-	typedef signed int field_type;
+	typedef signed int my_type;
 
-	struct s { field_type f; };
+	struct s { my_type f; };
 
    Since we may be stuck here without enought information to do exactly
    what is called for in the Dwarf draft specification, we do the best
@@ -1226,9 +1396,40 @@ type_is_fundamental (type)
   return 0;
 }
 
+/* Given a pointer to some ..._DECL tree node, generate an assembly language
+   equate directive which will associate a symbolic name with the current DIE.
+
+   The name used is an artificial label generated from the DECL_UID number
+   associated with the given decl node.  The name it gets equated to is the
+   symbolic label that we (previously) output at the start of the DIE that
+   we are currently generating.
+
+   Calling this function while generating some "decl related" form of DIE
+   makes it possible to later refer to the DIE which represents the given
+   decl simply by re-generating the symbolic name from the ..._DECL node's
+   UID number.	*/
+
+static void
+equate_decl_number_to_die_number (decl)
+     register tree decl;
+{
+  /* In the case where we are generating a DIE for some ..._DECL node
+     which represents either some inline function declaration or some
+     entity declared within an inline function declaration/definition,
+     setup a symbolic name for the current DIE so that we have a name
+     for this DIE that we can easily refer to later on within
+     AT_abstract_origin attributes.  */
+
+  char decl_label[MAX_ARTIFICIAL_LABEL_BYTES];
+  char die_label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+  sprintf (decl_label, DECL_NAME_FMT, DECL_UID (decl));
+  sprintf (die_label, DIE_BEGIN_LABEL_FMT, current_dienum);
+  ASM_OUTPUT_DEF (asm_out_file, decl_label, die_label);
+}
+
 /* Given a pointer to some ..._TYPE tree node, generate an assembly language
-   equate directive which will associate an easily remembered symbolic name
-   with the current DIE.
+   equate directive which will associate a symbolic name with the current DIE.
 
    The name used is an artificial label generated from the TYPE_UID number
    associated with the given type node.  The name it gets equated to is the
@@ -1257,6 +1458,28 @@ equate_type_number_to_die_number (type)
   sprintf (type_label, TYPE_NAME_FMT, TYPE_UID (type));
   sprintf (die_label, DIE_BEGIN_LABEL_FMT, current_dienum);
   ASM_OUTPUT_DEF (asm_out_file, type_label, die_label);
+}
+
+static void
+output_reg_number (rtl)
+     register rtx rtl;
+{
+  register unsigned regno = REGNO (rtl);
+
+  if (regno >= FIRST_PSEUDO_REGISTER)
+    {
+      warning_with_decl (dwarf_last_decl, "internal regno botch: regno = %d\n",
+			 regno);
+      regno = 0;
+    }
+  fprintf (asm_out_file, "\t%s\t0x%x",
+	   UNALIGNED_INT_ASM_OP, DBX_REGISTER_NUMBER (regno));
+  if (flag_verbose_asm)
+    {
+      fprintf (asm_out_file, "\t%s ", ASM_COMMENT_START);
+      PRINT_REG (rtl, 0, asm_out_file);
+    }
+  fputc ('\n', asm_out_file);
 }
 
 /* The following routine is a nice and simple transducer.  It converts the
@@ -1295,15 +1518,25 @@ output_mem_loc_descriptor (rtl)
 
 	/* Whenever a register number forms a part of the description of
 	   the method for calculating the (dynamic) address of a memory
-	   resident object, Dwarf rules require the register number to
+	   resident object, DWARF rules require the register number to
 	   be referred to as a "base register".  This distinction is not
 	   based in any way upon what category of register the hardware
 	   believes the given register belongs to.  This is strictly
-	   Dwarf terminology we're dealing with here.  */
+	   DWARF terminology we're dealing with here.
+
+	   Note that in cases where the location of a memory-resident data
+	   object could be expressed as:
+
+		    OP_ADD (OP_BASEREG (basereg), OP_CONST (0))
+
+	   the actual DWARF location descriptor that we generate may just
+	   be OP_BASEREG (basereg).  This may look deceptively like the
+	   object in question was allocated to a register (rather than
+	   in memory) so DWARF consumers need to be aware of the subtle
+	   distinction between OP_REG and OP_BASEREG.  */
 
 	ASM_OUTPUT_DWARF_STACK_OP (asm_out_file, OP_BASEREG);
-        ASM_OUTPUT_DWARF_DATA4 (asm_out_file,
-				DBX_REGISTER_NUMBER (REGNO (rtl)));
+	output_reg_number (rtl);
 	break;
 
       case MEM:
@@ -1358,8 +1591,7 @@ output_loc_descriptor (rtl)
 
     case REG:
 	ASM_OUTPUT_DWARF_STACK_OP (asm_out_file, OP_REG);
-        ASM_OUTPUT_DWARF_DATA4 (asm_out_file,
-				DBX_REGISTER_NUMBER (REGNO (rtl)));
+	output_reg_number (rtl);
 	break;
 
     case MEM:
@@ -1448,7 +1680,7 @@ output_bound_representation (bound, dim_num, u_or_l)
 
 	  if (! optimize)
 	    output_loc_descriptor
-	      (eliminate_regs (SAVE_EXPR_RTL (bound), 0, 0));
+	      (eliminate_regs (SAVE_EXPR_RTL (bound), 0, NULL_RTX));
 
 	  ASM_OUTPUT_LABEL (asm_out_file, end_label);
 	}
@@ -1475,6 +1707,188 @@ output_enumeral_list (link)
       ASM_OUTPUT_DWARF_STRING (asm_out_file,
 			       IDENTIFIER_POINTER (TREE_PURPOSE (link)));
     }
+}
+
+/* Given an unsigned value, round it up to the lowest multiple of `boundary'
+   which is not less than the value itself.  */
+
+inline unsigned
+ceiling (value, boundary)
+     register unsigned value;
+     register unsigned boundary;
+{
+  return (((value + boundary - 1) / boundary) * boundary);
+}
+
+/* Given a pointer to what is assumed to be a FIELD_DECL node, return a
+   pointer to the declared type for the relevant field variable, or return
+   `integer_type_node' if the given node turns out to be an ERROR_MARK node.  */
+
+inline tree
+field_type (decl)
+     register tree decl;
+{
+  register tree type;
+
+  if (TREE_CODE (decl) == ERROR_MARK)
+    return integer_type_node;
+
+  type = DECL_BIT_FIELD_TYPE (decl);
+  if (type == NULL)
+    type = TREE_TYPE (decl);
+  return type;
+}
+
+/* Given a pointer to a tree node, assumed to be some kind of a ..._TYPE
+   node, return the alignment in bits for the type, or else return
+   BITS_PER_WORD if the node actually turns out to be an ERROR_MARK node.  */
+
+inline unsigned
+simple_type_align_in_bits (type)
+     register tree type;
+{
+  return (TREE_CODE (type) != ERROR_MARK) ? TYPE_ALIGN (type) : BITS_PER_WORD;
+}
+
+/* Given a pointer to a tree node, assumed to be some kind of a ..._TYPE
+   node, return the size in bits for the type if it is a constant, or
+   else return the alignment for the type if the type's size is not
+   constant, or else return BITS_PER_WORD if the type actually turns out
+   to be an ERROR_MARK node.  */
+
+inline unsigned
+simple_type_size_in_bits (type)
+     register tree type;
+{
+  if (TREE_CODE (type) == ERROR_MARK)
+    return BITS_PER_WORD;
+  else
+    {
+      register tree type_size_tree = TYPE_SIZE (type);
+
+      if (TREE_CODE (type_size_tree) != INTEGER_CST)
+	return TYPE_ALIGN (type);
+
+      return (unsigned) TREE_INT_CST_LOW (type_size_tree);
+    }
+}
+
+/* Given a pointer to what is assumed to be a FIELD_DECL node, compute and
+   return the byte offset of the lowest addressed byte of the "containing
+   object" for the given FIELD_DECL, or return 0 if we are unable to deter-
+   mine what that offset is, either because the argument turns out to be a
+   pointer to an ERROR_MARK node, or because the offset is actually variable.
+   (We can't handle the latter case just yet.)  */
+
+static unsigned
+field_byte_offset (decl)
+     register tree decl;
+{
+  register unsigned type_align_in_bytes;
+  register unsigned type_align_in_bits;
+  register unsigned type_size_in_bits;
+  register unsigned object_offset_in_align_units;
+  register unsigned object_offset_in_bits;
+  register unsigned object_offset_in_bytes;
+  register tree type;
+  register tree bitpos_tree;
+  register tree field_size_tree;
+  register unsigned bitpos_int;
+  register unsigned deepest_bitpos;
+  register unsigned field_size_in_bits;
+
+  if (TREE_CODE (decl) == ERROR_MARK)
+    return 0;
+
+  if (TREE_CODE (decl) != FIELD_DECL)
+    abort ();
+
+  type = field_type (decl);
+
+  bitpos_tree = DECL_FIELD_BITPOS (decl);
+  field_size_tree = DECL_SIZE (decl);
+
+  /* We cannot yet cope with fields whose positions or sizes are variable,
+     so for now, when we see such things, we simply return 0.  Someday,
+     we may be able to handle such cases, but it will be damn difficult.  */
+
+  if (TREE_CODE (bitpos_tree) != INTEGER_CST)
+    return 0;
+  bitpos_int = (unsigned) TREE_INT_CST_LOW (bitpos_tree);
+
+  if (TREE_CODE (field_size_tree) != INTEGER_CST)
+    return 0;
+  field_size_in_bits = (unsigned) TREE_INT_CST_LOW (field_size_tree);
+
+  type_size_in_bits = simple_type_size_in_bits (type);
+
+  type_align_in_bits = simple_type_align_in_bits (type);
+  type_align_in_bytes = type_align_in_bits / BITS_PER_UNIT;
+
+  /* Note that the GCC front-end doesn't make any attempt to keep track
+     of the starting bit offset (relative to the start of the containing
+     structure type) of the hypothetical "containing object" for a bit-
+     field.  Thus, when computing the byte offset value for the start of
+     the "containing object" of a bit-field, we must deduce this infor-
+     mation on our own.
+
+     This can be rather tricky to do in some cases.  For example, handling
+     the following structure type definition when compiling for an i386/i486
+     target (which only aligns long long's to 32-bit boundaries) can be very
+     tricky:
+
+		struct S {
+			int		field1;
+			long long	field2:31;
+		};
+
+     Fortunately, there is a simple rule-of-thumb which can be used in such
+     cases.  When compiling for an i386/i486, GCC will allocate 8 bytes for
+     the structure shown above.  It decides to do this based upon one simple
+     rule for bit-field allocation.  Quite simply, GCC allocates each "con-
+     taining object" for each bit-field at the first (i.e. lowest addressed)
+     legitimate alignment boundary (based upon the required minimum alignment
+     for the declared type of the field) which it can possibly use, subject
+     to the condition that there is still enough available space remaining
+     in the containing object (when allocated at the selected point) to
+     fully accomodate all of the bits of the bit-field itself.
+
+     This simple rule makes it obvious why GCC allocates 8 bytes for each
+     object of the structure type shown above.  When looking for a place to
+     allocate the "containing object" for `field2', the compiler simply tries
+     to allocate a 64-bit "containing object" at each successive 32-bit
+     boundary (starting at zero) until it finds a place to allocate that 64-
+     bit field such that at least 31 contiguous (and previously unallocated)
+     bits remain within that selected 64 bit field.  (As it turns out, for
+     the example above, the compiler finds that it is OK to allocate the
+     "containing object" 64-bit field at bit-offset zero within the
+     structure type.)
+
+     Here we attempt to work backwards from the limited set of facts we're
+     given, and we try to deduce from those facts, where GCC must have
+     believed that the containing object started (within the structure type).
+
+     The value we deduce is then used (by the callers of this routine) to
+     generate AT_location and AT_bit_offset attributes for fields (both
+     bit-fields and, in the case of AT_location, regular fields as well).
+  */
+
+  /* Figure out the bit-distance from the start of the structure to the
+     "deepest" bit of the bit-field.  */
+  deepest_bitpos = bitpos_int + field_size_in_bits;
+
+  /* This is the tricky part.  Use some fancy footwork to deduce where the
+     lowest addressed bit of the containing object must be.  */
+  object_offset_in_bits
+    = ceiling (deepest_bitpos, type_align_in_bits) - type_size_in_bits;
+
+  /* Compute the offset of the containing object in "alignment units".  */
+  object_offset_in_align_units = object_offset_in_bits / type_align_in_bits;
+
+  /* Compute the offset of the containing object in bytes.  */
+  object_offset_in_bytes = object_offset_in_align_units * type_align_in_bytes;
+
+  return object_offset_in_bytes;
 }
 
 /****************************** attributes *********************************/
@@ -1516,71 +1930,61 @@ location_attribute (rtl)
   /* Handle a special case.  If we are about to output a location descriptor
      for a variable or parameter which has been optimized out of existence,
      don't do that.  Instead we output a zero-length location descriptor
-     value as part of the location attribute.  Note that we cannot simply
-     suppress the entire location attribute, because the absence of a
-     location attribute in certain kinds of DIEs is used to indicate some-
-     thing entirely different... i.e. that the DIE represents an object
-     declaration, but not a definition.  So sayeth the PLSIG.  */
+     value as part of the location attribute.
 
-  if (! is_pseudo_reg (rtl))
-    output_loc_descriptor (eliminate_regs (rtl, 0, 0));
+     A variable which has been optimized out of existance will have a
+     DECL_RTL value which denotes a pseudo-reg.
+
+     Currently, in some rare cases, variables can have DECL_RTL values
+     which look like (MEM (REG pseudo-reg#)).  These cases are due to
+     bugs elsewhere in the compiler.  We treat such cases
+     as if the variable(s) in question had been optimized out of existance.
+
+     Note that in all cases where we wish to express the fact that a
+     variable has been optimized out of existance, we do not simply
+     suppress the generation of the entire location attribute because
+     the absence of a location attribute in certain kinds of DIEs is
+     used to indicate something else entirely... i.e. that the DIE
+     represents an object declaration, but not a definition.  So sayeth
+     the PLSIG.
+  */
+
+  if (! is_pseudo_reg (rtl)
+      && (GET_CODE (rtl) != MEM || ! is_pseudo_reg (XEXP (rtl, 0))))
+    output_loc_descriptor (eliminate_regs (rtl, 0, NULL_RTX));
 
   ASM_OUTPUT_LABEL (asm_out_file, end_label);
 }
 
 /* Output the specialized form of location attribute used for data members
-   of struct types.
+   of struct and union types.
 
    In the special case of a FIELD_DECL node which represents a bit-field,
    the "offset" part of this special location descriptor must indicate the
    distance in bytes from the lowest-addressed byte of the containing
    struct or union type to the lowest-addressed byte of the "containing
-   object" for the bit-field.
+   object" for the bit-field.  (See the `field_byte_offset' function above.)
 
    For any given bit-field, the "containing object" is a hypothetical
    object (of some integral or enum type) within which the given bit-field
    lives.  The type of this hypothetical "containing object" is always the
-   same as the declared type of the individual bit-field itself.
+   same as the declared type of the individual bit-field itself (for GCC
+   anyway... the DWARF spec doesn't actually mandate this).
 
    Note that it is the size (in bytes) of the hypothetical "containing
    object" which will be given in the AT_byte_size attribute for this
-   bit-field.  (See the `byte_size_attribute' function below.)
+   bit-field.  (See the `byte_size_attribute' function below.)  It is
+   also used when calculating the value of the AT_bit_offset attribute.
+   (See the `bit_offset_attribute' function below.)
 */
-
 
 static void
 data_member_location_attribute (decl)
      register tree decl;
 {
+  register unsigned object_offset_in_bytes = field_byte_offset (decl);
   char begin_label[MAX_ARTIFICIAL_LABEL_BYTES];
   char end_label[MAX_ARTIFICIAL_LABEL_BYTES];
-  register unsigned type_align_in_bytes;
-  register unsigned type_align_in_bits;
-  register unsigned offset_in_align_units;
-  register unsigned offset_in_bytes;
-  register tree type;
-  register tree bitpos_tree = DECL_FIELD_BITPOS (decl);
-  register unsigned bitpos_int;
-
-  if (TREE_CODE (decl) == ERROR_MARK)
-    return;
-
-  if (TREE_CODE (decl) != FIELD_DECL)
-    abort ();
-
-  /* The bit position given by DECL_FIELD_BITPOS could be non-constant
-     in the case where one or more variable sized members preceeded this
-     member in the containing struct type.  We could probably correctly
-     handle this case someday, by it's too complicated to deal with at
-     the moment (and probably too rare to worry about), so just punt on
-     the whole AT_location attribute for now.  Eventually, we'll have
-     to analyze the expression given as the DECL_FIELD_BITPOS and turn
-     it into a member-style AT_location descriptor, but that'll be
-     tough to do.  -- rfg  */
-
-  if (TREE_CODE (bitpos_tree) != INTEGER_CST)
-    return;
-  bitpos_int = (unsigned) TREE_INT_CST_LOW (bitpos_tree);
 
   ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_location);
   sprintf (begin_label, LOC_BEGIN_LABEL_FMT, current_dienum);
@@ -1588,105 +1992,7 @@ data_member_location_attribute (decl)
   ASM_OUTPUT_DWARF_DELTA2 (asm_out_file, end_label, begin_label);
   ASM_OUTPUT_LABEL (asm_out_file, begin_label);
   ASM_OUTPUT_DWARF_STACK_OP (asm_out_file, OP_CONST);
-
-  type = DECL_BIT_FIELD_TYPE (decl);
-  if (type == NULL)
-    type = TREE_TYPE (decl);
-
-  type_align_in_bits = TYPE_ALIGN (type);
-  type_align_in_bytes = type_align_in_bits / BITS_PER_UNIT;
-
-  /* WARNING!  Note that the GCC front-end doesn't make any attempt to
-     keep track of the starting bit offset (relative to the start of
-     the containing structure type) of the hypothetical "containing
-     object" for a bit-field.  (See the comments at the start of this
-     function.)  Thus, when computing the byte offset value for a
-     bit-field, all we can do is to divide the starting bit offset of
-     the bit-field by the alignment of the hypothetical "containing
-     object" (which we can easily find) and then multiply by the number
-     of bytes of that alignment.
-
-     This solution only yields an unambiguously correct result when
-     the size of the bit-field is strictly larger than the size of the
-     declared type minus the alignment of the declared type.  When this
-     condition is not satisfied, it means that there is at least an
-     "alignment unit's" worth of other slop which co-resides within the
-     hypothetical "containing object" with the bit field, and this other
-     slop could be either to the left of the bit-field or to the right
-     of the bit-field. (We have no way of knowing which.)
-
-     It also means that we cannot unambiguously tell exactly where the
-     hypothetical "containing object" begins within the containing struct
-     type.  We only know the precise position of the bit-field which is
-     contained therein, and that the hypothetical containing object must
-     be aligned as required for its type.  But when there is at least an
-     alignment unit's worth of slop co-resident in the containing object
-     with the actual bit-field, the actual start of the containing object
-     is ambiguous and thus, we cannot unambiguously determine the "correct"
-     byte offset to put into the AT_location attribute for the bit-field
-     itself.
-
-     This whole thing is a non-issue for the majority of targets, because
-     (for most GCC targets) the alignment of each supported integral type
-     is the same as the size of that type, and thus (size - alignment) for
-     the declared type of any bit-field yields zero, and the size (in bits)
-     of any bit-field must be bigger than zero, so there is never any
-     ambiguity about the starting positions of the containing objects of
-     bit-fields for most GCC targets.
-
-     An exception arises however for some machines (e.g. i386) which have
-     BIGGEST_ALIGNMENT set to something less than the size of type `long
-     long' (i.e. 64) and when we are confronted with something like:
-
-		struct S {
-			int		field1;
-			long long	field2:31;
-		};
-
-     Here it is ambiguous (going by DWARF rules anyway) whether the con-
-     taining `long long' object for `field2' should be said to occupy the
-     first and second (32-bit) words of the containing struct type, or
-     whether it should be said to occupy the second and third words of
-     the struct type.
-
-     Currently, GCC allocates 8 bytes (for an i386 target) for each object
-     of the above type.  This is probably a bug however, and GCC should
-     probably be allocating 12 bytes for each such structure (for the i386
-     target).
-
-     Assuming this bug gets fixed, one would have a strong case for saying
-     that the containing `long long' object for `field2' occupies the second
-     and third words of the above structure type, and that `field2' itself
-     occupies the first 31 bits of that containing object.  However consider:
-
-		struct S {
-			int		field1;
-			long long	field2:31;
-			long long	field3:2;
-			long long	field4:31;
-		};
-
-     Even if the current "member allocation" bug in GCC is fixed, this ex-
-     ample would still illustrate a case in which the starting point of the
-     containing `long long' object for `field4' would be ambiguous, even
-     though we know the exact starting bit offset (within the structure) of
-     the `field4' bit-field itself.
-
-     We essentially just ignore this whole issue here and always act as if
-     most of the slop which co-resides in a containing object along with a
-     bit-field appears in that containing object *AFTER* the bit field.
-     Thus, for the above example, we say that the containing object for
-     `field4' occupies the third and fourth words of the structure type,
-     even though objects of the type only occupy three words.  As long
-     as the debugger understands that the compiler uses this disambiguation
-     rule, the debugger should easily be able to do the Right Thing in all
-     cases.
-  */
-
-  offset_in_align_units = bitpos_int / type_align_in_bits;
-  offset_in_bytes = offset_in_align_units * type_align_in_bytes;
-
-  ASM_OUTPUT_DWARF_DATA4 (asm_out_file, offset_in_bytes);
+  ASM_OUTPUT_DWARF_DATA4 (asm_out_file, object_offset_in_bytes);
   ASM_OUTPUT_DWARF_STACK_OP (asm_out_file, OP_ADD);
   ASM_OUTPUT_LABEL (asm_out_file, end_label);
 }
@@ -1733,8 +2039,8 @@ const_value_attribute (rtl)
 	   simplicity we always just output CONST_DOUBLEs using 8 bytes.  */
 
 	ASM_OUTPUT_DWARF_DATA8 (asm_out_file,
-				(unsigned) CONST_DOUBLE_HIGH (rtl),
-				(unsigned) CONST_DOUBLE_LOW (rtl));
+				(unsigned HOST_WIDE_INT) CONST_DOUBLE_HIGH (rtl),
+				(unsigned HOST_WIDE_INT) CONST_DOUBLE_LOW (rtl));
 	break;
 
       case CONST_STRING:
@@ -1762,6 +2068,9 @@ const_value_attribute (rtl)
 	   we just punt and generate an AT_const_value attribute with form
 	   FORM_BLOCK4 and a length of zero.  */
 	break;
+
+      default:
+	abort ();  /* No other kinds of rtx should be possible here.  */
     }
 
   ASM_OUTPUT_LABEL (asm_out_file, end_label);
@@ -1794,7 +2103,7 @@ location_or_const_value_attribute (decl)
   /* Existing Dwarf debuggers need and expect the location descriptors for
      formal parameters to reflect either the place where the parameters get
      passed (if they are passed on the stack and in memory) or else the
-     (preserved) registers which the paramaters get copied to during the
+     (preserved) registers which the parameters get copied to during the
      function prologue.
 
      At least this is the way things are for most common CISC machines
@@ -1950,6 +2259,7 @@ mod_u_d_type_attribute (type, decl_const, decl_volatile)
   ASM_OUTPUT_LABEL (asm_out_file, end_label);
 }
 
+#ifdef USE_ORDERING_ATTRIBUTE
 inline void
 ordering_attribute (ordering)
      register unsigned ordering;
@@ -1957,6 +2267,7 @@ ordering_attribute (ordering)
   ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_ordering);
   ASM_OUTPUT_DWARF_DATA2 (asm_out_file, ordering);
 }
+#endif /* defined(USE_ORDERING_ATTRIBUTE) */
 
 /* Note that the block of subscript information for an array type also
    includes information about the element type of type given array type.  */
@@ -2084,12 +2395,11 @@ byte_size_attribute (tree_node)
 
       case FIELD_DECL:
 	/* For a data member of a struct or union, the AT_byte_size is
-	   always given as the number of bytes normally allocated for
+	   generally given as the number of bytes normally allocated for
 	   an object of the *declared* type of the member itself.  This
 	   is true even for bit-fields.  */
-	size = int_size_in_bytes (DECL_BIT_FIELD_TYPE (tree_node)
-				  ? DECL_BIT_FIELD_TYPE (tree_node)
-				  : TREE_TYPE (tree_node));
+	size = simple_type_size_in_bits (field_type (tree_node))
+	       / BITS_PER_UNIT;
 	break;
 
       default:
@@ -2114,6 +2424,10 @@ byte_size_attribute (tree_node)
    lives.  The type of this hypothetical "containing object" is always the
    same as the declared type of the individual bit-field itself.
 
+   The determination of the exact location of the "containing object" for
+   a bit-field is rather complicated.  It's handled by the `field_byte_offset'
+   function (above).
+
    Note that it is the size (in bytes) of the hypothetical "containing
    object" which will be given in the AT_byte_size attribute for this
    bit-field.  (See `byte_size_attribute' above.)
@@ -2123,51 +2437,50 @@ inline void
 bit_offset_attribute (decl)
     register tree decl;
 {
+  register unsigned object_offset_in_bytes = field_byte_offset (decl);
   register tree type = DECL_BIT_FIELD_TYPE (decl);
-  register unsigned dwarf_bit_offset;
   register tree bitpos_tree = DECL_FIELD_BITPOS (decl);
   register unsigned bitpos_int;
+  register unsigned highest_order_object_bit_offset;
+  register unsigned highest_order_field_bit_offset;
+  register unsigned bit_offset;
 
   assert (TREE_CODE (decl) == FIELD_DECL);	/* Must be a field.  */
   assert (type);				/* Must be a bit field.	 */
 
-  /* The bit position given by DECL_FIELD_BITPOS could be non-constant
-     in the case where one or more variable sized members preceeded this
-     member in the containing struct type.  We could probably correctly
-     handle this case someday, by it's too complicated to deal with at
-     the moment, so just punt on the whole AT_bit_offset attribute for
-     now.  Eventually, we'll have to analyze the (variable) expression
-     given as the DECL_FIELD_BITPOS and see if we can factor out just
-     the (constant) bit offset part of that expression.  -- rfg  */
+  /* We can't yet handle bit-fields whose offsets are variable, so if we
+     encounter such things, just return without generating any attribute
+     whatsoever.  */
 
   if (TREE_CODE (bitpos_tree) != INTEGER_CST)
     return;
   bitpos_int = (unsigned) TREE_INT_CST_LOW (bitpos_tree);
 
-  /* For a detailed description of how the AT_bit_offset attribute value
-     is calculated, see the comments in `data_member_location_attribute'
-     above.  */
+  /* Note that the bit offset is always the distance (in bits) from the
+     highest-order bit of the "containing object" to the highest-order
+     bit of the bit-field itself.  Since the "high-order end" of any
+     object or field is different on big-endian and little-endian machines,
+     the computation below must take account of these differences.  */
 
-#if (BYTES_BIG_ENDIAN == 1)
-  dwarf_bit_offset = bitpos_int % TYPE_ALIGN (type);
-#else
-  {
-    register unsigned high_order_bitpos
-      = bitpos_int + (unsigned) TREE_INT_CST_LOW (DECL_SIZE (decl));
-    register tree type_size_tree = TYPE_SIZE (type);
-    register unsigned type_size_in_bits;
+  highest_order_object_bit_offset = object_offset_in_bytes * BITS_PER_UNIT;
+  highest_order_field_bit_offset = bitpos_int;
 
-    if (TREE_CODE (type_size_tree) != INTEGER_CST)
-      abort ();
-    type_size_in_bits = (unsigned) TREE_INT_CST_LOW (type_size_tree);
+#if (BYTES_BIG_ENDIAN == 0)
+  highest_order_field_bit_offset
+    += (unsigned) TREE_INT_CST_LOW (DECL_SIZE (decl));
 
-    dwarf_bit_offset = type_size_in_bits
-			- (high_order_bitpos % TYPE_ALIGN (type));
-  }
-#endif
+  highest_order_object_bit_offset += simple_type_size_in_bits (type);
+#endif /* (BYTES_BIG_ENDIAN == 0) */
+
+  bit_offset =
+#if (BYTES_BIG_ENDIAN == 0)
+	  highest_order_object_bit_offset - highest_order_field_bit_offset;
+#else /* (BYTES_BIG_ENDIAN != 0) */
+	  highest_order_field_bit_offset - highest_order_object_bit_offset;
+#endif /* (BYTES_BIG_ENDIAN != 0) */
 
   ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_bit_offset);
-  ASM_OUTPUT_DWARF_DATA2 (asm_out_file, dwarf_bit_offset);
+  ASM_OUTPUT_DWARF_DATA2 (asm_out_file, bit_offset);
 }
 
 /* For a FIELD_DECL node which represents a bit field, output an attribute
@@ -2247,6 +2560,26 @@ high_pc_attribute (asm_high_label)
   ASM_OUTPUT_DWARF_ADDR (asm_out_file, asm_high_label);
 }
 
+/* Generate an AT_body_begin attribute for a subroutine DIE.  */
+
+inline void
+body_begin_attribute (asm_begin_label)
+     register char *asm_begin_label;
+{
+  ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_body_begin);
+  ASM_OUTPUT_DWARF_ADDR (asm_out_file, asm_begin_label);
+}
+
+/* Generate an AT_body_end attribute for a subroutine DIE.  */
+
+inline void
+body_end_attribute (asm_end_label)
+     register char *asm_end_label;
+{
+  ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_body_end);
+  ASM_OUTPUT_DWARF_ADDR (asm_out_file, asm_end_label);
+}
+
 /* Generate an AT_language attribute given a LANG value.  These attributes
    are used only within TAG_compile_unit DIEs.  */
 
@@ -2266,9 +2599,7 @@ member_attribute (context)
 
   /* Generate this attribute only for members in C++.  */
 
-  if (context != NULL
-      && (TREE_CODE (context) == RECORD_TYPE
-	  || TREE_CODE (context) == UNION_TYPE))
+  if (context != NULL && is_tagged_type (context))
     {
       ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_member);
       sprintf (label, TYPE_NAME_FMT, TYPE_UID (context));
@@ -2351,7 +2682,7 @@ inline void
 inline_attribute (decl)
      register tree decl;
 {
-  if (TREE_INLINE (decl))
+  if (DECL_INLINE (decl))
     {
       ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_inline);
       ASM_OUTPUT_DWARF_STRING (asm_out_file, "");
@@ -2370,6 +2701,31 @@ containing_type_attribute (containing_type)
 }
 
 inline void
+abstract_origin_attribute (origin)
+     register tree origin;
+{
+  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+  ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_abstract_origin);
+  switch (TREE_CODE_CLASS (TREE_CODE (origin)))
+    {
+    case 'd':
+      sprintf (label, DECL_NAME_FMT, DECL_UID (origin));
+      break;
+
+    case 't':
+      sprintf (label, TYPE_NAME_FMT, TYPE_UID (origin));
+      break;
+
+    default:
+      abort ();		/* Should never happen.  */
+
+    }
+  ASM_OUTPUT_DWARF_REF (asm_out_file, label);
+}
+
+#ifdef DWARF_DECL_COORDINATES
+inline void
 src_coords_attribute (src_fileno, src_lineno)
      register unsigned src_fileno;
      register unsigned src_lineno;
@@ -2377,6 +2733,23 @@ src_coords_attribute (src_fileno, src_lineno)
   ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_src_coords);
   ASM_OUTPUT_DWARF_DATA2 (asm_out_file, src_fileno);
   ASM_OUTPUT_DWARF_DATA2 (asm_out_file, src_lineno);
+}
+#endif /* defined(DWARF_DECL_COORDINATES) */
+
+inline void
+pure_or_virtual_attribute (func_decl)
+     register tree func_decl;
+{
+  if (DECL_VIRTUAL_P (func_decl))
+    {
+#if 0 /* DECL_ABSTRACT_VIRTUAL_P is C++-specific.  */
+      if (DECL_ABSTRACT_VIRTUAL_P (func_decl))
+        ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_pure_virtual);
+      else
+#endif
+        ASM_OUTPUT_DWARF_ATTRIBUTE (asm_out_file, AT_virtual);
+      ASM_OUTPUT_DWARF_STRING (asm_out_file, "");
+    }
 }
 
 /************************* end of attributes *****************************/
@@ -2386,7 +2759,7 @@ src_coords_attribute (src_fileno, src_lineno)
 /* Output an AT_name attribute and an AT_src_coords attribute for the
    given decl, but only if it actually has a name.  */
 
-inline void
+static void
 name_and_src_coords_attributes (decl)
     register tree decl;
 {
@@ -2415,7 +2788,7 @@ name_and_src_coords_attributes (decl)
 
         src_coords_attribute (file_index, DECL_SOURCE_LINE (decl));
       }
-#endif
+#endif /* defined(DWARF_DECL_COORDINATES) */
     }
 }
 
@@ -2563,9 +2936,9 @@ output_array_type_die (arg)
      we will only do so for multidimensional arrays.  After all, we don't
      want to waste space in the .debug section now do we?)  */
 
-#if 0
+#ifdef USE_ORDERING_ATTRIBUTE
   ordering_attribute (ORD_row_major);
-#endif
+#endif /* defined(USE_ORDERING_ATTRIBUTE) */
 
   subscript_data_attribute (type);
 }
@@ -2590,17 +2963,67 @@ output_entry_point_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
-  register tree return_type = TREE_TYPE (type);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_entry_point);
   sibling_attribute ();
   dienum_push ();
-  name_and_src_coords_attributes (decl);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (return_type, 0, 0);
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
+    {
+      name_and_src_coords_attributes (decl);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (TREE_TYPE (decl)), 0, 0);
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
+    low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
 }
 #endif
+
+/* Output a DIE to represent an inlined instance of an enumeration type.  */
+
+static void
+output_inlined_enumeration_type_die (arg)
+     register void *arg;
+{
+  register tree type = arg;
+
+  ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_enumeration_type);
+  sibling_attribute ();
+  assert (TREE_ASM_WRITTEN (type));
+  abstract_origin_attribute (type);
+}
+
+/* Output a DIE to represent an inlined instance of a structure type.  */
+
+static void
+output_inlined_structure_type_die (arg)
+     register void *arg;
+{
+  register tree type = arg;
+
+  ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_structure_type);
+  sibling_attribute ();
+  assert (TREE_ASM_WRITTEN (type));
+  abstract_origin_attribute (type);
+}
+
+/* Output a DIE to represent an inlined instance of a union type.  */
+
+static void
+output_inlined_union_type_die (arg)
+     register void *arg;
+{
+  register tree type = arg;
+
+  ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_union_type);
+  sibling_attribute ();
+  assert (TREE_ASM_WRITTEN (type));
+  abstract_origin_attribute (type);
+}
 
 /* Output a DIE to represent an enumeration type.  Note that these DIEs
    include all of the information about the enumeration values also.
@@ -2634,37 +3057,51 @@ output_enumeration_type_die (arg)
    function type.
 
    Note that this routine is a bit unusual because its argument may be
-   either a PARM_DECL node or else some sort of a ..._TYPE node.  If it's
-   the formar then this function is being called to output a real live
-   formal parameter declaration.  If it's the latter, then this function
-   is only being called to output a TAG_formal_parameter DIE to stand as
-   a placeholder for some formal argument type of some subprogram type.  */
+   a ..._DECL node (i.e. either a PARM_DECL or perhaps a VAR_DECL which
+   represents an inlining of some PARM_DECL) or else some sort of a
+   ..._TYPE node.  If it's the former then this function is being called
+   to output a DIE to represent a formal parameter object (or some inlining
+   thereof).  If it's the latter, then this function is only being called
+   to output a TAG_formal_parameter DIE to stand as a placeholder for some
+   formal argument type of some subprogram type.  */
 
 static void
 output_formal_parameter_die (arg)
      register void *arg;
 {
-  register tree decl = arg;
-  register tree type;
-
-  if (TREE_CODE (decl) == PARM_DECL)
-    type = TREE_TYPE (decl);
-  else
-    {
-      type = decl;	/* we were called with a type, not a decl */
-      decl = NULL;
-    }
+  register tree node = arg;
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_formal_parameter);
   sibling_attribute ();
-  if (decl)
+
+  switch (TREE_CODE_CLASS (TREE_CODE (node)))
     {
-      name_and_src_coords_attributes (decl);
-      type_attribute (type, TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
-      location_or_const_value_attribute (decl);
+    case 'd':	/* We were called with some kind of a ..._DECL node.  */
+      {
+	register tree origin = decl_ultimate_origin (node);
+
+	if (origin != NULL)
+	  abstract_origin_attribute (origin);
+	else
+	  {
+	    name_and_src_coords_attributes (node);
+	    type_attribute (TREE_TYPE (node),
+			    TREE_READONLY (node), TREE_THIS_VOLATILE (node));
+	  }
+	if (DECL_ABSTRACT (node))
+	  equate_decl_number_to_die_number (node);
+	else
+	  location_or_const_value_attribute (node);
+      }
+      break;
+
+    case 't':	/* We were called with some kind of a ..._TYPE node.  */
+      type_attribute (node, 0, 0);
+      break;
+
+    default:
+      abort ();	/* Should never happen.  */
     }
-  else
-    type_attribute (type, 0, 0);
 }
 
 /* Output a DIE to represent a declared function (either file-scope
@@ -2675,24 +3112,40 @@ output_global_subroutine_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
-  register tree return_type = TREE_TYPE (type);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_global_subroutine);
   sibling_attribute ();
   dienum_push ();
-  name_and_src_coords_attributes (decl);
-  inline_attribute (decl);
-  prototyped_attribute (type);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (return_type, 0, 0);
-  if (!TREE_EXTERNAL (decl))
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
     {
-      char func_end_label[MAX_ARTIFICIAL_LABEL_BYTES];
+      register tree type = TREE_TYPE (decl);
 
-      low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
-      sprintf (func_end_label, FUNC_END_LABEL_FMT, current_funcdef_number);
-      high_pc_attribute (func_end_label);
+      name_and_src_coords_attributes (decl);
+      inline_attribute (decl);
+      prototyped_attribute (type);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (type), 0, 0);
+      pure_or_virtual_attribute (decl);
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
+    {
+      if (! DECL_EXTERNAL (decl))
+	{
+	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+	  low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
+	  sprintf (label, FUNC_END_LABEL_FMT, current_funcdef_number);
+	  high_pc_attribute (label);
+	  sprintf (label, BODY_BEGIN_LABEL_FMT, current_funcdef_number);
+	  body_begin_attribute (label);
+	  sprintf (label, BODY_END_LABEL_FMT, current_funcdef_number);
+	  body_end_attribute (label);
+	}
     }
 }
 
@@ -2704,103 +3157,64 @@ output_global_variable_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_global_variable);
   sibling_attribute ();
-  name_and_src_coords_attributes (decl);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (type, TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
-  if (!TREE_EXTERNAL (decl))
-    location_or_const_value_attribute (decl);
-}
-
-#if 0
-/* TAG_inline_subroutine has been retired by the UI/PLSIG.  We're
-   now supposed to use either TAG_subroutine or TAG_global_subroutine
-   (depending on whether or not the function in question has internal
-   or external linkage) and we're supposed to just put in an AT_inline
-   attribute.  */
-static void
-output_inline_subroutine_die (arg)
-     register void *arg;
-{
-  register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
-  register tree return_type = TREE_TYPE (type);
-
-  ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_inline_subroutine);
-  sibling_attribute ();
-  dienum_push ();
-  name_and_src_coords_attributes (decl);
-  prototyped_attribute (type);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (return_type, 0, 0);
-
-  /* Note:  For each inline function which gets an out-of-line body
-     generated for it, we want to generate AT_low_pc and AT_high_pc
-     attributes here for the function's out-of-line body.
-
-     Unfortunately, the decision as to whether or not to generate an
-     out-of-line body for any given inline function may not be made
-     until we reach the end of the containing scope for the given
-     inline function (because only then will it be known if the
-     function was ever even called).
-
-     For this reason, the output of DIEs representing file-scope inline
-     functions gets delayed until a special post-pass which happens only
-     after we have reached the end of the compilation unit.  Because of
-     this mechanism, we can always be sure (by the time we reach here)
-     that TREE_ASM_WRITTEN(decl) will correctly indicate whether or not
-     there was an out-of-line body generated for this inline function.
-  */
-
-  if (!TREE_EXTERNAL (decl))
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
     {
-      if (TREE_ASM_WRITTEN (decl))
-        {
-          char func_end_label[MAX_ARTIFICIAL_LABEL_BYTES];
-
-          low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
-          sprintf (func_end_label, FUNC_END_LABEL_FMT, current_funcdef_number);
-          high_pc_attribute (func_end_label);
-        }
+      name_and_src_coords_attributes (decl);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (decl),
+		      TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
+    {
+      if (!DECL_EXTERNAL (decl))
+	location_or_const_value_attribute (decl);
     }
 }
-#endif
 
 static void
 output_label_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register rtx insn = DECL_RTL (decl);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_label);
   sibling_attribute ();
-  name_and_src_coords_attributes (decl);
-
-  /* When optimization is enabled (with -O) the code in jump.c and in flow.c
-     may cause insns representing one of more of the user's own labels to
-     be deleted.  This happens whenever it is determined that a given label
-     is unreachable.
-
-     In such cases, we here generate an abbreviated form of a label DIE.
-     This abbreviated version does *not* have a low_pc attribute.  This
-     should signify to the debugger that the label has been optimized away.
-
-     Note that a CODE_LABEL can get deleted either by begin converted into
-     a NOTE_INSN_DELETED note, or by simply having its INSN_DELETED_P flag
-     set to true.  We handle both cases here.
-  */
-
-  if (GET_CODE (insn) == CODE_LABEL && ! INSN_DELETED_P (insn))
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
+    name_and_src_coords_attributes (decl);
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
     {
-      char label[MAX_ARTIFICIAL_LABEL_BYTES];
+      register rtx insn = DECL_RTL (decl);
 
-      sprintf (label, INSN_LABEL_FMT, current_funcdef_number,
-				      (unsigned) INSN_UID (insn));
-      low_pc_attribute (label);
+      if (GET_CODE (insn) == CODE_LABEL)
+	{
+	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+	  /* When optimization is enabled (via -O) some parts of the compiler
+	     (e.g. jump.c and cse.c) may try to delete CODE_LABEL insns which
+	     represent source-level labels which were explicitly declared by
+	     the user.  This really shouldn't be happening though, so catch
+	     it if it ever does happen.  */
+
+	  if (INSN_DELETED_P (insn))
+	    abort ();	/* Should never happen.  */
+
+	  sprintf (label, INSN_LABEL_FMT, current_funcdef_number,
+				          (unsigned) INSN_UID (insn));
+	  low_pc_attribute (label);
+	}
     }
 }
 
@@ -2809,16 +3223,20 @@ output_lexical_block_die (arg)
      register void *arg;
 {
   register tree stmt = arg;
-  char begin_label[MAX_ARTIFICIAL_LABEL_BYTES];
-  char end_label[MAX_ARTIFICIAL_LABEL_BYTES];
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_lexical_block);
   sibling_attribute ();
   dienum_push ();
-  sprintf (begin_label, BLOCK_BEGIN_LABEL_FMT, next_block_number);
-  low_pc_attribute (begin_label);
-  sprintf (end_label, BLOCK_END_LABEL_FMT, next_block_number);
-  high_pc_attribute (end_label);
+  if (! BLOCK_ABSTRACT (stmt))
+    {
+      char begin_label[MAX_ARTIFICIAL_LABEL_BYTES];
+      char end_label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+      sprintf (begin_label, BLOCK_BEGIN_LABEL_FMT, next_block_number);
+      low_pc_attribute (begin_label);
+      sprintf (end_label, BLOCK_END_LABEL_FMT, next_block_number);
+      high_pc_attribute (end_label);
+    }
 }
 
 static void
@@ -2826,16 +3244,21 @@ output_inlined_subroutine_die (arg)
      register void *arg;
 {
   register tree stmt = arg;
-  char begin_label[MAX_ARTIFICIAL_LABEL_BYTES];
-  char end_label[MAX_ARTIFICIAL_LABEL_BYTES];
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_inlined_subroutine);
   sibling_attribute ();
   dienum_push ();
-  sprintf (begin_label, BLOCK_BEGIN_LABEL_FMT, next_block_number);
-  low_pc_attribute (begin_label);
-  sprintf (end_label, BLOCK_END_LABEL_FMT, next_block_number);
-  high_pc_attribute (end_label);
+  abstract_origin_attribute (block_ultimate_origin (stmt));
+  if (! BLOCK_ABSTRACT (stmt))
+    {
+      char begin_label[MAX_ARTIFICIAL_LABEL_BYTES];
+      char end_label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+      sprintf (begin_label, BLOCK_BEGIN_LABEL_FMT, next_block_number);
+      low_pc_attribute (begin_label);
+      sprintf (end_label, BLOCK_END_LABEL_FMT, next_block_number);
+      high_pc_attribute (end_label);
+    }
 }
 
 /* Output a DIE to represent a declared data object (either file-scope
@@ -2846,14 +3269,23 @@ output_local_variable_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_local_variable);
   sibling_attribute ();
-  name_and_src_coords_attributes (decl);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (type, TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
-  location_or_const_value_attribute (decl);
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
+    {
+      name_and_src_coords_attributes (decl);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (decl),
+		      TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
+    location_or_const_value_attribute (decl);
 }
 
 static void
@@ -2878,13 +3310,8 @@ output_member_die (arg)
 }
 
 #if 0
-/* Don't generate either pointer_type DIEs or reference_type DIEs.  According
-   to the 4-4-90 Dwarf draft spec (just after requirement #47):
-
-	These two type entries are not currently generated by any compiler.
-	Since the only way to name a pointer (or reference) type is C or C++
-	is via a "typedef", an entry with the "typedef" tag is generated
-	instead.
+/* Don't generate either pointer_type DIEs or reference_type DIEs.  Use
+   modified types instead.
 
    We keep this code here just in case these types of DIEs may be needed
    to represent certain things in other languages (e.g. Pascal) someday.
@@ -2917,6 +3344,7 @@ output_reference_type_die (arg)
 }
 #endif
 
+static void
 output_ptr_to_mbr_type_die (arg)
      register void *arg;
 {
@@ -2987,8 +3415,7 @@ output_string_type_die (arg)
 
   /* Fudge the string length attribute for now.  */
 
-  string_length_attribute (
-	TYPE_MAX_VALUE (TYPE_DOMAIN (type)));
+  string_length_attribute (TYPE_MAX_VALUE (TYPE_DOMAIN (type)));
 }
 
 static void
@@ -3024,27 +3451,43 @@ output_local_subroutine_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
-  register tree return_type = TREE_TYPE (type);
-  char func_end_label[MAX_ARTIFICIAL_LABEL_BYTES];
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_subroutine);
   sibling_attribute ();
   dienum_push ();
-  name_and_src_coords_attributes (decl);
-  inline_attribute (decl);
-  prototyped_attribute (type);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (return_type, 0, 0);
-
-  /* Avoid getting screwed up in cases where a function was declared static
-     but where no definition was ever given for it.  */
-
-  if (TREE_ASM_WRITTEN (decl))
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
     {
-      low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
-      sprintf (func_end_label, FUNC_END_LABEL_FMT, current_funcdef_number);
-      high_pc_attribute (func_end_label);
+      register tree type = TREE_TYPE (decl);
+
+      name_and_src_coords_attributes (decl);
+      inline_attribute (decl);
+      prototyped_attribute (type);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (type), 0, 0);
+      pure_or_virtual_attribute (decl);
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
+  else
+    {
+      /* Avoid getting screwed up in cases where a function was declared
+	 static but where no definition was ever given for it.  */
+
+      if (TREE_ASM_WRITTEN (decl))
+	{
+	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+	  low_pc_attribute (IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl)));
+	  sprintf (label, FUNC_END_LABEL_FMT, current_funcdef_number);
+	  high_pc_attribute (label);
+	  sprintf (label, BODY_BEGIN_LABEL_FMT, current_funcdef_number);
+	  body_begin_attribute (label);
+	  sprintf (label, BODY_END_LABEL_FMT, current_funcdef_number);
+	  body_end_attribute (label);
+	}
     }
 }
 
@@ -3069,13 +3512,21 @@ output_typedef_die (arg)
      register void *arg;
 {
   register tree decl = arg;
-  register tree type = TREE_TYPE (decl);
+  register tree origin = decl_ultimate_origin (decl);
 
   ASM_OUTPUT_DWARF_TAG (asm_out_file, TAG_typedef);
   sibling_attribute ();
-  name_and_src_coords_attributes (decl);
-  member_attribute (DECL_CONTEXT (decl));
-  type_attribute (type, TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
+  if (origin != NULL)
+    abstract_origin_attribute (origin);
+  else
+    {
+      name_and_src_coords_attributes (decl);
+      member_attribute (DECL_CONTEXT (decl));
+      type_attribute (TREE_TYPE (decl),
+		      TREE_READONLY (decl), TREE_THIS_VOLATILE (decl));
+    }
+  if (DECL_ABSTRACT (decl))
+    equate_decl_number_to_die_number (decl);
 }
 
 static void
@@ -3216,7 +3667,7 @@ output_formal_types (function_or_method_type)
      register tree function_or_method_type;
 {
   register tree link;
-  register tree formal_type;
+  register tree formal_type = NULL;
   register tree first_parm_type = TYPE_ARG_TYPES (function_or_method_type);
 
   /* In the case where we are generating a formal types list for a C++
@@ -3290,21 +3741,10 @@ pend_type (type)
 
 /* Return non-zero if it is legitimate to output DIEs to represent a
    given type while we are generating the list of child DIEs for some
-   DIE associated with a given scope.
+   DIE (e.g. a function or lexical block DIE) associated with a given scope.
 
-   This function returns non-zero if *either* of the following two conditions
-   is satisfied:
-
-	 o	the type actually belongs to the given scope (as evidenced
-		by its TYPE_CONTEXT value), or
-
-	 o	the type is anonymous, and the `scope' in question is *not*
-		a RECORD_TYPE or UNION_TYPE.
-
-   In theory, we should be able to generate DIEs for anonymous types
-   *anywhere* (since the scope of an anonymous type is irrelevant)
-   however svr4 SDB doesn't want to see other type DIEs within the
-   lists of child DIEs for a TAG_structure_type or TAG_union_type DIE.
+   See the comments within the function for a description of when it is
+   considered legitimate to output DIEs for various kinds of types.
 
    Note that TYPE_CONTEXT(type) may be NULL (to indicate global scope)
    or it may point to a BLOCK node (for types local to a block), or to a
@@ -3326,28 +3766,38 @@ pend_type (type)
    It order to delay the production of DIEs representing types of formal
    parameters, callers of this function supply `fake_containing_scope' as
    the `scope' parameter to this function.  Given that fake_containing_scope
-   is *not* the containing scope for *any* other type, the desired effect
-   is achieved, i.e. output of DIEs representing types is temporarily
-   suspended, and any type DIEs which would have been output otherwise
-   are instead placed onto the pending_types_list.  Later on, we can force
-   these (temporarily pended) types to be output simply by calling
+   is a tagged type which is *not* the containing scope for *any* other type,
+   the desired effect is achieved, i.e. output of DIEs representing types
+   is temporarily suspended, and any type DIEs which would have otherwise
+   been output are instead placed onto the pending_types_list.  Later on,
+   we force these (temporarily pended) types to be output simply by calling
    `output_pending_types_for_scope' with an actual argument equal to the
    true scope of the types we temporarily pended.
 */
 
-static int
+inline int
 type_ok_for_scope (type, scope)
     register tree type;
     register tree scope;
 {
-  return (TYPE_CONTEXT (type) == scope
-	  || (TYPE_NAME (type) == NULL
-	      && TREE_CODE (scope) != RECORD_TYPE
-	      && TREE_CODE (scope) != UNION_TYPE));
+  /* Tagged types (i.e. struct, union, and enum types) must always be
+     output only in the scopes where they actually belong (or else the
+     scoping of their own tag names and the scoping of their member
+     names will be incorrect).  Non-tagged-types on the other hand can
+     generally be output anywhere, except that svr4 SDB really doesn't
+     want to see them nested within struct or union types, so here we
+     say it is always OK to immediately output any such a (non-tagged)
+     type, so long as we are not within such a context.  Note that the
+     only kinds of non-tagged types which we will be dealing with here
+     (for C and C++ anyway) will be array types and function types.  */
+
+  return is_tagged_type (type)
+	 ? (TYPE_CONTEXT (type) == scope)
+	 : (scope == NULL_TREE || ! is_tagged_type (scope));
 }
 
 /* Output any pending types (from the pending_types list) which we can output
-   now (given the limitations of the scope that we are working on now).
+   now (taking into account the scope that we are working on now).
 
    For each type output, remove the given type from the pending_types_list
    *before* we try to output it.
@@ -3428,7 +3878,7 @@ output_type (type, containing_scope)
       case POINTER_TYPE:
       case REFERENCE_TYPE:
 	/* For these types, all that is required is that we output a DIE
-	   (or a set of DIEs) to represent that "basis" type.  */
+	   (or a set of DIEs) to represent the "basis" type.  */
 	output_type (TREE_TYPE (type), containing_scope);
 	break;
 
@@ -3545,6 +3995,9 @@ output_type (type, containing_scope)
 	  case UNION_TYPE:
 	    output_die (output_union_type_die, type);
 	    break;
+
+	  default:
+	    abort ();	/* Should never happen.  */
 	  }
 
 	/* If this is not an incomplete type, output descriptions of
@@ -3604,6 +4057,12 @@ output_type (type, containing_scope)
 		}
 	    }
 
+	    /* RECORD_TYPEs and UNION_TYPEs are themselves scopes (at least
+	       in C++) so we must now output any nested pending types which
+	       are local just to this RECORD_TYPE or UNION_TYPE.  */
+
+	    output_pending_types_for_scope (type);
+
 	    end_sibling_chain ();	/* Terminate member chain.  */
 	  }
 
@@ -3626,6 +4085,44 @@ output_type (type, containing_scope)
 
   TREE_ASM_WRITTEN (type) = 1;
 }
+
+static void
+output_tagged_type_instantiation (type)
+     register tree type;
+{
+  if (type == 0 || type == error_mark_node)
+    return;
+
+  /* We are going to output a DIE to represent the unqualified version of
+     of this type (i.e. without any const or volatile qualifiers) so make
+     sure that we have the main variant (i.e. the unqualified version) of
+     this type now.  */
+
+  assert (type == TYPE_MAIN_VARIANT (type));
+
+  assert (TREE_ASM_WRITTEN (type));
+
+  switch (TREE_CODE (type))
+    {
+      case ERROR_MARK:
+	break;
+
+      case ENUMERAL_TYPE:
+	output_die (output_inlined_enumeration_type_die, type);
+	break;
+
+      case RECORD_TYPE:
+	output_die (output_inlined_structure_type_die, type);
+	break;
+
+      case UNION_TYPE:
+	output_die (output_inlined_union_type_die, type);
+	break;
+
+      default:
+	abort ();	/* Should never happen.  */
+    }
+}
 
 /* Output a TAG_lexical_block DIE followed by DIEs to represent all of
    the things which are local to the given block.  */
@@ -3634,33 +4131,67 @@ static void
 output_block (stmt)
     register tree stmt;
 {
-  register int have_significant_locals = 0;
+  register int must_output_die = 0;
+  register tree origin;
+  register enum tree_code origin_code;
 
   /* Ignore blocks never really used to make RTL.  */
 
   if (! stmt || ! TREE_USED (stmt))
     return;
 
-  /* Determine if this block contains any "significant" local declarations
-     which we need to output DIEs for.  */
+  /* Determine the "ultimate origin" of this block.  This block may be an
+     inlined instance of an inlined instance of inline function, so we
+     have to trace all of the way back through the origin chain to find
+     out what sort of node actually served as the original seed for the
+     creation of the current block.  */
 
-  if (BLOCK_INLINE_FUNCTION (stmt))
-    /* The outer scopes for inlinings *must* always be represented.  */
-    have_significant_locals = 1;
+  origin = block_ultimate_origin (stmt);
+  origin_code = (origin != NULL) ? TREE_CODE (origin) : ERROR_MARK;
+
+  /* Determine if we need to output any Dwarf DIEs at all to represent this
+     block.  */
+
+  if (origin_code == FUNCTION_DECL)
+    /* The outer scopes for inlinings *must* always be represented.  We
+       generate TAG_inlined_subroutine DIEs for them.  (See below.)  */
+    must_output_die = 1;
   else
-    if (debug_info_level > DINFO_LEVEL_TERSE)
-      have_significant_locals = (BLOCK_VARS (stmt) != NULL);
-    else
-      {
-        register tree decl;
+    {
+      /* In the case where the current block represents an inlining of the
+	 "body block" of an inline function, we must *NOT* output any DIE
+	 for this block because we have already output a DIE to represent
+	 the whole inlined function scope and the "body block" of any
+	 function doesn't really represent a different scope according to
+	 ANSI C rules.  So we check here to make sure that this block does
+	 not represent a "body block inlining" before trying to set the
+	 `must_output_die' flag.  */
 
-	for (decl = BLOCK_VARS (stmt); decl; decl = TREE_CHAIN (decl))
-	  if (TREE_CODE (decl) == FUNCTION_DECL && DECL_INITIAL (decl))
+      if (origin == NULL || ! is_body_block (origin))
+	{
+	  /* Determine if this block directly contains any "significant"
+	     local declarations which we will need to output DIEs for.  */
+
+	  if (debug_info_level > DINFO_LEVEL_TERSE)
+	    /* We are not in terse mode so *any* local declaration counts
+	       as being a "significant" one.  */
+	    must_output_die = (BLOCK_VARS (stmt) != NULL);
+	  else
 	    {
-	      have_significant_locals = 1;
-	      break;
+	      register tree decl;
+
+	      /* We are in terse mode, so only local (nested) function
+	         definitions count as "significant" local declarations.  */
+
+	      for (decl = BLOCK_VARS (stmt); decl; decl = TREE_CHAIN (decl))
+		if (TREE_CODE (decl) == FUNCTION_DECL && DECL_INITIAL (decl))
+		  {
+		    must_output_die = 1;
+		    break;
+		  }
 	    }
-      }
+	}
+    }
 
   /* It would be a waste of space to generate a Dwarf TAG_lexical_block
      DIE for any block which contains no significant local declarations
@@ -3670,11 +4201,11 @@ output_block (stmt)
      a "significant" local declaration gets restricted to include only
      inlined function instances and local (nested) function definitions.  */
 
-  if (have_significant_locals)
+  if (must_output_die)
     {
-      output_die (BLOCK_INLINE_FUNCTION (stmt)
-			? output_inlined_subroutine_die
-			: output_lexical_block_die,
+      output_die ((origin_code == FUNCTION_DECL)
+		    ? output_inlined_subroutine_die
+		    : output_lexical_block_die,
 		  stmt);
       output_decls_for_scope (stmt);
       end_sibling_chain ();
@@ -3695,7 +4226,8 @@ output_decls_for_scope (stmt)
   if (! stmt || ! TREE_USED (stmt))
     return;
 
-  next_block_number++;
+  if (! BLOCK_ABSTRACT (stmt))
+    next_block_number++;
 
   /* Output the DIEs to represent all of the data objects, functions,
      typedefs, and tagged types declared directly within this block
@@ -3730,6 +4262,12 @@ output_decl (decl, containing_scope)
      register tree decl;
      register tree containing_scope;
 {
+  /* Make a note of the decl node we are going to be working on.  We may
+     need to give the user the source coordinates of where it appeared in
+     case we notice (later on) that something about it looks screwy.  */
+
+  dwarf_last_decl = decl;
+
   if (TREE_CODE (decl) == ERROR_MARK)
     return;
 
@@ -3755,7 +4293,7 @@ output_decl (decl, containing_scope)
 	 to the DWARF version 1 specification, don't output DIEs for
 	 mere external function declarations.  */
 
-      if (TREE_EXTERNAL (decl))
+      if (DECL_EXTERNAL (decl))
 #if (DWARF_VERSION > 1)
 	if (debug_info_level <= DINFO_LEVEL_TERSE)
 #endif
@@ -3782,7 +4320,7 @@ output_decl (decl, containing_scope)
 
       /* Now output a DIE to represent the function itself.  */
 
-      output_die (TREE_PUBLIC (decl) || TREE_EXTERNAL (decl)
+      output_die (TREE_PUBLIC (decl) || DECL_EXTERNAL (decl)
 				? output_global_subroutine_die
 				: output_local_subroutine_die,
 		  decl);
@@ -3802,23 +4340,11 @@ output_decl (decl, containing_scope)
 	 we need to do here (and all we *can* do here) is to describe
 	 the *types* of its formal parameters.  */
 
-      if (TREE_EXTERNAL (decl))
+      if (DECL_EXTERNAL (decl))
 	output_formal_types (TREE_TYPE (decl));
       else
 	{
 	  register tree arg_decls = DECL_ARGUMENTS (decl);
-
-	  /* In the case where the FUNCTION_DECL represents a C++ non-static
-	     member function, skip over the first thing on the DECL_ARGUMENTS
-	     chain.  It only represents the hidden `this pointer' parameter
-	     and the debugger should know implicitly that non-static member
-	     functions have such a thing, and should be able to figure out
-	     exactly what the type of each `this pointer' is (from the
-	     AT_member attribute of the parent TAG_subroutine DIE)  without
-	     being explicitly told.  */
-
-	  if (TREE_CODE (TREE_TYPE (decl)) == METHOD_TYPE)
-	    arg_decls = TREE_CHAIN (arg_decls);
 
 	  {
 	    register tree last_arg;
@@ -3942,19 +4468,25 @@ output_decl (decl, containing_scope)
 	if (outer_scope && TREE_CODE (outer_scope) != ERROR_MARK)
 	  {
 	    /* Note that here, `outer_scope' is a pointer to the outermost
-	       BLOCK node created to represent the body of a function.
+	       BLOCK node created to represent a function.
 	       This outermost BLOCK actually represents the outermost
 	       binding contour for the function, i.e. the contour in which
-	       the function's formal parameters get declared.  Just within
-	       this contour, there will be another (nested) BLOCK which
-	       represents the function's outermost block.  We don't want
-	       to generate a lexical_block DIE to represent the outermost
-	       block of a function body, because that is not really an
+	       the function's formal parameters and labels get declared.
+
+	       Curiously, it appears that the front end doesn't actually
+	       put the PARM_DECL nodes for the current function onto the
+	       BLOCK_VARS list for this outer scope.  (They are strung
+	       off of the DECL_ARGUMENTS list for the function instead.)
+	       The BLOCK_VARS list for the `outer_scope' does provide us
+	       with a list of the LABEL_DECL nodes for the function however,
+	       and we output DWARF info for those here.
+
+	       Just within the `outer_scope' there will be another BLOCK
+	       node representing the function's outermost pair of curly
+	       braces.  We musn't generate a lexical_block DIE for this
+	       outermost pair of curly braces because that is not really an
 	       independent scope according to ANSI C rules.  Rather, it is
-	       the same scope in which the parameters were declared and
-	       for Dwarf, we do not generate a TAG_lexical_block DIE for
-	       that scope.  We must however see to it that the LABEL_DECLs
-	       associated with `outer_scope' get DIEs generated for them.  */
+	       the same scope in which the parameters were declared.  */
 
 	    {
 	      register tree label;
@@ -3964,6 +4496,11 @@ output_decl (decl, containing_scope)
 		   label = TREE_CHAIN (label))
 		output_decl (label, outer_scope);
 	    }
+
+	    /* Note here that `BLOCK_SUBBLOCKS (outer_scope)' points to a
+	       list of BLOCK nodes which is always only one element long.
+	       That one element represents the outermost pair of curley
+	       braces for the function body.  */
 
 	    output_decls_for_scope (BLOCK_SUBBLOCKS (outer_scope));
 
@@ -3995,6 +4532,20 @@ output_decl (decl, containing_scope)
 	    || ! TYPE_USED_FOR_FUNCTION (TREE_TYPE (decl)))
           return;
 
+      /* In the special case of a null-named TYPE_DECL node (representing
+	 the declaration of some type tag), if the given TYPE_DECL is
+	 marked as having been instantiated from some other (original)
+	 TYPE_DECL node (e.g. one which was generated within the original
+	 definition of an inline function) we have to generate a special
+	 (abbreviated) TAG_structure_type, TAG_union_type, or
+	 TAG_enumeration-type DIE here.  */
+
+      if (! DECL_NAME (decl) && DECL_ABSTRACT_ORIGIN (decl))
+	{
+	  output_tagged_type_instantiation (TREE_TYPE (decl));
+	  return;
+	}
+
       output_type (TREE_TYPE (decl), containing_scope);
 
       /* Note that unlike the gcc front end (which generates a NULL named
@@ -4021,7 +4572,7 @@ output_decl (decl, containing_scope)
 	 generated any DIEs to represent mere external object declarations.  */
 
 #if (DWARF_VERSION <= 1)
-      if (TREE_EXTERNAL (decl) && ! TREE_PUBLIC (decl))
+      if (DECL_EXTERNAL (decl) && ! TREE_PUBLIC (decl))
 	break;
 #endif
 
@@ -4042,7 +4593,7 @@ output_decl (decl, containing_scope)
 	 was already generated in the .debug_pubnames section sub-entry
 	 for this data object definition.  */
 
-      if (TREE_PUBLIC (decl))
+      if (TREE_PUBLIC (decl) && ! DECL_ABSTRACT (decl))
 	{
 	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
 
@@ -4050,11 +4601,26 @@ output_decl (decl, containing_scope)
 	  ASM_OUTPUT_LABEL (asm_out_file, label);
 	}
 
-      /* Now output the DIE to represent the data object itself.  */
+      /* Now output the DIE to represent the data object itself.  This gets
+	 complicated because of the possibility that the VAR_DECL really
+	 represents an inlined instance of a formal parameter for an inline
+	 function.  */
 
-      output_die (TREE_PUBLIC (decl) || TREE_EXTERNAL (decl)
-		   ? output_global_variable_die : output_local_variable_die,
-		  decl);
+      {
+        register void (*func) ();
+	register tree origin = decl_ultimate_origin (decl);
+
+	if (origin != NULL && TREE_CODE (origin) == PARM_DECL)
+	  func = output_formal_parameter_die;
+	else
+	  {
+	    if (TREE_PUBLIC (decl) || DECL_EXTERNAL (decl))
+	      func = output_global_variable_die;
+	    else
+	      func = output_local_variable_die;
+	  }
+	output_die (func, decl);
+      }
       break;
 
     case FIELD_DECL:
@@ -4112,7 +4678,7 @@ dwarfout_file_scope_decl (decl, set_finalizing)
 	 a builtin function.  Explicit programmer-supplied declarations of
 	 these same functions should NOT be ignored however.  */
 
-      if (TREE_EXTERNAL (decl) && DECL_FUNCTION_CODE (decl))
+      if (DECL_EXTERNAL (decl) && DECL_FUNCTION_CODE (decl))
         return;
 
       /* Ignore this FUNCTION_DECL if it refers to a file-scope extern
@@ -4125,10 +4691,12 @@ dwarfout_file_scope_decl (decl, set_finalizing)
 	 lookup mechanism and cause it to miss things which really ought
 	 to be in scope at a given point.  */
 
-      if (TREE_EXTERNAL (decl) && !TREE_USED (decl))
+      if (DECL_EXTERNAL (decl) && !TREE_USED (decl))
 	return;
 
-      if (TREE_PUBLIC (decl) && ! TREE_EXTERNAL (decl))
+      if (TREE_PUBLIC (decl)
+	  && ! DECL_EXTERNAL (decl)
+	  && ! DECL_ABSTRACT (decl))
 	{
 	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
 
@@ -4158,12 +4726,13 @@ dwarfout_file_scope_decl (decl, set_finalizing)
 	 lookup mechanism and cause it to miss things which really ought
 	 to be in scope at a given point.  */
 
-      if (TREE_EXTERNAL (decl) && !TREE_USED (decl))
+      if (DECL_EXTERNAL (decl) && !TREE_USED (decl))
 	return;
 
       if (TREE_PUBLIC (decl)
-	  && ! TREE_EXTERNAL (decl)
-	  && GET_CODE (DECL_RTL (decl)) == MEM)
+	  && ! DECL_EXTERNAL (decl)
+	  && GET_CODE (DECL_RTL (decl)) == MEM
+	  && ! DECL_ABSTRACT (decl))
 	{
 	  char label[MAX_ARTIFICIAL_LABEL_BYTES];
 
@@ -4205,9 +4774,18 @@ dwarfout_file_scope_decl (decl, set_finalizing)
       break;
 
     case TYPE_DECL:
-      /* Don't generate any DIEs to represent the standard built-in types.  */
+      /* Don't bother trying to generate any DIEs to represent any of the
+	 normal built-in types for the language we are compiling, except
+	 in cases where the types in question are *not* DWARF fundamental
+	 types.  We make an exception in the case of non-fundamental types
+	 for the sake of objective C (and perhaps C++) because the GNU
+	 front-ends for these languages may in fact create certain "built-in"
+	 types which are (for example) RECORD_TYPEs.  In such cases, we
+	 really need to output these (non-fundamental) types because other
+	 DIEs may contain references to them.  */
 
-      if (DECL_SOURCE_LINE (decl) == 0)
+      if (DECL_SOURCE_LINE (decl) == 0
+	  && type_is_fundamental (TREE_TYPE (decl)))
 	return;
 
       /* If we are in terse mode, don't generate any DIEs to represent
@@ -4230,7 +4808,7 @@ dwarfout_file_scope_decl (decl, set_finalizing)
   fputc ('\n', asm_out_file);
   ASM_OUTPUT_PUSH_SECTION (asm_out_file, DEBUG_SECTION);
   finalizing = set_finalizing;
-  output_decl (decl, NULL);
+  output_decl (decl, NULL_TREE);
 
   /* NOTE:  The call above to `output_decl' may have caused one or more
      file-scope named types (i.e. tagged types) to be placed onto the
@@ -4243,7 +4821,7 @@ dwarfout_file_scope_decl (decl, set_finalizing)
      `output_pending_types_for_scope' takes them off of the list and un-sets
      their TREE_ASM_WRITTEN flags.  */
 
-  output_pending_types_for_scope (NULL);
+  output_pending_types_for_scope (NULL_TREE);
 
   /* The above call should have totally emptied the pending_types_list.  */
 
@@ -4299,6 +4877,33 @@ dwarfout_label (insn)
 				      (unsigned) INSN_UID (insn));
       ASM_OUTPUT_LABEL (asm_out_file, label);
     }
+}
+
+/* Output a marker (i.e. a label) for the point in the generated code where
+   the real body of the function begins (after parameters have been moved
+   to their home locations).  */
+
+void
+dwarfout_begin_function ()
+{
+  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+  text_section ();
+  sprintf (label, BODY_BEGIN_LABEL_FMT, current_funcdef_number);
+  ASM_OUTPUT_LABEL (asm_out_file, label);
+}
+
+/* Output a marker (i.e. a label) for the point in the generated code where
+   the real body of the function ends (just before the epilogue code).  */
+
+void
+dwarfout_end_function ()
+{
+  char label[MAX_ARTIFICIAL_LABEL_BYTES];
+
+  text_section ();
+  sprintf (label, BODY_END_LABEL_FMT, current_funcdef_number);
+  ASM_OUTPUT_LABEL (asm_out_file, label);
 }
 
 /* Output a marker (i.e. a label) for the absolute end of the generated code
@@ -4486,7 +5091,7 @@ dwarfout_line (filename, line)
         }
 
       {
-        register char *tail = strrchr (filename, '/');
+        register char *tail = rindex (filename, '/');
 
         if (tail != NULL)
           filename = tail;
@@ -4637,12 +5242,14 @@ dwarfout_init (asm_out_file, main_input_filename)
   ASM_OUTPUT_LABEL (asm_out_file, DATA_BEGIN_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
 
+#if 0 /* GNU C doesn't currently use .data1.  */
   /* Output a starting label for the .data1 section.  */
 
   fputc ('\n', asm_out_file);
   ASM_OUTPUT_PUSH_SECTION (asm_out_file, DATA1_SECTION);
   ASM_OUTPUT_LABEL (asm_out_file, DATA1_BEGIN_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
+#endif
 
   /* Output a starting label for the .rodata section.  */
 
@@ -4651,12 +5258,14 @@ dwarfout_init (asm_out_file, main_input_filename)
   ASM_OUTPUT_LABEL (asm_out_file, RODATA_BEGIN_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
 
+#if 0 /* GNU C doesn't currently use .rodata1.  */
   /* Output a starting label for the .rodata1 section.  */
 
   fputc ('\n', asm_out_file);
   ASM_OUTPUT_PUSH_SECTION (asm_out_file, RODATA1_SECTION);
   ASM_OUTPUT_LABEL (asm_out_file, RODATA1_BEGIN_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
+#endif
 
   /* Output a starting label for the .bss section.  */
 
@@ -4814,12 +5423,14 @@ dwarfout_finish ()
   ASM_OUTPUT_LABEL (asm_out_file, DATA_END_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
 
+#if 0 /* GNU C doesn't currently use .data1.  */
   /* Output a terminator label for the .data1 section.  */
 
   fputc ('\n', asm_out_file);
   ASM_OUTPUT_PUSH_SECTION (asm_out_file, DATA1_SECTION);
   ASM_OUTPUT_LABEL (asm_out_file, DATA1_END_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
+#endif
 
   /* Output a terminator label for the .rodata section.  */
 
@@ -4828,12 +5439,14 @@ dwarfout_finish ()
   ASM_OUTPUT_LABEL (asm_out_file, RODATA_END_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
 
+#if 0 /* GNU C doesn't currently use .rodata1.  */
   /* Output a terminator label for the .rodata1 section.  */
 
   fputc ('\n', asm_out_file);
   ASM_OUTPUT_PUSH_SECTION (asm_out_file, RODATA1_SECTION);
   ASM_OUTPUT_LABEL (asm_out_file, RODATA1_END_LABEL);
   ASM_OUTPUT_POP_SECTION (asm_out_file);
+#endif
 
   /* Output a terminator label for the .bss section.  */
 
@@ -4908,17 +5521,21 @@ dwarfout_finish ()
       ASM_OUTPUT_DWARF_ADDR (asm_out_file, DATA_BEGIN_LABEL);
       ASM_OUTPUT_DWARF_DELTA4 (asm_out_file, DATA_END_LABEL, DATA_BEGIN_LABEL);
 
+#if 0 /* GNU C doesn't currently use .data1.  */
       ASM_OUTPUT_DWARF_ADDR (asm_out_file, DATA1_BEGIN_LABEL);
       ASM_OUTPUT_DWARF_DELTA4 (asm_out_file, DATA1_END_LABEL,
 					     DATA1_BEGIN_LABEL);
+#endif
 
       ASM_OUTPUT_DWARF_ADDR (asm_out_file, RODATA_BEGIN_LABEL);
       ASM_OUTPUT_DWARF_DELTA4 (asm_out_file, RODATA_END_LABEL,
 					     RODATA_BEGIN_LABEL);
 
+#if 0 /* GNU C doesn't currently use .rodata1.  */
       ASM_OUTPUT_DWARF_ADDR (asm_out_file, RODATA1_BEGIN_LABEL);
       ASM_OUTPUT_DWARF_DELTA4 (asm_out_file, RODATA1_END_LABEL,
 					     RODATA1_BEGIN_LABEL);
+#endif
 
       ASM_OUTPUT_DWARF_ADDR (asm_out_file, BSS_BEGIN_LABEL);
       ASM_OUTPUT_DWARF_DELTA4 (asm_out_file, BSS_END_LABEL, BSS_BEGIN_LABEL);

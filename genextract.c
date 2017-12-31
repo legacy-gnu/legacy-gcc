@@ -19,7 +19,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include <stdio.h>
-#include "config.h"
+#include "hconfig.h"
 #include "rtl.h"
 #include "obstack.h"
 #include "insn-config.h"
@@ -217,6 +217,7 @@ walk_rtx (x, path)
 
     case MATCH_DUP:
     case MATCH_OP_DUP:
+    case MATCH_PAR_DUP:
       duplocs[dup_count] = copystr (path);
       dupnums[dup_count] = XINT (x, 0);
       dup_count++;

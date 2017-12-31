@@ -710,7 +710,8 @@ print_operand (file, x, code)
   switch (code)
     {
     case 'h':
-      /* If constant, output low-order six bits.  Otherwise, write normally. */
+      /* If constant, output low-order five bits.  Otherwise,
+	 write normally. */
       if (INT_P (x))
 	fprintf (file, "%d", INT_LOWPART (x) & 31);
       else
@@ -718,7 +719,7 @@ print_operand (file, x, code)
       return;
 
     case 'H':
-      /* X must be a constant.  Output the low order 6 bits plus 24.  */
+      /* X must be a constant.  Output the low order 5 bits plus 24.  */
       if (! INT_P (x))
 	output_operand_lossage ("invalid %%H value");
 
@@ -737,7 +738,8 @@ print_operand (file, x, code)
       /* If constant, low-order 16 bits of constant, signed.  Otherwise, write
 	 normally.  */
       if (INT_P (x))
-	fprintf (file, "%d", (INT_LOWPART (x) << 16) >> 16);
+	fprintf (file, "%d",
+		 (INT_LOWPART (x) & 0xffff) - 2 * (INT_LOWPART (x) & 0x8000));
       else
 	print_operand (file, x, 0);
       return;
@@ -1409,12 +1411,12 @@ output_epilog (file, size)
     fprintf (file, "LT..");
     ASM_OUTPUT_LABEL (file, fname);
 
-    /* The .tbtab psuedo-op can only be used for the first eight
+    /* The .tbtab pseudo-op can only be used for the first eight
        expressions, since it can't handle the possibly variable length
        fields that follow.  However, if you omit the optional fields,
        the assembler outputs zeros for all optional fields anyways, giving each
        variable length field is minimum length (as defined in sys/debug.h).
-       Thus we can not use the .tbtab psuedo-op at all.  */
+       Thus we can not use the .tbtab pseudo-op at all.  */
 
     /* An all-zero word flags the start of the tbtab, for debuggers that have
        to find it by searching forward from the entry point or from the
@@ -1430,6 +1432,12 @@ output_epilog (file, size)
        language_string, so we can't detect it anyways.  */
     if (! strcmp (language_string, "GNU C"))
       i = 0;
+    else if (! strcmp (language_string, "GNU F77"))
+      i = 1;
+    else if (! strcmp (language_string, "GNU Ada"))
+      i = 3;
+    else if (! strcmp (language_string, "GNU PASCAL"))
+      i = 2;
     else if (! strcmp (language_string, "GNU C++"))
       i = 9;
     else
@@ -1517,7 +1525,7 @@ output_epilog (file, size)
     /* This is actually the number of fp registers that hold parameters;
        and thus the maximum value is 13.  */
     /* Set parameters on stack bit if parameters are not in their original
-       registers, irregardless of whether they are on the stack?  Xlc
+       registers, regardless of whether they are on the stack?  Xlc
        seems to set the bit when not optimizing.  */
     fprintf (file, "%d\n", ((float_parms << 1) | (! optimize)));
 
@@ -1541,7 +1549,7 @@ output_epilog (file, size)
     fprintf (file, "\n");
 
     /* Interrupt handler mask.  */
-    /* Omit this long, since we never set the iterrupt handler bit above.  */
+    /* Omit this long, since we never set the interrupt handler bit above.  */
 
     /* Number of CTL (controlled storage) anchors.  */
     /* Omit this long, since the has_ctl bit is never set above.  */

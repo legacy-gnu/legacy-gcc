@@ -145,9 +145,10 @@ static enum machine_mode *qty_mode;
 
 static int *qty_n_calls_crossed;
 
-/* Nonzero means don't allocate qty Q if we can't get its preferred class.  */
+/* Register class within which we allocate qty Q if we can't get
+   its preferred class.  */
 
-static char *qty_preferred_or_nothing;
+static enum reg_class *qty_alternate_class;
 
 /* Element Q is the SCRATCH expression for which this quantity is being
    allocated or 0 if this quantity is allocating registers.  */
@@ -258,7 +259,7 @@ alloc_qty (regno, mode, size, birth)
   qty_birth[qty] = birth;
   qty_n_calls_crossed[qty] = reg_n_calls_crossed[regno];
   qty_min_class[qty] = reg_preferred_class (regno);
-  qty_preferred_or_nothing[qty] = reg_preferred_or_nothing (regno);
+  qty_alternate_class[qty] = reg_alternate_class (regno);
   qty_n_refs[qty] = reg_n_refs[regno];
 }
 
@@ -278,6 +279,7 @@ alloc_qty_for_scratch (scratch, n, insn, insn_code_num, insn_number)
   char *p, c;
   int i;
 
+#ifdef REGISTER_CONSTRAINTS
   /* If we haven't yet computed which alternative will be used, do so now.
      Then set P to the constraints for that alternative.  */
   if (which_alternative == -1)
@@ -334,6 +336,12 @@ alloc_qty_for_scratch (scratch, n, insn, insn_code_num, insn_number)
   if (class == NO_REGS || reg_class_size[(int) class] == 1)
     return;
 
+#else /* REGISTER_CONSTRAINTS */
+
+  class = GENERAL_REGS;
+#endif
+  
+
   qty = next_qty++;
 
   qty_first_reg[qty] = -1;
@@ -344,7 +352,7 @@ alloc_qty_for_scratch (scratch, n, insn, insn_code_num, insn_number)
   qty_death[qty] = 2 * insn_number + 1;
   qty_n_calls_crossed[qty] = 0;
   qty_min_class[qty] = class;
-  qty_preferred_or_nothing[qty] = 1;
+  qty_alternate_class[qty] = NO_REGS;
   qty_n_refs[qty] = 1;
 }
 
@@ -389,7 +397,7 @@ local_alloc ()
   qty_mode = (enum machine_mode *) alloca (max_qty * sizeof (enum machine_mode));
   qty_n_calls_crossed = (int *) alloca (max_qty * sizeof (int));
   qty_min_class = (enum reg_class *) alloca (max_qty * sizeof (enum reg_class));
-  qty_preferred_or_nothing = (char *) alloca (max_qty);
+  qty_alternate_class = (enum reg_class *) alloca (max_qty * sizeof (enum reg_class));
   qty_n_refs = (short *) alloca (max_qty * sizeof (short));
 
   reg_qty = (int *) alloca (max_regno * sizeof (int));
@@ -413,7 +421,7 @@ local_alloc ()
   for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
     {
       if (reg_basic_block[i] >= 0 && reg_n_deaths[i] == 1
-	  && (reg_preferred_or_nothing (i)
+	  && (reg_alternate_class (i) == NO_REGS
 	      || reg_class_size[(int) reg_preferred_class (i)] > 1))
 	reg_qty[i] = -2;
       else
@@ -678,11 +686,22 @@ optimize_reg_copy_1 (insn, dest, src)
 	      && reg_overlap_mentioned_p (src, XEXP (PATTERN (p), 0))))
 	break;
 
-      if ((note = find_regno_note (p, REG_DEAD, sregno)) != 0)
+      /* See if all of SRC dies in P.  This test is slightly more
+	 conservative than it needs to be. */
+      if ((note = find_regno_note (p, REG_DEAD, sregno)) != 0
+	  && GET_MODE (XEXP (note, 0)) == GET_MODE (src))
 	{
 	  int failed = 0;
 	  int length = 0;
+	  int d_length = 0;
 	  int n_calls = 0;
+	  int d_n_calls = 0;
+
+	  /* If P is a CALL_INSN, SRC crosses one more call, since it
+	     used to die there.  */
+
+	  if (GET_CODE (p) == CALL_INSN)
+	    n_calls++;
 
 	  /* We can do the optimization.  Scan forward from INSN again,
 	     replacing regs as we go.  Set FAILED if a replacement can't
@@ -694,9 +713,23 @@ optimize_reg_copy_1 (insn, dest, src)
 	       q != next_real_insn (p);
 	       q = next_real_insn (q))
 	    {
-	      if (reg_mentioned_p (src, PATTERN (q)))
+	      if (reg_overlap_mentioned_p (src, PATTERN (q)))
 		{
-		  if (validate_replace_rtx (src, dest, q))
+		  /* If SRC is a hard register, we might miss some
+		     overlapping registers with validate_replace_rtx,
+		     so we would have to undo it.  We can't if DEST is
+		     present in the insn, so fail in that combination
+		     of cases.  */
+		  if (sregno < FIRST_PSEUDO_REGISTER
+		      && reg_mentioned_p (dest, PATTERN (q)))
+		    failed = 1;
+
+		  /* Replace all uses and make sure that the register
+		     isn't still present.  */
+		  else if (validate_replace_rtx (src, dest, q)
+			   && (sregno >= FIRST_PSEUDO_REGISTER
+			       || ! reg_overlap_mentioned_p (src,
+							     PATTERN (q))))
 		    {
 		      /* We assume that a register is used exactly once per
 			 insn in the updates below.  If this is not correct,
@@ -707,26 +740,31 @@ optimize_reg_copy_1 (insn, dest, src)
 			reg_n_refs[dregno] += loop_depth;
 		    }
 		  else
-		    failed = 1;
+		    {
+		      validate_replace_rtx (dest, src, q);
+		      failed = 1;
+		    }
 		}
 
 	      /* Count the insns and CALL_INSNs passed.  If we passed the
 		 death note of DEST, show increased live length.  */
 	      length++;
 	      if (dest_death)
-		reg_live_length[dregno]++;
+		d_length++;
 
 	      if (GET_CODE (q) == CALL_INSN)
 		{
 		  n_calls++;
 		  if (dest_death)
-		    reg_n_calls_crossed[dregno]++;
+		    d_n_calls++;
 		}
 
 	      /* If DEST dies here, remove the death note and save it for
-		 later.  */
+		 later.  Make sure ALL of DEST dies here; again, this is
+		 overly conservative.  */
 	      if (dest_death == 0
-		  && (dest_death = find_regno_note (q, REG_DEAD, dregno)) != 0)
+		  && (dest_death = find_regno_note (q, REG_DEAD, dregno)) != 0
+		  && GET_MODE (XEXP (dest_death, 0)) == GET_MODE (dest))
 		remove_note (q, dest_death);
 	    }
 
@@ -736,6 +774,12 @@ optimize_reg_copy_1 (insn, dest, src)
 		{
 		  reg_live_length[sregno] -= length;
 		  reg_n_calls_crossed[sregno] -= n_calls;
+		}
+
+	      if (dregno >= FIRST_PSEUDO_REGISTER)
+		{
+		  reg_live_length[dregno] += d_length;
+		  reg_n_calls_crossed[dregno] += d_n_calls;
 		}
 
 	      /* Move death note of SRC from P to INSN.  */
@@ -753,6 +797,12 @@ optimize_reg_copy_1 (insn, dest, src)
 
 	  return;
 	}
+
+      /* If SRC is a hard register which is set or killed in some other
+	 way, we can't do this optimization.  */
+      else if (sregno < FIRST_PSEUDO_REGISTER
+	       && dead_or_set_p (p, src))
+	break;
     }
 }
 
@@ -810,8 +860,8 @@ optimize_reg_copy_2 (insn, dest, src)
 		    /* We assume that a register is used exactly once per
 		       insn in the updates below.  If this is not correct,
 		       no great harm is done.  */
-		    reg_n_refs[sregno] -= loop_depth;
-		    reg_n_refs[dregno] += loop_depth;
+		    reg_n_refs[dregno] -= loop_depth;
+		    reg_n_refs[sregno] += loop_depth;
 		  }
 
 
@@ -921,7 +971,7 @@ update_equiv_regs ()
 	  || reg_n_sets[regno] != 1)
 	continue;
 
-      note = find_reg_note (insn, REG_EQUAL, 0);
+      note = find_reg_note (insn, REG_EQUAL, NULL_RTX);
 
       /* Record this insn as initializing this register.  */
       reg_equiv_init_insn[regno] = insn;
@@ -946,7 +996,7 @@ update_equiv_regs ()
 	 MEM remains unchanged for the life of the register, add a REG_EQUIV
 	 note.  */
 	 
-      note = find_reg_note (insn, REG_EQUIV, 0);
+      note = find_reg_note (insn, REG_EQUIV, NULL_RTX);
 
       if (note == 0 && reg_basic_block[regno] >= 0
 	  && GET_CODE (SET_SRC (set)) == MEM
@@ -1098,9 +1148,15 @@ block_alloc (b)
 	     If tying is done, WIN is set nonzero.  */
 
 	  if (insn_code_number >= 0
+#ifdef REGISTER_CONSTRAINTS
 	      && insn_n_operands[insn_code_number] > 1
 	      && insn_operand_constraint[insn_code_number][0][0] == '='
-	      && insn_operand_constraint[insn_code_number][0][1] != '&')
+	      && insn_operand_constraint[insn_code_number][0][1] != '&'
+#else
+	      && GET_CODE (PATTERN (insn)) == SET
+	      && rtx_equal_p (SET_DEST (PATTERN (insn)), recog_operand[0])
+#endif
+	      )
 	    {
 	      r0 = recog_operand[0];
 	      r1 = recog_operand[1];
@@ -1108,7 +1164,13 @@ block_alloc (b)
 	      /* If the first operand is an address, find a register in it.
 		 There may be more than one register, but we only try one of
 		 them.  */
-	      if (insn_operand_constraint[insn_code_number][1][0] == 'p')
+	      if (
+#ifdef REGISTER_CONSTRAINTS
+		  insn_operand_constraint[insn_code_number][1][0] == 'p'
+#else
+		  insn_operand_address_p[insn_code_number][1]
+#endif
+		  )
 		while (GET_CODE (r1) == PLUS || GET_CODE (r1) == MULT)
 		  r1 = XEXP (r1, 0);
 
@@ -1118,10 +1180,14 @@ block_alloc (b)
 		     If we have a move insn or an insn whose first input can
 		     only be in the same register as the output, give
 		     priority to an equivalence found from that insn.  */
+#ifdef REGISTER_CONSTRAINTS
 		  int may_save_copy
 		    = ((SET_DEST (body) == r0 && SET_SRC (body) == r1)
 		       || (r1 == recog_operand[1]
 			   && (requires_inout_p (insn_operand_constraint[insn_code_number][1]))));
+#else
+		  int may_save_copy = 0;
+#endif
 
 		  if (GET_CODE (r1) == REG || GET_CODE (r1) == SUBREG)
 		    win = combine_regs (r1, r0, may_save_copy,
@@ -1129,7 +1195,15 @@ block_alloc (b)
 
 		  if (win == 0
 		      && insn_n_operands[insn_code_number] > 2
+#ifdef REGISTER_CONSTRAINTS
 		      && insn_operand_constraint[insn_code_number][1][0] == '%'
+#else
+		      && GET_CODE (PATTERN (insn)) == SET
+		      && (GET_RTX_CLASS (GET_CODE (SET_SRC (PATTERN (insn))))
+			  == 'c')
+		      && rtx_equal_p (recog_operand[2],
+				      XEXP (SET_SRC (PATTERN (insn)), 0))
+#endif
 		      && (r1 = recog_operand[2],
 			  GET_CODE (r1) == REG || GET_CODE (r1) == SUBREG))
 		    win = combine_regs (r1, r0, may_save_copy,
@@ -1154,11 +1228,12 @@ block_alloc (b)
 	  if (GET_CODE (PATTERN (insn)) == CLOBBER
 	      && (r0 = XEXP (PATTERN (insn), 0),
 		  GET_CODE (r0) == REG)
-	      && (link = find_reg_note (insn, REG_LIBCALL, 0)) != 0
+	      && (link = find_reg_note (insn, REG_LIBCALL, NULL_RTX)) != 0
 	      && GET_CODE (XEXP (link, 0)) == INSN
 	      && (set = single_set (XEXP (link, 0))) != 0
 	      && SET_DEST (set) == r0 && SET_SRC (set) == r0
-	      && (note = find_reg_note (XEXP (link, 0), REG_EQUAL, 0)) != 0)
+	      && (note = find_reg_note (XEXP (link, 0), REG_EQUAL,
+					NULL_RTX)) != 0)
 	    {
 	      if (r1 = XEXP (note, 0), GET_CODE (r1) == REG
 		  /* Check that we have such a sequence.  */
@@ -1244,7 +1319,7 @@ block_alloc (b)
 	  /* If this is an insn that has a REG_RETVAL note pointing at a 
 	     CLOBBER insn, we have reached the end of a REG_NO_CONFLICT
 	     block, so clear any register number that combined within it.  */
-	  if ((note = find_reg_note (insn, REG_RETVAL, 0)) != 0
+	  if ((note = find_reg_note (insn, REG_RETVAL, NULL_RTX)) != 0
 	      && GET_CODE (XEXP (note, 0)) == INSN
 	      && GET_CODE (PATTERN (XEXP (note, 0))) == CLOBBER)
 	    no_conflict_combined_regno = -1;
@@ -1336,8 +1411,8 @@ block_alloc (b)
 		continue;
 	    }
 
-	  if (!qty_preferred_or_nothing[q])
-	    qty_phys_reg[q] = find_free_reg (ALL_REGS, 
+	  if (qty_alternate_class[q] != NO_REGS)
+	    qty_phys_reg[q] = find_free_reg (qty_alternate_class[q],
 					     qty_mode[q], q, 0, 0,
 					     qty_birth[q], qty_death[q]);
 	}
@@ -1596,8 +1671,6 @@ combine_regs (usedreg, setreg, may_save_copy, insn_number, insn, already_dead)
       /* Update info about quantity SQTY.  */
       qty_n_calls_crossed[sqty] += reg_n_calls_crossed[sreg];
       qty_n_refs[sqty] += reg_n_refs[sreg];
-      if (! reg_preferred_or_nothing (sreg))
-	qty_preferred_or_nothing[sqty] = 0;
       if (usize < ssize)
 	{
 	  register int i;
@@ -1662,6 +1735,10 @@ update_qty_class (qty, reg)
   enum reg_class rclass = reg_preferred_class (reg);
   if (reg_class_subset_p (rclass, qty_min_class[qty]))
     qty_min_class[qty] = rclass;
+
+  rclass = reg_alternate_class (reg);
+  if (reg_class_subset_p (rclass, qty_alternate_class[qty]))
+    qty_alternate_class[qty] = rclass;
 }
 
 /* Handle something which alters the value of an rtx REG.
@@ -1985,7 +2062,7 @@ no_conflict_p (insn, r0, r1)
      rtx insn, r0, r1;
 {
   int ok = 0;
-  rtx note = find_reg_note (insn, REG_LIBCALL, 0);
+  rtx note = find_reg_note (insn, REG_LIBCALL, NULL_RTX);
   rtx p, last;
 
   /* If R1 is a hard register, return 0 since we handle this case
@@ -2013,6 +2090,8 @@ no_conflict_p (insn, r0, r1)
   return ok;
 }
 
+#ifdef REGISTER_CONSTRAINTS
+
 /* Return 1 if the constraint string P indicates that the a the operand
    must be equal to operand 0 and that no register is acceptable.  */
 
@@ -2055,6 +2134,7 @@ requires_inout_p (p)
 
   return found_zero;
 }
+#endif /* REGISTER_CONSTRAINTS */
 
 void
 dump_local_alloc (file)

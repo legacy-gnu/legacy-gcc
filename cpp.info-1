@@ -1,13 +1,13 @@
-Info file cpp.info, produced by Makeinfo, -*- Text -*- from input file
-cpp.texi.
+This is Info file cpp.info, produced by Makeinfo-1.49 from the input
+file cpp.texi.
 
    This file documents the GNU C Preprocessor.
 
-   Copyright (C) 1987, 1989, 1991 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1989, 1991, 1992 Free Software Foundation, Inc.
 
-   Permission is granted to make and distribute verbatim copies of
-this manual provided the copyright notice and this permission notice
-are preserved on all copies.
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
 
    Permission is granted to copy and distribute modified versions of
 this manual under the conditions for verbatim copying, provided also
@@ -24,11 +24,10 @@ File: cpp.info,  Node: Top,  Next: Global Actions,  Up: (DIR)
 The C Preprocessor
 ******************
 
-   The C preprocessor is a "macro processor" that is used
-automatically by the C compiler to transform your program before
-actual compilation.  It is called a macro processor because it allows
-you to define "macros", which are brief abbreviations for longer
-constructs.
+   The C preprocessor is a "macro processor" that is used automatically
+by the C compiler to transform your program before actual compilation. 
+It is called a macro processor because it allows you to define "macros",
+which are brief abbreviations for longer constructs.
 
    The C preprocessor provides four separate facilities that you can
 use as you see fit:
@@ -37,21 +36,20 @@ use as you see fit:
      can be substituted into your program.
 
    * Macro expansion.  You can define "macros", which are abbreviations
-     for arbitrary fragments of C code, and then the C preprocessor
-     will replace the macros with their definitions throughout the
-     program.
+     for arbitrary fragments of C code, and then the C preprocessor will
+     replace the macros with their definitions throughout the program.
 
    * Conditional compilation.  Using special preprocessor commands, you
      can include or exclude parts of the program according to various
      conditions.
 
-   * Line control.  If you use a program to combine or rearrange
-     source files into an intermediate file which is then compiled,
-     you can use line control to inform the compiler of where each
-     source line originally came from.
+   * Line control.  If you use a program to combine or rearrange source
+     files into an intermediate file which is then compiled, you can
+     use line control to inform the compiler of where each source line
+     originally came from.
 
-   C preprocessors vary in some details.  This manual discusses the
-GNU C preprocessor, the C Compatible Compiler Preprocessor.  The GNU C
+   C preprocessors vary in some details.  This manual discusses the GNU
+C preprocessor, the C Compatible Compiler Preprocessor.  The GNU C
 preprocessor provides a superset of the features of ANSI Standard C.
 
    ANSI Standard C requires the rejection of many harmless constructs
@@ -110,8 +108,8 @@ anywhere (except when trigraphs are in use; see below).
      20
 
 is equivalent into `#define FOO 1020'.  You can split even an escape
-sequence with Backslash-Newline.  For example, you can split
-`"foo\bar"' between the `\' and the `b' to get
+sequence with Backslash-Newline.  For example, you can split `"foo\bar"'
+between the `\' and the `b' to get
 
      "foo\\
      bar"
@@ -119,8 +117,8 @@ sequence with Backslash-Newline.  For example, you can split
 This behavior is unclean: in all other contexts, a Backslash can be
 inserted in a string constant as an ordinary character by writing a
 double Backslash, and this creates an exception.  But the ANSI C
-standard requires it.  (Strict ANSI C does not allow Newlines in
-string constants, so they do not consider this a problem.)
+standard requires it.  (Strict ANSI C does not allow Newlines in string
+constants, so they do not consider this a problem.)
 
    But there are a few exceptions to all three transformations.
 
@@ -128,18 +126,18 @@ string constants, so they do not consider this a problem.)
      `#include' command in which the file name is delimited with `<'
      and `>'.
 
-   * C comments and predefined macro names are never recognized within
-     a character or string constant.  (Strictly speaking, this is the
+   * C comments and predefined macro names are never recognized within a
+     character or string constant.  (Strictly speaking, this is the
      rule, not an exception, but it is worth noting here anyway.)
 
-   * Backslash-Newline may not safely be used within an ANSI
-     "trigraph".  Trigraphs are converted before Backslash-Newline is
-     deleted.  If you write what looks like a trigraph with a
-     Backslash-Newline inside, the Backslash-Newline is deleted as
-     usual, but it is then too late to recognize the trigraph.
+   * Backslash-Newline may not safely be used within an ANSI "trigraph".
+     Trigraphs are converted before Backslash-Newline is deleted.  If
+     you write what looks like a trigraph with a Backslash-Newline
+     inside, the Backslash-Newline is deleted as usual, but it is then
+     too late to recognize the trigraph.
 
-     This exception is relevant only if you use the `-trigraphs'
-     option to enable trigraph processing.  *Note Invocation::.
+     This exception is relevant only if you use the `-trigraphs' option
+     to enable trigraph processing.  *Note Invocation::.
 
 
 File: cpp.info,  Node: Commands,  Next: Header Files,  Prev: Global Actions,  Up: Top
@@ -150,32 +148,32 @@ Preprocessor Commands
    Most preprocessor features are active only if you use preprocessor
 commands to request their use.
 
-   Preprocessor commands are lines in your program that start with `#'. 
-The `#' is followed by an identifier that is the "command name".  For
-example, `#define' is the command that defines a macro.  Whitespace is
+   Preprocessor commands are lines in your program that start with `#'.
+The `#' is followed by an identifier that is the "command name". For
+example, `#define' is the command that defines a macro. Whitespace is
 also allowed before and after the `#'.
 
    The set of valid command names is fixed.  Programs cannot define new
 preprocessor commands.
 
    Some command names require arguments; these make up the rest of the
-command line and must be separated from the command name by
-whitespace.  For example, `#define' must be followed by a macro name
-and the intended expansion of the macro.
+command line and must be separated from the command name by whitespace.
+ For example, `#define' must be followed by a macro name and the
+intended expansion of the macro.
 
    A preprocessor command cannot be more than one line in normal
-circumstances.  It may be split cosmetically with Backslash-Newline,
-but that has no effect on its meaning.  Comments containing Newlines
-can also divide the command into multiple lines, but the comments are
+circumstances. It may be split cosmetically with Backslash-Newline, but
+that has no effect on its meaning.  Comments containing Newlines can
+also divide the command into multiple lines, but the comments are
 changed to Spaces before the command is interpreted.  The only way a
 significant Newline can occur in a preprocessor command is within a
-string constant or character constant.  Note that most C compilers
-that might be applied to the output from the preprocessor do not
-accept string or character constants containing Newlines.
+string constant or character constant.  Note that most C compilers that
+might be applied to the output from the preprocessor do not accept
+string or character constants containing Newlines.
 
-   The `#' and the command name cannot come from a macro expansion. 
-For example, if `foo' is defined as a macro expanding to `define',
-that does not make `#foo' a valid preprocessor command.
+   The `#' and the command name cannot come from a macro expansion.  For
+example, if `foo' is defined as a macro expanding to `define', that
+does not make `#foo' a valid preprocessor command.
 
 
 File: cpp.info,  Node: Header Files,  Next: Macros,  Prev: Commands,  Up: Top
@@ -185,8 +183,8 @@ Header Files
 
    A header file is a file containing C declarations and macro
 definitions (*note Macros::.) to be shared between several source
-files.  You request the use of a header file in your program with the
-C preprocessor command `#include'.
+files.  You request the use of a header file in your program with the C
+preprocessor command `#include'.
 
 * Menu:
 
@@ -212,16 +210,16 @@ Uses of Header Files
    * Your own header files contain declarations for interfaces between
      the source files of your program.  Each time you have a group of
      related declarations and macro definitions all or most of which
-     are needed in several different source files, it is a good idea
-     to create a header file for them.
+     are needed in several different source files, it is a good idea to
+     create a header file for them.
 
-   Including a header file produces the same results in C compilation
-as copying the header file into each source file that needs it.  But
-such copying would be time-consuming and error-prone.  With a header
-file, the related declarations appear in only one place.  If they need
-to be changed, they can be changed in one place, and programs that
-include the header file will automatically use the new version when
-next recompiled.  The header file eliminates the labor of finding and
+   Including a header file produces the same results in C compilation as
+copying the header file into each source file that needs it.  But such
+copying would be time-consuming and error-prone.  With a header file,
+the related declarations appear in only one place.  If they need to be
+changed, they can be changed in one place, and programs that include
+the header file will automatically use the new version when next
+recompiled.  The header file eliminates the labor of finding and
 changing all the copies as well as the risk that a failure to find one
 copy will result in inconsistencies within a program.
 
@@ -234,24 +232,24 @@ File: cpp.info,  Node: Include Syntax,  Next: Include Operation,  Prev: Header U
 The `#include' Command
 ----------------------
 
-   Both user and system header files are included using the
-preprocessor command `#include'.  It has three variants:
+   Both user and system header files are included using the preprocessor
+command `#include'.  It has three variants:
 
 `#include <FILE>'
      This variant is used for system header files.  It searches for a
-     file named FILE in a list of directories specified by you, then
-     in a standard list of system directories.  You specify
-     directories to search for header files with the command option
-     `-I' (*note Invocation::.).  The option `-nostdinc' inhibits
-     searching the standard system directories; in this case only the
-     directories you specify are searched.
+     file named FILE in a list of directories specified by you, then in
+     a standard list of system directories.  You specify directories to
+     search for header files with the command option `-I' (*note
+     Invocation::.).  The option `-nostdinc' inhibits searching the
+     standard system directories; in this case only the directories you
+     specify are searched.
 
-     The parsing of this form of `#include' is slightly special
-     because comments are not recognized within the `<...>'.  Thus, in
-     `#include <x/*y>' the `/*' does not start a comment and the
-     command specifies inclusion of a system header file named `x/*y'.
-      Of course, a header file with such a name is unlikely to exist
-     on Unix, where shell wildcard features would make it hard to
+     The parsing of this form of `#include' is slightly special because
+     comments are not recognized within the `<...>'. Thus, in `#include
+     <x/*y>' the `/*' does not start a comment and the command
+     specifies inclusion of a system header file named `x/*y'.  Of
+     course, a header file with such a name is unlikely to exist on
+     Unix, where shell wildcard features would make it hard to
      manipulate.
 
      The argument FILE may not contain a `>' character.  It may,
@@ -263,8 +261,8 @@ preprocessor command `#include'.  It has three variants:
      then in the same directories used for system header files.  The
      current directory is the directory of the current input file.  It
      is tried first because it is presumed to be the location of the
-     files that the current input file refers to.  (If the `-I-'
-     option is used, the special treatment of the current directory is
+     files that the current input file refers to.  (If the `-I-' option
+     is used, the special treatment of the current directory is
      inhibited.)
 
      The argument FILE may not contain `"' characters.  If backslashes
@@ -272,8 +270,8 @@ preprocessor command `#include'.  It has three variants:
      not escape characters.  None of the character escape sequences
      appropriate to string constants in C are processed.  Thus,
      `#include "x\n\\y"' specifies a filename containing three
-     backslashes.  It is not clear why this behavior is ever useful,
-     but the ANSI standard specifies it.
+     backslashes.  It is not clear why this behavior is ever useful, but
+     the ANSI standard specifies it.
 
 `#include ANYTHING ELSE'
      This variant is called a "computed #include".  Any `#include'
@@ -331,8 +329,8 @@ would be
 
    Included files are not limited to declarations and macro
 definitions; those are merely the typical uses.  Any fragment of a C
-program can be included from another file.  The include file could
-even contain the beginning of a statement that is concluded in the
+program can be included from another file.  The include file could even
+contain the beginning of a statement that is concluded in the
 containing file, or the end of a statement that was started in the
 including file.  However, a comment or a string or character constant
 may not start in the included file and finish in the including file. 
@@ -368,35 +366,32 @@ of the file in a conditional, like this:
 
    The macro `__FILE_FOO_SEEN__' indicates that the file has been
 included once already; its name should begin with `__' to avoid
-conflicts with user programs, and it should contain the name of the
-file and some additional text, to avoid conflicts with other header
-files.
+conflicts with user programs, and it should contain the name of the file
+and some additional text, to avoid conflicts with other header files.
 
    The GNU C preprocessor is programmed to notice when a header file
 uses this particular construct and handle it efficiently.  If a header
 file is contained entirely in a `#ifndef' conditional, then it records
-that fact.  If a subsequent `#include' specifies the same file, and
-the macro in the `#ifndef' is already defined, then the file is
-entirely skipped, without even reading it.
+that fact.  If a subsequent `#include' specifies the same file, and the
+macro in the `#ifndef' is already defined, then the file is entirely
+skipped, without even reading it.
 
    There is also an explicit command to tell the preprocessor that it
 need not include a file more than once.  This is called `#pragma once',
 and was used *in addition to* the `#ifndef' conditional around the
-contents of the header file.  `#pragma once' is now obsolete and
-should not be used at all.
+contents of the header file.  `#pragma once' is now obsolete and should
+not be used at all.
 
-   In the Objective C language, there is a variant of `#include'
-called `#import' which includes a file, but does so at most once.  If
-you use `#import' *instead of* `#include', then you don't need the
-conditionals inside the header file to prevent multiple execution of
-the contents.
+   In the Objective C language, there is a variant of `#include' called
+`#import' which includes a file, but does so at most once. If you use
+`#import' *instead of* `#include', then you don't need the conditionals
+inside the header file to prevent multiple execution of the contents.
 
-   `#import' is obsolete because it is not a well-designed feature. 
-It requires the users of a header file--the applications
-programmers--to know that a certain header file should only be included
-once.  It is much better for the header file's implementor to write the
-file so that users don't need to know this.  Using `#ifndef'
-accomplishes this goal.
+   `#import' is obsolete because it is not a well-designed feature. It
+requires the users of a header file--the applications programmers--to
+know that a certain header file should only be included once.  It is
+much better for the header file's implementor to write the file so that
+users don't need to know this.  Using `#ifndef' accomplishes this goal.
 
 
 File: cpp.info,  Node: Inheritance,  Prev: Once-Only,  Up: Header Files
@@ -405,22 +400,22 @@ Inheritance and Header Files
 ============================
 
    "Inheritance" is what happens when one object or file derives some
-of its contents by virtual copying from another object or file.  In
-the case of C header files, inheritance means that one header file
-includes another header file and then replaces or adds something.
+of its contents by virtual copying from another object or file.  In the
+case of C header files, inheritance means that one header file includes
+another header file and then replaces or adds something.
 
-   If the inheriting header file and the base header file have
-different names, then inheritance is straightforward: simply write
-`#include "BASE"' in the inheriting file.
+   If the inheriting header file and the base header file have different
+names, then inheritance is straightforward: simply write `#include
+"BASE"' in the inheriting file.
 
    Sometimes it is necessary to give the inheriting file the same name
 as the base file.  This is less straightforward.
 
    For example, suppose an application program uses the system header
 file `sys/signal.h', but the version of `/usr/include/sys/signal.h' on
-a particular system doesn't do what the application program expects. 
-It might be convenient to define a "local" version, perhaps under the
-name `/usr/local/include/sys/signal.h', to override or add to the one
+a particular system doesn't do what the application program expects. It
+might be convenient to define a "local" version, perhaps under the name
+`/usr/local/include/sys/signal.h', to override or add to the one
 supplied by the system.
 
    You can do this by using the option `-I.' for compilation, and
@@ -437,11 +432,11 @@ system header file is found.  This is bad for maintenance, since it
 means that any change in where the system's header files are kept
 requires a change somewhere else.
 
-   The clean way to solve this problem is to use `#include_next',
-which means, "Include the *next* file with this name."  This command
-works like `#include' except in searching for the specified file: it
-starts searching the list of header file directories *after* the
-directory in which the current file was found.
+   The clean way to solve this problem is to use `#include_next', which
+means, "Include the *next* file with this name."  This command works
+like `#include' except in searching for the specified file: it starts
+searching the list of header file directories *after* the directory in
+which the current file was found.
 
    Suppose you specify `-I /usr/local/include', and the list of
 directories to search also includes `/usr/include'; and suppose that
@@ -480,8 +475,8 @@ Simple Macros
 -------------
 
    A "simple macro" is a kind of abbreviation.  It is a name which
-stands for a fragment of code.  Some people refer to these as
-"manifest constants".
+stands for a fragment of code.  Some people refer to these as "manifest
+constants".
 
    Before you can use a macro, you must "define" it explicitly with the
 `#define' command.  `#define' is followed by the name of the macro and
@@ -503,21 +498,20 @@ then the C preprocessor will recognize and "expand" the macro
 the definition must be a single line; however, it may not end in the
 middle of a multi-line string constant or character constant.
 
-   The use of all upper case for macro names is a standard convention. 
+   The use of all upper case for macro names is a standard convention.
 Programs are easier to read when it is possible to tell at a glance
 which names are macros.
 
    Normally, a macro definition must be a single line, like all C
 preprocessor commands.  (You can split a long macro definition
-cosmetically with Backslash-Newline.)  There is one exception:
-Newlines can be included in the macro definition if within a string or
-character constant.  By the same token, it is not possible for a macro
-definition to contain an unbalanced quote character; the definition
-automatically extends to include the matching quote character that
-ends the string or character constant.  Comments within a macro
-definition may contain Newlines, which make no difference since the
-comments are entirely replaced with Spaces regardless of their
-contents.
+cosmetically with Backslash-Newline.)  There is one exception: Newlines
+can be included in the macro definition if within a string or character
+constant.  By the same token, it is not possible for a macro definition
+to contain an unbalanced quote character; the definition automatically
+extends to include the matching quote character that ends the string or
+character constant. Comments within a macro definition may contain
+Newlines, which make no difference since the comments are entirely
+replaced with Spaces regardless of their contents.
 
    Aside from the above, there is no restriction on what can go in a
 macro body.  Parentheses need not balance.  The body need not resemble
@@ -539,9 +533,9 @@ produces as output
      bar = 4;
 
    After the preprocessor expands a macro name, the macro's definition
-body is appended to the front of the remaining input, and the check
-for macro calls continues.  Therefore, the macro body can contain
-calls to other macros.  For example, after
+body is appended to the front of the remaining input, and the check for
+macro calls continues.  Therefore, the macro body can contain calls to
+other macros. For example, after
 
      #define BUFSIZE 1020
      #define TABLESIZE BUFSIZE
@@ -549,11 +543,11 @@ calls to other macros.  For example, after
 the name `TABLESIZE' when used in the program would go through two
 stages of expansion, resulting ultimately in `1020'.
 
-   This is not at all the same as defining `TABLESIZE' to be `1020'. 
+   This is not at all the same as defining `TABLESIZE' to be `1020'.
 The `#define' for `TABLESIZE' uses exactly the body you specify--in
 this case, `BUFSIZE'--and does not check to see whether it too is the
 name of a macro.  It's only when you *use* `TABLESIZE' that the result
-of its expansion is checked for more macro names.  *Note Cascaded
+of its expansion is checked for more macro names. *Note Cascaded
 Macros::.
 
 
@@ -562,8 +556,8 @@ File: cpp.info,  Node: Argument Macros,  Next: Predefined,  Prev: Simple Macros,
 Macros with Arguments
 ---------------------
 
-   A simple macro always stands for exactly the same text, each time
-it is used.  Macros can be more flexible when they accept "arguments". 
+   A simple macro always stands for exactly the same text, each time it
+is used.  Macros can be more flexible when they accept "arguments".
 Arguments are fragments of code that you supply each time the macro is
 used.  These fragments are included in the expansion of the macro
 according to the directions in the macro definition.
@@ -574,12 +568,12 @@ macro.  The argument names may be any valid C identifiers, separated by
 commas and optionally whitespace.  The open-parenthesis must follow the
 macro name immediately, with no space in between.
 
-   For example, here is a macro that computes the minimum of two
-numeric values, as it is defined in many C programs:
+   For example, here is a macro that computes the minimum of two numeric
+values, as it is defined in many C programs:
 
      #define min(X, Y)  ((X) < (Y) ? (X) : (Y))
 
-(This is not the best way to define a "minimum" macro in GNU C.  *Note
+(This is not the best way to define a "minimum" macro in GNU C. *Note
 Side Effects::, for more information.)
 
    To use a macro that expects arguments, you write the name of the
@@ -588,7 +582,7 @@ separated by commas.  The number of actual arguments you give must
 match the number of arguments the macro expects.   Examples of use of
 the macro `min' include `min (1, 2)' and `min (x + 28, *p)'.
 
-   The expansion text of the macro depends on the arguments you use. 
+   The expansion text of the macro depends on the arguments you use.
 Each of the argument names of the macro is replaced, throughout the
 macro definition, with the corresponding actual argument.  Using the
 same macro `min' defined above, `min (1, 2)' expands into
@@ -616,15 +610,23 @@ as `array[(x = y, x + 1)]', which is equivalent C code.
 entire result is appended to the front of the remaining input, and the
 check for macro calls continues.  Therefore, the actual arguments can
 contain calls to other macros, either with or without arguments, or
-even to the same macro.  The macro body can also contain calls to
-other macros.  For example, `min (min (a, b), c)' expands into this
-text:
+even to the same macro.  The macro body can also contain calls to other
+macros.  For example, `min (min (a, b), c)' expands into this text:
 
      ((((a) < (b) ? (a) : (b))) < (c)
       ? (((a) < (b) ? (a) : (b)))
       : (c))
 
 (Line breaks shown here for clarity would not actually be generated.)
+
+   If a macro `foo' takes one argument, and you want to supply an empty
+argument, you must write at least some whitespace between the
+parentheses, like this: `foo ( )'.  Just `foo ()' is providing no
+arguments, which is an error if `foo' expects an argument.  But `foo0
+()' is the correct way to call a macro defined to take zero arguments,
+like this:
+
+     #define foo0() ...
 
    If you use the macro name followed by something other than an
 open-parenthesis (after ignoring any spaces, tabs and comments that
@@ -646,20 +648,20 @@ function named `min' in the same source file that defines the macro.
 If you write `&min' with no argument list, you refer to the function. 
 If you write `min (x, bb)', with an argument list, the macro is
 expanded.  If you write `(min) (a, bb)', where the name `min' is not
-followed by an open-parenthesis, the macro is not expanded, so you
-wind up with a call to the function `min'.
+followed by an open-parenthesis, the macro is not expanded, so you wind
+up with a call to the function `min'.
 
    You may not define the same name as both a simple macro and a macro
 with arguments.
 
    In the definition of a macro with arguments, the list of argument
-names must follow the macro name immediately with no space in between.
- If there is a space after the macro name, the macro is defined as
-taking no arguments, and all the rest of the lineis taken to be the
+names must follow the macro name immediately with no space in between. 
+If there is a space after the macro name, the macro is defined as
+taking no arguments, and all the rest of the line is taken to be the
 expansion.  The reason for this is that it is often useful to define a
 macro that takes no arguments and whose definition begins with an
-identifier in parentheses.  This rule about spaces makes it possible
-for you to do either this:
+identifier in parentheses. This rule about spaces makes it possible for
+you to do either this:
 
      #define FOO(x) - 1 / (x)
 
@@ -671,9 +673,9 @@ reciprocal of that argument) or this:
 (which defines `BAR' to take no argument and always expand into `(x) -
 1 / (x)').
 
-   Note that the *uses* of a macro with arguments can have spaces
-before the left parenthesis; it's the *definition* where it matters
-whether there is a space.
+   Note that the *uses* of a macro with arguments can have spaces before
+the left parenthesis; it's the *definition* where it matters whether
+there is a space.
 
 
 File: cpp.info,  Node: Predefined,  Next: Stringification,  Prev: Argument Macros,  Up: Macros
@@ -698,21 +700,21 @@ Standard Predefined Macros
 
    The standard predefined macros are available with the same meanings
 regardless of the machine or operating system on which you are using
-GNU C.  Their names all start and end with double underscores.  Those
-preceding `__GNUC__' in this table are standardized by ANSI C; the
-rest are GNU C extensions.
+GNU C. Their names all start and end with double underscores.  Those
+preceding `__GNUC__' in this table are standardized by ANSI C; the rest
+are GNU C extensions.
 
 `__FILE__'
      This macro expands to the name of the current input file, in the
-     form of a C string constant.  The precise name returned is the
-     one that was specified in `#include' or as the input file name
+     form of a C string constant.  The precise name returned is the one
+     that was specified in `#include' or as the input file name
      argument.
 
 `__LINE__'
      This macro expands to the current input line number, in the form
      of a decimal integer constant.  While we call it a predefined
-     macro, it's a pretty strange macro, since its "definition"
-     changes with each new line of source code.
+     macro, it's a pretty strange macro, since its "definition" changes
+     with each new line of source code.
 
      This and `__FILE__' are useful in generating an error message to
      report an inconsistency detected by the program; the message can
@@ -725,12 +727,12 @@ rest are GNU C extensions.
                    length, __FILE__, __LINE__);
 
      A `#include' command changes the expansions of `__FILE__' and
-     `__LINE__' to correspond to the included file.  At the end of
-     that file, when processing resumes on the input file that
-     contained the `#include' command, the expansions of `__FILE__' and
-     `__LINE__' revert to the values they had before the `#include'
-     (but `__LINE__' is then incremented by one as processing moves to
-     the line after the `#include').
+     `__LINE__' to correspond to the included file.  At the end of that
+     file, when processing resumes on the input file that contained the
+     `#include' command, the expansions of `__FILE__' and `__LINE__'
+     revert to the values they had before the `#include' (but
+     `__LINE__' is then incremented by one as processing moves to the
+     line after the `#include').
 
      The expansions of both `__FILE__' and `__LINE__' are altered if a
      `#line' command is used.  *Note Combining Sources::.
@@ -744,8 +746,7 @@ rest are GNU C extensions.
 `__DATE__'
      This macro expands to a string constant that describes the date on
      which the preprocessor is being run.  The string constant contains
-     eleven characters and looks like `"Jan 29 1987"' or
-     `"Apr 1 1905"'.
+     eleven characters and looks like `"Jan 29 1987"' or `"Apr 1 1905"'.
 
 `__TIME__'
      This macro expands to a string constant that describes the time at
@@ -765,14 +766,14 @@ rest are GNU C extensions.
 `__STRICT_ANSI__'
      This macro is defined if and only if the `-ansi' switch was
      specified when GNU C was invoked.  Its definition is the null
-     string.  This macro exists primarily to direct certain GNU header
+     string. This macro exists primarily to direct certain GNU header
      files not to define certain traditional Unix constructs which are
      incompatible with ANSI C.
 
 `__BASE_FILE__'
      This macro expands to the name of the main input file, in the form
-     of a C string constant.  This is the source file that was
-     specified as an argument when the C compiler was invoked.
+     of a C string constant.  This is the source file that was specified
+     as an argument when the C compiler was invoked.
 
 `__VERSION__'
      This macro expands to a string which describes the version number
@@ -832,8 +833,8 @@ more or less specificity.  For example,
 `m68k'
      `m68k' is also predefined on most computers whose CPU is a 68000,
      68010 or 68020; however, some makers use `mc68000' and some use
-     `m68k'.  Some predefine both names.  What happens in GNU C
-     depends on the system you are using it on.
+     `m68k'.  Some predefine both names.  What happens in GNU C depends
+     on the system you are using it on.
 
 `M68020'
      `M68020' has been observed to be predefined on some systems that
@@ -861,20 +862,19 @@ the system.  For example,
 `sequent'
      `sequent' is predefined on all models of Sequent computers.
 
-   These predefined symbols are not only nonstandard, they are
-contrary to the ANSI standard because their names do not start with
-underscores.  Therefore, the option `-ansi' inhibits the definition of
-these symbols.
+   These predefined symbols are not only nonstandard, they are contrary
+to the ANSI standard because their names do not start with underscores.
+Therefore, the option `-ansi' inhibits the definition of these symbols.
 
-   This tends to make `-ansi' useless, since many programs depend on
-the customary nonstandard predefined symbols.  Even system header
-files check them and will generate incorrect declarations if they do
-not find the names that are expected.  You might think that the header
-files supplied for the Uglix computer would not need to test what
-machine they are running on, because they can simply assume it is the
-Uglix; but often they do, and they do so using the customary names. 
-As a result, very few C programs will compile with `-ansi'.  We intend
-to avoid such problems on the GNU system.
+   This tends to make `-ansi' useless, since many programs depend on the
+customary nonstandard predefined symbols.  Even system header files
+check them and will generate incorrect declarations if they do not find
+the names that are expected.  You might think that the header files
+supplied for the Uglix computer would not need to test what machine
+they are running on, because they can simply assume it is the Uglix;
+but often they do, and they do so using the customary names.  As a
+result, very few C programs will compile with `-ansi'.  We intend to
+avoid such problems on the GNU system.
 
    What, then, should you do in an ANSI C program to test the type of
 machine it will run on?
@@ -905,13 +905,13 @@ constant whose contents are the text for the code fragment.  For
 example, stringifying `foo (z)' results in `"foo (z)"'.
 
    In the C preprocessor, stringification is an option available when
-macro arguments are substituted into the macro definition.  In the
-body of the definition, when an argument name appears, the character
-`#' before the name specifies stringification of the corresponding
-actual argument when it is substituted at that point in the
-definition.  The same argument may be substituted in other places in
-the definition without stringification if the argument name appears in
-those places with no `#'.
+macro arguments are substituted into the macro definition.  In the body
+of the definition, when an argument name appears, the character `#'
+before the name specifies stringification of the corresponding actual
+argument when it is substituted at that point in the definition.  The
+same argument may be substituted in other places in the definition
+without stringification if the argument name appears in those places
+with no `#'.
 
    Here is an example of a macro definition that uses stringification:
 
@@ -932,8 +932,8 @@ argument into one string constant: there is no way to combine the
 argument with other text and then stringify it all together.  But the
 example above shows how an equivalent result can be obtained in ANSI
 Standard C using the feature that adjacent string constants are
-concatenated as one string constant.  The preprocessor stringifies
-`EXP''s actual argument into a separate string constant, resulting in
+concatenated as one string constant.  The preprocessor stringifies the
+actual value of `EXP' into a separate string constant, resulting in
 text like
 
      do { if (x == 0) \
@@ -950,16 +950,16 @@ concatenates them into one, producing effectively
    Stringification in C involves more than putting doublequote
 characters around the fragment; it is necessary to put backslashes in
 front of all doublequote characters, and all backslashes in string and
-character constants, in order to get a valid C string constant with
-the proper contents.  Thus, stringifying `p = "foo\n";' results in `"p
-= \"foo\\n\";"'.  However, backslashes that are not inside of string or
+character constants, in order to get a valid C string constant with the
+proper contents.  Thus, stringifying `p = "foo\n";' results in `"p =
+\"foo\\n\";"'.  However, backslashes that are not inside of string or
 character constants are not duplicated: `\n' by itself stringifies to
 `"\n"'.
 
    Whitespace (including comments) in the text being stringified is
 handled according to precise rules.  All leading and trailing
-whitespace is ignored.  Any sequence of whitespace in the middle of
-the text is converted to a single space in the stringified result.
+whitespace is ignored. Any sequence of whitespace in the middle of the
+text is converted to a single space in the stringified result.
 
 
 File: cpp.info,  Node: Concatenation,  Next: Undefining,  Prev: Stringification,  Up: Macros
@@ -969,11 +969,11 @@ Concatenation
 
    "Concatenation" means joining two strings into one.  In the context
 of macro expansion, concatenation refers to joining two lexical units
-into one longer one.  Specifically, an actual argument to the macro
-can be concatenated with another actual argument or with fixed text to
-produce a longer name.  The longer name might be the name of a
-function, variable or type, or a C keyword; it might even be the name
-of another macro, in which case it will be expanded.
+into one longer one.  Specifically, an actual argument to the macro can
+be concatenated with another actual argument or with fixed text to
+produce a longer name.  The longer name might be the name of a function,
+variable or type, or a C keyword; it might even be the name of another
+macro, in which case it will be expanded.
 
    When you define a macro, you request concatenation with the special
 operator `##' in the macro body.  When the macro is called, after
@@ -982,9 +982,9 @@ so is any whitespace next to them (including whitespace that was part
 of an actual argument).  The result is to concatenate the syntactic
 tokens on either side of the `##'.
 
-   Consider a C program that interprets named commands.  There
-probably needs to be a table of commands, perhaps an array of
-structures declared as follows:
+   Consider a C program that interprets named commands.  There probably
+needs to be a table of commands, perhaps an array of structures
+declared as follows:
 
      struct command
      {
@@ -1029,14 +1029,14 @@ attempts at concatenation are undefined, but in the GNU C preprocessor
 it is well defined: it puts the `x' and `+' side by side with no
 particular special results.
 
-   Keep in mind that the C preprocessor converts comments to
-whitespace before macros are even considered.  Therefore, you cannot
-create a comment by concatenating `/' and `*': the `/*' sequence that
-starts a comment is not a lexical unit, but rather the beginning of a
-"long" space character.  Also, you can freely use comments next to a
-`##' in a macro definition, or in actual arguments that will be
-concatenated, because the comments will be converted to spaces at
-first sight, and concatenation will later discard the spaces.
+   Keep in mind that the C preprocessor converts comments to whitespace
+before macros are even considered.  Therefore, you cannot create a
+comment by concatenating `/' and `*': the `/*' sequence that starts a
+comment is not a lexical unit, but rather the beginning of a "long"
+space character.  Also, you can freely use comments next to a `##' in a
+macro definition, or in actual arguments that will be concatenated,
+because the comments will be converted to spaces at first sight, and
+concatenation will later discard the spaces.
 
 
 File: cpp.info,  Node: Undefining,  Next: Redefining,  Prev: Concatenation,  Up: Macros
@@ -1091,19 +1091,19 @@ file is included more than once (*note Header Files::.), so they are
 accepted silently and without effect.
 
    Nontrivial redefinition is considered likely to be an error, so it
-provokes a warning message from the preprocessor.  However, sometimes
-it is useful to change the definition of a macro in mid-compilation. 
-You can inhibit the warning by undefining the macro with `#undef'
-before the second definition.
+provokes a warning message from the preprocessor.  However, sometimes it
+is useful to change the definition of a macro in mid-compilation.  You
+can inhibit the warning by undefining the macro with `#undef' before the
+second definition.
 
    In order for a redefinition to be trivial, the new definition must
 exactly match the one already in effect, with two possible exceptions:
 
    * Whitespace may be added or deleted at the beginning or the end.
 
-   * Whitespace may be changed in the middle (but not inside strings). 
-     However, it may not be eliminated entirely, and it may not be
-     added where there was no whitespace at all.
+   * Whitespace may be changed in the middle (but not inside strings).
+     However, it may not be eliminated entirely, and it may not be added
+     where there was no whitespace at all.
 
    Recall that a comment counts as whitespace.
 
@@ -1114,8 +1114,8 @@ Pitfalls and Subtleties of Macros
 ---------------------------------
 
    In this section we describe some special rules that apply to macros
-and macro expansion, and point out certain cases in which the rules
-have counterintuitive consequences that you must watch out for.
+and macro expansion, and point out certain cases in which the rules have
+counterintuitive consequences that you must watch out for.
 
 * Menu:
 
@@ -1130,6 +1130,7 @@ have counterintuitive consequences that you must watch out for.
 * Argument Prescan::  Actual arguments are checked for macro calls
                          before they are substituted.
 * Cascaded Macros::   Macros whose definitions use other macros.
+* Newlines in Args::  Sometimes line numbers get confused.
 
 
 File: cpp.info,  Node: Misnesting,  Next: Macro Parentheses,  Prev: Macro Pitfalls,  Up: Macro Pitfalls
@@ -1138,8 +1139,8 @@ Improperly Nested Constructs
 ............................
 
    Recall that when a macro is called with arguments, the arguments are
-substituted into the macro body and the result is checked, together
-with the rest of the input file, for more macro calls.
+substituted into the macro body and the result is checked, together with
+the rest of the input file, for more macro calls.
 
    It is possible to piece together a macro call coming partially from
 the macro body and partially from the actual arguments.  For example,
@@ -1168,7 +1169,7 @@ Unintended Grouping of Arithmetic
 
    You may have noticed that in most of the macro definition examples
 shown above, each occurrence of a macro argument name had parentheses
-around it.  In addition, another pair of parentheses usually surround
+around it. In addition, another pair of parentheses usually surround
 the entire macro definition.  Here is why it is best to write macros
 that way.
 
@@ -1176,9 +1177,9 @@ that way.
 
      #define ceil_div(x, y) (x + y - 1) / y
 
-whose purpose is to divide, rounding up.  (One use for this operation
-is to compute how many `int''s are needed to hold a certain number of
-`char''s.)  Then suppose it is used as follows:
+whose purpose is to divide, rounding up.  (One use for this operation is
+to compute how many `int' objects are needed to hold a certain number
+of `char' objects.)  Then suppose it is used as follows:
 
      a = ceil_div (b & c, sizeof (int));
 
@@ -1186,8 +1187,8 @@ This expands into
 
      a = (b & c + sizeof (int) - 1) / sizeof (int);
 
-which does not do what is intended.  The operator-precedence rules of
-C make it equivalent to this:
+which does not do what is intended.  The operator-precedence rules of C
+make it equivalent to this:
 
      a = (b & (c + sizeof (int) - 1)) / sizeof (int);
 
@@ -1209,11 +1210,11 @@ fact it means something very different.  Here is what it expands to:
      sizeof ((1) + (2) - 1) / (2)
 
 This would take the size of an integer and divide it by two.  The
-precedence rules have put the division outside the `sizeof' when it
-was intended to be inside.
+precedence rules have put the division outside the `sizeof' when it was
+intended to be inside.
 
    Parentheses around the entire macro definition can prevent such
-problems.  Here, then, is the recommended way to define `ceil_div':
+problems. Here, then, is the recommended way to define `ceil_div':
 
      #define ceil_div(x, y) (((x) + (y) - 1) / (y))
 

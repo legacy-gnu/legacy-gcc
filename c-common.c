@@ -24,9 +24,6 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "flags.h"
 #include <stdio.h>
 
-#undef NULL
-#define NULL 0
-
 /* Make bindings for __FUNCTION__ and __PRETTY_FUNCTION__.  */
 
 void
@@ -45,7 +42,11 @@ declare_function_name ()
       char *kind = "function";
       if (TREE_CODE (TREE_TYPE (current_function_decl)) == METHOD_TYPE)
 	kind = "method";
-      name = IDENTIFIER_POINTER (DECL_NAME (current_function_decl));
+      /* Allow functions to be nameless (such as artificial ones).  */
+      if (DECL_NAME (current_function_decl))
+        name = IDENTIFIER_POINTER (DECL_NAME (current_function_decl));
+      else
+	name = "";
       printable_name = (*decl_printable_name) (current_function_decl, &kind);
     }
 
@@ -54,7 +55,8 @@ declare_function_name ()
 		     char_array_type_node);
   TREE_STATIC (decl) = 1;
   TREE_READONLY (decl) = 1;
-  TREE_USED (decl) = 1;
+  DECL_SOURCE_LINE (decl) = 0;
+  DECL_IN_SYSTEM_HEADER (decl) = 1;
   DECL_IGNORED_P (decl) = 1;
   init = build_string (strlen (name) + 1, name);
   TREE_TYPE (init) = char_array_type_node;
@@ -66,7 +68,8 @@ declare_function_name ()
 		     char_array_type_node);
   TREE_STATIC (decl) = 1;
   TREE_READONLY (decl) = 1;
-  TREE_USED (decl) = 1;
+  DECL_SOURCE_LINE (decl) = 0;
+  DECL_IN_SYSTEM_HEADER (decl) = 1;
   DECL_IGNORED_P (decl) = 1;
   init = build_string (strlen (printable_name) + 1, printable_name);
   TREE_TYPE (init) = char_array_type_node;
@@ -198,10 +201,12 @@ decl_attributes (decl, attributes)
       {
 	if (TREE_CODE (decl) == FIELD_DECL)
 	  DECL_PACKED (decl) = 1;
+	/* We can't set DECL_PACKED for a VAR_DECL, because the bit is
+	   used for DECL_REGISTER.  It wouldn't mean anything anyway.  */
       }
     else if (TREE_VALUE (a) != 0
-	&& TREE_CODE (TREE_VALUE (a)) == TREE_LIST
-	&& TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("mode"))
+	     && TREE_CODE (TREE_VALUE (a)) == TREE_LIST
+	     && TREE_PURPOSE (TREE_VALUE (a)) == get_identifier ("mode"))
       {
 	int i;
 	char *specified_name
@@ -217,7 +222,7 @@ decl_attributes (decl, attributes)
 		{
 		  TREE_TYPE (decl) = type;
 		  DECL_SIZE (decl) = 0;
-		  layout_decl (decl);
+		  layout_decl (decl, 0);
 		}
 	      else
 		error ("no data type for mode `%s'", specified_name);
@@ -282,6 +287,16 @@ decl_attributes (decl, attributes)
       }
 }
 
+/* Print a warning if a constant expression had overflow in folding.  */
+
+void
+constant_expression_warning (value)
+     tree value;
+{
+  if (TREE_CODE (value) == INTEGER_CST && TREE_CONSTANT_OVERFLOW (value))
+    pedwarn ("overflow in constant expression");
+}
+
 void
 c_expand_expr_stmt (expr)
      tree expr;
@@ -310,8 +325,7 @@ check_case_value (value)
     return value;
 
   /* Strip NON_LVALUE_EXPRs since we aren't using as an lvalue.  */
-  if (TREE_CODE (value) == NON_LVALUE_EXPR)
-    value = TREE_OPERAND (value, 0);
+  STRIP_TYPE_NOPS (value);
 
   if (TREE_CODE (value) != INTEGER_CST
       && value != error_mark_node)
@@ -322,6 +336,8 @@ check_case_value (value)
   else
     /* Promote char or short to int.  */
     value = default_conversion (value);
+
+  constant_expression_warning (value);
 
   return value;
 }
@@ -334,21 +350,33 @@ type_for_size (bits, unsignedp)
      unsigned bits;
      int unsignedp;
 {
-  if (bits <= TYPE_PRECISION (signed_char_type_node))
+  if (bits == TYPE_PRECISION (signed_char_type_node))
     return unsignedp ? unsigned_char_type_node : signed_char_type_node;
 
-  if (bits <= TYPE_PRECISION (short_integer_type_node))
+  if (bits == TYPE_PRECISION (short_integer_type_node))
     return unsignedp ? short_unsigned_type_node : short_integer_type_node;
 
-  if (bits <= TYPE_PRECISION (integer_type_node))
+  if (bits == TYPE_PRECISION (integer_type_node))
     return unsignedp ? unsigned_type_node : integer_type_node;
 
-  if (bits <= TYPE_PRECISION (long_integer_type_node))
+  if (bits == TYPE_PRECISION (long_integer_type_node))
     return unsignedp ? long_unsigned_type_node : long_integer_type_node;
 
-  if (bits <= TYPE_PRECISION (long_long_integer_type_node))
+  if (bits == TYPE_PRECISION (long_long_integer_type_node))
     return (unsignedp ? long_long_unsigned_type_node
 	    : long_long_integer_type_node);
+
+  if (bits <= TYPE_PRECISION (intQI_type_node))
+    return unsignedp ? unsigned_intQI_type_node : intQI_type_node;
+
+  if (bits <= TYPE_PRECISION (intHI_type_node))
+    return unsignedp ? unsigned_intHI_type_node : intHI_type_node;
+
+  if (bits <= TYPE_PRECISION (intSI_type_node))
+    return unsignedp ? unsigned_intSI_type_node : intSI_type_node;
+
+  if (bits <= TYPE_PRECISION (intDI_type_node))
+    return unsignedp ? unsigned_intDI_type_node : intDI_type_node;
 
   return 0;
 }
@@ -376,6 +404,18 @@ type_for_mode (mode, unsignedp)
 
   if (mode == TYPE_MODE (long_long_integer_type_node))
     return unsignedp ? long_long_unsigned_type_node : long_long_integer_type_node;
+
+  if (mode == TYPE_MODE (intQI_type_node))
+    return unsignedp ? unsigned_intQI_type_node : intQI_type_node;
+
+  if (mode == TYPE_MODE (intHI_type_node))
+    return unsignedp ? unsigned_intHI_type_node : intHI_type_node;
+
+  if (mode == TYPE_MODE (intSI_type_node))
+    return unsignedp ? unsigned_intSI_type_node : intSI_type_node;
+
+  if (mode == TYPE_MODE (intDI_type_node))
+    return unsignedp ? unsigned_intDI_type_node : intDI_type_node;
 
   if (mode == TYPE_MODE (float_type_node))
     return float_type_node;
@@ -879,6 +919,11 @@ truthvalue_conversion (expr)
 			      fold (build1 (NOP_EXPR,
 					    TREE_TYPE (TREE_OPERAND (expr, 0)),
 					    TREE_OPERAND (expr, 1))), 1);
+
+    case MODIFY_EXPR:
+      if (warn_parentheses && C_EXP_ORIGINAL_CODE (expr) == MODIFY_EXPR)
+	warning ("suggest parentheses around assignment used as truth value");
+      break;
     }
 
   return build_binary_op (NE_EXPR, expr, integer_zero_node, 1);

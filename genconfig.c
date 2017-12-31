@@ -21,7 +21,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 
 #include <stdio.h>
-#include "config.h"
+#include "hconfig.h"
 #include "rtl.h"
 #include "obstack.h"
 
@@ -40,6 +40,7 @@ static int max_dup_operands;    /* Largest number of match_dup in any insn.  */
 static int max_clobbers_per_insn;
 static int register_constraint_flag;
 static int have_cc0_flag;
+static int have_cmove_flag;
 static int have_lo_sum_flag;
 
 /* Maximum number of insns seen in a split.  */
@@ -53,11 +54,16 @@ static void fatal ();
 void fancy_abort ();
 
 /* RECOG_P will be non-zero if this pattern was seen in a context where it will
-   be used to recognize, rather than just generate an insn.  */
+   be used to recognize, rather than just generate an insn. 
+
+   NON_PC_SET_SRC will be non-zero if this pattern was seen in a SET_SRC
+   of a SET whose destination is not (pc).  */
 
 static void
-walk_insn_part (part, recog_p)
+walk_insn_part (part, recog_p, non_pc_set_src)
      rtx part;
+     int recog_p;
+     int non_pc_set_src;
 {
   register int i, j;
   register RTX_CODE code;
@@ -81,6 +87,7 @@ walk_insn_part (part, recog_p)
       return;
 
     case MATCH_OP_DUP:
+    case MATCH_PAR_DUP:
       ++dup_operands_seen_this_insn;
     case MATCH_SCRATCH:
     case MATCH_PARALLEL:
@@ -112,6 +119,25 @@ walk_insn_part (part, recog_p)
 	have_lo_sum_flag = 1;
       return;
 
+    case SET:
+      walk_insn_part (SET_DEST (part), 0, recog_p);
+      walk_insn_part (SET_SRC (part), recog_p,
+		      GET_CODE (SET_DEST (part)) != PC);
+      return;
+
+    case IF_THEN_ELSE:
+      /* Only consider this machine as having a conditional move if the
+	 two arms of the IF_THEN_ELSE are both MATCH_OPERAND.  Otherwise,
+	 we have some specific IF_THEN_ELSE construct (like the doz
+	 instruction on the RS/6000) that can't be used in the general
+	 context we want it for.  */
+
+      if (recog_p && non_pc_set_src
+	  && GET_CODE (XEXP (part, 1)) == MATCH_OPERAND
+	  && GET_CODE (XEXP (part, 2)) == MATCH_OPERAND)
+	have_cmove_flag = 1;
+      break;
+
     case REG: case CONST_INT: case SYMBOL_REF:
     case PC:
       return;
@@ -124,12 +150,12 @@ walk_insn_part (part, recog_p)
       {
       case 'e':
       case 'u':
-	walk_insn_part (XEXP (part, i), recog_p);
+	walk_insn_part (XEXP (part, i), recog_p, non_pc_set_src);
 	break;
       case 'E':
 	if (XVEC (part, i) != NULL)
 	  for (j = 0; j < XVECLEN (part, i); j++)
-	    walk_insn_part (XVECEXP (part, i, j), recog_p);
+	    walk_insn_part (XVECEXP (part, i, j), recog_p, non_pc_set_src);
 	break;
       }
 }
@@ -145,7 +171,7 @@ gen_insn (insn)
   dup_operands_seen_this_insn = 0;
   if (XVEC (insn, 1) != 0)
     for (i = 0; i < XVECLEN (insn, 1); i++)
-      walk_insn_part (XVECEXP (insn, 1, i), 1);
+      walk_insn_part (XVECEXP (insn, 1, i), 1, 0);
 
   if (clobbers_seen_this_insn > max_clobbers_per_insn)
     max_clobbers_per_insn = clobbers_seen_this_insn;
@@ -173,7 +199,7 @@ gen_expand (insn)
 	   don't sum across all of them.  */
 	clobbers_seen_this_insn = 0;
 
-	walk_insn_part (XVECEXP (insn, 1, i), 0);
+	walk_insn_part (XVECEXP (insn, 1, i), 0, 0);
 
 	if (clobbers_seen_this_insn > max_clobbers_per_insn)
 	  max_clobbers_per_insn = clobbers_seen_this_insn;
@@ -191,7 +217,7 @@ gen_split (split)
   /* Look through the patterns that are matched
      to compute the maximum operand number.  */
   for (i = 0; i < XVECLEN (split, 0); i++)
-    walk_insn_part (XVECEXP (split, 0, i), 1);
+    walk_insn_part (XVECEXP (split, 0, i), 1, 0);
   /* Look at the number of insns this insn could split into.  */
   if (XVECLEN (split, 2) > max_insns_per_split)
     max_insns_per_split = XVECLEN (split, 2);
@@ -206,7 +232,7 @@ gen_peephole (peep)
   /* Look through the patterns that are matched
      to compute the maximum operand number.  */
   for (i = 0; i < XVECLEN (peep, 0); i++)
-    walk_insn_part (XVECEXP (peep, 0, i), 1);
+    walk_insn_part (XVECEXP (peep, 0, i), 1, 0);
 }
 
 char *
@@ -315,6 +341,9 @@ from the machine description file `md'.  */\n\n");
 
   if (have_cc0_flag)
     printf ("#define HAVE_cc0\n");
+
+  if (have_cmove_flag)
+    printf ("#define HAVE_conditional_move\n");
 
   if (have_lo_sum_flag)
     printf ("#define HAVE_lo_sum\n");

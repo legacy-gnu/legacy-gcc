@@ -83,6 +83,8 @@ enum m88k_instruction {
 
 extern char *m88k_pound_sign;
 extern char *m88k_short_data;
+extern char *m88k_version;
+extern char m88k_volatile_code;
 
 extern int m88k_gp_threshold;
 extern int m88k_prologue_done;
@@ -90,6 +92,7 @@ extern int m88k_function_number;
 extern int m88k_fp_offset;
 extern int m88k_stack_size;
 extern int m88k_case_index;
+extern int m88k_version_0300;
 
 extern struct rtx_def *m88k_compare_reg;
 extern struct rtx_def *m88k_compare_op0;
@@ -97,16 +100,19 @@ extern struct rtx_def *m88k_compare_op1;
 
 extern enum attr_cpu m88k_cpu;
 
-extern int null_epilogue ();
+extern int null_prologue ();
 extern int integer_ok_for_set ();
 extern int m88k_debugger_offset ();
-extern void m88k_handle_pragma_token ();
 
 extern void emit_bcnd ();
 extern void expand_block_move ();
 extern void m88k_layout_frame ();
-extern void m88k_output_prologue ();
-extern void m88k_output_epilogue ();
+extern void m88k_expand_prologue ();
+extern void m88k_begin_prologue ();
+extern void m88k_end_prologue ();
+extern void m88k_expand_epilogue ();
+extern void m88k_begin_epilogue ();
+extern void m88k_end_epilogue ();
 extern void output_function_profiler ();
 extern void output_function_block_profiler ();
 extern void output_block_profiler ();
@@ -185,6 +191,12 @@ extern char * reg_names[];
       }							\
   } while (0)
 
+/* If -m88100 is in effect, add -D__m88100__; similarly for -m88110.
+   Here, the CPU_DEFAULT is assumed to be -m88100.  */
+#undef	CPP_SPEC
+#define	CPP_SPEC "%{!m88000:%{!m88100:%{m88110:-D__m88110__}}} \
+		  %{!m88000:%{!m88110:-D__m88100__}}"
+
 /* LIB_SPEC, LINK_SPEC, and STARTFILE_SPEC defined in svr3.h.
    ASM_SPEC, ASM_FINAL_SPEC, LIB_SPEC, LINK_SPEC, and STARTFILE_SPEC redefined
    in svr4.h.
@@ -203,9 +215,9 @@ extern char * reg_names[];
 /* Print subsidiary information on the compiler version in use.
    Redefined in m88kv4.h, and m88kluna.h.  */
 #define VERSION_INFO1	"88open OCS/BCS, "
-#define VERSION_INFO2	"29 May 1992"
+#define VERSION_INFO2	"10/21/92"
 #define VERSION_STRING	version_string
-#define	TM_SCCS_ID	"@(#)m88k.h	2.1.11.11 29 May 1992 13:20:31"
+#define	TM_SCCS_ID	"@(#)m88k.h	2.2.14.1 10/21/92 23:03:03"
 
 /* Run-time compilation parameters selecting different hardware subsets.  */
 
@@ -220,7 +232,6 @@ extern char * reg_names[];
 #define MASK_OCS_DEBUG_INFO	0x00000004 /* Emit .tdesc info */
 #define MASK_OCS_FRAME_POSITION	0x00000008 /* Debug frame = CFA, not r30 */
 #define MASK_SVR4		0x00000010 /* Target is AT&T System V.4 */
-#define MASK_VERSION_0300	0x00000020 /* Use version 03.00 syntax */
 #define MASK_NO_UNDERSCORES	0x00000040 /* Don't emit a leading `_' */
 #define MASK_BIG_PIC		0x00000080 /* PIC with large got-rel's -fPIC */
 #define MASK_TRAP_LARGE_SHIFT	0x00000100 /* Trap if shift not <= 31 */
@@ -230,10 +241,13 @@ extern char * reg_names[];
 #define MASK_IDENTIFY_REVISION	0x00001000 /* Emit ident, with GCC rev */
 #define MASK_WARN_PASS_STRUCT	0x00002000 /* Warn about passed structs */
 #define MASK_OPTIMIZE_ARG_AREA	0x00004000 /* Save stack space */
+#define MASK_SERIALIZE_VOLATILE 0x00008000 /* Serialize volatile refs */
+#define MASK_NO_SERIALIZE_VOLATILE 0x00010000 /* Don't serialize */
 
 #define MASK_88000 (MASK_88100 | MASK_88110)
 #define MASK_EITHER_LARGE_SHIFT	(MASK_TRAP_LARGE_SHIFT | \
 				 MASK_HANDLE_LARGE_SHIFT)
+#define MASK_SERIALIZE (MASK_SERIALIZE_VOLATILE | MASK_NO_SERIALIZE_VOLATILE)
 
 #define TARGET_88100   		 ((target_flags & MASK_88000) == MASK_88100)
 #define TARGET_88110		 ((target_flags & MASK_88000) == MASK_88110)
@@ -242,7 +256,6 @@ extern char * reg_names[];
 #define TARGET_OCS_DEBUG_INFO	  (target_flags & MASK_OCS_DEBUG_INFO)
 #define TARGET_OCS_FRAME_POSITION (target_flags & MASK_OCS_FRAME_POSITION)
 #define TARGET_SVR4		  (target_flags & MASK_SVR4)
-#define TARGET_VERSION_0300	  (target_flags & MASK_VERSION_0300)
 #define TARGET_NO_UNDERSCORES	  (target_flags & MASK_NO_UNDERSCORES)
 #define TARGET_BIG_PIC		  (target_flags & MASK_BIG_PIC)
 #define TARGET_TRAP_LARGE_SHIFT   (target_flags & MASK_TRAP_LARGE_SHIFT)
@@ -252,6 +265,7 @@ extern char * reg_names[];
 #define TARGET_IDENTIFY_REVISION  (target_flags & MASK_IDENTIFY_REVISION)
 #define TARGET_WARN_PASS_STRUCT   (target_flags & MASK_WARN_PASS_STRUCT)
 #define TARGET_OPTIMIZE_ARG_AREA  (target_flags & MASK_OPTIMIZE_ARG_AREA)
+#define TARGET_SERIALIZE_VOLATILE (target_flags & MASK_SERIALIZE_VOLATILE)
 
 #define TARGET_EITHER_LARGE_SHIFT (target_flags & MASK_EITHER_LARGE_SHIFT)
 
@@ -270,7 +284,6 @@ extern char * reg_names[];
     { "no-ocs-frame-position",		-MASK_OCS_FRAME_POSITION }, \
     { "svr4",			         MASK_SVR4 }, \
     { "svr3",			        -MASK_SVR4 }, \
-    { "version-03.00",		         MASK_VERSION_0300 }, \
     { "no-underscores",			 MASK_NO_UNDERSCORES }, \
     { "big-pic",			 MASK_BIG_PIC }, \
     { "trap-large-shift",		 MASK_TRAP_LARGE_SHIFT }, \
@@ -282,6 +295,8 @@ extern char * reg_names[];
     { "warn-passed-structs",		 MASK_WARN_PASS_STRUCT }, \
     { "optimize-arg-area",		 MASK_OPTIMIZE_ARG_AREA }, \
     { "no-optimize-arg-area",		-MASK_OPTIMIZE_ARG_AREA }, \
+    { "serialize-volatile",		 MASK_SERIALIZE_VOLATILE }, \
+    { "no-serialize-volatile",		 MASK_NO_SERIALIZE_VOLATILE }, \
     SUBTARGET_SWITCHES \
     /* Default switches */ \
     { "",				 TARGET_DEFAULT }, \
@@ -292,7 +307,8 @@ extern char * reg_names[];
 
 /* Macro to define table for command options with values.  */
 
-#define TARGET_OPTIONS { { "short-data-", &m88k_short_data } }
+#define TARGET_OPTIONS { { "short-data-", &m88k_short_data }, \
+			 { "version-", &m88k_version } }
 
 /* Do any checking or such that is needed after processing the -m switches.  */
 
@@ -306,18 +322,35 @@ extern char * reg_names[];
     m88k_cpu = (TARGET_88000 ? CPU_M88000				     \
 		: (TARGET_88100 ? CPU_M88100 : CPU_M88110));		     \
 									     \
+    if (! TARGET_88100 && (target_flags & MASK_SERIALIZE) == 0)		     \
+      target_flags |= MASK_SERIALIZE_VOLATILE;				     \
+									     \
+    if ((target_flags & MASK_NO_SERIALIZE_VOLATILE) != 0)		     \
+      target_flags &= ~MASK_SERIALIZE_VOLATILE;				     \
+									     \
     if (TARGET_BIG_PIC)							     \
       flag_pic = 2;							     \
 									     \
     if ((target_flags & MASK_EITHER_LARGE_SHIFT) == MASK_EITHER_LARGE_SHIFT) \
       error ("-mtrap-large-shift and -mhandle-large-shift are incompatible");\
 									     \
+    m88k_version_0300 = (m88k_version != 0				     \
+			 && strcmp (m88k_version, "03.00") >= 0);	     \
+									     \
     if (VERSION_0300_SYNTAX)						     \
       {									     \
 	for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)			     \
 	  reg_names[i]--;						     \
 	m88k_pound_sign = "#";						     \
+	if (m88k_version == 0)						     \
+	  m88k_version = "03.00";		        		     \
+	else if (strcmp (m88k_version, "03.00") < 0)			     \
+	  error ("Specified assembler version (%s) is less that 03.00",	     \
+		 m88k_version);						     \
       }									     \
+									     \
+    m88k_version_0300 = (m88k_version != 0				     \
+			 && strcmp (m88k_version, "03.00") >= 0);	     \
 									     \
     if (m88k_short_data)						     \
       {									     \
@@ -388,23 +421,30 @@ extern char * reg_names[];
 /* Boundary (in *bits*) on which stack pointer should be aligned.  */
 #define STACK_BOUNDARY 128
 
-/* Allocation boundary (in *bits*) for the code of a function.
-   Pack code tightly when compiling crtstuff.c.  */
-#define FUNCTION_BOUNDARY (flag_inhibit_size_directive ? 32 : 128)
+/* Allocation boundary (in *bits*) for the code of a function.  On the
+   m88100, it is desirable to align to a cache line.  However, SVR3 targets
+   only provided 8 byte alignment.  The m88110 cache is small, so align
+   to an 8 byte boundary.  Pack code tightly when compiling crtstuff.c.  */
+#define FUNCTION_BOUNDARY (flag_inhibit_size_directive ? 32 : \
+			   (TARGET_88100 && TARGET_SVR4 ? 128 : 64))
 
 /* No data type wants to be aligned rounder than this.  */
 #define BIGGEST_ALIGNMENT 64
 
-/* Make strings word-aligned so strcpy from constants will be faster.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
-  (TREE_CODE (EXP) == STRING_CST	\
-   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+/* The best alignment to use in cases where we have a choice.  */
+#define FASTEST_ALIGNMENT (TARGET_88100 ? 32 : 64)
 
-/* Make arrays of chars word-aligned for the same reasons.  */
+/* Make strings 4/8 byte aligned so strcpy from constants will be faster.  */
+#define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
+  ((TREE_CODE (EXP) == STRING_CST	\
+    && (ALIGN) < FASTEST_ALIGNMENT)	\
+   ? FASTEST_ALIGNMENT : (ALIGN))
+
+/* Make arrays of chars 4/8 byte aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN)		\
   (TREE_CODE (TYPE) == ARRAY_TYPE		\
    && TYPE_MODE (TREE_TYPE (TYPE)) == QImode	\
-   && (ALIGN) < BITS_PER_WORD ? BITS_PER_WORD : (ALIGN))
+   && (ALIGN) < FASTEST_ALIGNMENT ? FASTEST_ALIGNMENT : (ALIGN))
 
 /* Alignment of field after `int : 0' in a structure.
    Ignored with PCC_BITFIELD_TYPE_MATTERS.  */
@@ -452,7 +492,7 @@ extern char * reg_names[];
     spill area instead of memory.
       -waste if only used once
 
-    floating point caluclations
+    floating point calculations
       -probably a waste unless we have run out of general purpose registers
 
     freeing up general purpose registers
@@ -503,8 +543,8 @@ extern char * reg_names[];
 	But this is currently disabled since tying in global_alloc is not
 	yet implemented.
 
-    The explaination of why the preserved register is not used is as follows,
-    I believe.  The registers are being allocated in order.  Tieing is not
+    The explanation of why the preserved register is not used is as follows,
+    I believe.  The registers are being allocated in order.  Tying is not
     done so efficiently, so when it comes time to do the first allocation,
     there are no registers left to use without spilling except extended
     registers.  Then when the next pseudo register needs a hard reg, there
@@ -556,7 +596,7 @@ extern char * reg_names[];
    The following follows the current 88open UCS specification for the
    Extended Register File (XRF):
    Reg 32       = x0		Always equal to zero
-   Reg 33-53	= x1-x21	Tempory registers (Caller Save)
+   Reg 33-53	= x1-x21	Temporary registers (Caller Save)
    Reg 54-61	= x22-x29	Preserver registers (Callee Save)
    Reg 62-63	= x30-x31	Reserved for future ABI use.
 
@@ -800,6 +840,16 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #define PREFERRED_RELOAD_CLASS(X,CLASS)	\
    (CONSTANT_P(X) && (CLASS == XRF_REGS) ? NO_REGS : (CLASS))
 
+/* Return the register class of a scratch register needed to load IN
+   into a register of class CLASS in MODE.  On the m88k, when PIC, we
+   need a temporary when loading some addresses into a register.  */
+#define SECONDARY_INPUT_RELOAD_CLASS(CLASS, MODE, IN)		\
+  ((flag_pic							\
+    && GET_CODE (IN) == CONST					\
+    && GET_CODE (XEXP (IN, 0)) == PLUS				\
+    && GET_CODE (XEXP (XEXP (IN, 0), 0)) == CONST_INT		\
+    && ! SMALL_INT (XEXP (XEXP (IN, 0), 1))) ? GENERAL_REGS : NO_REGS)
+
 /* Return the maximum number of consecutive registers
    needed to represent mode MODE in a register of class CLASS.  */
 #define CLASS_MAX_NREGS(CLASS, MODE) \
@@ -1039,7 +1089,10 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #define EXPAND_BUILTIN_SAVEREGS(ARGLIST) m88k_builtin_saveregs (ARGLIST)
 
 /* Generate the assembly code for function entry. */
-#define FUNCTION_PROLOGUE(FILE, SIZE) m88k_output_prologue(FILE, SIZE)
+#define FUNCTION_PROLOGUE(FILE, SIZE) m88k_begin_prologue(FILE, SIZE)
+
+/* Perform special actions at the point where the prologue ends.  */
+#define FUNCTION_END_PROLOGUE(FILE) m88k_end_prologue(FILE)
 
 /* Output assembler code to FILE to increment profiler label # LABELNO
    for profiling a function entry.  Redefined in m88kv3.h, m88kv4.h and
@@ -1047,14 +1100,24 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #define FUNCTION_PROFILER(FILE, LABELNO) \
   output_function_profiler (FILE, LABELNO, "mcount", 1)
 
+/* Maximum length in instructions of the code output by FUNCTION_PROFILER.  */
+#define FUNCTION_PROFILER_LENGTH (5+3+1+5)
+
 /* Output assembler code to FILE to initialize basic-block profiling for
    the current module.  LABELNO is unique to each instance.  */
 #define FUNCTION_BLOCK_PROFILER(FILE, LABELNO) \
   output_function_block_profiler (FILE, LABELNO)
 
+/* Maximum length in instructions of the code output by
+   FUNCTION_BLOCK_PROFILER.  */
+#define FUNCTION_BLOCK_PROFILER_LENGTH (3+5+2+5)
+
 /* Output assembler code to FILE to increment the count associated with
    the basic block number BLOCKNO.  */
 #define BLOCK_PROFILER(FILE, BLOCKNO) output_block_profiler (FILE, BLOCKNO)
+
+/* Maximum length in instructions of the code output by BLOCK_PROFILER.  */
+#define BLOCK_PROFILER_LENGTH 4
 
 /* EXIT_IGNORE_STACK should be nonzero if, when returning from a function,
    the stack pointer does not matter.  The value is tested only in
@@ -1063,16 +1126,10 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #define EXIT_IGNORE_STACK (1)
 
 /* Generate the assembly code for function exit. */
-#define FUNCTION_EPILOGUE(FILE, SIZE) m88k_output_epilogue(FILE, SIZE)
+#define FUNCTION_EPILOGUE(FILE, SIZE) m88k_end_epilogue(FILE, SIZE)
 
-/* Define the number of delay slots needed for the function epilogue.
-   These are used for scheduling the function epilogue and depend on
-   what the epilogue looks like.  */
-#define DELAY_SLOTS_FOR_EPILOGUE delay_slots_for_epilogue ()
-
-/* Define whether INSN can be placed in delay slot N for the epilogue.  */
-#define ELIGIBLE_FOR_EPILOGUE_DELAY(INSN,N) \
-  eligible_for_epilogue_delay (INSN)
+/* Perform special actions at the point where the epilogue begins.  */
+#define FUNCTION_BEGIN_EPILOGUE(FILE) m88k_begin_epilogue(FILE)
 
 /* Value should be nonzero if functions must have frame pointers.
    Zero means the frame pointer need not be set up (and parms
@@ -1335,7 +1392,7 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 		   force_operand (XEXP (X, 1), 0));		\
   if (GET_CODE (X) == SYMBOL_REF || GET_CODE (X) == CONST	\
 	   || GET_CODE (X) == LABEL_REF)			\
-    (X) = legitimize_address (flag_pic, X, gen_reg_rtx (Pmode)); \
+    (X) = legitimize_address (flag_pic, X, 0, 0);		\
   if (memory_address_p (MODE, X))				\
     goto WIN; }
 
@@ -1404,6 +1461,15 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
    actually ignored by the `case' insn proper.  */
 /* #define CASE_DROPS_THROUGH */
 
+/* Define this to be the smallest number of different values for which it
+   is best to use a jump-table instead of a tree of conditional branches.
+   The default is 4 for machines with a casesi instruction and 5 otherwise.
+   The best 88110 number is around 7, though the exact number isn't yet
+   known.  A third alternative for the 88110 is to use a binary tree of
+   bb1 instructions on bits 2/1/0 if the range is dense.  This may not
+   win very much though.  */
+#define CASE_VALUES_THRESHOLD (TARGET_88100 ? 4 : 7)
+
 /* Specify the tree operation to be used to convert reals to integers.  */
 #define IMPLICIT_FIX_EXPR FIX_ROUND_EXPR
 
@@ -1419,41 +1485,15 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 /* Allow and ignore #sccs directives */
 #define SCCS_DIRECTIVE
 
-/* Code to handle #pragma directives.  The interface is a bit messy,
-   but there's no simpler way to do this while still using yylex.  */
-#define HANDLE_PRAGMA(FILE)					\
-  do {								\
-    while (c == ' ' || c == '\t')				\
-      c = getc (FILE);						\
-    if (c == '\n' || c == EOF)					\
-      {								\
-	m88k_handle_pragma_token (0, 0);			\
-	return c;						\
-      }								\
-    ungetc (c, FILE);						\
-    switch (yylex ())						\
-      {								\
-      case IDENTIFIER:						\
-      case TYPENAME:						\
-      case STRING:						\
-      case CONSTANT:						\
-	m88k_handle_pragma_token (token_buffer, yylval.ttype);	\
-	break;							\
-      default:							\
-	m88k_handle_pragma_token (token_buffer, 0);		\
-      }								\
-    if (nextchar >= 0)						\
-      c = nextchar, nextchar = -1;				\
-    else							\
-      c = getc (FILE);						\
-  } while (1)
+/* Handle #pragma pack and sometimes #pragma weak.  */
+#define HANDLE_SYSV_PRAGMA
 
 /* Tell when to handle #pragma weak.  This is only done for V.4.  */
 #define HANDLE_PRAGMA_WEAK TARGET_SVR4
 
 /* Max number of bytes we can move from memory to memory
    in one reasonably fast instruction.  */
-#define MOVE_MAX 64
+#define MOVE_MAX 8
 
 /* Define if normal loads of shorter-than-word items from memory clears
    the rest of the bigs in the register.  */
@@ -1496,10 +1536,38 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
    so give the MEM rtx word mode.  */
 #define FUNCTION_MODE SImode
 
-/* A barrier will be aligned so account for the possible expansion.  */
-#define ADJUST_INSN_LENGTH(INSN, LENGTH)	\
-  if (GET_CODE (INSN) == BARRIER)		\
-    LENGTH += 1;
+/* A barrier will be aligned so account for the possible expansion.
+   A volatile load may be preceeded by a serializing instruction.
+   Account for profiling code output at NOTE_INSN_PROLOGUE_END.
+   Account for block profiling code at basic block boundaries.  */
+#define ADJUST_INSN_LENGTH(RTX, LENGTH)					\
+  if (GET_CODE (RTX) == BARRIER						\
+      || (TARGET_SERIALIZE_VOLATILE					\
+	  && GET_CODE (RTX) == INSN					\
+	  && GET_CODE (PATTERN (RTX)) == SET				\
+	  && ((GET_CODE (SET_SRC (PATTERN (RTX))) == MEM		\
+	       && MEM_VOLATILE_P (SET_SRC (PATTERN (RTX)))))))		\
+    LENGTH += 1;							\
+  else if (GET_CODE (RTX) == NOTE					\
+	   && NOTE_LINE_NUMBER (RTX) == NOTE_INSN_PROLOGUE_END)		\
+    {									\
+      if (profile_block_flag)						\
+	LENGTH += FUNCTION_BLOCK_PROFILER_LENGTH;			\
+      if (profile_flag)							\
+	LENGTH += (FUNCTION_PROFILER_LENGTH + REG_PUSH_LENGTH		\
+		   + REG_POP_LENGTH);					\
+    }									\
+  else if (profile_block_flag						\
+	   && (GET_CODE (RTX) == CODE_LABEL				\
+	       || GET_CODE (RTX) == JUMP_INSN				\
+	       || (GET_CODE (RTX) == INSN				\
+		   && GET_CODE (PATTERN (RTX)) == SEQUENCE		\
+		   && GET_CODE (XVECEXP (PATTERN (RTX), 0, 0)) == JUMP_INSN)))\
+    LENGTH += BLOCK_PROFILER_LENGTH;
+
+/* Track the state of the last volatile memory reference.  Clear the
+   state with CC_STATUS_INIT for now.  */
+#define CC_STATUS_INIT m88k_volatile_code = '\0'
 
 /* Compute the cost of computing a constant rtl expression RTX
    whose rtx-code is CODE.  The body of this macro is a portion
@@ -1566,6 +1634,23 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 /* Provide the cost of a branch.  Exact meaning under development.  */
 #define BRANCH_COST (TARGET_88100 ? 1 : 2)
 
+/* A C statement (sans semicolon) to update the integer variable COST
+   based on the relationship between INSN that is dependent on
+   DEP_INSN through the dependence LINK.  The default is to make no
+   adjustment to COST.  On the m88k, ignore the cost of anti- and
+   output-dependencies.  On the m88100, a store can issue two cycles
+   before the value (not the address) has finished computing.  */
+#define ADJUST_COST(INSN,LINK,DEP_INSN,COST)				\
+  do {									\
+    if (REG_NOTE_KIND (LINK) != 0)					\
+      (COST) = 0; /* Anti or output dependence.  */			\
+    else if (! TARGET_88100						\
+	     && recog_memoized (INSN) >= 0				\
+	     && get_attr_type (INSN) == TYPE_STORE			\
+	     && SET_SRC (PATTERN (INSN)) == SET_DEST (PATTERN (DEP_INSN))) \
+      (COST) -= 4; /* 88110 store reservation station.  */		\
+  } while (0)
+
 /* Define this to be nonzero if the character `$' should be allowed
    by default in identifier names.  */
 #define	DOLLARS_IN_IDENTIFIERS	1
@@ -1594,6 +1679,8 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #undef	SET_ASM_OP
 #undef	SKIP_ASM_OP
 #undef	COMMON_ASM_OP
+#undef	ALIGN_ASM_OP
+#undef	IDENT_ASM_OP
 
 /* These are used in varasm.c as well.  */
 #define TEXT_SECTION_ASM_OP	"text"
@@ -1694,8 +1781,8 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 
 #define ASM_FIRST_LINE(FILE)						\
   do {									\
-    if (VERSION_0300_SYNTAX)						\
-      fprintf (FILE, "\t%s\t \"03.00\"\n", VERSION_ASM_OP);		\
+    if (m88k_version)							\
+      fprintf (FILE, "\t%s\t \"%s\"\n", VERSION_ASM_OP, m88k_version);	\
   } while (0)
 
 /* Override svr[34].h.  */
@@ -1764,6 +1851,14 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
    "#x8"+1, "#x9"+1, "#x10"+1,"#x11"+1,"#x12"+1,"#x13"+1,"#x14"+1,"#x15"+1,\
    "#x16"+1,"#x17"+1,"#x18"+1,"#x19"+1,"#x20"+1,"#x21"+1,"#x22"+1,"#x23"+1,\
    "#x24"+1,"#x25"+1,"#x26"+1,"#x27"+1,"#x28"+1,"#x29"+1,"#x30"+1,"#x31"+1}
+
+/* Define additional names for use in asm clobbers and asm declarations.
+
+   We define the fake Condition Code register as an alias for reg 0 (which
+   is our `condition code' register), so that condition codes can easily
+   be clobbered by an asm.  The carry bit in the PSR is now used.  */
+
+#define ADDITIONAL_REGISTER_NAMES	{"psr", 0, "cc", 0}
 
 /* How to renumber registers for dbx and gdb.  */
 #define DBX_REGISTER_NUMBER(REGNO) (REGNO)
@@ -1960,6 +2055,19 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 #define ASM_OUTPUT_ASCII(FILE, P, SIZE)  \
   output_ascii (FILE, ASCII_DATA_ASM_OP, 48, P, SIZE)
 
+/* Override svr4.h.  Change to the readonly data section for a table of
+   addresses.  final_scan_insn changes back to the text section.  */
+#undef	ASM_OUTPUT_CASE_LABEL
+#define ASM_OUTPUT_CASE_LABEL(FILE, PREFIX, NUM, TABLE)			\
+  do {									\
+    if (! CASE_VECTOR_INSNS)						\
+      {									\
+        readonly_data_section ();					\
+        ASM_OUTPUT_ALIGN (FILE, 2);					\
+      }									\
+    ASM_OUTPUT_INTERNAL_LABEL (FILE, PREFIX, NUM);			\
+  } while (0)
+
 /* Epilogue for case labels.  This jump instruction is called by casesi
    to transfer to the appropriate branch instruction within the table.
    The label `@L<n>e' is coined to mark the end of the table.  */
@@ -1997,10 +2105,12 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
   if ((LOG) != 0)			\
     fprintf (FILE, "\t%s\t %d\n", ALIGN_ASM_OP, 1<<(LOG))
 
-/* Align the text address to half a cache boundary when it can only be
-   reached by jumping.  Pack code tightly when compiling crtstuff.c.  */
+/* On the m88100, align the text address to half a cache boundary when it
+   can only be reached by jumping.  Pack code tightly when compiling
+   crtstuff.c.  */
 #define ASM_OUTPUT_ALIGN_CODE(FILE) \
-  ASM_OUTPUT_ALIGN (FILE, (flag_inhibit_size_directive ? 2 : 3))
+  ASM_OUTPUT_ALIGN (FILE, \
+		    (TARGET_88100 && !flag_inhibit_size_directive ? 3 : 2))
 
 /* Override svr[34].h.  */
 #undef	ASM_OUTPUT_SKIP
@@ -2048,6 +2158,9 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 	   reg_names[REGNO],				\
 	   reg_names[STACK_POINTER_REGNUM])
 
+/* Length in instructions of the code output by ASM_OUTPUT_REG_PUSH.  */
+#define REG_PUSH_LENGTH 2
+
 /* This is how to output an insn to pop a register from the stack.  */
 #define ASM_OUTPUT_REG_POP(FILE,REGNO)  \
   fprintf (FILE, "\tld\t %s,%s,0\n\taddu\t %s,%s,%d\n",	\
@@ -2056,6 +2169,9 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 	   reg_names[STACK_POINTER_REGNUM],		\
 	   reg_names[STACK_POINTER_REGNUM],		\
 	   (STACK_BOUNDARY / BITS_PER_UNIT))
+
+/* Length in instructions of the code output by ASM_OUTPUT_REG_POP.  */
+#define REG_POP_LENGTH 2
 
 /* Define the parentheses used to group arithmetic operations
    in assembler code.  */
@@ -2284,17 +2400,17 @@ enum reg_class { NO_REGS, AP_REG, XRF_REGS, GENERAL_REGS, AGRF_REGS,
 
 #define USE_CONST_SECTION DECLARE_ASM_NAME
 
-#if defined(CTORS_SECTION_FUNCTION) /* SVR4 */
+#if defined(USING_SVR4_H)
 
 #define EXTRA_SECTIONS in_const, in_tdesc, in_sdata, in_ctors, in_dtors
 #define INIT_SECTION_FUNCTION
 #define FINI_SECTION_FUNCTION
 
-#elif defined(FINI_SECTION_FUNCTION) /* SVR3 */
+#else
+#if defined(USING_SVR3_H)
 
-#define EXTRA_SECTIONS in_const, in_tdesc, in_sdata, in_init, in_fini
-#define CTORS_SECTION_FUNCTION
-#define DTORS_SECTION_FUNCTION
+#define EXTRA_SECTIONS in_const, in_tdesc, in_sdata, in_ctors, in_dtors, \
+		       in_init, in_fini
 
 #else /* m88kluna or other not based on svr[34].h.  */
 
@@ -2311,7 +2427,8 @@ const_section ()							\
 #define INIT_SECTION_FUNCTION
 #define FINI_SECTION_FUNCTION
 
-#endif /* CTORS_SECTION_FUNCTION */
+#endif /* USING_SVR3_H */
+#endif /* USING_SVR4_H */
 
 #undef	EXTRA_SECTION_FUNCTIONS
 #define EXTRA_SECTION_FUNCTIONS						\
@@ -2341,8 +2458,6 @@ sdata_section ()							\
   DTORS_SECTION_FUNCTION						\
   INIT_SECTION_FUNCTION							\
   FINI_SECTION_FUNCTION
-
-#undef READONLY_DATA_SECTION
 
 /* A C statement or statements to switch to the appropriate
    section for output of DECL.  DECL is either a `VAR_DECL' node
@@ -2376,6 +2491,11 @@ sdata_section ()							\
   else									\
     const_section ();							\
 }
+
+/* Jump tables consist of branch instructions and should be output in
+   the text section.  When we use a table of addresses, we explicitly
+   change to the readonly data section.  */
+#define JUMP_TABLES_IN_TEXT_SECTION 1
 
 /* Define this macro if references to a symbol must be treated differently
    depending on something about the variable or function named by the

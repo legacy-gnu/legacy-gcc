@@ -783,15 +783,14 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
 	     improperly shared rtl.  */
 
 	  diff = expand_binop (mode, sub_optab, copy_rtx (final_value),
-			       copy_rtx (initial_value), 0, 0,
+			       copy_rtx (initial_value), NULL_RTX, 0,
 			       OPTAB_LIB_WIDEN);
 
 	  /* Now calculate (diff % (unroll * abs (increment))) by using an
 	     and instruction.  */
 	  diff = expand_binop (GET_MODE (diff), and_optab, diff,
-			       gen_rtx (CONST_INT, VOIDmode,
-					unroll_number * abs_inc - 1),
-			       0, 0, OPTAB_LIB_WIDEN);
+			       GEN_INT (unroll_number * abs_inc - 1),
+			       NULL_RTX, 0, OPTAB_LIB_WIDEN);
 
 	  /* Now emit a sequence of branches to jump to the proper precond
 	     loop entry point.  */
@@ -826,9 +825,8 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
 	      else
 		cmp_const = i;
 
-	      emit_cmp_insn (diff, gen_rtx (CONST_INT, VOIDmode,
-					    abs_inc * cmp_const),
-			     EQ, 0, mode, 0, 0);
+	      emit_cmp_insn (diff, GEN_INT (abs_inc * cmp_const),
+			     EQ, NULL_RTX, mode, 0, 0);
 
 	      if (i == 0)
 		emit_jump_insn (gen_beq (labels[i]));
@@ -858,8 +856,8 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
 	      else
 		cmp_const = abs_inc * (unroll_number - 1) + 1;
 
-	      emit_cmp_insn (diff, gen_rtx (CONST_INT, VOIDmode, cmp_const),
-			     EQ, 0, mode, 0, 0);
+	      emit_cmp_insn (diff, GEN_INT (cmp_const), EQ, NULL_RTX,
+			     mode, 0, 0);
 
 	      if (neg_inc)
 		emit_jump_insn (gen_ble (labels[0]));
@@ -1137,19 +1135,6 @@ unroll_loop (loop_end, insn_count, loop_start, end_insert_before,
      not taken.  */
   if (exit_label)
     emit_label_after (exit_label, loop_end);
-
-  /* If debugging, we must replicate the tree nodes corresponding to the blocks
-     inside the loop, so that the original one to one mapping will remain.  */
-
-  if (write_symbols != NO_DEBUG)
-    {
-      int copies = unroll_number;
-
-      if (loop_preconditioned)
-	copies += unroll_number - 1;
-
-      unroll_block_trees (uid_loop_num[INSN_UID (loop_start)], copies);
-    }
 }
 
 /* Return true if the loop can be safely, and profitably, preconditioned
@@ -1178,7 +1163,7 @@ precondition_loop_p (initial_value, final_value, increment, loop_start,
     {
       *initial_value = const0_rtx;
       *increment = const1_rtx;
-      *final_value = gen_rtx (CONST_INT, VOIDmode, loop_n_iterations);
+      *final_value = GEN_INT (loop_n_iterations);
 
       if (loop_dump_stream)
 	fprintf (loop_dump_stream,
@@ -1388,6 +1373,7 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 		copy_notes_from)
      rtx copy_start, copy_end;
      struct inline_remap *map;
+     rtx exit_label;
      int last_iteration;
      enum unroll_types unroll_type;
      rtx start_label, loop_end, insert_before, copy_notes_from;
@@ -1583,8 +1569,7 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 #endif
 		  
 		  splittable_regs[regno]
-		    = gen_rtx (CONST_INT, VOIDmode,
-			       INTVAL (giv_inc)
+		    = GEN_INT (INTVAL (giv_inc)
 			       + INTVAL (splittable_regs[regno]));
 		  giv_inc = splittable_regs[regno];
 		  
@@ -1674,32 +1659,21 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 		 In this case, we want to change the original fall through
 		 case to be a branch past the end of the loop, and the
 		 original jump label case to fall_through.  */
-
-	      int fall_through;
-
 	      /* Never map the label in this case.  */
-	      pattern = copy_rtx (PATTERN (insn));
-	      
-	      /* Assume a conditional branch, since the code above
-		 does not let unconditional branches be copied.  */
-	      if (! condjump_p (insn))
-		abort ();
-	      fall_through
-		= (XEXP (SET_SRC (PATTERN (insn)), 2) == pc_rtx) + 1;
 
-	      /* Set the fall through case to the exit label.  Must
-		 create a new label_ref since they can't be shared.  */
-	      XEXP (SET_SRC (pattern), fall_through)
-		= gen_rtx (LABEL_REF, VOIDmode, exit_label);
-		      
-	      /* Set the original branch case to fall through.  */
-	      XEXP (SET_SRC (pattern), 3 - fall_through)
-		= pc_rtx;
+	      pattern = copy_rtx (PATTERN (insn));
+	      copy = emit_jump_insn (pattern);
+
+	      if (! invert_exp (pattern, copy)
+		  || ! redirect_exp (&pattern, JUMP_LABEL (insn),
+				     exit_label, copy))
+		abort ();
 	    }
 	  else
-	    pattern = copy_rtx_and_substitute (PATTERN (insn), map);
-	  
-	  copy = emit_jump_insn (pattern);
+	    {
+	      pattern = copy_rtx_and_substitute (PATTERN (insn), map);
+	      copy = emit_jump_insn (pattern);
+	    }
 	  
 #ifdef HAVE_cc0
 	  if (cc0_insn)
@@ -1712,23 +1686,26 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 	     later passes of unroll_loop, if INSN had jump label set.  */
 	  if (JUMP_LABEL (insn))
 	    {
+	      rtx label = 0;
+
 	      /* Can't use the label_map for every insn, since this may be
 		 the backward branch, and hence the label was not mapped.  */
 	      if (GET_CODE (pattern) == SET)
 		{
 		  tem = SET_SRC (pattern);
 		  if (GET_CODE (tem) == LABEL_REF)
-		    JUMP_LABEL (copy) = XEXP (tem, 0);
+		    label = XEXP (tem, 0);
 		  else if (GET_CODE (tem) == IF_THEN_ELSE)
 		    {
 		      if (XEXP (tem, 1) != pc_rtx)
-			JUMP_LABEL (copy) = XEXP (XEXP (tem, 1), 0);
+			label = XEXP (XEXP (tem, 1), 0);
 		      else
-			JUMP_LABEL (copy) = XEXP (XEXP (tem, 2), 0);
+			label = XEXP (XEXP (tem, 2), 0);
 		    }
-		  else
-		    abort ();
 		}
+
+	      if (label && GET_CODE (label) == CODE_LABEL)
+		JUMP_LABEL (copy) = label;
 	      else
 		{
 		  /* An unrecognizable jump insn, probably the entry jump
@@ -1810,7 +1787,12 @@ copy_loop_body (copy_start, copy_end, map, exit_label, last_iteration,
 	  break;
 	  
 	case NOTE:
-	  if (NOTE_LINE_NUMBER (insn) != NOTE_INSN_DELETED)
+	  /* VTOP notes are valid only before the loop exit test.  If placed
+	     anywhere else, loop may generate bad code.  */
+	     
+	  if (NOTE_LINE_NUMBER (insn) != NOTE_INSN_DELETED
+	      && (NOTE_LINE_NUMBER (insn) != NOTE_INSN_LOOP_VTOP
+		  || (last_iteration && unroll_type != UNROLL_COMPLETELY)))
 	    copy = emit_note (NOTE_SOURCE_FILE (insn),
 			      NOTE_LINE_NUMBER (insn));
 	  else
@@ -2194,6 +2176,7 @@ find_splittable_regs (unroll_type, loop_start, loop_end, end_insert_before,
      int unroll_number;
 {
   struct iv_class *bl;
+  struct induction *v;
   rtx increment, tem;
   rtx biv_final_value;
   int biv_splittable;
@@ -2230,6 +2213,15 @@ find_splittable_regs (unroll_type, loop_start, loop_end, end_insert_before,
 	      || reg_mentioned_p (bl->biv->dest_reg, SET_SRC (bl->init_set)))
 	  && ! (biv_final_value = final_biv_value (bl, loop_start, loop_end)))
 	biv_splittable = 0;
+
+      /* If any of the insns setting the BIV don't do so with a simple
+	 PLUS, we don't know how to split it.  */
+      for (v = bl->biv; biv_splittable && v; v = v->next_iv)
+	if ((tem = single_set (v->insn)) == 0
+	    || GET_CODE (SET_DEST (tem)) != REG
+	    || REGNO (SET_DEST (tem)) != bl->regno
+	    || GET_CODE (SET_SRC (tem)) != PLUS)
+	  biv_splittable = 0;
 
       /* If final value is non-zero, then must emit an instruction which sets
 	 the value of the biv to the proper value.  This is done after
@@ -2391,7 +2383,7 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 	       /* Check for the case where the pseudo is set by a shift/add
 		  sequence, in which case the first insn setting the pseudo
 		  is the first insn of the shift/add sequence.  */
-	       && (! (tem = find_reg_note (v->insn, REG_RETVAL, 0))
+	       && (! (tem = find_reg_note (v->insn, REG_RETVAL, NULL_RTX))
 		   || (regno_first_uid[REGNO (v->dest_reg)]
 		       != INSN_UID (XEXP (tem, 0)))))
 	      /* Line above always fails if INSN was moved by loop opt.  */
@@ -2430,11 +2422,31 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 	 giv's initial value.  Otherwise, save the constant zero for it.  */
 
       if (unroll_type == UNROLL_COMPLETELY)
-	/* It is not safe to use bl->initial_value here, because it may not
-	   be invariant.  It is safe to use the initial value stored in
-	   the splittable_regs array.  */
-	value = fold_rtx_mult_add (v->mult_val, splittable_regs[bl->regno],
-				   v->add_val, v->mode);
+	{
+	  /* It is not safe to use bl->initial_value here, because it may not
+	     be invariant.  It is safe to use the initial value stored in
+	     the splittable_regs array if it is set.  In rare cases, it won't
+	     be set, so then we do exactly the same thing as
+	     find_splittable_regs does to get a safe value.  */
+	  rtx biv_initial_value;
+
+	  if (splittable_regs[bl->regno])
+	    biv_initial_value = splittable_regs[bl->regno];
+	  else if (GET_CODE (bl->initial_value) != REG
+		   || (REGNO (bl->initial_value) != bl->regno
+		       && REGNO (bl->initial_value) >= FIRST_PSEUDO_REGISTER))
+	    biv_initial_value = bl->initial_value;
+	  else
+	    {
+	      rtx tem = gen_reg_rtx (bl->biv->mode);
+
+	      emit_insn_before (gen_move_insn (tem, bl->biv->src_reg),
+				loop_start);
+	      biv_initial_value = tem;
+	    }
+	  value = fold_rtx_mult_add (v->mult_val, biv_initial_value,
+				     v->add_val, v->mode);
+	}
       else
 	value = const0_rtx;
 
@@ -2516,8 +2528,8 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 			 Try to validate both the first and the last
 			 address resulting from loop unrolling, if
 			 one fails, then can't do const elim here.  */
-		      if (memory_address_p (v->mode, v->dest_reg)
-			  && memory_address_p (v->mode,
+		      if (memory_address_p (v->mem_mode, v->dest_reg)
+			  && memory_address_p (v->mem_mode,
 				       plus_constant (v->dest_reg,
 						      INTVAL (giv_inc)
 						      * (unroll_number - 1))))
@@ -2543,8 +2555,8 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 		     now, and fail completely if either the first or the last
 		     unrolled copy of the address is not a valid address.  */
 		  if (v->dest_reg == tem
-		      && (! memory_address_p (v->mode, v->dest_reg)
-			  || ! memory_address_p (v->mode,
+		      && (! memory_address_p (v->mem_mode, v->dest_reg)
+			  || ! memory_address_p (v->mem_mode,
 				 plus_constant (v->dest_reg,
 						INTVAL (giv_inc)
 						* (unroll_number -1)))))
@@ -2564,7 +2576,7 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 		  emit_insn_before (gen_rtx (SET, VOIDmode, tem,
 					     copy_rtx (v->new_reg)),
 				    loop_start);
-		  if (! recog_memoized (PREV_INSN (loop_start)))
+		  if (recog_memoized (PREV_INSN (loop_start)) < 0)
 		    {
 		      delete_insn (PREV_INSN (loop_start));
 		      emit_iv_add_mult (bl->initial_value, v->mult_val,
@@ -2580,8 +2592,8 @@ find_splittable_givs (bl, unroll_type, loop_start, loop_end, increment,
 		  
 		  /* Check the resulting address for validity, and fail
 		     if the resulting address would be illegal.  */
-		  if (! memory_address_p (v->mode, v->dest_reg)
-		      || ! memory_address_p (v->mode,
+		  if (! memory_address_p (v->mem_mode, v->dest_reg)
+		      || ! memory_address_p (v->mem_mode,
 				     plus_constant (v->dest_reg,
 						    INTVAL (giv_inc) *
 						    (unroll_number -1))))
@@ -2785,8 +2797,10 @@ final_biv_value (bl, loop_start, loop_end)
 	     case it is needed later.  */
 
 	  tem = gen_reg_rtx (bl->biv->mode);
-	  emit_iv_add_mult (increment,
-			    gen_rtx (CONST_INT, VOIDmode, loop_n_iterations),
+	  /* Make sure loop_end is not the last insn.  */
+	  if (NEXT_INSN (loop_end) == 0)
+	    emit_note_after (NOTE_INSN_DELETED, loop_end);
+	  emit_iv_add_mult (increment, GEN_INT (loop_n_iterations),
 			    bl->initial_value, tem, NEXT_INSN (loop_end));
 
 	  if (loop_dump_stream)
@@ -2820,7 +2834,7 @@ final_giv_value (v, loop_start, loop_end)
      rtx loop_start, loop_end;
 {
   struct iv_class *bl;
-  rtx reg, insn, pattern;
+  rtx insn;
   rtx increment, tem;
   enum rtx_code code;
   rtx insert_before, seq;
@@ -2877,39 +2891,26 @@ final_giv_value (v, loop_start, loop_end)
 
 	  /* Put the final biv value in tem.  */
 	  tem = gen_reg_rtx (bl->biv->mode);
-	  emit_iv_add_mult (increment,
-			    gen_rtx (CONST_INT, VOIDmode, loop_n_iterations),
+	  emit_iv_add_mult (increment, GEN_INT (loop_n_iterations),
 			    bl->initial_value, tem, insert_before);
 
 	  /* Subtract off extra increments as we find them.  */
 	  for (insn = NEXT_INSN (v->insn); insn != loop_end;
 	       insn = NEXT_INSN (insn))
 	    {
-	      if (GET_CODE (insn) == INSN
-		  && GET_CODE (PATTERN (insn)) == SET
-		  && SET_DEST (PATTERN (insn)) == v->src_reg)
-		{
-		  pattern = PATTERN (insn);
-		  if (GET_CODE (SET_SRC (pattern)) != PLUS)
-		    {
-		      /* Sometimes a biv is computed in a temp reg,
-			 and then copied into the biv reg.  */
-		      pattern = PATTERN (PREV_INSN (insn));
-		      if (GET_CODE (SET_SRC (pattern)) != PLUS)
-			abort ();
-		    }
-		  if (GET_CODE (XEXP (SET_SRC (pattern), 0)) != REG
-		      || REGNO (XEXP (SET_SRC (pattern), 0)) != bl->regno)
-		    abort ();
-		  
-		  start_sequence ();
-		  tem = expand_binop (GET_MODE (tem), sub_optab, tem,
-				      XEXP (SET_SRC (pattern), 1), 0, 0,
-				      OPTAB_LIB_WIDEN);
-		  seq = gen_sequence ();
-		  end_sequence ();
-		  emit_insn_before (seq, insert_before);
-		}
+	      struct induction *biv;
+
+	      for (biv = bl->biv; biv; biv = biv->next_iv)
+		if (biv->insn == insn)
+		  {
+		    start_sequence ();
+		    tem = expand_binop (GET_MODE (tem), sub_optab, tem,
+					biv->add_val, NULL_RTX, 0,
+					OPTAB_LIB_WIDEN);
+		    seq = gen_sequence ();
+		    end_sequence ();
+		    emit_insn_before (seq, insert_before);
+		  }
 	    }
 	  
 	  /* Now calculate the giv's final value.  */
@@ -2947,14 +2948,15 @@ final_giv_value (v, loop_start, loop_end)
 /* Calculate the number of loop iterations.  Returns the exact number of loop
    iterations if it can be calculated, otherwise returns zero.  */
 
-unsigned long
+unsigned HOST_WIDE_INT
 loop_iterations (loop_start, loop_end)
      rtx loop_start, loop_end;
 {
   rtx comparison, comparison_value;
   rtx iteration_var, initial_value, increment, final_value;
   enum rtx_code comparison_code;
-  int i, increment_dir;
+  HOST_WIDE_INT i;
+  int increment_dir;
   int unsigned_compare, compare_dir, final_larger;
   unsigned long tempu;
   rtx last_loop_insn;
@@ -3044,7 +3046,7 @@ loop_iterations (loop_start, loop_end)
 		   && (set = single_set (insn))
 		   && (SET_DEST (set) == comparison_value))
 	    {
-	      rtx note = find_reg_note (insn, REG_EQUAL, 0);
+	      rtx note = find_reg_note (insn, REG_EQUAL, NULL_RTX);
 
 	      if (note && GET_CODE (XEXP (note, 0)) != EXPR_LIST)
 		comparison_value = XEXP (note, 0);
@@ -3094,11 +3096,13 @@ loop_iterations (loop_start, loop_end)
   /* Final_larger is 1 if final larger, 0 if they are equal, otherwise -1.  */
   if (unsigned_compare)
     final_larger
-      = ((unsigned) INTVAL (final_value) > (unsigned) INTVAL (initial_value)) -
-	((unsigned) INTVAL (final_value) < (unsigned) INTVAL (initial_value));
+      = ((unsigned HOST_WIDE_INT) INTVAL (final_value)
+	 > (unsigned HOST_WIDE_INT) INTVAL (initial_value))
+	- ((unsigned HOST_WIDE_INT) INTVAL (final_value)
+	   < (unsigned HOST_WIDE_INT) INTVAL (initial_value));
   else
-    final_larger = (INTVAL (final_value) > INTVAL (initial_value)) -
-      (INTVAL (final_value) < INTVAL (initial_value));
+    final_larger = (INTVAL (final_value) > INTVAL (initial_value))
+      - (INTVAL (final_value) < INTVAL (initial_value));
 
   if (INTVAL (increment) > 0)
     increment_dir = 1;

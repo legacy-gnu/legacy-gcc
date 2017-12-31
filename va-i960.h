@@ -1,5 +1,18 @@
 /* GNU C varargs support for the Intel 80960.  */
 
+/* Define __gnuc_va_list.  */
+
+#ifndef __GNUC_VA_LIST
+#define __GNUC_VA_LIST
+/* The first element is the address of the first argument.
+   The second element is the number of bytes skipped past so far.  */
+typedef unsigned __gnuc_va_list[2];	
+#endif /* not __GNUC_VA_LIST */
+
+/* If this is for internal libc use, don't define anything but
+   __gnuc_va_list.  */
+#if defined (_STDARG_H) || defined (_VARARGS_H)
+
 /* In GCC version 2, we want an ellipsis at the end of the declaration
    of the argument list.  GCC version 1 can't parse it.  */
 
@@ -8,10 +21,6 @@
 #else
 #define __va_ellipsis
 #endif
-
-/* The first element is the address of the first argument.
-   The second element is the number of bytes skipped past so far.  */
-typedef unsigned va_list[2];	
 
 /* The stack size of the type t.  */
 #define __vsiz(T)   (((sizeof (T) + 3) / 4) * 4)
@@ -22,8 +31,10 @@ typedef unsigned va_list[2];
 		       * __vali (T) + __vsiz (T))
 
 #ifdef _STDARG_H
-#define va_start(AP, LASTARG) ((AP)[1] = 0, \
-				*(AP) = (unsigned) __builtin_next_arg ())
+#define va_start(AP, LASTARG)				\
+__extension__						\
+({ __asm__ ("st	g14,%0" : "=m" (*(AP)));		\
+   (AP)[1] = (unsigned) __builtin_next_arg () - *AP; })
 #else
 
 #define	va_alist __builtin_va_alist
@@ -31,6 +42,8 @@ typedef unsigned va_list[2];
 #define	va_start(AP) ((AP)[1] = 0, *(AP) = (unsigned) &va_alist)
 #endif
 
+/* We cast to void * and then to TYPE * because this avoids
+   a warning about increasing the alignment requirement.  */
 #define	va_arg(AP, T)							\
 (									\
   (									\
@@ -39,7 +52,13 @@ typedef unsigned va_list[2];
       : ((AP)[1] = __vpad ((AP)[1], T))					\
   ),									\
 									\
-  *((T *) ((char *) *(AP) + (AP)[1] - __vsiz (T)))			\
+  *((T *) (void *) ((char *) *(AP) + (AP)[1] - __vsiz (T)))		\
 )
 
+#ifndef va_end
+void va_end (__gnuc_va_list);		/* Defined in libgcc.a */
+#endif
 #define	va_end(AP)
+
+#endif /* defined (_STDARG_H) || defined (_VARARGS_H) */
+

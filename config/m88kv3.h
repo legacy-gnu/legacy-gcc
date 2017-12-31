@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler.
-   Motorola m88100 running the AT&T/Unisoft/Motorla V.3 reference port.
+   Motorola m88100 running the AT&T/Unisoft/Motorola V.3 reference port.
    Copyright (C) 1990, 1991 Free Software Foundation, Inc.
    Contributed by Ray Essick (ressick@mot.com)
    Currently supported by Tom Wood (wood@dg-rtp.dg.com)
@@ -30,7 +30,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* Macros to be automatically defined.  */
 #undef	CPP_PREDEFINES
-#define CPP_PREDEFINES "-Dm88000 -Dm88k -DsysV88 -D__CLASSIFY_TYPE__=2"
+#define CPP_PREDEFINES "-Dm88000 -Dm88k -Dunix -DsysV88 -D__CLASSIFY_TYPE__=2"
 
 /* Override svr3.h to link with ?crt0.o instead of ?crt1.o and ?crtn.o.
    From arul@sdsu.edu.  */

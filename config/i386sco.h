@@ -5,10 +5,22 @@
 
 #include "i386v.h"
 
+/* By default, target has a 80387, uses IEEE compatible arithmetic,
+   and returns float values in the 387, ie,
+   (TARGET_80387 | TARGET_FLOAT_RETURNS_IN_80387)
+
+   SCO's software emulation of a 387 fails to handle the `fucomp'
+   opcode.  fucomp is only used when generating IEEE compliant code.
+   So don't make TARGET_IEEE_FP default for SCO. */
+
+#undef TARGET_DEFAULT
+#define TARGET_DEFAULT 0201
+
 /* Use crt1.o as a startup file and crtn.o as a closing file.  */
 
 #undef STARTFILE_SPEC
-#define STARTFILE_SPEC  "%{pg:gcrt1.o%s}%{!pg:%{p:mcrt1.o%s}%{!p:crt1.o%s}} crtbegin.o%s"
+#define STARTFILE_SPEC \
+ "%{pg:gcrt1.o%s}%{!pg:%{p:mcrt1.o%s}%{!p:crt1.o%s}} crtbegin.o%s"
 
 #define ENDFILE_SPEC "crtend.o%s crtn.o%s"
 
@@ -25,6 +37,17 @@
 
 #undef CPP_SPEC
 #define CPP_SPEC "%{scointl:-DM_INTERNAT}"
+
+/* This spec is used for telling cpp whether char is signed or not.  */
+
+#undef SIGNED_CHAR_SPEC
+#if DEFAULT_SIGNED_CHAR
+#define SIGNED_CHAR_SPEC \
+ "%{funsigned-char:-D__CHAR_UNSIGNED__ -D_CHAR_UNSIGNED}"
+#else
+#define SIGNED_CHAR_SPEC \
+ "%{!fsigned-char:-D__CHAR_UNSIGNED__ -D_CHAR_UNSIGNED}"
+#endif
 
 /* Use atexit for static destructors, instead of defining
    our own exit function.  */

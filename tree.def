@@ -22,7 +22,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* The third argument can be:
    "x" for an exceptional code (fits no category).
    "t" for a type object code.
-
+   "b" for a lexical block.
    "c" for codes for constants.
    "d" for codes for declarations (also serving as variable refs).
    "r" for codes for references to storage.
@@ -68,10 +68,21 @@ DEFTREECODE (TREE_VEC, "tree_vec", "x", 2)
    where the BLOCK_SUBBLOCKS field contains a chain of subblocks
    chained through the BLOCK_CHAIN field.
    BLOCK_SUPERCONTEXT points to the parent block.
+     For a block which represents the outermost scope of a function, it
+     points to the FUNCTION_DECL node.
    BLOCK_VARS points to a chain of decl nodes.
    BLOCK_TYPE_TAGS points to a chain of types which have their own names.
-   BLOCK_CHAIN points to the next BLOCK at the same level.  */
-DEFTREECODE (BLOCK, "block", "e", 4)
+   BLOCK_CHAIN points to the next BLOCK at the same level.
+   BLOCK_ABSTRACT_ORIGIN points to the original (abstract) tree node which
+   this block is an instance of, or else is NULL to indicate that this
+   block is not an instance of anything else.  When non-NULL, the value
+   could either point to another BLOCK node or it could point to a
+   FUNCTION_DECL node (e.g. in the case of a block representing the
+   outermost scope of a particular inlining of a function).
+   BLOCK_ABSTRACT is non-zero if the block represents an abstract
+   instance of a block (i.e. one which is nested within an abstract
+   instance of a inline function. */
+DEFTREECODE (BLOCK, "block", "b", 0)
 
 /* Each data type is represented by a tree node whose code is one of
    the following:  */
@@ -93,15 +104,18 @@ DEFTREECODE (BLOCK, "block", "e", 4)
      TYPE_DECL node, for types that are typedefs, or an IDENTIFIER_NODE
      in the case of structs, unions or enums that are known with a tag,
      or zero for types that have no special name.
-   The TYPE_CONTEXT for any sort of type which could have a name (i.e.
-    tagged types in C/C++) will point to the node which represents
-    the scope of the given type.  For most types, this will be a
-    BLOCK node or a FUNCTION_DECL node, but it could also be a
-    FUNCTION_TYPE node (for types whose scope is limited to the
+   The TYPE_CONTEXT for any sort of type which could have a name or
+    which could have named members (e.g. tagged types in C/C++) will
+    point to the node which represents the scope of the given type, or
+    will be NULL_TREE if the type has "file scope".  For most types, this
+    will point to a BLOCK node or a FUNCTION_DECL node, but it could also
+    point to a FUNCTION_TYPE node (for types whose scope is limited to the
     formal parameter list of some function type specification) or it
-    could be a RECORD_TYPE or UNION_TYPE node (for C++ "member" types).
+    could point to a RECORD_TYPE or UNION_TYPE node (for C++ "member" types).
     For non-tagged-types, TYPE_CONTEXT need not be set to anything in
-    particular (since an anonymous type doesn't really have a "scope").  */
+    particular, since any type which is of some type category  (e.g.
+    an array type or a function type) which cannot either have a name
+    itself or have named members doesn't really have a "scope" per se.  */
 /* TREE_CHAIN is used for ENUMERAL_TYPE, RECORD_TYPE and UNION_TYPE
    nodes used as forward-references to names; see below.  */
 
@@ -243,9 +257,13 @@ DEFTREECODE (STRING_CST, "string_cst", "c", 3)
     (Some decls, most often labels, may have zero as the DECL_NAME).
    DECL_CONTEXT points to the node representing the context in which
     this declaration has its scope.  For FIELD_DECLs, this is the
-    RECORD_TYPE or UNION_TYPE node that the field belongs to;
-    for VAR_DECL, PARM_DECL, FUNCTION_DECL and LABEL_DECL, this
-    is the FUNCTION_DECL for the containing function, or 0 if global.
+    RECORD_TYPE or UNION_TYPE node that the field is a member of.  For
+    VAR_DECL, PARM_DECL, FUNCTION_DECL, LABEL_DECL, and CONST_DECL nodes,
+    this points to the FUNCTION_DECL for the containing function, or else
+    yields NULL_TREE if the given decl has "file scope".
+   DECL_ABSTRACT_ORIGIN, if non-NULL, points to the original (abstract)
+    ..._DECL node of which this decl is an (inlined or template expanded)
+    instance.
    The TREE_TYPE field holds the data type of the object, when relevant.
     LABEL_DECLs have no data type.  For TYPE_DECL, the TREE_TYPE field
     contents are the type whose name is being declared.
@@ -284,7 +302,11 @@ DEFTREECODE (STRING_CST, "string_cst", "c", 3)
 
    DECL_SOURCE_FILE holds a filename string and DECL_SOURCE_LINE
    holds a line number.  In some cases these can be the location of
-   a reference, if no definition has been seen.  */
+   a reference, if no definition has been seen.
+
+   DECL_ABSTRACT is non-zero if the decl represents an abstract instance
+   of a decl (i.e. one which is nested within an abstract instance of a
+   inline function.  */
 
 DEFTREECODE (FUNCTION_DECL, "function_decl", "d", 0)
 DEFTREECODE (LABEL_DECL, "label_decl", "d", 0)
@@ -548,13 +570,6 @@ DEFTREECODE (ADDR_EXPR, "addr_expr", "e", 1)
 
 /* Non-lvalue reference or pointer to an object.  */
 DEFTREECODE (REFERENCE_EXPR, "reference_expr", "e", 1)
-
-/* A wrapper in C++.  Operand 0 is the type that the wrapper
-   belongs to (if non-virtual).  Operand 1 is the function
-   being wrapped.  An anti-wrapper means do not wrap the function
-   (if it would be wrapped by default).  */
-DEFTREECODE (WRAPPER_EXPR, "wrapper_expr", "e", 2)
-DEFTREECODE (ANTI_WRAPPER_EXPR, "anti_wrapper_expr", "e", 2)
 
 /* Operand is a function constant; result is a function variable value
    of typeEPmode.  Used only for languages that need static chains.  */

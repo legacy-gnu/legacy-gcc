@@ -1,66 +1,69 @@
 \initial {#}
-\entry {\code {#elif}}{32}
-\entry {\code {#else}}{31}
-\entry {\code {#error}}{34}
-\entry {\code {#ident}}{36}
-\entry {\code {#if}}{30}
-\entry {\code {#ifdef}}{34}
-\entry {\code {#ifndef}}{34}
+\entry {\code {#assert}}{39}
+\entry {\code {#elif}}{35}
+\entry {\code {#else}}{34}
+\entry {\code {#error}}{40}
+\entry {\code {#ident}}{42}
+\entry {\code {#if}}{33}
+\entry {\code {#ifdef}}{37}
+\entry {\code {#ifndef}}{37}
 \entry {\code {#include}}{4}
 \entry {\code {#include{\_}next}}{8}
-\entry {\code {#line}}{35}
-\entry {\code {#pragma}}{36}
+\entry {\code {#line}}{40}
+\entry {\code {#pragma}}{42}
 \entry {\code {#pragma once}}{7}
-\entry {\code {#warning}}{35}
+\entry {\code {#unassert}}{39}
+\entry {\code {#warning}}{40}
 \initial {-}
-\entry {\code {-C}}{38}
-\entry {\code {-D}}{39}
-\entry {\code {-dD}}{40}
-\entry {\code {-dM}}{39}
-\entry {\code {-H}}{40}
-\entry {\code {-I}}{39}
-\entry {\code {-imacros}}{40}
-\entry {\code {-include}}{40}
-\entry {\code {-M}}{40}
-\entry {\code {-MD}}{40}
-\entry {\code {-MM}}{40}
-\entry {\code {-MMD}}{40}
-\entry {\code {-P}}{38}
-\entry {\code {-pedantic}}{38}
-\entry {\code {-pedantic-errors}}{38}
-\entry {\code {-trigraphs}}{38}
-\entry {\code {-U}}{39}
-\entry {\code {-undef}}{39}
-\entry {\code {-Wall}}{38}
-\entry {\code {-Wcomment}}{38}
-\entry {\code {-Wtraditional}}{38}
+\entry {\code {-A}}{45}
+\entry {\code {-C}}{43}
+\entry {\code {-D}}{45}
+\entry {\code {-dD}}{46}
+\entry {\code {-dM}}{45}
+\entry {\code {-H}}{46}
+\entry {\code {-I}}{44}
+\entry {\code {-imacros}}{46}
+\entry {\code {-include}}{46}
+\entry {\code {-M}}{46}
+\entry {\code {-MD}}{46}
+\entry {\code {-MM}}{46}
+\entry {\code {-MMD}}{46}
+\entry {\code {-P}}{43}
+\entry {\code {-pedantic}}{44}
+\entry {\code {-pedantic-errors}}{44}
+\entry {\code {-traditional}}{43}
+\entry {\code {-trigraphs}}{44}
+\entry {\code {-U}}{45}
+\entry {\code {-Wall}}{44}
+\entry {\code {-Wcomment}}{44}
+\entry {\code {-Wtraditional}}{44}
 \initial {{\_}}
-\entry {\code {{\_}{\_}BASE{\_}FILE{\_}{\_}}}{14}
-\entry {\code {{\_}{\_}DATE{\_}{\_}}}{14}
-\entry {\code {{\_}{\_}FILE{\_}{\_}}}{13}
-\entry {\code {{\_}{\_}INCLUDE{\_}LEVEL{\_}}}{14}
-\entry {\code {{\_}{\_}LINE{\_}{\_}}}{13}
-\entry {\code {{\_}{\_}STDC{\_}{\_}}}{14}
-\entry {\code {{\_}{\_}TIME{\_}{\_}}}{14}
-\entry {\code {{\_}AM29000}}{15}
-\entry {\code {{\_}AM29K}}{15}
+\entry {\code {{\_}{\_}BASE{\_}FILE{\_}{\_}}}{15}
+\entry {\code {{\_}{\_}DATE{\_}{\_}}}{15}
+\entry {\code {{\_}{\_}FILE{\_}{\_}}}{14}
+\entry {\code {{\_}{\_}INCLUDE{\_}LEVEL{\_}}}{15}
+\entry {\code {{\_}{\_}LINE{\_}{\_}}}{14}
+\entry {\code {{\_}{\_}STDC{\_}{\_}}}{15}
+\entry {\code {{\_}{\_}TIME{\_}{\_}}}{15}
+\entry {\code {{\_}AM29000}}{16}
+\entry {\code {{\_}AM29K}}{16}
 \initial {B}
-\entry {\code {BSD}}{15}
+\entry {\code {BSD}}{16}
 \initial {D}
-\entry {\code {defined}}{33}
+\entry {\code {defined}}{36}
 \initial {M}
-\entry {\code {M68020}}{15}
-\entry {\code {m68k}}{15}
-\entry {\code {mc68000}}{15}
+\entry {\code {M68020}}{16}
+\entry {\code {m68k}}{16}
+\entry {\code {mc68000}}{16}
 \initial {N}
-\entry {\code {ns32000}}{15}
+\entry {\code {ns32000}}{16}
 \initial {P}
-\entry {\code {pyr}}{16}
+\entry {\code {pyr}}{17}
 \initial {S}
-\entry {\code {sequent}}{16}
-\entry {\code {sun}}{16}
+\entry {\code {sequent}}{17}
+\entry {\code {sun}}{17}
 \entry {\code {system header files}}{4}
 \initial {U}
-\entry {\code {unix}}{15}
+\entry {\code {unix}}{16}
 \initial {V}
-\entry {\code {vax}}{15}
+\entry {\code {vax}}{16}
