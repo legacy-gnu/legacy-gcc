@@ -5,7 +5,7 @@ This file is part of GNU CC
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -25,6 +25,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    Otherwise, it is a typedef for a suitable array of longs,
    and HARD_REG_SET_LONGS is how many.  */
 
+#ifndef HOST_BITS_PER_LONG_LONG
+#define HOST_BITS_PER_LONG_LONG (2 * HOST_BITS_PER_LONG)
+#endif
+
 #if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_CHAR
 #define HARD_REG_SET char
 #else
@@ -37,12 +41,25 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #if FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_LONG
 #define HARD_REG_SET long
 #else
+#if 0 && defined (__GNUC__) && FIRST_PSEUDO_REGISTER <= HOST_BITS_PER_LONGLONG
+#define HARD_REG_SET long long
+#else
 #define HARD_REG_SET_LONGS \
  ((FIRST_PSEUDO_REGISTER + HOST_BITS_PER_LONG - 1) / HOST_BITS_PER_LONG)
 typedef long HARD_REG_SET[HARD_REG_SET_LONGS];
 #endif
 #endif
 #endif
+#endif
+#endif
+
+/* HARD_CONST is used to cast a constant to a HARD_REG_SET
+   if that is a scalar wider than an integer.  */
+
+#ifdef HARD_REG_SET
+#define HARD_CONST(X) ((HARD_REG_SET) (X))
+#else
+#define HARD_CONST(X) (X)
 #endif
 
 /* Define macros SET_HARD_REG_BIT, CLEAR_HARD_REG_BIT and TEST_HARD_REG_BIT
@@ -70,19 +87,19 @@ typedef long HARD_REG_SET[HARD_REG_SET_LONGS];
 
    Also define GO_IF_HARD_REG_SUBSET (X, Y, TO):
    if X is a subset of Y, go to TO.
-*/   
+*/
 
 #ifdef HARD_REG_SET
 
 #define SET_HARD_REG_BIT(SET, BIT)  \
- ((SET) |= 1 << (BIT))
+ ((SET) |= HARD_CONST (1) << (BIT))
 #define CLEAR_HARD_REG_BIT(SET, BIT)  \
- ((SET) &= ~(1 << (BIT)))
+ ((SET) &= ~(HARD_CONST (1) << (BIT)))
 #define TEST_HARD_REG_BIT(SET, BIT)  \
- ((SET) & (1 << (BIT)))
+ ((SET) & (HARD_CONST (1) << (BIT)))
 
-#define CLEAR_HARD_REG_SET(TO) ((TO) = 0)
-#define SET_HARD_REG_SET(TO) ((TO) = -1)
+#define CLEAR_HARD_REG_SET(TO) ((TO) = HARD_CONST (0))
+#define SET_HARD_REG_SET(TO) ((TO) = HARD_CONST (-1))
 
 #define COPY_HARD_REG_SET(TO, FROM) ((TO) = (FROM))
 #define COMPL_HARD_REG_SET(TO, FROM) ((TO) = ~(FROM))
@@ -92,15 +109,19 @@ typedef long HARD_REG_SET[HARD_REG_SET_LONGS];
 #define AND_HARD_REG_SET(TO, FROM) ((TO) &= (FROM))
 #define AND_COMPL_HARD_REG_SET(TO, FROM) ((TO) &= ~ (FROM))
 
-#define GO_IF_HARD_REG_SUBSET(X,Y,TO) if (0 == ((X) & ~(Y))) goto TO
+#define GO_IF_HARD_REG_SUBSET(X,Y,TO) if (HARD_CONST (0) == ((X) & ~(Y))) goto TO
+
+#define GO_IF_HARD_REG_EQUAL(X,Y,TO) if ((X) == (Y)) goto TO
 #else
 
+#define UHOST_BITS_PER_LONG ((unsigned) HOST_BITS_PER_LONG)
+
 #define SET_HARD_REG_BIT(SET, BIT)  \
- ((SET)[(BIT) / HOST_BITS_PER_LONG] |= 1 << ((BIT) % HOST_BITS_PER_LONG))
+  ((SET)[(BIT) / UHOST_BITS_PER_LONG] |= 1 << ((BIT) % UHOST_BITS_PER_LONG))
 #define CLEAR_HARD_REG_BIT(SET, BIT)  \
- ((SET)[(BIT) / HOST_BITS_PER_LONG] &= ~(1 << ((BIT) % HOST_BITS_PER_LONG)))
+  ((SET)[(BIT) / UHOST_BITS_PER_LONG] &= ~(1 << ((BIT) % UHOST_BITS_PER_LONG)))
 #define TEST_HARD_REG_BIT(SET, BIT)  \
- ((SET)[(BIT) / HOST_BITS_PER_LONG] & (1 << ((BIT) % HOST_BITS_PER_LONG)))
+  ((SET)[(BIT) / UHOST_BITS_PER_LONG] & (1 << ((BIT) % UHOST_BITS_PER_LONG)))
 
 #define CLEAR_HARD_REG_SET(TO)  \
 do { register long *scan_tp_ = (TO);				\
@@ -157,6 +178,13 @@ do { register long *scan_xp_ = (X), *scan_yp_ = (Y);		\
        if (0 != (*scan_xp_++ & ~*scan_yp_++)) break;		\
      if (i == HARD_REG_SET_LONGS) goto TO; } while (0)
 
+#define GO_IF_HARD_REG_EQUAL(X,Y,TO)  \
+do { register long *scan_xp_ = (X), *scan_yp_ = (Y);		\
+     register int i;						\
+     for (i = 0; i < HARD_REG_SET_LONGS; i++)			\
+       if (*scan_xp_++ != ~*scan_yp_++)) break;			\
+     if (i == HARD_REG_SET_LONGS) goto TO; } while (0)
+
 #endif
 
 /* Define some standard sets of registers.  */
@@ -204,7 +232,9 @@ extern char global_regs[FIRST_PSEUDO_REGISTER];
 
 /* Table of register numbers in the order in which to try to use them.  */
 
+#ifdef REG_ALLOC_ORDER   /* Avoid undef symbol in certain broken linkers.  */
 extern int reg_alloc_order[FIRST_PSEUDO_REGISTER];
+#endif
 
 /* For each reg class, a HARD_REG_SET saying which registers are in it.  */
 
@@ -227,3 +257,15 @@ extern enum reg_class reg_class_subclasses[N_REG_CLASSES][N_REG_CLASSES];
 
 extern enum reg_class reg_class_subunion[N_REG_CLASSES][N_REG_CLASSES];
 
+/* For each pair of reg classes,
+   the smallest reg class that contains their union.  */
+
+extern enum reg_class reg_class_superunion[N_REG_CLASSES][N_REG_CLASSES];
+
+/* Number of non-fixed registers.  */
+
+extern int n_non_fixed_regs;
+
+/* Vector indexed by hardware reg giving its name.  */
+
+extern char *reg_names[FIRST_PSEUDO_REGISTER];

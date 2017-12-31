@@ -5,7 +5,7 @@ This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -20,8 +20,11 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /*
  * File: xm-tahoe.h
  *
- * This port made at the University of Buffalo by Devon Bowen,
+ * Original port made at the University of Buffalo by Devon Bowen,
  * Dale Wiles and Kevin Zachmann.
+ *
+ * Adaptions for HCX by Piet van Oostrum,
+ * University of Utrecht, The Netherlands (piet@cs.ruu.nl)
  *
  * Mail bugs reports or fixes to:	gcc@cs.buffalo.edu
  */
@@ -34,7 +37,8 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define FALSE 0
 #define TRUE 1
 
-/* target machine dependencies */
+/* target machine dependencies
+   tm.h is a symbolic link to the actual target specific file.   */
 
 #include "tm.h"
 
@@ -44,14 +48,16 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define HOST_BITS_PER_SHORT 16
 #define HOST_BITS_PER_INT 32
 #define HOST_BITS_PER_LONG 32
+#define HOST_BITS_PER_LONGLONG 64
+
+#define HOST_WORDS_BIG_ENDIAN
 
 /* Arguments to use with `exit'.  */
 
 #define SUCCESS_EXIT_CODE 0
 #define FATAL_EXIT_CODE 33
 
-/* use built in alloca if gcc compiled */
-
+/* If compiled with GNU C, use the built-in alloca */
 #ifdef __GNUC__
 #define alloca __builtin_alloca
 #endif

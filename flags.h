@@ -5,7 +5,7 @@ This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -20,24 +20,39 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 /* Name of the input .c file being compiled.  */
 extern char *main_input_filename;
 
-/* 1 => write gdb debugging output (using symout.c).
-   2 => write dbx debugging output (using dbxout.c).
-   3 => write sdb debugging output (using sdbout.c).  */
-enum debugger { NO_DEBUG = 0, GDB_DEBUG = 1, DBX_DEBUG = 2, SDB_DEBUG = 3,
-		EXTENDED_DBX_DEBUG = 4 };
+enum debug_info_type
+{
+  NO_DEBUG,	    /* Write no debug info.  */
+  DBX_DEBUG,	    /* Write BSD .stabs for DBX (using dbxout.c).  */
+  SDB_DEBUG,	    /* Write COFF for (old) SDB (using sdbout.c).  */
+  DWARF_DEBUG	    /* Write Dwarf debug info (using dwarfout.c).  */
+};
 
-extern enum debugger write_symbols;
+/* Specify which kind of debugging info to generate.  */
+extern enum debug_info_type write_symbols;
 
+enum debug_info_level
+{
+  DINFO_LEVEL_NONE,	/* Write no debugging info.  */
+  DINFO_LEVEL_TERSE,	/* Write minimal info to support tracebacks only.  */
+  DINFO_LEVEL_NORMAL,	/* Write info for all declarations (and line table). */
+  DINFO_LEVEL_VERBOSE	/* Write normal info plus #define/#undef info.  */
+};
+
+/* Specify how much debugging info to generate.  */
+extern enum debug_info_level debug_info_level;
+
+#ifdef DBX_DEBUGGING_INFO
 /* Nonzero means use GDB-only extensions of DBX format.  */
 extern int use_gdb_dbx_extensions;
+#endif
 
 /* Nonzero means do optimizations.  -opt.  */
 
 extern int optimize;
 
 /* Nonzero means do stupid register allocation.  -noreg.
-   This and `optimize' are controlled by different switches in cc1,
-   but normally cc controls them both with the -O switch.  */
+   Currently, this is 1 if `optimize' is 0.  */
 
 extern int obey_regdecls;
 
@@ -58,6 +73,10 @@ extern int extra_warnings;
 
 extern int warn_unused;
 
+/* Nonzero to warn about variables used before they are initialized.  */
+
+extern int warn_uninitialized;
+
 /* Nonzero means warn about all declarations which shadow others.   */
 
 extern int warn_shadow;
@@ -66,11 +85,27 @@ extern int warn_shadow;
 
 extern int warn_switch;
 
+/* Nonzero means warn about function definitions that default the return type
+   or that use a null return and have a return-type other than void.  */
+
+extern int warn_return_type;
+
+/* Nonzero means warn about pointer casts that increase the required
+   alignment of the target type (and might therefore lead to a crash
+   due to a misaligned access).  */
+
+extern int warn_cast_align;
+
 /* Nonzero means warn about any identifiers that match in the first N
    characters.  The value N is in `id_clash_len'.  */
 
 extern int warn_id_clash;
 extern int id_clash_len;
+
+/* Warn if a function returns an aggregate,
+   since there are often incompatible calling conventions for doing this.  */
+
+extern int warn_aggregate_return;
 
 /* Nonzero if generating code to do profiling.  */
 
@@ -84,6 +119,16 @@ extern int profile_block_flag;
    that standard C forbids.  */
 
 extern int pedantic;
+
+/* Temporarily suppress certain warnings.
+   This is set while reading code from a system header file.  */
+
+extern int in_system_header;
+
+/* Nonzero for -dp: annotate the assembly with a comment describing the
+   pattern and alternative used.  */
+
+extern int flag_print_asm_name;
 
 /* Now the symbols that are set with `-f' switches.  */
 
@@ -125,15 +170,30 @@ extern int flag_defer_pop;
 
 extern int flag_float_store;
 
-/* Nonzero for -fcombine-regs:
-   allow instruction combiner to combine an insn
-   that just copies one reg to another.  */
-
-extern int flag_combine_regs;
-
 /* Nonzero enables strength-reduction in loop.c.  */
 
 extern int flag_strength_reduce;
+
+/* Nonzero enables loop unrolling in unroll.c.  Only loops for which the
+   number of iterations can be calculated at compile-time (UNROLL_COMPLETELY,
+   UNROLL_MODULO) or at run-time (preconditioned to be UNROLL_MODULO) are
+   unrolled.  */
+
+extern int flag_unroll_loops;
+
+/* Nonzero enables loop unrolling in unroll.c.  All loops are unrolled.
+   This is generally not a win.  */
+
+extern int flag_unroll_all_loops;
+
+/* Nonzero for -fcse-follow-jumps:
+   have cse follow jumps to do a more extensive job.  */
+
+extern int flag_cse_follow_jumps;
+
+/* Nonzero for -fexpensive-optimizations:
+   perform miscellaneous relatively-expensive optimizations.  */
+extern int flag_expensive_optimizations;
 
 /* Nonzero for -fwritable-strings:
    store string constants in data segment and don't uniquize them.  */
@@ -150,14 +210,6 @@ extern int flag_no_function_cse;
    don't make a frame pointer in simple functions that don't require one.  */
 
 extern int flag_omit_frame_pointer;
-
-/* This isn't a flag, but everyone who needs flag_omit_frame_pointer
-   also needs this.
-   Nonzero means current function must be given a frame pointer.
-   Set in stmt.c if anything is allocated on the stack there.
-   Set in reload1.c if anything is allocated on the stack there.  */
-
-extern int frame_pointer_needed;
 
 /* Nonzero to inhibit use of define_optimization peephole opts.  */
 
@@ -178,14 +230,83 @@ extern int flag_inline_functions;
 
 extern int flag_keep_inline_functions;
 
+/* Nonzero means that functions declared `inline' will be treated
+   as `static'.  Prevents generation of zillions of copies of unused
+   static inline functions; instead, `inlines' are written out
+   only when actually used.  Used in conjunction with -g.  Also
+   does the right thing with #pragma interface.  */
+
+extern int flag_no_inline;
+
 /* Nonzero if we are only using compiler to check syntax errors.  */
 
 extern int flag_syntax_only;
+
+/* Nonzero means we should save auxilliary info into a .X file.  */
+
+extern int flag_gen_aux_info;
 
 /* Nonzero means make the text shared if supported.  */
 
 extern int flag_shared_data;
 
+/* flag_schedule_insns means schedule insns within basic blocks (before
+   local_alloc).
+   flag_schedule_insns_after_reload means schedule insns after
+   global_alloc.  */
+
+extern int flag_schedule_insns;
+extern int flag_schedule_insns_after_reload;
+
 /* Nonzero means put things in delayed-branch slots if supported. */
 
 extern int flag_delayed_branch;
+
+/* Nonzero means pretend it is OK to examine bits of target floats,
+   even if that isn't true.  The resulting code will have incorrect constants,
+   but the same series of instructions that the native compiler would make.  */
+
+extern int flag_pretend_float;
+
+/* Nonzero means change certain warnings into errors.
+   Usually these are warnings about failure to conform to some standard.  */
+
+extern int flag_pedantic_errors;
+
+/* Nonzero means generate position-independent code.
+   This is not fully implemented yet.  */
+
+extern int flag_pic;
+
+/* Nonzero means place uninitialized global data in the bss section.  */
+
+extern int flag_no_common;
+
+/* -finhibit-size-directive inhibits output of .size for ELF.
+   This is used only for compiling crtstuff.c,
+   and it may be extended to other effects
+   needed for crtstuff.c on other systems.  */
+extern int flag_inhibit_size_directive;
+
+/* -fgnu-linker specifies use of the GNU linker for initializations.
+   -fno-gnu-linker says that collect will be used.  */
+extern int flag_gnu_linker;
+
+/* Other basic status info about current function.  */
+
+/* Nonzero means current function must be given a frame pointer.
+   Set in stmt.c if anything is allocated on the stack there.
+   Set in reload1.c if anything is allocated on the stack there.  */
+
+extern int frame_pointer_needed;
+
+/* Set nonzero if jump_optimize finds that control falls through
+   at the end of the function.  */
+
+extern int can_reach_end;
+
+/* Nonzero if function being compiled receives nonlocal gotos
+   from nested functions.  */
+
+extern int current_function_has_nonlocal_label;
+

@@ -5,7 +5,7 @@ This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -27,6 +27,8 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #define HOST_BITS_PER_SHORT 16
 #define HOST_BITS_PER_INT 32
 #define HOST_BITS_PER_LONG 32
+#define HOST_BITS_PER_LONGLONG 64
+
 #define HOST_WORDS_BIG_ENDIAN
 
 /* target machine dependencies.
@@ -39,5 +41,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 /* If compiled with GNU C, use the built-in alloca */
 #ifdef __GNUC__
-#define alloca __builtin_alloca
+/* Use an arg in this macro because that's what some other
+   system does--let's avoid conflict.  */
+#define alloca(x) __builtin_alloca(x)
 #endif

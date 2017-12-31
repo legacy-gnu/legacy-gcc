@@ -5,7 +5,7 @@ This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -32,10 +32,14 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 extern int max_regno;
 
+/* Maximum number of SCRATCH rtx's in each block of this function.  */
+
+extern int max_scratch;
+
 /* Indexed by n, gives number of times (REG n) is used or set.
    References within loops may be counted more times.  */
 
-extern short *reg_n_refs;
+extern int *reg_n_refs;
 
 /* Indexed by n, gives number of times (REG n) is set.  */
 
@@ -48,12 +52,6 @@ extern short *reg_n_sets;
    for registers that are contained in one basic block.  */
 
 extern short *reg_n_deaths;
-
-/* Indexed by N, gives the first insn that mentions reg N,
-   provided that reg is local to one basic block.
-   The value here is undefined otherwise.  */
-
-extern rtx *reg_first_use;
 
 /* Get the number of consecutive words required to hold pseudo-reg N.  */
 
@@ -126,6 +124,10 @@ extern short *regno_last_uid;
 
 extern char *regno_pointer_flag;
 #define REGNO_POINTER_FLAG(REGNO) regno_pointer_flag[REGNO]
+
+/* List made of EXPR_LIST rtx's which gives pairs of pseudo registers
+   that have to go in the same hard reg.  */
+extern rtx regs_may_share;
 
 /* Vector mapping pseudo regno into the REG rtx for that register.
    This is computed by reg_scan.  */

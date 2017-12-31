@@ -6,9 +6,30 @@
 #ifndef _STDARG_H
 #define _STDARG_H
 
+#ifndef __GNUC__
+/* Use the system's macros with the system's compiler.  */
+#include <stdarg.h>
+#else
+#ifdef __m88k__
+#include "va-m88k.h"
+#else
+#ifdef __i860__
+#include "va-i860.h"
+#else
+#ifdef __hp9000s800__
+#include "va-hp800.h"
+#else
+#ifdef __mips__
+#include "va-mips.h"
+#else
+
+#ifdef _HIDDEN_VA_LIST  /* On OSF1, this means varargs.h is "half-loaded".  */
+#undef _VA_LIST
+#endif
+
 /* The macro _VA_LIST_ is the same thing used by this file in Ultrix.  */
 #ifndef _VA_LIST_
-/* The macro _VA_LIST_ is used in SCO Unix 3.2.  */
+/* The macro _VA_LIST is used in SCO Unix 3.2.  */
 #ifndef _VA_LIST
 #define _VA_LIST_
 #define _VA_LIST
@@ -31,18 +52,16 @@ typedef char *va_list;
   AP = ((char *) __builtin_next_arg ()))
 #endif
 
-void va_end (va_list);		/* Defined in gnulib */
+void va_end (va_list);		/* Defined in libgcc.a */
 #define va_end(AP)
 
-#ifdef __mips__
-#define va_arg(AP, mode) ((mode *)(AP = \
-	(char *) (sizeof(mode) > 4 ? ((int)AP + 2*8 - 1) & -8 \
-				   : ((int)AP + 2*4 - 1) & -4)))[-1]
-#else /* not __mips__ */
 #define va_arg(AP, TYPE)						\
- (*((TYPE *) (AP += __va_rounded_size (TYPE),				\
-	      AP - (sizeof (TYPE) < 4 ? sizeof (TYPE)			\
-		    : __va_rounded_size (TYPE)))))
-#endif /* not __mips__ */
+ (AP += __va_rounded_size (TYPE),					\
+  *((TYPE *) (AP - __va_rounded_size (TYPE))))
 
+#endif /* not mips */
+#endif /* not hp9000s800 */
+#endif /* not i860 */
+#endif /* not m88k */
+#endif /* __GNUC__ */
 #endif /* _STDARG_H */

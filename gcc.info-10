@@ -1,1137 +1,1120 @@
-This is Info file gcc.info, produced by Makeinfo-1.47 from the input
-file gcc.texinfo.
+This is Info file gcc.info, produced by Makeinfo-1.43 from the input
+file gcc.texi.
 
    This file documents the use and the internals of the GNU compiler.
 
-   Copyright (C) 1988, 1989, 1990 Free Software Foundation, Inc.
+   Copyright (C) 1988, 1989, 1992 Free Software Foundation, Inc.
 
-   Permission is granted to make and distribute verbatim copies of this
-manual provided the copyright notice and this permission notice are
-preserved on all copies.
+   Permission is granted to make and distribute verbatim copies of
+this manual provided the copyright notice and this permission notice
+are preserved on all copies.
 
    Permission is granted to copy and distribute modified versions of
 this manual under the conditions for verbatim copying, provided also
-that the sections entitled "GNU General Public License" and "Protect
-Your Freedom--Fight `Look And Feel'" are included exactly as in the
-original, and provided that the entire resulting derived work is
-distributed under the terms of a permission notice identical to this
-one.
+that the section entitled "GNU General Public License" is included
+exactly as in the original, and provided that the entire resulting
+derived work is distributed under the terms of a permission notice
+identical to this one.
 
    Permission is granted to copy and distribute translations of this
 manual into another language, under the above conditions for modified
-versions, except that the sections entitled "GNU General Public
-License" and "Protect Your Freedom--Fight `Look And Feel'" and this
-permission notice may be included in translations approved by the Free
-Software Foundation instead of in the original English.
+versions, except that the section entitled "GNU General Public
+License" and this permission notice may be included in translations
+approved by the Free Software Foundation instead of in the original
+English.
 
 
-File: gcc.info,  Node: Addressing Modes,  Next: Delayed Branch,  Prev: Library Calls,  Up: Machine Macros
-
-Addressing Modes
-================
-
-`HAVE_POST_INCREMENT'
-     Define this macro if the machine supports post-increment
-     addressing.
-
-`HAVE_PRE_INCREMENT'
-`HAVE_POST_DECREMENT'
-`HAVE_PRE_DECREMENT'
-     Similar for other kinds of addressing.
-
-`CONSTANT_ADDRESS_P (X)'
-     A C expression that is 1 if the RTX X is a constant whose value is
-     an integer.  This includes integers whose values are not explicitly
-     known, such as `symbol_ref' and `label_ref' expressions and
-     `const' arithmetic expressions.
-
-     On most machines, this can be defined as `CONSTANT_P (X)', but a
-     few machines are more restrictive in which constant addresses are
-     supported.
-
-`MAX_REGS_PER_ADDRESS'
-     A number, the maximum number of registers that can appear in a
-     valid memory address.  Note that it is up to you to specify a
-     value equal to the maximum number that `go_if_legitimate_address'
-     would ever accept.
-
-`GO_IF_LEGITIMATE_ADDRESS (MODE, X, LABEL)'
-     A C compound statement with a conditional `goto LABEL;' executed
-     if X (an RTX) is a legitimate memory address on the target machine
-     for a memory operand of mode MODE.
-
-     It usually pays to define several simpler macros to serve as
-     subroutines for this one.  Otherwise it may be too complicated to
-     understand.
-
-     This macro must exist in two variants: a strict variant and a
-     non-strict one.  The strict variant is used in the reload pass.  It
-     must be defined so that any pseudo-register that has not been
-     allocated a hard register is considered a memory reference.  In
-     contexts where some kind of register is required, a pseudo-register
-     with no hard register must be rejected.
-
-     The non-strict variant is used in other passes.  It must be
-     defined to accept all pseudo-registers in every context where some
-     kind of register is required.
-
-     Compiler source files that want to use the strict variant of this
-     macro define the macro `REG_OK_STRICT'.  You should use an `#ifdef
-     REG_OK_STRICT' conditional to define the strict variant in that
-     case and the non-strict variant otherwise.
-
-     Typically among the subroutines used to define
-     `GO_IF_LEGITIMATE_ADDRESS' are subroutines to check for acceptable
-     registers for various purposes (one for base registers, one for
-     index registers, and so on).  Then only these subroutine macros
-     need have two variants; the higher levels of macros may be the same
-     whether strict or not.
-
-     Normally, constant addresses which are the sum of a `symbol_ref'
-     and an integer are stored inside a `const' RTX to mark them as
-     constant.  Therefore, there is no need to recognize such sums as
-     legitimate addresses.
-
-     Usually `PRINT_OPERAND_ADDRESS' is not prepared to handle constant
-     sums that are not marked with  `const'.  It assumes that a naked
-     `plus' indicates indexing.  If so, then you *must* reject such
-     naked constant sums as illegitimate addresses, so that none of
-     them will be given to `PRINT_OPERAND_ADDRESS'.
-
-`REG_OK_FOR_BASE_P (X)'
-     A C expression that is nonzero if X (assumed to be a `reg' RTX) is
-     valid for use as a base register.  For hard registers, it should
-     always accept those which the hardware permits and reject the
-     others.  Whether the macro accepts or rejects pseudo registers
-     must be controlled by `REG_OK_STRICT' as described above.  This
-     usually requires two variant definitions, of which `REG_OK_STRICT'
-     controls the one actually used.
-
-`REG_OK_FOR_INDEX_P (X)'
-     A C expression that is nonzero if X (assumed to be a `reg' RTX) is
-     valid for use as an index register.
-
-     The difference between an index register and a base register is
-     that the index register may be scaled.  If an address involves the
-     sum of two registers, neither one of them scaled, then either one
-     may be labeled the "base" and the other the "index"; but whichever
-     labeling is used must fit the machine's constraints of which
-     registers may serve in each capacity.  The compiler will try both
-     labelings, looking for one that is valid, and will reload one or
-     both registers only if neither labeling works.
-
-`LEGITIMIZE_ADDRESS (X, OLDX, MODE, WIN)'
-     A C compound statement that attempts to replace X with a valid
-     memory address for an operand of mode MODE.  WIN will be a C
-     statement label elsewhere in the code; the macro definition may use
-
-          GO_IF_LEGITIMATE_ADDRESS (MODE, X, WIN);
-
-     to avoid further processing if the address has become legitimate.
-
-     X will always be the result of a call to `break_out_memory_refs',
-     and OLDX will be the operand that was given to that function to
-     produce X.
-
-     The code generated by this macro should not alter the substructure
-     of X.  If it transforms X into a more legitimate form, it should
-     assign X (which will always be a C variable) a new value.
-
-     It is not necessary for this macro to come up with a legitimate
-     address.  The compiler has standard ways of doing so in all cases.
-      In fact, it is safe for this macro to do nothing.  But often a
-     machine-dependent strategy can generate better code.
-
-`GO_IF_MODE_DEPENDENT_ADDRESS (ADDR, LABEL)'
-     A C statement or compound statement with a conditional `goto
-     LABEL;' executed if memory address X (an RTX) can have different
-     meanings depending on the machine mode of the memory reference it
-     is used for.
-
-     Autoincrement and autodecrement addresses typically have
-     mode-dependent effects because the amount of the increment or
-     decrement is the size of the operand being addressed.  Some
-     machines have other mode-dependent addresses.  Many RISC machines
-     have no mode-dependent addresses.
-
-     You may assume that ADDR is a valid address for the machine.
-
-`LEGITIMATE_CONSTANT_P (X)'
-     A C expression that is nonzero if X is a legitimate constant for
-     an immediate operand on the target machine.  You can assume that
-     either X is a `const_double' or it satisfies `CONSTANT_P', so you
-     need not check these things.  In fact, `1' is a suitable
-     definition for this macro on machines where any `const_double' is
-     valid and anything `CONSTANT_P' is valid.
-
-
-File: gcc.info,  Node: Delayed Branch,  Next: Condition Code,  Prev: Addressing Modes,  Up: Machine Macros
-
-Parameters for Delayed Branch Optimization
-==========================================
-
-`HAVE_DELAYED_BRANCH'
-     Define this macro if the target machine has delayed branches, that
-     is, a branch does not take effect immediately, and the actual
-     branch instruction may be followed by one or more instructions
-     that will be issued before the PC is actually changed.
-
-     If defined, this allows a special scheduling pass to be run after
-     the second jump optimization to attempt to reorder instructions to
-     exploit this.  Defining this macro also requires the definition of
-     certain other macros described below.
-
-`DBR_SLOTS_AFTER (INSN)'
-     This macro must be defined if `HAVE_DELAYED_BRANCH' is defined.
-     Its definition should be a C expression returning the number of
-     available delay slots following the instruction(s) output by the
-     pattern for INSN.  The definition of "slot" is machine-dependent,
-     and may denote instructions, bytes, or whatever.
-
-`DBR_INSN_SLOTS (INSN)'
-     This macro must be defined if `HAVE_DELAYED_BRANCH' is defined. It
-     should be a C expression returning the number of slots (typically
-     the number of machine instructions) consumed by INSN.
-
-     You may assume that INSN is truly an insn, not a note, label,
-     barrier, dispatch table, `use', or `clobber'.
-
-`DBR_INSN_ELIGIBLE_P (INSN, DINSN)'
-     A C expression whose value is non-zero if it is legitimate to put
-     INSN in the delay slot following DINSN.
-
-     You do not need to take account of data flow considerations in the
-     definition of this macro, because the delayed branch optimizer
-     always does that.  This macro is needed only when certain insns
-     may not be placed in certain delay slots for reasons not evident
-     from the RTL expressions themselves.  If there are no such
-     problems, you don't need to define this macro.
-
-     You may assume that INSN is truly an insn, not a note, label,
-     barrier, dispatch table, `use', or `clobber'.  You may assume that
-     DINSN is a jump insn with a delay slot.
-
-`DBR_OUTPUT_SEQEND(FILE)'
-     A C statement, to be executed after all slot-filler instructions
-     have been output.  If necessary, call `dbr_sequence_length' to
-     determine the number of slots filled in a sequence (zero if not
-     currently outputting a sequence), to decide how many no-ops to
-     output, or whatever.
-
-     Don't define this macro if it has nothing to do, but it is helpful
-     in reading assembly output if the extent of the delay sequence is
-     made explicit (e.g. with white space).
-
-     Note that output routines for instructions with delay slots must be
-     prepared to deal with not being output as part of a sequence (i.e.
-     when the scheduling pass is not run, or when no slot fillers could
-     be found.)  The variable `final_sequence' is null when not
-     processing a sequence, otherwise it contains the `sequence' rtx
-     being output.
-
-
-File: gcc.info,  Node: Condition Code,  Next: Cross-compilation,  Prev: Delayed Branch,  Up: Machine Macros
-
-Condition Code Information
-==========================
-
-   The file `conditions.h' defines a variable `cc_status' to describe
-how the condition code was computed (in case the interpretation of the
-condition code depends on the instruction that it was set by).  This
-variable contains the RTL expressions on which the condition code is
-currently based, and several standard flags.
-
-   Sometimes additional machine-specific flags must be defined in the
-machine description header file.  It can also add additional
-machine-specific information by defining `CC_STATUS_MDEP'.
-
-`CC_STATUS_MDEP'
-     C code for a data type which is used for declaring the `mdep'
-     component of `cc_status'.  It defaults to `int'.
-
-`CC_STATUS_MDEP_INIT'
-     A C expression to initialize the `mdep' field to "empty". The
-     default definition does nothing, since most machines don't use the
-     field anyway.  If you want to use the field, you should probably
-     define this macro to initialize it.
-
-`NOTICE_UPDATE_CC (EXP, INSN)'
-     A C compound statement to set the components of `cc_status'
-     appropriately for an insn INSN whose body is EXP.  It is this
-     macro's responsibility to recognize insns that set the condition
-     code as a byproduct of other activity as well as those that
-     explicitly set `(cc0)'.
-
-     If there are insn that do not set the condition code but do alter
-     other machine registers, this macro must check to see whether they
-     invalidate the expressions that the condition code is recorded as
-     reflecting.  For example, on the 68000, insns that store in address
-     registers do not set the condition code, which means that usually
-     `NOTICE_UPDATE_CC' can leave `cc_status' unaltered for such insns.
-      But suppose that the previous insn set the condition code based
-     on location `a4@(102)' and the current insn stores a new value in
-     `a4'.  Although the condition code is not changed by this, it will
-     no longer be true that it reflects the contents of `a4@(102)'. 
-     Therefore, `NOTICE_UPDATE_CC' must alter `cc_status' in this case
-     to say that nothing is known about the condition code value.
-
-     The definition of `NOTICE_UPDATE_CC' must be prepared to deal with
-     the results of peephole optimization: insns whose patterns are
-     `parallel' RTXs containing various `reg', `mem' or constants which
-     are just the operands.  The RTL structure of these insns is not
-     sufficient to indicate what the insns actually do.  What
-     `NOTICE_UPDATE_CC' should do when it sees one is just to run
-     `CC_STATUS_INIT'.
-
-
-File: gcc.info,  Node: Cross-compilation,  Next: Misc,  Prev: Condition Code,  Up: Machine Macros
-
-Cross Compilation and Floating-Point Format
-===========================================
-
-   While all modern machines use 2's complement representation for
-integers, there are a variety of representations for floating point
-numbers.  This means that in a cross-compiler the representation of
-floating point numbers in the compiled program may be different from
-that used in the machine doing the compilation.
-
-   Because different representation systems may offer different amounts
-of range and precision, the cross compiler cannot safely use the host
-machine's floating point arithmetic.  Therefore, floating point
-constants must be represented in the target machine's format.  This
-means that the cross compiler cannot use `atof' to parse a floating
-point constant; it must have its own special routine to use instead. 
-Also, constant folding must emulate the target machine's arithmetic (or
-must not be done at all).
-
-   The macros in the following table should be defined only if you are
-cross compiling between different floating point formats.
-
-   Otherwise, don't define them. Then default definitions will be set
-up which use `double' as the data type, `==' to test for equality, etc.
-
-   You don't need to worry about how many times you use an operand of
-any of these macros.  The compiler never uses operands which have side
-effects.
-
-`REAL_VALUE_TYPE'
-     A macro for the C data type to be used to hold a floating point
-     value in the target machine's format.  Typically this would be a
-     `struct' containing an array of `int'.
-
-`REAL_VALUES_EQUAL (X, Y)'
-     A macro for a C expression which compares for equality the two
-     values, X and Y, both of type `REAL_VALUE_TYPE'.
-
-`REAL_VALUES_LESS (X, Y)'
-     A macro for a C expression which tests whether X is less than Y,
-     both values being of type `REAL_VALUE_TYPE' and interpreted as
-     floating point numbers in the target machine's representation.
-
-`REAL_VALUE_LDEXP (X, SCALE)'
-     A macro for a C expression which performs the standard library
-     function `ldexp', but using the target machine's floating point
-     representation.  Both X and the value of the expression have type
-     `REAL_VALUE_TYPE'.  The second argument, SCALE, is an integer.
-
-`REAL_VALUE_ATOF (STRING)'
-     A macro for a C expression which converts STRING, an expression of
-     type `char *', into a floating point number in the target
-     machine's representation.  The value has type `REAL_VALUE_TYPE'.
-
-   Define the following additional macros if you want to make floating
-point constant folding work while cross compiling.  If you don't define
-them, cross compilation is still possible, but constant folding will
-not happen for floating point values.
-
-`REAL_ARITHMETIC (OUTPUT, CODE, X, Y)'
-     A macro for a C statement which calculates an arithmetic operation
-     of the two floating point values X and Y, both of type
-     `REAL_VALUE_TYPE' in the target machine's representation, to
-     produce a result of the same type and representation which is
-     stored in OUTPUT (which will be a variable).
-
-     The operation to be performed is specified by CODE, a tree code
-     which will always be one of the following: `PLUS_EXPR',
-     `MINUS_EXPR', `MULT_EXPR', `RDIV_EXPR', `MAX_EXPR', `MIN_EXPR'.
-
-     The expansion of this macro is responsible for checking for
-     overflow. If overflow happens, the macro expansion should execute
-     the statement `return 0;', which indicates the inability to
-     perform the arithmetic operation requested.
-
-`REAL_VALUE_NEGATE (X)'
-     A macro for a C expression which returns the negative of the
-     floating point value X.  Both X and the value of the expression
-     have type `REAL_VALUE_TYPE' and are in the target machine's
-     floating point representation.
-
-     There is no way for this macro to report overflow, since overflow
-     can't happen in the negation operation.
-
-`REAL_VALUE_TO_INT (LOW, HIGH, X)'
-     A macro for a C expression which converts a floating point value X
-     into a double-precision integer which is then stored into LOW and
-     HIGH, two variables of type INT.
-
-`REAL_VALUE_FROM_INT (X, LOW, HIGH)'
-     A macro for a C expression which converts a double-precision
-     integer found in LOW and HIGH, two variables of type INT, into a
-     floating point value which is then stored into X.
-
-
-File: gcc.info,  Node: Misc,  Next: Assembler Format,  Prev: Cross-compilation,  Up: Machine Macros
-
-Miscellaneous Parameters
-========================
-
-`CASE_VECTOR_MODE'
-     An alias for a machine mode name.  This is the machine mode that
-     elements of a jump-table should have.
-
-`CASE_VECTOR_PC_RELATIVE'
-     Define this macro if jump-tables should contain relative addresses.
-
-`CASE_DROPS_THROUGH'
-     Define this if control falls through a `case' insn when the index
-     value is out of range.  This means the specified default-label is
-     actually ignored by the `case' insn proper.
-
-`IMPLICIT_FIX_EXPR'
-     An alias for a tree code that should be used by default for
-     conversion of floating point values to fixed point.  Normally,
-     `FIX_ROUND_EXPR' is used.
-
-`FIXUNS_TRUNC_LIKE_FIX_TRUNC'
-     Define this macro if the same instructions that convert a floating
-     point number to a signed fixed point number also convert validly
-     to an unsigned one.
-
-`EASY_DIV_EXPR'
-     An alias for a tree code that is the easiest kind of division to
-     compile code for in the general case.  It may be `TRUNC_DIV_EXPR',
-     `FLOOR_DIV_EXPR', `CEIL_DIV_EXPR' or `ROUND_DIV_EXPR'.  These four
-     division operators differ in how they round the result to an
-     integer.  `EASY_DIV_EXPR' is used when it is permissible to use
-     any of those kinds of division and the choice should be made on
-     the basis of efficiency.
-
-`DEFAULT_SIGNED_CHAR'
-     An expression whose value is 1 or 0, according to whether the type
-     `char' should be signed or unsigned by default.  The user can
-     always override this default with the options `-fsigned-char' and
-     `-funsigned-char'.
-
-`SCCS_DIRECTIVE'
-     Define this if the preprocessor should ignore `#sccs' directives
-     and print no error message.
-
-`HAVE_VPRINTF'
-     Define this if the library function `vprintf' is available on your
-     system.
-
-`MOVE_MAX'
-     The maximum number of bytes that a single instruction can move
-     quickly from memory to memory.
-
-`INT_TYPE_SIZE'
-     A C expression for the size in bits of the type `int' on the
-     target machine.  If you don't define this, the default is one word.
-
-`SHORT_TYPE_SIZE'
-     A C expression for the size in bits of the type `short' on the
-     target machine.  If you don't define this, the default is half a
-     word. (If this would be less than one storage unit, it is rounded
-     up to one unit.)
-
-`LONG_TYPE_SIZE'
-     A C expression for the size in bits of the type `long' on the
-     target machine.  If you don't define this, the default is one word.
-
-`LONG_LONG_TYPE_SIZE'
-     A C expression for the size in bits of the type `long long' on the
-     target machine.  If you don't define this, the default is two
-     words.
-
-`CHAR_TYPE_SIZE'
-     A C expression for the size in bits of the type `char' on the
-     target machine.  If you don't define this, the default is one
-     quarter of a word.  (If this would be less than one storage unit,
-     it is rounded up to one unit.)
-
-`FLOAT_TYPE_SIZE'
-     A C expression for the size in bits of the type `float' on the
-     target machine.  If you don't define this, the default is one word.
-
-`DOUBLE_TYPE_SIZE'
-     A C expression for the size in bits of the type `double' on the
-     target machine.  If you don't define this, the default is two
-     words.
-
-`LONG_DOUBLE_TYPE_SIZE'
-     A C expression for the size in bits of the type `long double' on
-     the target machine.  If you don't define this, the default is two
-     words.
-
-`SLOW_BYTE_ACCESS'
-     Define this macro as a C expression which is nonzero if accessing
-     less than a word of memory (i.e. a `char' or a `short') is slow
-     (requires more than one instruction).
-
-`SLOW_ZERO_EXTEND'
-     Define this macro if zero-extension (of a `char' or `short' to an
-     `int') can be done faster if the destination is a register that is
-     known to be zero.
-
-     If you define this macro, you must have instruction patterns that
-     recognize RTL structures like this:
-
-          (set (strict-low-part (subreg:QI (reg:SI ...) 0)) ...)
-
-     and likewise for `HImode'.
-
-`SHIFT_COUNT_TRUNCATED'
-     Define this macro if shift instructions ignore all but the lowest
-     few bits of the shift count.  It implies that a sign-extend or
-     zero-extend instruction for the shift count can be omitted.
-
-`TRULY_NOOP_TRUNCATION (OUTPREC, INPREC)'
-     A C expression which is nonzero if on this machine it is safe to
-     "convert" an integer of INPREC bits to one of OUTPREC bits (where
-     OUTPREC is smaller than INPREC) by merely operating on it as if it
-     had only OUTPREC bits.
-
-     On many machines, this expression can be 1.
-
-`NO_FUNCTION_CSE'
-     Define this macro if it is as good or better to call a constant
-     function address than to call an address kept in a register.
-
-`PROMOTE_PROTOTYPES'
-     Define this macro if an argument declared as `char' or `short' in
-     a prototype should actually be passed as an `int'.  In addition to
-     avoiding errors in certain cases of mismatch, it also makes for
-     better code on certain machines.
-
-`STORE_FLAG_VALUE'
-     A C expression for the value stored by a store-flag instruction
-     (`sCOND') when the condition is true.  This is usually 1 or -1; it
-     is required to be an odd number or a negative number.
-
-     Do not define `STORE_FLAG_VALUE' if the machine has no store-flag
-     instructions.
-
-`Pmode'
-     An alias for the machine mode for pointers.  Normally the
-     definition can be
-
-          #define Pmode SImode
-
-`FUNCTION_MODE'
-     An alias for the machine mode used for memory references to
-     functions being called, in `call' RTL expressions.  On most
-     machines this should be `QImode'.
-
-`INSN_MACHINE_INFO'
-     This macro should expand into a C structure type to use for the
-     machine-dependent info field specified with the optional last
-     argument in `define_insn' and `define_peephole' patterns.  For
-     example, it might expand into `struct machine_info'; then it would
-     be up to you to define this structure in the `tm.h' file.
-
-     You do not need to define this macro if you do not write the
-     optional last argument in any of the patterns in the machine
+File: gcc.info,  Node: Standard Names,  Next: Pattern Ordering,  Prev: Constraints,  Up: Machine Desc
+
+Standard Names for Patterns Used in Generation
+==============================================
+
+   Here is a table of the instruction names that are meaningful in the
+RTL generation pass of the compiler.  Giving one of these names to an
+instruction pattern tells the RTL generation pass that it can use the
+pattern in to accomplish a certain task.
+
+`movM'
+     Here M stands for a two-letter machine mode name, in lower case. 
+     This instruction pattern moves data with that machine mode from
+     operand 1 to operand 0.  For example, `movsi' moves full-word
+     data.
+
+     If operand 0 is a `subreg' with mode M of a register whose own
+     mode is wider than M, the effect of this instruction is to store
+     the specified value in the part of the register that corresponds
+     to mode M.  The effect on the rest of the register is undefined.
+
+     This class of patterns is special in several ways.  First of all,
+     each of these names *must* be defined, because there is no other
+     way to copy a datum from one place to another.
+
+     Second, these patterns are not used solely in the RTL generation
+     pass.  Even the reload pass can generate move insns to copy
+     values from stack slots into temporary registers.  When it does
+     so, one of the operands is a hard register and the other is an
+     operand that can need to be reloaded into a register.
+
+     Therefore, when given such a pair of operands, the pattern must
+     generate RTL which needs no reloading and needs no temporary
+     registers--no registers other than the operands.  For example, if
+     you support the pattern with a `define_expand', then in such a
+     case the `define_expand' mustn't call `force_reg' or any other
+     such function which might generate new pseudo registers.
+
+     This requirement exists even for subword modes on a RISC machine
+     where fetching those modes from memory normally requires several
+     insns and some temporary registers.  Look in `spur.md' to see how
+     the requirement can be satisfied.
+
+     During reload a memory reference with an invalid address may be
+     passed as an operand.  Such an address will be replaced with a
+     valid address later in the reload pass.  In this case, nothing
+     may be done with the address except to use it as it stands.  If
+     it is copied, it will not be replaced with a valid address.  No
+     attempt should be made to make such an address into a valid
+     address and no routine (such as `change_address') that will do so
+     may be called.  Note that `general_operand' will fail when
+     applied to such an address.
+
+     The global variable `reload_in_progress' (which must be explicitly
+     declared if required) can be used to determine whether such
+     special handling is required.
+
+     The variety of operands that have reloads depends on the rest of
+     the machine description, but typically on a RISC machine these
+     can only be pseudo registers that did not get hard registers,
+     while on other machines explicit memory references will get
+     optional reloads.
+
+     If a scratch register is required to move an object to or from
+     memory, it can be allocated using `gen_reg_rtx' prior to reload. 
+     But this is impossible during and after reload.  If there are
+     cases needing scratch registers after reload, you must define
+     `SECONDARY_INPUT_RELOAD_CLASS' and/or
+     `SECONDARY_OUTPUT_RELOAD_CLASS' to detect them, and provide
+     patterns `reload_inM' or `reload_outM' to handle them.  *Note
+     Register Classes::.
+
+     The constraints on a `moveM' must permit moving any hard register
+     to any other hard register provided that `HARD_REGNO_MODE_OK'
+     permits mode M in both registers and `REGISTER_MOVE_COST' applied
+     to their classes returns a value of 2.
+
+     It is obligatory to support floating point `moveM' instructions
+     into and out of any registers that can hold fixed point values,
+     because unions and structures (which have modes `SImode' or
+     `DImode') can be in those registers and they may have floating
+     point members.
+
+     There may also be a need to support fixed point `moveM'
+     instructions in and out of floating point registers. 
+     Unfortunately, I have forgotten why this was so, and I don't know
+     whether it is still true.  If `HARD_REGNO_MODE_OK' rejects fixed
+     point values in floating point registers, then the constraints of
+     the fixed point `moveM' instructions must be designed to avoid
+     ever trying to reload into a floating point register.
+
+`reload_inM'
+`reload_outM'
+     Like `movM', but used when a scratch register is required to move
+     between operand 0 and operand 1.  Operand 2 describes the scratch
+     register.  See the discussion of the `SECONDARY_RELOAD_CLASS'
+     macro in *note Register Classes::..
+
+`movstrictM'
+     Like `movM' except that if operand 0 is a `subreg' with mode M of
+     a register whose natural mode is wider, the `movstrictM'
+     instruction is guaranteed not to alter any of the register except
+     the part which belongs to mode M.
+
+`addM3'
+     Add operand 2 and operand 1, storing the result in operand 0. 
+     All operands must have mode M.  This can be used even on
+     two-address machines, by means of constraints requiring operands
+     1 and 0 to be the same location.
+
+`subM3', `mulM3'
+`divM3', `udivM3', `modM3', `umodM3'
+`sminM3', `smaxM3', `uminM3', `umaxM3'
+`andM3', `iorM3', `xorM3'
+     Similar, for other arithmetic operations.
+
+`mulhisi3'
+     Multiply operands 1 and 2, which have mode `HImode', and store a
+     `SImode' product in operand 0.
+
+`mulqihi3', `mulsidi3'
+     Similar widening-multiplication instructions of other widths.
+
+`umulqihi3', `umulhisi3', `umulsidi3'
+     Similar widening-multiplication instructions that do unsigned
+     multiplication.
+
+`divmodM4'
+     Signed division that produces both a quotient and a remainder. 
+     Operand 1 is divided by operand 2 to produce a quotient stored in
+     operand 0 and a remainder stored in operand 3.
+
+     For machines with an instruction that produces both a quotient
+     and a remainder, provide a pattern for `divmodM4' but do not
+     provide patterns for `divM3' and `modM3'.  This allows
+     optimization in the relatively common case when both the quotient
+     and remainder are computed.
+
+     If an instruction that just produces a quotient or just a
+     remainder exists and is more efficient than the instruction that
+     produces both, write the output routine of `divmodM4' to call
+     `find_reg_note' and look for a `REG_UNUSED' note on the quotient
+     or remainder and generate the appropriate instruction.
+
+`udivmodM4'
+     Similar, but does unsigned division.
+
+`ashlM3'
+     Arithmetic-shift operand 1 left by a number of bits specified by
+     operand 2, and store the result in operand 0.  Operand 2 has mode
+     `SImode', not mode M.
+
+`ashrM3', `lshlM3', `lshrM3', `rotlM3', `rotrM3'
+     Other shift and rotate instructions.
+
+     Logical and arithmetic left shift are the same.  Machines that do
+     not allow negative shift counts often have only one instruction
+     for shifting left.  On such machines, you should define a pattern
+     named `ashlM3' and leave `lshlM3' undefined.
+
+`negM2'
+     Negate operand 1 and store the result in operand 0.
+
+`absM2'
+     Store the absolute value of operand 1 into operand 0.
+
+`sqrtM2'
+     Store the square root of operand 1 into operand 0.
+
+`ffsM2'
+     Store into operand 0 one plus the index of the least significant
+     1-bit of operand 1.  If operand 1 is zero, store zero.  M is the
+     mode of operand 0; operand 1's mode is specified by the
+     instruction pattern, and the compiler will convert the operand to
+     that mode before generating the instruction.
+
+`one_cmplM2'
+     Store the bitwise-complement of operand 1 into operand 0.
+
+`cmpM'
+     Compare operand 0 and operand 1, and set the condition codes. 
+     The RTL pattern should look like this:
+
+          (set (cc0) (compare (match_operand:M 0 ...)
+                              (match_operand:M 1 ...)))
+
+`tstM'
+     Compare operand 0 against zero, and set the condition codes.  The
+     RTL pattern should look like this:
+
+          (set (cc0) (match_operand:M 0 ...))
+
+     `tstM' patterns should not be defined for machines that do not
+     use `(cc0)'.  Doing so would confuse the optimizer since it would
+     no longer be clear which `set' operations were comparisons.  The
+     `cmpM' patterns should be used instead.
+
+`movstrM'
+     Block move instruction.  The addresses of the destination and
+     source strings are the first two operands, and both are in mode
+     `Pmode'.  The number of bytes to move is the third operand, in
+     mode M.
+
+     The fourth operand is the known shared alignment of the source and
+     destination, in the form of a `const_int' rtx.  Thus, if the
+     compiler knows that both source and destination are word-aligned,
+     it may provide the value 4 for this operand.
+
+     These patterns need not give special consideration to the
+     possibility that the source and destination strings might overlap.
+
+`cmpstrM'
+     Block compare instruction, with five operands.  Operand 0 is the
+     output; it has mode M.  The remaining four operands are like the
+     operands of `movstrM'.  The two memory blocks specified are
+     compared byte by byte in lexicographic order.  The effect of the
+     instruction is to store a value in operand 0 whose sign indicates
+     the result of the comparison.
+
+`floatMN2'
+     Convert signed integer operand 1 (valid for fixed point mode M) to
+     floating point mode N and store in operand 0 (which has mode N).
+
+`floatunsMN2'
+     Convert unsigned integer operand 1 (valid for fixed point mode M)
+     to floating point mode N and store in operand 0 (which has mode
+     N).
+
+`fixMN2'
+     Convert operand 1 (valid for floating point mode M) to fixed
+     point mode N as a signed number and store in operand 0 (which has
+     mode N).  This instruction's result is defined only when the
+     value of operand 1 is an integer.
+
+`fixunsMN2'
+     Convert operand 1 (valid for floating point mode M) to fixed
+     point mode N as an unsigned number and store in operand 0 (which
+     has mode N).  This instruction's result is defined only when the
+     value of operand 1 is an integer.
+
+`ftruncM2'
+     Convert operand 1 (valid for floating point mode M) to an integer
+     value, still represented in floating point mode M, and store it
+     in operand 0 (valid for floating point mode M).
+
+`fix_truncMN2'
+     Like `fixMN2' but works for any floating point value of mode M by
+     converting the value to an integer.
+
+`fixuns_truncMN2'
+     Like `fixunsMN2' but works for any floating point value of mode M
+     by converting the value to an integer.
+
+`truncMN'
+     Truncate operand 1 (valid for mode M) to mode N and store in
+     operand 0 (which has mode N).  Both modes must be fixed point or
+     both floating point.
+
+`extendMN'
+     Sign-extend operand 1 (valid for mode M) to mode N and store in
+     operand 0 (which has mode N).  Both modes must be fixed point or
+     both floating point.
+
+`zero_extendMN'
+     Zero-extend operand 1 (valid for mode M) to mode N and store in
+     operand 0 (which has mode N).  Both modes must be fixed point.
+
+`extv'
+     Extract a bit field from operand 1 (a register or memory
+     operand), where operand 2 specifies the width in bits and operand
+     3 the starting bit, and store it in operand 0.  Operand 0 must
+     have mode `word_mode'.  Operand 1 may have mode `byte_mode' or
+     `word_mode'; often `word_mode' is allowed only for registers. 
+     Operands 2 and 3 must be valid for `word_mode'.
+
+     The RTL generation pass generates this instruction only with
+     constants for operands 2 and 3.
+
+     The bit-field value is sign-extended to a full word integer
+     before it is stored in operand 0.
+
+`extzv'
+     Like `extv' except that the bit-field value is zero-extended.
+
+`insv'
+     Store operand 3 (which must be valid for `word_mode') into a bit
+     field in operand 0, where operand 1 specifies the width in bits
+     and operand 2 the starting bit.  Operand 0 may have mode
+     `byte_mode' or `word_mode'; often `word_mode' is allowed only for
+     registers.  Operands 1 and 2 must be valid for `word_mode'.
+
+     The RTL generation pass generates this instruction only with
+     constants for operands 1 and 2.
+
+`sCOND'
+     Store zero or nonzero in the operand according to the condition
+     codes.  Value stored is nonzero iff the condition COND is true. 
+     COND is the name of a comparison operation expression code, such
+     as `eq', `lt' or `leu'.
+
+     You specify the mode that the operand must have when you write the
+     `match_operand' expression.  The compiler automatically sees
+     which mode you have used and supplies an operand of that mode.
+
+     The value stored for a true condition must have 1 as its low bit,
+     or else must be negative.  Otherwise the instruction is not
+     suitable and you should omit it from the machine description. 
+     You describe to the compiler exactly which value is stored by
+     defining the macro `STORE_FLAG_VALUE' (*note Misc::.).  If a
+     description cannot be found that can be used for all the `sCOND'
+     patterns, you should omit those operations from the machine
      description.
 
-`DEFAULT_MACHINE_INFO'
-     This macro should expand into a C initializer to use to initialize
-     the machine-dependent info for one insn pattern.  It is used for
-     patterns that do not specify the machine-dependent info.
+     These operations may fail, but should do so only in relatively
+     uncommon cases; if they would fail for common cases involving
+     integer comparisons, it is best to omit these patterns.
 
-     If you do not define this macro, zero is used.
+     If these operations are omitted, the compiler will usually
+     generate code that copies the constant one to the target and
+     branches around an assignment of zero to the target.  If this
+     code is more efficient than the potential instructions used for
+     the `sCOND' pattern followed by those required to convert the
+     result into a 1 or a zero in `SImode', you should omit the
+     `sCOND' operations from the machine description.
 
-`CONST_COSTS (X, CODE)'
-     A part of a C `switch' statement that describes the relative costs
-     of constant RTL expressions.  It must contain `case' labels for
-     expression codes `const_int', `const', `symbol_ref', `label_ref'
-     and `const_double'.  Each case must ultimately reach a `return'
-     statement to return the relative cost of the use of that kind of
-     constant value in an expression.  The cost may depend on the
-     precise value of the constant, which is available for examination
-     in X.
+`bCOND'
+     Conditional branch instruction.  Operand 0 is a `label_ref' that
+     refers to the label to jump to.  Jump if the condition codes meet
+     condition COND.
 
-     CODE is the expression code--redundant, since it can be obtained
-     with `GET_CODE (X)'.
+     Some machines do not follow the model assumed here where a
+     comparison instruction is followed by a conditional branch
+     instruction.  In that case, the `cmpM' (and `tstM') patterns
+     should simply store the operands away and generate all the
+     required insns in a `define_expand' (*note Expander
+     Definitions::.) for the conditional branch operations.  All calls
+     to expand `vCOND' patterns are immediately preceded by calls to
+     expand either a `cmpM' pattern or a `tstM' pattern.
 
-`DOLLARS_IN_IDENTIFIERS'
-     Define this to be nonzero if the character `$' should be allowed
-     by default in identifier names.
+     Machines that use a pseudo register for the condition code value,
+     or where the mode used for the comparison depends on the
+     condition being tested, should also use the above mechanism. 
+     *Note Jump Patterns::
+
+     The above discussion also applies to `sCOND' patterns.
+
+`call'
+     Subroutine call instruction returning no value.  Operand 0 is the
+     function to call; operand 1 is the number of bytes of arguments
+     pushed (in mode `SImode', except it is normally a `const_int');
+     operand 2 is the number of registers used as operands.
+
+     On most machines, operand 2 is not actually stored into the RTL
+     pattern.  It is supplied for the sake of some RISC machines which
+     need to put this information into the assembler code; they can
+     put it in the RTL instead of operand 1.
+
+     Operand 0 should be a `mem' RTX whose address is the address of
+     the function.  Note, however, that this address can be a
+     `symbol_ref' expression even if it would not be a legitimate
+     memory address on the target machine.  If it is also not a valid
+     argument for a call instruction, the pattern for this operation
+     should be a `define_expand' (*note Expander Definitions::.) that
+     places the address into a register and uses that register in the
+     call instruction.
+
+`call_value'
+     Subroutine call instruction returning a value.  Operand 0 is the
+     hard register in which the value is returned.  There are three
+     more operands, the same as the three operands of the `call'
+     instruction (but with numbers increased by one).
+
+     Subroutines that return `BLKmode' objects use the `call' insn.
+
+`call_pop', `call_value_pop'
+     Similar to `call' and `call_value', except used if defined and if
+     `RETURN_POPS_ARGS' is non-zero.  They should emit a `parallel'
+     that contains both the function call and a `set' to indicate the
+     adjustment made to the frame pointer.
+
+     For machines where `RETURN_POPS_ARGS' can be non-zero, the use of
+     these patterns increases the number of functions for which the
+     frame pointer can be eliminated, if desired.
+
+`return'
+     Subroutine return instruction.  This instruction pattern name
+     should be defined only if a single instruction can do all the
+     work of returning from a function.
+
+     Like the `movM' patterns, this pattern is also used after the RTL
+     generation phase.  In this case it is to support machines where
+     multiple instructions are usually needed to return from a
+     function, but some class of functions only requires one
+     instruction to implement a return.  Normally, the applicable
+     functions are those which do not need to save any registers or
+     allocate stack space.
+
+     For such machines, the condition specified in this pattern should
+     only be true when `reload_completed' is non-zero and the
+     function's epilogue would only be a single instruction.  For
+     machines with register windows, the routine `leaf_function_p' may
+     be used to determine if a register window push is required.
+
+     Machines that have conditional return instructions should define
+     patterns such as
+
+          (define_insn ""
+            [(set (pc)
+          	(if_then_else (match_operator 0 "comparison_operator"
+          				      [(cc0) (const_int 0)])
+          		      (return)
+          		      (pc)))]
+            "CONDITION"
+            "...")
+
+     where CONDITION would normally be the same condition specified on
+     the named `return' pattern.
+
+`nop'
+     No-op instruction.  This instruction pattern name should always
+     be defined to output a no-op in assembler code.  `(const_int 0)'
+     will do as an RTL pattern.
+
+`indirect_jump'
+     An instruction to jump to an address which is operand zero.  This
+     pattern name is mandatory on all machines.
+
+`casesi'
+     Instruction to jump through a dispatch table, including bounds
+     checking.  This instruction takes five operands:
+
+       1. The index to dispatch on, which has mode `SImode'.
+
+       2. The lower bound for indices in the table, an integer
+          constant.
+
+       3. The total range of indices in the table--the largest index
+          minus the smallest one (both inclusive).
+
+       4. A label that precedes the table itself.
+
+       5. A label to jump to if the index has a value outside the
+          bounds.  (If the machine-description macro
+          `CASE_DROPS_THROUGH' is defined, then an out-of-bounds index
+          drops through to the code following the jump table instead
+          of jumping to this label.  In that case, this label is not
+          actually used by the `casesi' instruction, but it is always
+          provided as an operand.)
+
+     The table is a `addr_vec' or `addr_diff_vec' inside of a
+     `jump_insn'.  The number of elements in the table is one plus the
+     difference between the upper bound and the lower bound.
+
+`tablejump'
+     Instruction to jump to a variable address.  This is a low-level
+     capability which can be used to implement a dispatch table when
+     there is no `casesi' pattern.
+
+     This pattern requires two operands: the address or offset, and a
+     label which should immediately precede the jump table.  If the
+     macro `CASE_VECTOR_PC_RELATIVE' is defined then the first operand
+     is an offset which counts from the address of the table;
+     otherwise, it is an absolute address to jump to.
+
+     The `tablejump' insn is always the last insn before the jump
+     table it uses.  Its assembler code normally has no need to use the
+     second operand, but you should incorporate it in the RTL pattern
+     so that the jump optimizer will not delete the table as
+     unreachable code.
 
 
-File: gcc.info,  Node: Assembler Format,  Prev: Misc,  Up: Machine Macros
-
-Output of Assembler Code
-========================
-
-`ASM_SPEC'
-     A C string constant that tells the GNU CC driver program options to
-     pass to the assembler.  It can also specify how to translate
-     options you give to GNU CC into options for GNU CC to pass to the
-     assembler. See the file `tm-sun3.h' for an example of this.
-
-     Do not define this macro if it does not need to do anything.
-
-`LINK_SPEC'
-     A C string constant that tells the GNU CC driver program options to
-     pass to the linker.  It can also specify how to translate options
-     you give to GNU CC into options for GNU CC to pass to the linker.
-
-     Do not define this macro if it does not need to do anything.
-
-`LIB_SPEC'
-     Another C string constant used much like `LINK_SPEC'.  The
-     difference between the two is that `LIBS_SPEC' is used at the end
-     of the command given to the linker.
-
-     If this macro is not defined, a default is provided that loads the
-     standard C library from the usual place.  See `gcc.c'.
-
-`LIBG_SPEC'
-     Another C string constant used much like `LINK_SPEC'. This
-     controls whether to link `libg.a' when debugging. Some systems
-     expect this; others do not have any `libg.a'.
-
-     If this macro is not defined, a default is provided that loads the
-     `libg.a' provided `-g' is specified.  See `gcc.c'.
-
-`STARTFILE_SPEC'
-     Another C string constant used much like `LINK_SPEC'.  The
-     difference between the two is that `STARTFILE_SPEC' is used at the
-     very beginning of the command given to the linker.
-
-     If this macro is not defined, a default is provided that loads the
-     standard C startup file from the usual place.  See `gcc.c'.
-
-`STANDARD_EXEC_PREFIX'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/local/lib/gcc-' as the default prefix
-     to try when searching for the executable files of the compiler.
-
-     The prefix specified by the `-B' option, if any, is tried before
-     the default prefix.  After the default prefix, if the executable is
-     not found that way, `/usr/lib/gcc-' is tried next; then the
-     directories in your search path for shell commands are searched.
-
-`STANDARD_STARTFILE_PREFIX'
-     Define this macro as a C string constant if you wish to override
-     the standard choice of `/usr/local/lib/' as the default prefix to
-     try when searching for startup files such as `crt0.o'.
-
-     In this search, all the prefixes tried for executable files are
-     tried first.  Then comes the default startfile prefix specified by
-     this macro, followed by the prefixes `/lib/' and `/usr/lib/' as
-     last resorts.
-
-`ASM_FILE_START (STREAM)'
-     A C expression which outputs to the stdio stream STREAM some
-     appropriate text to go at the start of an assembler file.
-
-     Normally this macro is defined to output a line containing
-     `#NO_APP', which is a comment that has no effect on most
-     assemblers but tells the GNU assembler that it can save time by not
-     checking for certain assembler constructs.
-
-     On systems that use SDB, it is necessary to output certain
-     commands; see `tm-attasm.h'.
-
-`ASM_FILE_END (STREAM)'
-     A C expression which outputs to the stdio stream STREAM some
-     appropriate text to go at the end of an assembler file.
-
-     If this macro is not defined, the default is to output nothing
-     special at the end of the file.  Most systems don't require any
-     definition.
-
-     On systems that use SDB, it is necessary to output certain
-     commands; see `tm-attasm.h'.
-
-`ASM_IDENTIFY_GCC (FILE)'
-     A C statement to output assembler commands which will identify the
-     object file as having been compiled with GNU CC (or another GNU
-     compiler).
-
-     If you don't define this macro, the string `gcc_compiled.:' is
-     output.  This string is calculated to define a symbol which, on
-     BSD systems, will never be defined for any other reason. GDB
-     checks for the presence of this symbol when reading the symbol
-     table of an executable.
-
-     On non-BSD systems, you must arrange communication with GDB in
-     some other fashion.  If GDB is not used on your system, you can
-     define this macro with an empty body.
-
-`ASM_APP_ON'
-     A C string constant for text to be output before each `asm'
-     statement or group of consecutive ones.  Normally this is
-     `"#APP"', which is a comment that has no effect on most assemblers
-     but tells the GNU assembler that it must check the lines that
-     follow for all valid assembler constructs.
-
-`ASM_APP_OFF'
-     A C string constant for text to be output after each `asm'
-     statement or group of consecutive ones.  Normally this is
-     `"#NO_APP"', which tells the GNU assembler to resume making the
-     time-saving assumptions that are valid for ordinary compiler
-     output.
-
-`TEXT_SECTION_ASM_OP'
-     A C string constant for the assembler operation that should precede
-     instructions and read-only data.  Normally `".text"' is right.
-
-`DATA_SECTION_ASM_OP'
-     A C string constant for the assembler operation to identify the
-     following data as writable initialized data.  Normally `".data"'
-     is right.
-
-`EXTRA_SECTIONS'
-     A list of names for sections other than the standard two, which are
-     `in_text' and `in_data'.  You need not define this macro on a
-     system with no other sections (that GCC needs to use).
-
-`EXTRA_SECTION_FUNCTIONS'
-     One or more functions to be defined in `varasm.c'.  These
-     functions should do jobs analogous to those of `text_section' and
-     `data_section', for your additional sections.  Do not define this
-     macro if you do not define `EXTRA_SECTIONS'.
-
-`SELECT_SECTION (EXP)'
-     A C statement or statements to switch to the appropriate section
-     for output of EXP.  You can assume that EXP is either a `VAR_DECL'
-     node or a constant of some sort.  Select the section by calling
-     `text_section' or one of the alternatives for other sections.
-
-     Do not define this macro if you use only the standard two sections
-     and put all read-only variables and constants in the text section.
-
-`SELECT_RTX_SECTION (MODE, RTX)'
-     A C statement or statements to switch to the appropriate section
-     for output of RTX in mode MODE.  You can assume that RTX is some
-     kind of constant in RTL.  The argument MODE is redundant except in
-     the case of a `const_int' rtx.  Select the section by calling
-     `text_section' or one of the alternatives for other sections.
-
-     Do not define this macro if you use only the standard two sections
-     and put all constants in the text section.
-
-`REGISTER_NAMES'
-     A C initializer containing the assembler's names for the machine
-     registers, each one as a C string constant.  This is what
-     translates register numbers in the compiler into assembler
-     language.
-
-`DBX_REGISTER_NUMBER (REGNO)'
-     A C expression that returns the DBX register number for the
-     compiler register number REGNO.  In simple cases, the value of this
-     expression may be REGNO itself.  But sometimes there are some
-     registers that the compiler knows about and DBX does not, or vice
-     versa.  In such cases, some register may need to have one number in
-     the compiler and another for DBX.
-
-`DBX_DEBUGGING_INFO'
-     Define this macro if GNU CC should produce debugging output for DBX
-     in response to the `-g' option.
-
-`SDB_DEBUGGING_INFO'
-     Define this macro if GNU CC should produce debugging output for SDB
-     in response to the `-g' option.
-
-`PUT_SDB_OP'
-     Define these macros to override the assembler syntax for the
-     special SDB assembler directives.  See `sdbout.c' for a list of
-     these macros and their arguments.  If the standard syntax is used,
-     you need not define them yourself.
-
-`SDB_GENERATE_FAKE'
-     Define this macro to override the usual method of constructing a
-     dummy name for anonymous structure and union types.  See
-     `sdbout.c' for more information.
-
-`DBX_NO_XREFS'
-     Define this macro if DBX on your system does not support the
-     construct `xsTAGNAME'.  On some systems, this construct is used to
-     describe a forward reference to a structure named TAGNAME. On
-     other systems, this construct is not supported at all.
-
-`DBX_CONTIN_LENGTH'
-     A symbol name in DBX-format debugging information is normally
-     continued (split into two separate `.stabs' directives) when it
-     exceeds a certain length (by default, 80 characters).  On some
-     operating systems, DBX requires this splitting; on others,
-     splitting must not be done.  You can inhibit splitting by defining
-     this macro with the value zero.  You can override the default
-     splitting-length by defining this macro as an expression for the
-     length you desire.
-
-`DBX_CONTIN_CHAR'
-     Normally continuation is indicated by adding a `\' character to
-     the end of a `.stabs' string when a continuation follows.  To use
-     a different character instead, define this macro as a character
-     constant for the character you want to use.  Do not define this
-     macro if backslash is correct for your system.
-
-`DBX_STATIC_STAB_DATA_SECTION'
-     Define this macro if it is necessary to go to the data section
-     before outputting the `.stabs' pseudo-op for a non-global static
-     variable.
-
-`ASM_OUTPUT_LABEL (STREAM, NAME)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM the assembler definition of a label named NAME. Use the
-     expression `assemble_name (STREAM, NAME)' to output the name
-     itself; before and after that, output the additional assembler
-     syntax for defining the name, and a newline.
-
-`ASM_DECLARE_FUNCTION_NAME (STREAM, NAME, DECL)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM any text necessary for declaring the name NAME of a
-     function which is being defined.  This macro is responsible for
-     outputting the label definition (perhaps using
-     `ASM_OUTPUT_LABEL').  The argument DECL is the `FUNCTION_DECL'
-     tree node representing the function.
-
-     If this macro is not defined, then the function name is defined in
-     the usual manner as a label (by means of `ASM_OUTPUT_LABEL').
-
-`ASM_GLOBALIZE_LABEL (STREAM, NAME)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM some commands that will make the label NAME global; that
-     is, available for reference from other files.  Use the expression
-     `assemble_name (STREAM, NAME)' to output the name itself; before
-     and after that, output the additional assembler syntax for making
-     that name global, and a newline.
-
-`ASM_OUTPUT_EXTERNAL (STREAM, DECL, NAME)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM any text necessary for declaring the name of an external
-     symbol named NAME which is referenced in this compilation but not
-     defined.  The value of DECL is the tree node for the declaration.
-
-     This macro need not be defined if it does not need to output
-     anything. The GNU assembler and most Unix assemblers don't require
-     anything.
-
-`ASM_OUTPUT_LABELREF (STREAM, NAME)'
-     A C statement to output to the stdio stream STREAM a reference in
-     assembler syntax to a label named NAME.  The character `_' should
-     be added to the front of the name, if that is customary on your
-     operating system, as it is in most Berkeley Unix systems.  This
-     macro is used in `assemble_name'.
-
-`ASM_GENERATE_INTERNAL_LABEL (STRING, PREFIX, NUM)'
-     A C statement to store into the string STRING a label whose name
-     is made from the string PREFIX and the number NUM.
-
-     This string, when output subsequently by `ASM_OUTPUT_LABELREF',
-     should produce the same output that `ASM_OUTPUT_INTERNAL_LABEL'
-     would produce with the same PREFIX and NUM.
-
-`ASM_OUTPUT_INTERNAL_LABEL (STREAM, PREFIX, NUM)'
-     A C statement to output to the stdio stream STREAM a label whose
-     name is made from the string PREFIX and the number NUM. These
-     labels are used for internal purposes, and there is no reason for
-     them to appear in the symbol table of the object file.  On many
-     systems, the letter `L' at the beginning of a label has this
-     effect.  The usual definition of this macro is as follows:
-
-          fprintf (STREAM, "L%s%d:\n", PREFIX, NUM)
-
-`ASM_OUTPUT_CASE_LABEL (STREAM, PREFIX, NUM, TABLE)'
-     Define this if the label before a jump-table needs to be output
-     specially.  The first three arguments are the same as for
-     `ASM_OUTPUT_INTERNAL_LABEL'; the fourth argument is the jump-table
-     which follows (a `jump_insn' containing an `addr_vec' or
-     `addr_diff_vec').
-
-     This feature is used on system V to output a `swbeg' statement for
-     the table.
-
-     If this macro is not defined, these labels are output with
-     `ASM_OUTPUT_INTERNAL_LABEL'.
-
-`ASM_OUTPUT_CASE_END (STREAM, NUM, TABLE)'
-     Define this if something special must be output at the end of a
-     jump-table.  The definition should be a C statement to be executed
-     after the assembler code for the table is written.  It should write
-     the appropriate code to stdio stream STREAM.  The argument TABLE
-     is the jump-table insn, and NUM is the label-number of the
-     preceding label.
-
-     If this macro is not defined, nothing special is output at the end
-     of the jump-table.
-
-`ASM_OUTPUT_ALIGN_CODE (FILE)'
-     A C expression to output text to align the location counter in the
-     way that is desirable at a point in the code that is reached only
-     by jumping.
-
-     This macro need not be defined if you don't want any special
-     alignment to be done at such a time.  Most machine descriptions do
-     not currently define the macro.
-
-`ASM_FORMAT_PRIVATE_NAME (OUTVAR, NAME, NUMBER)'
-     A C expression to assign to OUTVAR (which is a variable of type
-     `char *') a newly allocated string made from the string NAME and
-     the number NUMBER, with some suitable punctuation added.  Use
-     `alloca' to get space for the string.
-
-     This string will be used as the argument to `ASM_OUTPUT_LABELREF'
-     to produce an assembler label for an internal static variable whose
-     name is NAME.  Therefore, the string must be such as to result in
-     valid assembler code.  The argument NUMBER is different each time
-     this macro is executed; it prevents conflicts between
-     similarly-named internal static variables in different scopes.
-
-     Ideally this string should not be a valid C identifier, to prevent
-     any conflict with the user's own symbols.  Most assemblers allow
-     periods or percent signs in assembler symbols; putting at least
-     one of these between the name and the number will suffice.
-
-`ASM_OUTPUT_REG_PUSH (STREAM, REGNO)'
-     A C expression to output to STREAM some assembler code which will
-     push hard register number REGNO onto the stack. The code need not
-     be optimal, since this macro is used only when profiling.
-
-`ASM_OUTPUT_REG_POP (STREAM, REGNO)'
-     A C expression to output to STREAM some assembler code which will
-     pop hard register number REGNO off of the stack. The code need not
-     be optimal, since this macro is used only when profiling.
-
-`ASM_OUTPUT_ADDR_DIFF_ELT (STREAM, VALUE, REL)'
-     This macro should be provided on machines where the addresses in a
-     dispatch table are relative to the table's own address.
-
-     The definition should be a C statement to output to the stdio
-     stream STREAM an assembler pseudo-instruction to generate a
-     difference between two labels.  VALUE and REL are the numbers of
-     two internal labels.  The definitions of these labels are output
-     using `ASM_OUTPUT_INTERNAL_LABEL', and they must be printed in the
-     same way here.  For example,
-
-          fprintf (STREAM, "\t.word L%d-L%d\n",
-                   VALUE, REL)
-
-`ASM_OUTPUT_ADDR_VEC_ELT (STREAM, VALUE)'
-     This macro should be provided on machines where the addresses in a
-     dispatch table are absolute.
-
-     The definition should be a C statement to output to the stdio
-     stream STREAM an assembler pseudo-instruction to generate a
-     reference to a label.  VALUE is the number of an internal label
-     whose definition is output using `ASM_OUTPUT_INTERNAL_LABEL'. For
-     example,
-
-          fprintf (STREAM, "\t.word L%d\n", VALUE)
-
-`ASM_OUTPUT_DOUBLE (STREAM, VALUE)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a `double' constant whose value is VALUE. 
-     VALUE will be a C expression of type `double'.
-
-`ASM_OUTPUT_FLOAT (STREAM, VALUE)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a `float' constant whose value is VALUE. 
-     VALUE will be a C expression of type `float'.
-
-`ASM_OUTPUT_INT (STREAM, EXP)'
-`ASM_OUTPUT_SHORT (STREAM, EXP)'
-`ASM_OUTPUT_CHAR (STREAM, EXP)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a `int', `short' or `char' constant whose
-     value is VALUE.  The argument EXP will be an RTL expression which
-     represents a constant value.  Use `output_addr_const (STREAM,
-     EXP)' to output this value as an assembler expression.
-
-`ASM_OUTPUT_DOUBLE_INT (STREAM, EXP)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a `long long' constant whose value is EXP.
-      The argument EXP will be an RTL expression which represents a
-     constant value.  It may be a `const_double' RTX, or it may be an
-     ordinary single-precision constant.  In the latter case, you
-     should zero-extend it.
-
-`ASM_OUTPUT_BYTE (STREAM, VALUE)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a single byte containing the number VALUE.
-
-`ASM_OUTPUT_ASCII (STREAM, PTR, LEN)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to assemble a string constant containing the LEN bytes
-     at PTR.  PTR will be a C expression of type `char *' and LEN a C
-     expression of type `int'.
-
-     If the assembler has a `.ascii' pseudo-op as found in the Berkeley
-     Unix assembler, do not define the macro `ASM_OUTPUT_ASCII'.
-
-`ASM_OUTPUT_SKIP (STREAM, NBYTES)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to advance the location counter by NBYTES bytes.
-     NBYTES will be a C expression of type `int'.
-
-`ASM_OUTPUT_ALIGN (STREAM, POWER)'
-     A C statement to output to the stdio stream STREAM an assembler
-     instruction to advance the location counter to a multiple of 2 to
-     the POWER bytes.  POWER will be a C expression of type `int'.
-
-`ASM_OUTPUT_COMMON (STREAM, NAME, SIZE, ROUNDED)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM the assembler definition of a common-label named NAME whose
-     size is SIZE bytes.  The variable ROUNDED is the size rounded up
-     to whatever alignment the caller wants.
-
-     Use the expression `assemble_name (STREAM, NAME)' to output the
-     name itself; before and after that, output the additional
-     assembler syntax for defining the name, and a newline.
-
-     This macro controls how the assembler definitions of uninitialized
-     global variables are output.
-
-`ASM_OUTPUT_LOCAL (STREAM, NAME, SIZE, ROUNDED)'
-     A C statement (sans semicolon) to output to the stdio stream
-     STREAM the assembler definition of a local-common-label named NAME
-     whose size is SIZE bytes.  The variable ROUNDED is the size
-     rounded up to whatever alignment the caller wants.
-
-     Use the expression `assemble_name (STREAM, NAME)' to output the
-     name itself; before and after that, output the additional
-     assembler syntax for defining the name, and a newline.
-
-     This macro controls how the assembler definitions of uninitialized
-     static variables are output.
-
-`ASM_OUTPUT_SOURCE_FILENAME (STREAM, NAME)'
-     A C statment to output DBX or SDB debugging information which
-     indicates that filename NAME is the current source file to the
-     stdio stream STREAM.
-
-     This macro need not be defined if the standard form of debugging
-     information for the debugger in use is appropriate.
-
-`ASM_OUTPUT_SOURCE_LINE (STREAM, LINE)'
-     A C statment to output DBX or SDB debugging information before code
-     for line number LINE of the current source file to the stdio
-     stream STREAM.
-
-     This macro need not be defined if the standard form of debugging
-     information for the debugger in use is appropriate.
-
-`ASM_OUTPUT_IDENT (STREAM, STRING)'
-     A C statement to output something to the assembler file to handle a
-     `#ident' directive containing the text STRING.  If this macro is
-     not defined, nothing is output for a `#ident' directive.
-
-`TARGET_BELL'
-     A C constant expression for the integer value for escape sequence
-     `\a'.
-
-`TARGET_BS'
-`TARGET_TAB'
-`TARGET_NEWLINE'
-     C constant expressions for the integer values for escape sequences
-     `\b', `\t' and `\n'.
-
-`TARGET_VT'
-`TARGET_FF'
-`TARGET_CR'
-     C constant expressions for the integer values for escape sequences
-     `\v', `\f' and `\r'.
-
-`ASM_OUTPUT_OPCODE (STREAM, PTR)'
-     Define this macro if you are using an unusual assembler that
-     requires different names for the machine instructions.
-
-     The definition is a C statement or statements which output an
-     assembler instruction opcode to the stdio stream STREAM.  The
-     macro-operand PTR is a variable of type `char *' which points to
-     the opcode name in its "internal" form--the form that is written
-     in the machine description.  The definition should output the
-     opcode name to STREAM, performing any translation you desire, and
-     increment the variable PTR to point at the end of the opcode so
-     that it will not be output twice.
-
-     In fact, your macro definition may process less than the entire
-     opcode name, or more than the opcode name; but if you want to
-     process text that includes `%'-sequences to substitute operands,
-     you must take care of the substitution yourself.  Just be sure to
-     increment PTR over whatever text should not be output normally.
-
-     If you need to look at the operand values, they can be found as the
-     elements of `recog_operand'.
-
-     If the macro definition does nothing, the instruction is output in
-     the usual way.
-
-`FINAL_PRESCAN_INSN (INSN, OPVEC, NOPERANDS)'
-     If defined, a C statement to be executed just prior to the output
-     of assembler code for INSN, to modify the extracted operands so
-     they will be output differently.
-
-     Here the argument OPVEC is the vector containing the operands
-     extracted from INSN, and NOPERANDS is the number of elements of
-     the vector which contain meaningful data for this insn. The
-     contents of this vector are what will be used to convert the insn
-     template into assembler code, so you can change the assembler
-     output by changing the contents of the vector.
-
-     This macro is useful when various assembler syntaxes share a single
-     file of instruction patterns; by defining this macro differently,
-     you can cause a large class of instructions to be output
-     differently (such as with rearranged operands).  Naturally,
-     variations in assembler syntax affecting individual insn patterns
-     ought to be handled by writing conditional output routines in
-     those patterns.
-
-     If this macro is not defined, it is equivalent to a null statement.
-
-`PRINT_OPERAND (STREAM, X, CODE)'
-     A C compound statement to output to stdio stream STREAM the
-     assembler syntax for an instruction operand X.  X is an RTL
-     expression.
-
-     CODE is a value that can be used to specify one of several ways of
-     printing the operand.  It is used when identical operands must be
-     printed differently depending on the context.  CODE comes from the
-     `%' specification that was used to request printing of the
-     operand.  If the specification was just `%DIGIT' then CODE is 0;
-     if the specification was `%LTR DIGIT' then CODE is the ASCII code
-     for LTR.
-
-     If X is a register, this macro should print the register's name.
-     The names can be found in an array `reg_names' whose type is `char
-     *[]'.  `reg_names' is initialized from `REGISTER_NAMES'.
-
-     When the machine description has a specification `%PUNCT' (a `%'
-     followed by a punctuation character), this macro is called with a
-     null pointer for X and the punctuation character for CODE.
-
-`PRINT_OPERAND_PUNCT_VALID_P (CODE)'
-     A C expression which evaluates to true if CODE is a valid
-     punctuation character for use in the `PRINT_OPERAND' macro.  If
-     `PRINT_OPERAND_PUNCT_VALID_P' is not defined, it means that no
-     punctuation characters (except for the standard one, `%') are used
-     in this way.
-
-`PRINT_OPERAND_ADDRESS (STREAM, X)'
-     A C compound statement to output to stdio stream STREAM the
-     assembler syntax for an instruction operand that is a memory
-     reference whose address is X.  X is an RTL expression.
-
-`ASM_OPEN_PAREN'
-`ASM_CLOSE_PAREN'
-     These macros are defined as C string constant, describing the
-     syntax in the assembler for grouping arithmetic expressions.  The
-     following definitions are correct for most assemblers:
-
-          #define ASM_OPEN_PAREN "("
-          #define ASM_CLOSE_PAREN ")"
+File: gcc.info,  Node: Pattern Ordering,  Next: Dependent Patterns,  Prev: Standard Names,  Up: Machine Desc
+
+When the Order of Patterns Matters
+==================================
+
+   Sometimes an insn can match more than one instruction pattern. 
+Then the pattern that appears first in the machine description is the
+one used.  Therefore, more specific patterns (patterns that will match
+fewer things) and faster instructions (those that will produce better
+code when they do match) should usually go first in the description.
+
+   In some cases the effect of ordering the patterns can be used to
+hide a pattern when it is not valid.  For example, the 68000 has an
+instruction for converting a fullword to floating point and another
+for converting a byte to floating point.  An instruction converting an
+integer to floating point could match either one.  We put the pattern
+to convert the fullword first to make sure that one will be used
+rather than the other.  (Otherwise a large integer might be generated
+as a single-byte immediate quantity, which would not work.) Instead of
+using this pattern ordering it would be possible to make the pattern
+for convert-a-byte smart enough to deal properly with any constant
+value.
+
+
+File: gcc.info,  Node: Dependent Patterns,  Next: Jump Patterns,  Prev: Pattern Ordering,  Up: Machine Desc
+
+Interdependence of Patterns
+===========================
+
+   Every machine description must have a named pattern for each of the
+conditional branch names `bCOND'.  The recognition template must
+always have the form
+
+     (set (pc)
+          (if_then_else (COND (cc0) (const_int 0))
+                        (label_ref (match_operand 0 "" ""))
+                        (pc)))
+
+In addition, every machine description must have an anonymous pattern
+for each of the possible reverse-conditional branches.  Their templates
+look like
+
+     (set (pc)
+          (if_then_else (COND (cc0) (const_int 0))
+                        (pc)
+                        (label_ref (match_operand 0 "" ""))))
+
+They are necessary because jump optimization can turn
+direct-conditional branches into reverse-conditional branches.
+
+   It is often convenient to use the `match_operator' construct to
+reduce the number of patterns that must be specified for branches.  For
+example,
+
+     (define_insn ""
+       [(set (pc)
+             (if_then_else (match_operator 0 "comparison_operator"
+     				      [(cc0) (const_int 0)])
+     		      (pc)
+     		      (label_ref (match_operand 1 "" ""))))]
+       "CONDITION"
+       "...")
+
+   In some cases machines support instructions identical except for the
+machine mode of one or more operands.  For example, there may be
+"sign-extend halfword" and "sign-extend byte" instructions whose
+patterns are
+
+     (set (match_operand:SI 0 ...)
+          (extend:SI (match_operand:HI 1 ...)))
+     
+     (set (match_operand:SI 0 ...)
+          (extend:SI (match_operand:QI 1 ...)))
+
+Constant integers do not specify a machine mode, so an instruction to
+extend a constant value could match either pattern.  The pattern it
+actually will match is the one that appears first in the file.  For
+correct results, this must be the one for the widest possible mode
+(`HImode', here).  If the pattern matches the `QImode' instruction,
+the results will be incorrect if the constant value does not actually
+fit that mode.
+
+   Such instructions to extend constants are rarely generated because
+they are optimized away, but they do occasionally happen in
+nonoptimized compilations.
+
+   If a constraint in a pattern allows a constant, the reload pass may
+replace a register with a constant permitted by the constraint in some
+cases.  Similarly for memory references.  You must ensure that the
+predicate permits all objects allowed by the constraints to prevent the
+compiler from crashing.
+
+   Because of this substitution, you should not provide separate
+patterns for increment and decrement instructions.  Instead, they
+should be generated from the same pattern that supports
+register-register add insns by examining the operands and generating
+the appropriate machine instruction.
+
+
+File: gcc.info,  Node: Jump Patterns,  Next: Insn Canonicalizations,  Prev: Dependent Patterns,  Up: Machine Desc
+
+Defining Jump Instruction Patterns
+==================================
+
+   For most machines, GNU CC assumes that the machine has a condition
+code.  A comparison insn sets the condition code, recording the
+results of both signed and unsigned comparison of the given operands. 
+A separate branch insn tests the condition code and branches or not
+according its value.  The branch insns come in distinct signed and
+unsigned flavors.  Many common machines, such as the Vax, the 68000
+and the 32000, work this way.
+
+   Some machines have distinct signed and unsigned compare
+instructions, and only one set of conditional branch instructions. 
+The easiest way to handle these machines is to treat them just like
+the others until the final stage where assembly code is written.  At
+this time, when outputting code for the compare instruction, peek
+ahead at the following branch using `next_cc0_user (insn)'.  (The
+variable `insn' refers to the insn being output, in the output-writing
+code in an instruction pattern.)  If the RTL says that is an unsigned
+branch, output an unsigned compare; otherwise output a signed compare.
+ When the branch itself is output, you can treat signed and unsigned
+branches identically.
+
+   The reason you can do this is that GNU CC always generates a pair of
+consecutive RTL insns, possibly separated by `note' insns, one to set
+the condition code and one to test it, and keeps the pair inviolate
+until the end.
+
+   To go with this technique, you must define the machine-description
+macro `NOTICE_UPDATE_CC' to do `CC_STATUS_INIT'; in other words, no
+compare instruction is superfluous.
+
+   Some machines have compare-and-branch instructions and no condition
+code.  A similar technique works for them.  When it is time to
+"output" a compare instruction, record its operands in two static
+variables.  When outputting the branch-on-condition-code instruction
+that follows, actually output a compare-and-branch instruction that
+uses the remembered operands.
+
+   It also works to define patterns for compare-and-branch
+instructions.  In optimizing compilation, the pair of compare and
+branch instructions will be combined according to these patterns.  But
+this does not happen if optimization is not requested.  So you must
+use one of the solutions above in addition to any special patterns you
+define.
+
+   In many RISC machines, most instructions do not affect the condition
+code and there may not even be a separate condition code register.  On
+these machines, the restriction that the definition and use of the
+condition code be adjacent insns is not necessary and can prevent
+important optimizations.  For example, on the IBM RS/6000, there is a
+delay for taken branches unless the condition code register is set
+three instructions earlier than the conditional branch.  The
+instruction scheduler cannot perform this optimization if it is not
+permitted to separate the definition and use of the condition code
+register.
+
+   On these machines, do not use `(cc0)', but instead use a register
+to represent the condition code.  If there is a specific condition code
+register in the machine, use a hard register.  If the condition code or
+comparison result can be placed in any general register, or if there
+are multiple condition registers, use a pseudo register.
+
+   On some machines, the type of branch instruction generated may
+depend on the way the condition code was produced; for example, on the
+68k and Sparc, setting the condition code directly from an add or
+subtract instruction does not clear the overflow bit the way that a
+test instruction does, so a different branch instruction must be used
+for some conditional branches.  For machines that use `(cc0)', the set
+and use of the condition code must be adjacent (separated only by
+`note' insns) allowing flags in `cc_status' to be used.  (*Note
+Condition Code::.)  Also, the comparison and branch insns can be
+located from each other by using the functions `prev_cc0_setter' and
+`next_cc0_user'.
+
+   However, this is not true on machines that do not use `(cc0)'.  On
+those machines, no assumptions can be made about the adjacency of the
+compare and branch insns and the above methods cannot be used. 
+Instead, we use the machine mode of the condition code register to
+record different formats of the condition code register.
+
+   Registers used to store the condition code value should have a mode
+that is in class `MODE_CC'.  Normally, it will be `CCmode'.  If
+additional modes are required (as for the add example mentioned above
+in the Sparc), define the macro `EXTRA_CC_MODES' to list the
+additional modes required (*note Condition Code::.).  Also define
+`EXTRA_CC_NAMES' to list the names of those modes and `SELECT_CC_MODE'
+to choose a mode given an operand of a compare.
+
+   If it is known during RTL generation that a different mode will be
+required (for example, if the machine has separate compare instructions
+for signed and unsigned quantities, like most IBM processors), they can
+be specified at that time.
+
+   If the cases that require different modes would be made by
+instruction combination, the macro `SELECT_CC_MODE' determines which
+machine mode should be used for the comparison result.  The patterns
+should be written using that mode.  To support the case of the add on
+the Sparc discussed above, we have the pattern
+
+     (define_insn ""
+       [(set (reg:CC_NOOV 0)
+     	(compare:CC_NOOV (plus:SI (match_operand:SI 0 "register_operand" "%r")
+     				  (match_operand:SI 1 "arith_operand" "rI"))
+     			 (const_int 0)))]
+       ""
+       "...")
+
+   The `SELECT_CC_MODE' macro on the Sparc returns `CC_NOOVmode' for
+comparisons whose argument is a `plus'.
+
+
+File: gcc.info,  Node: Insn Canonicalizations,  Next: Peephole Definitions,  Prev: Jump Patterns,  Up: Machine Desc
+
+Canonicalization of Instructions
+================================
+
+   There are often cases where multiple RTL expressions could
+represent an operation peformed by a single machine instruction.  This
+situation is most commonly encountered with logical, branch, and
+multiply-accumulate instructions.  In such cases, the compiler
+attempts to convert these multiple RTL expressions into a single
+canonical form to reduce the number of insn patterns required.
+
+   In addition to algebraic simplifications, following
+canonicalizations are performed:
+
+   * For commutative and comparison operators, a constant is always
+     made the second operand.  If a machine only supports a constant
+     as the second operand, only patterns that match a constant in the
+     second operand need be supplied.
+
+     For these operators, if only one operand is a `neg', `not',
+     `mult', `plus', or `minus' expression, it will be the first
+     operand.
+
+   * For the `compare' operator, a constant is always the second
+     operand on machines where `cc0' is used (*note Jump Patterns::.).
+      On other machines, there are rare cases where the compiler might
+     want to construct a `compare' with a constant as the first
+     operand.  However, these cases are not common enough for it to be
+     worthwhile to provide a pattern matching a constant as the first
+     operand unless the machine actually has such an instruction.
+
+     An operand of `neg', `not', `mult', `plus', or `minus' is made
+     the first operand under the same conditions as above.
+
+   * `(minus X (const_int N))' is converted to `(plus X (const_int
+     -N))'.
+
+   * Within address computations (i.e., inside `mem'), a left shift is
+     converted into the appropriate multiplication by a power of two.
+
+     De`Morgan's Law is used to move bitwise negation inside a bitwise
+     logical-and or logical-or operation.  If this results in only one
+     operand being a `not' expression, it will be the first one.
+
+     A machine that has an instruction that performs a bitwise
+     logical-and of one operand with the bitwise negation of the other
+     should specify the pattern for that instruction as
+
+          (define_insn ""
+            [(set (match_operand:M 0 ...)
+          	(and:M (not:M (match_operand:M 1 ...))
+          		     (match_operand:M 2 ...)))]
+            "..."
+            "...")
+
+     Similarly, a pattern for a "NAND" instruction should be written
+
+          (define_insn ""
+            [(set (match_operand:M 0 ...)
+          	(ior:M (not:M (match_operand:M 1 ...))
+          		     (not:M (match_operand:M 2 ...))))]
+            "..."
+            "...")
+
+     In both cases, it is not necessary to include patterns for the
+     many logically equivalent RTL expressions.
+
+   * The only possible RTL expressions involving both bitwise
+     exclusive-or and bitwise negation are `(xor:M X) Y)' and `(not:M
+     (xor:M X Y))'.
+
+   * The sum of three items, one of which is a constant, will only
+     appear in the form
+
+          (plus:M (plus:M X Y) CONSTANT)
+
+   * On machines that do not use `cc0', `(compare X (const_int 0))'
+     will be converted to X.
+
+   * Equality comparisons of a group of bits (usually a single bit)
+     with zero will be written using `zero_extract' rather than the
+     equivalent `and' or `sign_extract' operations.
+
+
+File: gcc.info,  Node: Peephole Definitions,  Next: Expander Definitions,  Prev: Insn Canonicalizations,  Up: Machine Desc
+
+Defining Machine-Specific Peephole Optimizers
+=============================================
+
+   In addition to instruction patterns the `md' file may contain
+definitions of machine-specific peephole optimizations.
+
+   The combiner does not notice certain peephole optimizations when
+the data flow in the program does not suggest that it should try them.
+ For example, sometimes two consecutive insns related in purpose can
+be combined even though the second one does not appear to use a
+register computed in the first one.  A machine-specific peephole
+optimizer can detect such opportunities.
+
+   A definition looks like this:
+
+     (define_peephole
+       [INSN-PATTERN-1
+        INSN-PATTERN-2
+        ...]
+       "CONDITION"
+       "TEMPLATE"
+       "OPTIONAL INSN-ATTRIBUTES")
+
+The last string operand may be omitted if you are not using any
+machine-specific information in this machine description.  If present,
+it must obey the same rules as in a `define_insn'.
+
+   In this skeleton, INSN-PATTERN-1 and so on are patterns to match
+consecutive insns.  The optimization applies to a sequence of insns
+when INSN-PATTERN-1 matches the first one, INSN-PATTERN-2 matches the
+next, and so on.
+
+   Each of the insns matched by a peephole must also match a
+`define_insn'.  Peepholes are checked only at the last stage just
+before code generation, and only optionally.  Therefore, any insn which
+would match a peephole but no `define_insn' will cause a crash in code
+generation in an unoptimized compilation, or at various optimization
+stages.
+
+   The operands of the insns are matched with `match_operands',
+`match_operator', and `match_dup', as usual.  What is not usual is
+that the operand numbers apply to all the insn patterns in the
+definition.  So, you can check for identical operands in two insns by
+using `match_operand' in one insn and `match_dup' in the other.
+
+   The operand constraints used in `match_operand' patterns do not have
+any direct effect on the applicability of the peephole, but they will
+be validated afterward, so make sure your constraints are general
+enough to apply whenever the peephole matches.  If the peephole matches
+but the constraints are not satisfied, the compiler will crash.
+
+   It is safe to omit constraints in all the operands of the peephole;
+or you can write constraints which serve as a double-check on the
+criteria previously tested.
+
+   Once a sequence of insns matches the patterns, the CONDITION is
+checked.  This is a C expression which makes the final decision
+whether to perform the optimization (we do so if the expression is
+nonzero).  If CONDITION is omitted (in other words, the string is
+empty) then the optimization is applied to every sequence of insns
+that matches the patterns.
+
+   The defined peephole optimizations are applied after register
+allocation is complete.  Therefore, the peephole definition can check
+which operands have ended up in which kinds of registers, just by
+looking at the operands.
+
+   The way to refer to the operands in CONDITION is to write
+`operands[I]' for operand number I (as matched by `(match_operand I
+...)').  Use the variable `insn' to refer to the last of the insns
+being matched; use `prev_nonnote_insn' to find the preceding insns.
+
+   When optimizing computations with intermediate results, you can use
+CONDITION to match only when the intermediate results are not used
+elsewhere.  Use the C expression `dead_or_set_p (INSN, OP)', where
+INSN is the insn in which you expect the value to be used for the last
+time (from the value of `insn', together with use of
+`prev_nonnote_insn'), and OP is the intermediate value (from
+`operands[I]').
+
+   Applying the optimization means replacing the sequence of insns
+with one new insn.  The TEMPLATE controls ultimate output of assembler
+code for this combined insn.  It works exactly like the template of a
+`define_insn'.  Operand numbers in this template are the same ones
+used in matching the original sequence of insns.
+
+   The result of a defined peephole optimizer does not need to match
+any of the insn patterns in the machine description; it does not even
+have an opportunity to match them.  The peephole optimizer definition
+itself serves as the insn pattern to control how the insn is output.
+
+   Defined peephole optimizers are run as assembler code is being
+output, so the insns they produce are never combined or rearranged in
+any way.
+
+   Here is an example, taken from the 68000 machine description:
+
+     (define_peephole
+       [(set (reg:SI 15) (plus:SI (reg:SI 15) (const_int 4)))
+        (set (match_operand:DF 0 "register_operand" "f")
+             (match_operand:DF 1 "register_operand" "ad"))]
+       "FP_REG_P (operands[0]) && ! FP_REG_P (operands[1])"
+       "*
+     {
+       rtx xoperands[2];
+       xoperands[1] = gen_rtx (REG, SImode, REGNO (operands[1]) + 1);
+     #ifdef MOTOROLA
+       output_asm_insn (\"move.l %1,(sp)\", xoperands);
+       output_asm_insn (\"move.l %1,-(sp)\", operands);
+       return \"fmove.d (sp)+,%0\";
+     #else
+       output_asm_insn (\"movel %1,sp@\", xoperands);
+       output_asm_insn (\"movel %1,sp@-\", operands);
+       return \"fmoved sp@+,%0\";
+     #endif
+     }
+     ")
+
+   The effect of this optimization is to change
+
+     jbsr _foobar
+     addql #4,sp
+     movel d1,sp@-
+     movel d0,sp@-
+     fmoved sp@+,fp0
+
+into
+
+     jbsr _foobar
+     movel d1,sp@
+     movel d0,sp@-
+     fmoved sp@+,fp0
+
+   INSN-PATTERN-1 and so on look *almost* like the second operand of
+`define_insn'.  There is one important difference: the second operand
+of `define_insn' consists of one or more RTX's enclosed in square
+brackets.  Usually, there is only one: then the same action can be
+written as an element of a `define_peephole'.  But when there are
+multiple actions in a `define_insn', they are implicitly enclosed in a
+`parallel'.  Then you must explicitly write the `parallel', and the
+square brackets within it, in the `define_peephole'.  Thus, if an insn
+pattern looks like this,
+
+     (define_insn "divmodsi4"
+       [(set (match_operand:SI 0 "general_operand" "=d")
+             (div:SI (match_operand:SI 1 "general_operand" "0")
+                     (match_operand:SI 2 "general_operand" "dmsK")))
+        (set (match_operand:SI 3 "general_operand" "=d")
+             (mod:SI (match_dup 1) (match_dup 2)))]
+       "TARGET_68020"
+       "divsl%.l %2,%3:%0")
+
+then the way to mention this insn in a peephole is as follows:
+
+     (define_peephole
+       [...
+        (parallel
+         [(set (match_operand:SI 0 "general_operand" "=d")
+               (div:SI (match_operand:SI 1 "general_operand" "0")
+                       (match_operand:SI 2 "general_operand" "dmsK")))
+          (set (match_operand:SI 3 "general_operand" "=d")
+               (mod:SI (match_dup 1) (match_dup 2)))])
+        ...]
+       ...)
+
+
+File: gcc.info,  Node: Expander Definitions,  Next: Insn Splitting,  Prev: Peephole Definitions,  Up: Machine Desc
+
+Defining RTL Sequences for Code Generation
+==========================================
+
+   On some target machines, some standard pattern names for RTL
+generation cannot be handled with single insn, but a sequence of RTL
+insns can represent them.  For these target machines, you can write a
+`define_expand' to specify how to generate the sequence of RTL.
+
+   A `define_expand' is an RTL expression that looks almost like a
+`define_insn'; but, unlike the latter, a `define_expand' is used only
+for RTL generation and it can produce more than one RTL insn.
+
+   A `define_expand' RTX has four operands:
+
+   * The name.  Each `define_expand' must have a name, since the only
+     use for it is to refer to it by name.
+
+   * The RTL template.  This is just like the RTL template for a
+     `define_peephole' in that it is a vector of RTL expressions each
+     being one insn.
+
+   * The condition, a string containing a C expression.  This
+     expression is used to express how the availability of this
+     pattern depends on subclasses of target machine, selected by
+     command-line options when GNU CC is run.  This is just like the
+     condition of a `define_insn' that has a standard name.
+
+   * The preparation statements, a string containing zero or more C
+     statements which are to be executed before RTL code is generated
+     from the RTL template.
+
+     Usually these statements prepare temporary registers for use as
+     internal operands in the RTL template, but they can also generate
+     RTL insns directly by calling routines such as `emit_insn', etc. 
+     Any such insns precede the ones that come from the RTL template.
+
+   Every RTL insn emitted by a `define_expand' must match some
+`define_insn' in the machine description.  Otherwise, the compiler
+will crash when trying to generate code for the insn or trying to
+optimize it.
+
+   The RTL template, in addition to controlling generation of RTL
+insns, also describes the operands that need to be specified when this
+pattern is used.  In particular, it gives a predicate for each operand.
+
+   A true operand, which needs to be specified in order to generate
+RTL from the pattern, should be described with a `match_operand' in
+its first occurrence in the RTL template.  This enters information on
+the operand's predicate into the tables that record such things.  GNU
+CC uses the information to preload the operand into a register if that
+is required for valid RTL code.  If the operand is referred to more
+than once, subsequent references should use `match_dup'.
+
+   The RTL template may also refer to internal "operands" which are
+temporary registers or labels used only within the sequence made by the
+`define_expand'.  Internal operands are substituted into the RTL
+template with `match_dup', never with `match_operand'.  The values of
+the internal operands are not passed in as arguments by the compiler
+when it requests use of this pattern.  Instead, they are computed
+within the pattern, in the preparation statements.  These statements
+compute the values and store them into the appropriate elements of
+`operands' so that `match_dup' can find them.
+
+   There are two special macros defined for use in the preparation
+statements: `DONE' and `FAIL'.  Use them with a following semicolon,
+as a statement.
+
+`DONE'
+     Use the `DONE' macro to end RTL generation for the pattern.  The
+     only RTL insns resulting from the pattern on this occasion will be
+     those already emitted by explicit calls to `emit_insn' within the
+     preparation statements; the RTL template will not be generated.
+
+`FAIL'
+     Make the pattern fail on this occasion.  When a pattern fails, it
+     means that the pattern was not truly available.  The calling
+     routines in the compiler will try other strategies for code
+     generation using other patterns.
+
+     Failure is currently supported only for binary (addition,
+     multiplication, shifting, etc.) and bitfield (`extv', `extzv',
+     and `insv') operations.
+
+   Here is an example, the definition of left-shift for the SPUR chip:
+
+     (define_expand "ashlsi3"
+       [(set (match_operand:SI 0 "register_operand" "")
+             (ashift:SI
+               (match_operand:SI 1 "register_operand" "")
+               (match_operand:SI 2 "nonmemory_operand" "")))]
+       ""
+       "
+     {
+       if (GET_CODE (operands[2]) != CONST_INT
+           || (unsigned) INTVAL (operands[2]) > 3)
+         FAIL;
+     }")
+
+This example uses `define_expand' so that it can generate an RTL insn
+for shifting when the shift-count is in the supported range of 0 to 3
+but fail in other cases where machine insns aren't available.  When it
+fails, the compiler tries another strategy using different patterns
+(such as, a library call).
+
+   If the compiler were able to handle nontrivial condition-strings in
+patterns with names, then it would be possible to use a `define_insn'
+in that case.  Here is another case (zero-extension on the 68000)
+which makes more use of the power of `define_expand':
+
+     (define_expand "zero_extendhisi2"
+       [(set (match_operand:SI 0 "general_operand" "")
+             (const_int 0))
+        (set (strict_low_part
+               (subreg:HI
+                 (match_dup 0)
+                 0))
+             (match_operand:HI 1 "general_operand" ""))]
+       ""
+       "operands[1] = make_safe_from (operands[1], operands[0]);")
+
+Here two RTL insns are generated, one to clear the entire output
+operand and the other to copy the input operand into its low half. 
+This sequence is incorrect if the input operand refers to [the old
+value of] the output operand, so the preparation statement makes sure
+this isn't so.  The function `make_safe_from' copies the `operands[1]'
+into a temporary register if it refers to `operands[0]'.  It does this
+by emitting another RTL insn.
+
+   Finally, a third example shows the use of an internal operand. 
+Zero-extension on the SPUR chip is done by `and'-ing the result
+against a halfword mask.  But this mask cannot be represented by a
+`const_int' because the constant value is too large to be legitimate
+on this machine.  So it must be copied into a register with
+`force_reg' and then the register used in the `and'.
+
+     (define_expand "zero_extendhisi2"
+       [(set (match_operand:SI 0 "register_operand" "")
+             (and:SI (subreg:SI
+                       (match_operand:HI 1 "register_operand" "")
+                       0)
+                     (match_dup 2)))]
+       ""
+       "operands[2]
+          = force_reg (SImode, gen_rtx (CONST_INT,
+                                        VOIDmode, 65535)); ")
+
+   *Note:* If the `define_expand' is used to serve a standard binary
+or unary arithmetic operation or a bitfield operation, then the last
+insn it generates must not be a `code_label', `barrier' or `note'.  It
+must be an `insn', `jump_insn' or `call_insn'.  If you don't need a
+real insn at the end, emit an insn to copy the result of the operation
+into itself.  Such an insn will generate no code, but it can avoid
+problems in the compiler.
 
 

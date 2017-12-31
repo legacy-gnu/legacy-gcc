@@ -1,11 +1,11 @@
 /* Generate code from machine description to perform peephole optimizations.
-   Copyright (C) 1987, 1989 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1989, 1992 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -23,12 +23,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "rtl.h"
 #include "obstack.h"
 
-struct obstack obstack;
+static struct obstack obstack;
 struct obstack *rtl_obstack = &obstack;
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-extern int xmalloc ();
+
 extern void free ();
 
 /* While tree-walking an instruction pattern, we keep a chain
@@ -44,26 +44,27 @@ struct link
   int vecelt;
 };
 
-void match_rtx ();
-void gen_exp ();
-void fatal ();
+char *xmalloc ();
+static void match_rtx ();
+static void gen_exp ();
+static void fatal ();
 void fancy_abort ();
 
-int max_opno;
+static int max_opno;
 
 /* Number of operands used in current peephole definition.  */
 
-int n_operands;
+static int n_operands;
 
 /* Peephole optimizations get insn codes just like insn patterns.
    Count them so we know the code of the define_peephole we are handling.  */
 
-int insn_code_number = 0;
+static int insn_code_number = 0;
 
-void print_path ();
-void print_code ();
+static void print_path ();
+static void print_code ();
 
-void
+static void
 gen_peephole (peep)
      rtx peep;
 {
@@ -84,7 +85,10 @@ gen_peephole (peep)
 	  printf ("  do { insn = NEXT_INSN (insn);\n");
 	  printf ("       if (insn == 0) goto L%d; }\n",
 		  insn_code_number);
-	  printf ("  while (GET_CODE (insn) == NOTE);\n");
+	  printf ("  while (GET_CODE (insn) == NOTE\n");
+	  printf ("\t || (GET_CODE (insn) == INSN\n");
+	  printf ("\t     && (GET_CODE (PATTERN (insn)) == USE\n");
+	  printf ("\t\t || GET_CODE (PATTERN (insn)) == CLOBBER)));\n");
 
 	  printf ("  if (GET_CODE (insn) == CODE_LABEL\n\
       || GET_CODE (insn) == BARRIER)\n    goto L%d;\n",
@@ -144,7 +148,7 @@ gen_peephole (peep)
   printf (" L%d:\n\n", insn_code_number);
 }
 
-void
+static void
 match_rtx (x, path, fail_label)
      rtx x;
      struct link *path;
@@ -189,13 +193,31 @@ match_rtx (x, path, fail_label)
 	      XINT (x, 0), fail_label);
       return;
 
+    case MATCH_OP_DUP:
+      printf ("  x = ");
+      print_path (path);
+      printf (";\n");
+
+      printf ("  if (GET_CODE (operands[%d]) != GET_CODE (x)\n", XINT (x, 0));
+      printf ("      || GET_MODE (operands[%d]) != GET_MODE (x)) goto L%d;\n",
+	      XINT (x, 0), fail_label);
+      printf ("  operands[%d] = x;\n", XINT (x, 0));
+      link.next = path;
+      link.vecelt = -1;
+      for (i = 0; i < XVECLEN (x, 1); i++)
+	{
+	  link.pos = i;
+	  match_rtx (XVECEXP (x, 1, i), &link, fail_label);
+	}
+      return;
+
     case MATCH_OPERATOR:
       if (XINT (x, 0) > max_opno)
 	max_opno = XINT (x, 0);
       if (XINT (x, 0) >= n_operands)
 	n_operands = 1 + XINT (x, 0);
 
-      printf ("  x = (rtx)");
+      printf ("  x = ");
       print_path (path);
       printf (";\n");
 
@@ -208,6 +230,30 @@ match_rtx (x, path, fail_label)
       for (i = 0; i < XVECLEN (x, 2); i++)
 	{
 	  link.pos = i;
+	  match_rtx (XVECEXP (x, 2, i), &link, fail_label);
+	}
+      return;
+
+    case MATCH_PARALLEL:
+      if (XINT (x, 0) > max_opno)
+	max_opno = XINT (x, 0);
+      if (XINT (x, 0) >= n_operands)
+	n_operands = 1 + XINT (x, 0);
+
+      printf ("  x = ");
+      print_path (path);
+      printf (";\n");
+
+      printf ("  if (GET_CODE (x) != PARALLEL) goto L%d;\n", fail_label);
+      printf ("  operands[%d] = x;\n", XINT (x, 0));
+      if (XSTR (x, 1) && XSTR (x, 1)[0])
+	printf ("  if (! %s (x, %smode)) goto L%d;\n",
+		XSTR (x, 1), GET_MODE_NAME (GET_MODE (x)), fail_label);
+      link.next = path;
+      link.pos = 0;
+      for (i = 0; i < XVECLEN (x, 2); i++)
+	{
+	  link.vecelt = i;
 	  match_rtx (XVECEXP (x, 2, i), &link, fail_label);
 	}
       return;
@@ -245,7 +291,7 @@ match_rtx (x, path, fail_label)
 	  int j;
 	  printf ("  if (XVECLEN (x, %d) != %d) goto L%d;\n",
 		  i, XVECLEN (x, i), fail_label);
-	  for (j = XVECLEN (x, i) - 1; j >= 0; j--)
+	  for (j = 0; j < XVECLEN (x, i); j++)
 	    {
 	      link.vecelt = j;
 	      match_rtx (XVECEXP (x, i, j), &link, fail_label);
@@ -284,7 +330,7 @@ match_rtx (x, path, fail_label)
    pattern from the root to a certain point, output code to
    evaluate to the rtx at that point.  */
 
-void
+static void
 print_path (path)
      struct link *path;
 {
@@ -304,7 +350,7 @@ print_path (path)
     }
 }
 
-void
+static void
 print_code (code)
      RTX_CODE code;
 {
@@ -318,28 +364,29 @@ print_code (code)
     }
 }
 
-int
+char *
 xmalloc (size)
+     unsigned size;
 {
-  register int val = malloc (size);
+  register char *val = (char *) malloc (size);
 
   if (val == 0)
     fatal ("virtual memory exhausted");
   return val;
 }
 
-int
+char *
 xrealloc (ptr, size)
      char *ptr;
-     int size;
+     unsigned size;
 {
-  int result = realloc (ptr, size);
+  char *result = (char *) realloc (ptr, size);
   if (!result)
     fatal ("virtual memory exhausted");
   return result;
 }
 
-void
+static void
 fatal (s, a1, a2)
      char *s;
 {
@@ -390,6 +437,7 @@ from the machine description file `md'.  */\n\n");
   printf ("#include \"config.h\"\n");
   printf ("#include \"rtl.h\"\n");
   printf ("#include \"regs.h\"\n");
+  printf ("#include \"output.h\"\n");
   printf ("#include \"real.h\"\n\n");
 
   printf ("extern rtx peep_operand[];\n\n");
@@ -419,7 +467,9 @@ from the machine description file `md'.  */\n\n");
 	  gen_peephole (desc);
 	  insn_code_number++;
 	}
-      if (GET_CODE (desc) == DEFINE_INSN || GET_CODE (desc) == DEFINE_EXPAND)
+      if (GET_CODE (desc) == DEFINE_INSN
+	  || GET_CODE (desc) == DEFINE_EXPAND
+	  || GET_CODE (desc) == DEFINE_SPLIT)
 	{
 	  insn_code_number++;
 	}
@@ -434,4 +484,6 @@ from the machine description file `md'.  */\n\n");
 
   fflush (stdout);
   exit (ferror (stdout) != 0 ? FATAL_EXIT_CODE : SUCCESS_EXIT_CODE);
+  /* NOTREACHED */
+  return 0;
 }

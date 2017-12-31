@@ -1,11 +1,11 @@
 /* Dummy data flow analysis for GNU compiler in nonoptimizing mode.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -46,6 +46,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "rtl.h"
 #include "hard-reg-set.h"
 #include "regs.h"
+#include "flags.h"
 
 /* Vector mapping INSN_UIDs to suids.
    The suids are like uids but increase monononically always.
@@ -177,6 +178,9 @@ stupid_life_analysis (f, nregs, file)
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
     reg_renumber[i] = i;
 
+  for (i = FIRST_VIRTUAL_REGISTER; i <= LAST_VIRTUAL_REGISTER; i++)
+    reg_renumber[i] = -1;
+
   after_insn_hard_regs = (HARD_REG_SET *) alloca (max_uid * sizeof (HARD_REG_SET));
   bzero (after_insn_hard_regs, max_uid * sizeof (HARD_REG_SET));
 
@@ -249,16 +253,16 @@ stupid_life_analysis (f, nregs, file)
 
   /* Now decide the order in which to allocate the pseudo registers.  */
 
-  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
+  for (i = LAST_VIRTUAL_REGISTER + 1; i < max_regno; i++)
     reg_order[i] = i;
 
-  qsort (&reg_order[FIRST_PSEUDO_REGISTER],
-	 max_regno - FIRST_PSEUDO_REGISTER, sizeof (int),
+  qsort (&reg_order[LAST_VIRTUAL_REGISTER + 1],
+	 max_regno - LAST_VIRTUAL_REGISTER - 1, sizeof (int),
 	 stupid_reg_compare);
 
   /* Now, in that order, try to find hard registers for those pseudo regs.  */
 
-  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
+  for (i = LAST_VIRTUAL_REGISTER + 1; i < max_regno; i++)
     {
       register int r = reg_order[i];
       enum reg_class class;
@@ -346,9 +350,19 @@ stupid_find_reg (call_preserved, class, mode,
   register		/* Declare them register if they are scalars.  */
 #endif
     HARD_REG_SET used, this_reg;
+#ifdef ELIMINABLE_REGS
+  static struct {int from, to; } eliminables[] = ELIMINABLE_REGS;
+#endif
 
   COPY_HARD_REG_SET (used,
 		     call_preserved ? call_used_reg_set : fixed_reg_set);
+
+#ifdef ELIMINABLE_REGS
+  for (i = 0; i < sizeof eliminables / sizeof eliminables[0]; i++)
+    SET_HARD_REG_BIT (used, eliminables[i].from);
+#else
+  SET_HARD_REG_BIT (used, FRAME_POINTER_REGNUM);
+#endif
 
   for (ins = born_insn; ins < dead_insn; ins++)
     IOR_HARD_REG_SET (used, after_insn_hard_regs[ins]);
@@ -437,8 +451,8 @@ stupid_mark_refs (x, insn)
 		  MARK_LIVE_AFTER (insn, regno);
 		  /* When a hard reg is clobbered, mark it in use
 		     just before this insn, so it is live all through.  */
-		  if (code == CLOBBER)
-		    SET_HARD_REG_BIT (after_insn_hard_regs[INSN_SUID (insn)],
+		  if (code == CLOBBER && INSN_SUID (insn) > 0)
+		    SET_HARD_REG_BIT (after_insn_hard_regs[INSN_SUID (insn) - 1],
 				      regno);
 		}
 	    }
@@ -455,9 +469,11 @@ stupid_mark_refs (x, insn)
 	      reg_where_born[regno] = where_born;
 	      /* The reg must live at least one insn even
 		 in it is never again used--because it has to go
-		 in SOME hard reg.  */
-	      if (reg_where_dead[regno] < where_born + 1)
-		reg_where_dead[regno] = where_born + 1;
+		 in SOME hard reg.  Mark it as dying after the current
+		 insn so that it will conflict with any other outputs of
+		 this insn.  */
+	      if (reg_where_dead[regno] < where_born + 2)
+		reg_where_dead[regno] = where_born + 2;
 
 	      /* Count the refs of this reg.  */
 	      reg_n_refs[regno]++;

@@ -11,8 +11,10 @@ __attribute, ATTRIBUTE, NORID
 __attribute__, ATTRIBUTE, NORID
 __const, TYPE_QUAL, RID_CONST
 __const__, TYPE_QUAL, RID_CONST
+__extension__, EXTENSION, NORID
 __inline, SCSPEC, RID_INLINE
 __inline__, SCSPEC, RID_INLINE
+__label__, LABEL, NORID
 __signed, TYPESPEC, RID_SIGNED
 __signed__, TYPESPEC, RID_SIGNED
 __typeof, TYPEOF, NORID

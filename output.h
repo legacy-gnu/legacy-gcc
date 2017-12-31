@@ -1,11 +1,12 @@
-/* Declarations for insn-output.c.  These functions are defined in recog.c.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+/* Declarations for insn-output.c.  These functions are defined in recog.c,
+   final.c, and varasm.c.
+   Copyright (C) 1987, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -17,23 +18,17 @@ You should have received a copy of the GNU General Public License
 along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-/* Operand-predicate functions.  */
-int general_operand ();
-int push_operand ();
-int memory_operand ();
-int indirect_operand ();
-int immediate_operand ();
-int register_operand ();
-int address_operand ();
-int nonmemory_operand ();
-int nonimmediate_operand ();
-
-int offsettable_address_p ();
-rtx adj_offsettable_operand ();
-
-/* Output a string of assembler code.
+/* Output a string of assembler code, substituting insn operands.
    Defined in final.c.  */
-void output_asm_insn ();
+extern void output_asm_insn ();
+
+/* Output a string of assembler code, substituting numbers, strings
+   and fixed syntactic prefixes.  */
+extern void asm_fprintf ();
+
+/* Replace a SUBREG with a REG or a MEM, based on the thing it is a
+   subreg of.  */
+extern rtx alter_subreg ();
 
 /* When outputting assembler code, indicates which alternative
    of the constraints was actually satisfied.  */
@@ -47,7 +42,8 @@ extern int which_alternative;
    This variable is defined  in final.c.  */
 extern rtx final_sequence;
 
-/* Nonzero if function being compiled pops its args on return.
+/* Number of bytes of args popped by function being compiled on its return.
+   Zero if no bytes are to be popped.
    May affect compilation of return insn or of function epilogue.  */
 
 extern int current_function_pops_args;
@@ -70,10 +66,23 @@ extern int current_function_needs_context;
 
 extern int current_function_calls_setjmp;
 
+/* Nonzero if function being compiled can call longjmp.  */
+
+extern int current_function_calls_longjmp;
+
 /* Nonzero if function being compiled can call alloca,
    either as a subroutine or builtin.  */
 
 extern int current_function_calls_alloca;
+
+/* Nonzero if function being compiled receives nonlocal gotos
+   from nested functions.  */
+
+extern int current_function_has_nonlocal_label;
+
+/* Nonzero if function being compiled contains nested functions.  */
+
+extern int current_function_contains_functions;
 
 /* Nonzero if the current function returns a pointer type */
 
@@ -90,6 +99,54 @@ extern int current_function_args_size;
 
 extern int current_function_pretend_args_size;
 
+/* # of bytes of outgoing arguments required to be pushed by the prologue.
+   If this is non-zero, it means that ACCUMULATE_OUTGOING_ARGS was defined
+   and no stack adjusts will be done on function calls.  */
+
+extern int current_function_outgoing_args_size;
+
+/* Nonzero if current function uses varargs.h or equivalent.
+   Zero for functions that use stdarg.h.  */
+
+extern int current_function_varargs;
+
+/* Quantities of various kinds of registers
+   used for the current function's args.  */
+
+extern CUMULATIVE_ARGS current_function_args_info;
+
 /* Name of function now being compiled.  */
 
 extern char *current_function_name;
+
+/* If non-zero, an RTL expression for that location at which the current
+   function returns its result.  Usually equal to
+   DECL_RTL (DECL_RESULT (current_function_decl)).  */
+
+extern rtx current_function_return_rtx;
+
+/* If some insns can be deferred to the delay slots of the epilogue, the
+   delay list for them is recorded here.  */
+
+extern rtx current_function_epilogue_delay_list;
+
+/* Nonzero means generate position-independent code.
+   This is not fully implemented yet.  */
+
+extern int flag_pic;
+
+/* This is nonzero if the current function uses pic_offset_table_rtx.  */
+extern int current_function_uses_pic_offset_table;
+
+/* The line number of the beginning of the current function.
+   sdbout.c needs this so that it can output relative linenumbers.  */
+
+#ifdef SDB_DEBUGGING_INFO /* Avoid undef sym in certain broken linkers.  */
+extern int sdb_begin_function_line;
+#endif
+
+/* File in which assembler code is being written.  */
+
+#ifdef BUFSIZ  /* The hope is that any kind of stdio.h must define BUFSIZ.  */
+extern FILE *asm_out_file;
+#endif

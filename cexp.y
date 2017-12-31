@@ -1,9 +1,9 @@
 /* Parse C expressions for CCCP.
-   Copyright (C) 1987 Free Software Foundation.
+   Copyright (C) 1987, 1992 Free Software Foundation.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
-Free Software Foundation; either version 1, or (at your option) any
+Free Software Foundation; either version 2, or (at your option) any
 later version.
 
 This program is distributed in the hope that it will be useful,
@@ -28,29 +28,68 @@ Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 #include <setjmp.h>
 /* #define YYDEBUG 1 */
 
-  int yylex ();
-  void yyerror ();
-  int expression_value;
+#ifdef MULTIBYTE_CHARS
+#include <stdlib.h>
+#include <locale.h>
+#endif
 
-  static jmp_buf parse_return_error;
+typedef unsigned char U_CHAR;
 
-  /* some external tables of character types */
-  extern unsigned char is_idstart[], is_idchar[];
+/* This is used for communicating lists of keywords with cccp.c.  */
+struct arglist {
+  struct arglist *next;
+  U_CHAR *name;
+  int length;
+  int argno;
+};
+
+int yylex ();
+void yyerror ();
+int expression_value;
+
+static jmp_buf parse_return_error;
+
+/* Nonzero means count most punctuation as part of a name.  */
+static int keyword_parsing = 0;
+
+/* some external tables of character types */
+extern unsigned char is_idstart[], is_idchar[], is_hor_space[];
+
+/* Flag for -pedantic.  */
+extern int pedantic;
+
+/* Flag for -traditional.  */
+extern int traditional;
 
 #ifndef CHAR_TYPE_SIZE
 #define CHAR_TYPE_SIZE BITS_PER_UNIT
+#endif
+
+#ifndef INT_TYPE_SIZE
+#define INT_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef LONG_TYPE_SIZE
+#define LONG_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef WCHAR_TYPE_SIZE
+#define WCHAR_TYPE_SIZE INT_TYPE_SIZE
 #endif
 %}
 
 %union {
   struct constant {long value; int unsignedp;} integer;
+  struct name {U_CHAR *address; int length;} name;
+  struct arglist *keywords;
   int voidval;
   char *sval;
 }
 
 %type <integer> exp exp1 start
+%type <keywords> keywords
 %token <integer> INT CHAR
-%token <sval> NAME
+%token <name> NAME
 %token <integer> ERROR
 
 %right '?' ':'
@@ -78,7 +117,9 @@ start   :	exp1
 /* Expressions, including the comma operator.  */
 exp1	:	exp
 	|	exp1 ',' exp
-			{ $$ = $3; }
+			{ if (pedantic)
+			    pedwarn ("comma operator in operand of `#if'");
+			  $$ = $3; }
 	;
 
 /* Expressions, not including the comma operator.  */
@@ -93,6 +134,17 @@ exp	:	'-' exp    %prec UNARY
 	|	'~' exp    %prec UNARY
 			{ $$.value = ~ $2.value;
 			  $$.unsignedp = $2.unsignedp; }
+	|	'#' NAME
+  			{ $$.value = check_assertion ($2.address, $2.length,
+						      0, 0);
+			  $$.unsignedp = 0; }
+	|	'#' NAME
+			{ keyword_parsing = 1; }
+		'(' keywords ')'
+  			{ $$.value = check_assertion ($2.address, $2.length,
+						      1, $5);
+			  keyword_parsing = 0;
+			  $$.unsignedp = 0; }
 	|	'(' exp1 ')'
 			{ $$ = $2; }
 	;
@@ -200,6 +252,28 @@ exp	:	exp '*' exp
 			{ $$.value = 0;
 			  $$.unsignedp = 0; }
 	;
+
+keywords :
+			{ $$ = 0; } 
+	|	'(' keywords ')' keywords
+			{ struct arglist *temp;
+			  $$ = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  $$->next = $2;
+			  $$->name = (U_CHAR *) "(";
+			  $$->length = 1;
+			  temp = $$;
+			  while (temp != 0 && temp->next != 0)
+			    temp = temp->next;
+			  temp->next = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  temp->next->next = $4;
+			  temp->next->name = (U_CHAR *) ")";
+			  temp->next->length = 1; }
+	|	NAME keywords
+			{ $$ = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  $$->name = $1.address;
+			  $$->length = $1.length;
+			  $$->next = $2; } 
+	;
 %%
 
 /* During parsing of a C expression, the pointer to the next character
@@ -303,6 +377,8 @@ static struct token tokentab2[] = {
   {"!=", NOTEQUAL},
   {"<=", LEQ},
   {">=", GEQ},
+  {"++", ERROR},
+  {"--", ERROR},
   {NULL, ERROR}
 };
 
@@ -315,17 +391,25 @@ yylex ()
   register int namelen;
   register char *tokstart;
   register struct token *toktab;
+  int wide_flag;
 
  retry:
 
   tokstart = lexptr;
   c = *tokstart;
   /* See if it is a special token of length 2.  */
-  for (toktab = tokentab2; toktab->operator != NULL; toktab++)
-    if (c == *toktab->operator && tokstart[1] == toktab->operator[1]) {
-      lexptr += 2;
-      return toktab->token;
-    }
+  if (! keyword_parsing)
+    for (toktab = tokentab2; toktab->operator != NULL; toktab++)
+      if (c == *toktab->operator && tokstart[1] == toktab->operator[1]) {
+	lexptr += 2;
+	if (toktab->token == ERROR)
+	  {
+	    char *buf = (char *) alloca (40);
+	    sprintf (buf, "`%s' not allowed in operand of `#if'", toktab->operator);
+	    yyerror (buf);
+	  }
+	return toktab->token;
+      }
 
   switch (c) {
   case 0:
@@ -338,27 +422,143 @@ yylex ()
     lexptr++;
     goto retry;
     
+  case 'L':
+    /* Capital L may start a wide-string or wide-character constant.  */
+    if (lexptr[1] == '\'')
+      {
+	lexptr++;
+	wide_flag = 1;
+	goto char_constant;
+      }
+    if (lexptr[1] == '"')
+      {
+	lexptr++;
+	wide_flag = 1;
+	goto string_constant;
+      }
+    break;
+
   case '\'':
+    wide_flag = 0;
+  char_constant:
     lexptr++;
-    c = *lexptr++;
-    if (c == '\\')
-      c = parse_escape (&lexptr);
+    if (keyword_parsing) {
+      char *start_ptr = lexptr - 1;
+      while (1) {
+	c = *lexptr++;
+	if (c == '\\')
+	  c = parse_escape (&lexptr);
+	else if (c == '\'')
+	  break;
+      }
+      yylval.name.address = (U_CHAR *) tokstart;
+      yylval.name.length = lexptr - start_ptr;
+      return NAME;
+    }
 
-    /* Sign-extend the constant if chars are signed on target machine.  */
+    /* This code for reading a character constant
+       handles multicharacter constants and wide characters.
+       It is mostly copied from c-lex.c.  */
     {
-      if (lookup ("__CHAR_UNSIGNED__", sizeof ("__CHAR_UNSIGNED__")-1, -1)
-	  || ((c >> (CHAR_TYPE_SIZE - 1)) & 1) == 0)
-	yylval.integer.value = c & ((1 << CHAR_TYPE_SIZE) - 1);
+      register int result = 0;
+      register num_chars = 0;
+      unsigned width = CHAR_TYPE_SIZE;
+      int max_chars;
+      char *token_buffer;
+
+      if (wide_flag)
+	{
+	  width = WCHAR_TYPE_SIZE;
+#ifdef MULTIBYTE_CHARS
+	  max_chars = MB_CUR_MAX;
+#else
+	  max_chars = 1;
+#endif
+	}
       else
-	yylval.integer.value = c | ~((1 << CHAR_TYPE_SIZE) - 1);
+	max_chars = LONG_TYPE_SIZE / width;
+
+      token_buffer = (char *) alloca (max_chars + 1);
+
+      while (1)
+	{
+	  c = *lexptr++;
+
+	  if (c == '\'' || c == EOF)
+	    break;
+
+	  if (c == '\\')
+	    {
+	      c = parse_escape (&lexptr);
+	      if (width < HOST_BITS_PER_INT
+		  && (unsigned) c >= (1 << width))
+		pedwarn ("escape sequence out of range for character");
+	    }
+
+	  num_chars++;
+
+	  /* Merge character into result; ignore excess chars.  */
+	  if (num_chars < max_chars + 1)
+	    {
+	      if (width < HOST_BITS_PER_INT)
+		result = (result << width) | (c & ((1 << width) - 1));
+	      else
+		result = c;
+	      token_buffer[num_chars - 1] = c;
+	    }
+	}
+
+      token_buffer[num_chars] = 0;
+
+      if (c != '\'')
+	error ("malformatted character constant");
+      else if (num_chars == 0)
+	error ("empty character constant");
+      else if (num_chars > max_chars)
+	{
+	  num_chars = max_chars;
+	  error ("character constant too long");
+	}
+      else if (num_chars != 1 && ! traditional)
+	warning ("multi-character character constant");
+
+      /* If char type is signed, sign-extend the constant.  */
+      if (! wide_flag)
+	{
+	  int num_bits = num_chars * width;
+
+	  if (lookup ("__CHAR_UNSIGNED__", sizeof ("__CHAR_UNSIGNED__")-1, -1)
+	      || ((result >> (num_bits - 1)) & 1) == 0)
+	    yylval.integer.value
+	      = result & ((unsigned) ~0 >> (HOST_BITS_PER_INT - num_bits));
+	  else
+	    yylval.integer.value
+	      = result | ~((unsigned) ~0 >> (HOST_BITS_PER_INT - num_bits));
+	}
+      else
+	{
+#ifdef MULTIBYTE_CHARS
+	  /* Set the initial shift state and convert the next sequence.  */
+	  result = 0;
+	  /* In all locales L'\0' is zero and mbtowc will return zero,
+	     so don't use it.  */
+	  if (num_chars > 1
+	      || (num_chars == 1 && token_buffer[0] != '\0'))
+	    {
+	      wchar_t wc;
+	      (void) mbtowc (NULL, NULL, 0);
+	      if (mbtowc (& wc, token_buffer, num_chars) == num_chars)
+		result = wc;
+	      else
+		warning ("Ignoring invalid multibyte character");
+	    }
+#endif
+	  yylval.integer.value = result;
+	}
     }
 
+    /* This is always a signed type.  */
     yylval.integer.unsignedp = 0;
-    c = *lexptr++;
-    if (c != '\'') {
-      yyerror ("Invalid character constant in #if");
-      return ERROR;
-    }
     
     return CHAR;
 
@@ -377,8 +577,6 @@ yylex ()
   case '@':
   case '<':
   case '>':
-  case '(':
-  case ')':
   case '[':
   case ']':
   case '.':
@@ -388,14 +586,35 @@ yylex ()
   case '{':
   case '}':
   case ',':
+  case '#':
+    if (keyword_parsing)
+      break;
+  case '(':
+  case ')':
     lexptr++;
     return c;
-    
+
   case '"':
-    yyerror ("double quoted strings not allowed in #if expressions");
+  string_constant:
+    if (keyword_parsing) {
+      char *start_ptr = lexptr;
+      lexptr++;
+      while (1) {
+	c = *lexptr++;
+	if (c == '\\')
+	  c = parse_escape (&lexptr);
+	else if (c == '"')
+	  break;
+      }
+      yylval.name.address = (U_CHAR *) tokstart;
+      yylval.name.length = lexptr - start_ptr;
+      return NAME;
+    }
+    yyerror ("string constants not allowed in #if expressions");
     return ERROR;
   }
-  if (c >= '0' && c <= '9') {
+
+  if (c >= '0' && c <= '9' && !keyword_parsing) {
     /* It's a number */
     for (namelen = 0;
 	 c = tokstart[namelen], is_idchar[c] || c == '.'; 
@@ -403,18 +622,31 @@ yylex ()
       ;
     return parse_number (namelen);
   }
-  
-  if (!is_idstart[c]) {
-    yyerror ("Invalid token in expression");
-    return ERROR;
+
+  /* It is a name.  See how long it is.  */
+
+  if (keyword_parsing) {
+    for (namelen = 0;; namelen++) {
+      if (is_hor_space[tokstart[namelen]])
+	break;
+      if (tokstart[namelen] == '(' || tokstart[namelen] == ')')
+	break;
+      if (tokstart[namelen] == '"' || tokstart[namelen] == '\'')
+	break;
+    }
+  } else {
+    if (!is_idstart[c]) {
+      yyerror ("Invalid token in expression");
+      return ERROR;
+    }
+
+    for (namelen = 0; is_idchar[tokstart[namelen]]; namelen++)
+      ;
   }
   
-  /* It is a name.  See how long it is.  */
-  
-  for (namelen = 0; is_idchar[tokstart[namelen]]; namelen++)
-    ;
-  
   lexptr += namelen;
+  yylval.name.address = (U_CHAR *) tokstart;
+  yylval.name.length = namelen;
   return NAME;
 }
 
@@ -501,7 +733,6 @@ parse_escape (string_ptr)
     case 'x':
       {
 	register int i = 0;
-	register int count = 0;
 	for (;;)
 	  {
 	    c = *(*string_ptr)++;
@@ -571,12 +802,15 @@ parse_c_expression (string)
 }
 
 #ifdef TEST_EXP_READER
-/* main program, for testing purposes. */
+extern int yydebug;
+
+/* Main program for testing purposes.  */
+int
 main ()
 {
   int n, c;
   char buf[1024];
-  extern int yydebug;
+
 /*
   yydebug = 1;
 */
@@ -592,6 +826,8 @@ main ()
     buf[n] = '\0';
     printf ("parser returned %d\n", parse_c_expression (buf));
   }
+
+  return 0;
 }
 
 /* table to tell if char can be part of a C identifier. */

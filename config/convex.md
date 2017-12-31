@@ -1,12 +1,12 @@
 ;;- Machine description for GNU compiler
 ;;- Convex Version
-;;   Copyright (C) 1989 Free Software Foundation, Inc.
+;;   Copyright (C) 1991 Free Software Foundation, Inc.
 
 ;; This file is part of GNU CC.
 
 ;; GNU CC is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation; either version 1, or (at your option)
+;; the Free Software Foundation; either version 2, or (at your option)
 ;; any later version.
 
 ;; GNU CC is distributed in the hope that it will be useful,
@@ -18,16 +18,13 @@
 ;; along with GNU CC; see the file COPYING.  If not, write to
 ;; the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 
+;; Scheduling defs
+;;
+;; Insn scheduling is not used at present.  Scheduling increases
+;; register pressure so much that many spills are generated
+;; even for very small functions.
 
-;;- Instruction patterns.  When multiple patterns apply,
-;;- the first one in the file is chosen.
-;;-
-;;- See file "rtl.def" for documentation on define_insn, match_*, et. al.
-;;-
-;;- cpp macro #define NOTICE_UPDATE_CC in file tm.h handles condition code
-;;- updates for most instructions.
-
-;; Put tstsi first among test insns so it matches a CONST_INT operand.
+;; Compares
 
 (define_insn "tstsi"
   [(set (cc0)
@@ -49,50 +46,49 @@
   ""
   "operands[1] = gen_reg_rtx (SImode);")
 
-(define_insn "tstdi"
-  [(set (cc0)
-	(match_operand:DI 0 "register_operand" "d"))
-   (clobber (reg:DI 1))]
+(define_expand "tstdi"
+  [(parallel [(set (cc0) (match_operand:DI 0 "register_operand" "d"))
+	      (use (match_dup 1))])]
   ""
-  "*
-{
-  output_asm_insn (\"ld.l #0,s1\");
-  return set_cmp (operands[0], gen_rtx (REG, DImode, 1), 'l');
-}")
+  "operands[1] = force_reg (DImode, const0_rtx);")
+
+(define_insn ""
+  [(set (cc0) (match_operand:DI 0 "register_operand" "d"))
+   (use (match_operand:DI 1 "register_operand" "d"))]
+  ""
+  "* return set_cmp (operands[0], operands[1], 'l');")
 
 (define_expand "tstdf"
   [(set (cc0)
 	(compare (match_operand:DF 0 "register_operand" "d")
 		 (match_dup 1)))]
   ""
-  "operands[1] = force_reg (DFmode, dconst0_rtx);")
+  "operands[1] = force_reg (DFmode, CONST0_RTX (DFmode));")
 
 (define_insn "tstsf"
   [(set (cc0)
 	(match_operand:SF 0 "register_operand" "d"))]
   ""
-  "* return set_cmp (operands[0], fconst0_rtx, 's');")
-
-;; Put cmpsi first among compare insns so it matches two CONST_INT operands.
+  "* return set_cmp (operands[0], CONST0_RTX (SFmode), 's');")
 
 (define_insn "cmpsi"
   [(set (cc0)
-	(compare (match_operand:SI 0 "nonmemory_operand" "d,a,i,r")
+	(compare (match_operand:SI 0 "register_operand" "d,a,i,r")
 		 (match_operand:SI 1 "nonmemory_operand" "d,a,r,i")))]
   ""
   "* return set_cmp (operands[0], operands[1], 'w');")
 
 (define_insn "cmphi"
   [(set (cc0)
-	(compare (match_operand:HI 0 "nonmemory_operand" "d,a,r,i")
+	(compare (match_operand:HI 0 "register_operand" "d,a,r,i")
 		 (match_operand:HI 1 "nonmemory_operand" "d,a,i,r")))]
   ""
   "* return set_cmp (operands[0], operands[1], 'h');")
 
-(define_insn ""
+(define_insn "cmpqi"
   [(set (cc0)
-	(compare (sign_extend:SI (match_operand:QI 0 "register_operand" "d"))
-		 (sign_extend:SI (match_operand:QI 1 "register_operand" "d"))))]
+	(compare (match_operand:QI 0 "register_operand" "d")
+		 (match_operand:QI 1 "register_operand" "d")))]
   ""
   "* return set_cmp (operands[0], operands[1], 'b');")
 
@@ -117,9 +113,61 @@
   ""
   "* return set_cmp (operands[0], operands[1], 's');")
 
+;; Moves
+
+;(define_insn "movtf"
+;  [(set (match_operand:TF 0 "general_operand" "=g,d")
+;	(match_operand:TF 1 "general_operand" "d,g"))]
+;  ""
+;  "*
+;{
+;  rtx opaddr = 0;
+;  rtx xoperands[4];
+;  xoperands[0] = operands[0];
+;  xoperands[2] = operands[1];
+;
+;  if (REG_P (operands[0]))
+;    xoperands[1] = gen_rtx (REG, TFmode, REGNO (operands[0]) + 1);
+;  else if (GET_CODE (XEXP (operands[0], 0)) == PRE_DEC)
+;    xoperands[1] = 0;
+;  else if (offsettable_memref_p (operands[0]))
+;    xoperands[1] = adj_offsettable_operand (operands[0], 8);
+;  else
+;    {
+;      opaddr = XEXP (operands[0], 0);
+;      xoperands[0] = gen_rtx (MEM, TFmode, gen_rtx (REG, SImode, 13));
+;      xoperands[1] = adj_offsettable_operand (xoperands[0], 8);
+;    }
+;
+;  if (REG_P (operands[1]))
+;    xoperands[3] = gen_rtx (REG, TFmode, REGNO (operands[1]) + 1);
+;  else if (offsettable_memref_p (operands[1]))
+;    xoperands[3] = adj_offsettable_operand (operands[1], 8);
+;  else
+;    {
+;      opaddr = XEXP (operands[1], 0);
+;      xoperands[2] = gen_rtx (MEM, TFmode, gen_rtx (REG, SImode, 13));
+;      xoperands[3] = adj_offsettable_operand (xoperands[2], 8);
+;    }
+;
+;  if (opaddr)
+;    output_asm_insn (\"psh.w a5\;ld.w %0,a5\", &opaddr);
+;  if (push_operand (operands[0], TFmode))
+;    output_asm_insn (\"psh.l %3\;psh.l %2\", xoperands);
+;  else if (GET_CODE (operands[0]) == MEM)
+;    output_asm_insn (\"st.l %2,%0\;st.l %3,%1\", xoperands);
+;  else if (GET_CODE (operands[1]) == REG)
+;    output_asm_insn (\"mov %2,%0\;mov %3,%1\", xoperands);
+;  else
+;    output_asm_insn (\"ld.l %2,%0\;ld.l %3,%1\", xoperands);
+;  if (opaddr)
+;    output_asm_insn (\"pop.w a5\");
+;  return \"\";
+;}")
+
 (define_insn "movdf"
   [(set (match_operand:DF 0 "general_operand" "=g,d")
-	(match_operand:DF 1 "general_operand" "d,gG"))]
+	(match_operand:DF 1 "general_operand" "d,dmG"))]
   ""
   "*
 {
@@ -134,6 +182,12 @@
       operands[1] = gen_rtx (CONST_INT, VOIDmode,
 			     const_double_high_int (operands[1]));
       return \"ld.d %1,%0\";
+    }
+  else if (GET_CODE (operands[1]) == CONST_DOUBLE && LD_L_P (operands[1]))
+    {
+      operands[1] = gen_rtx (CONST_INT, VOIDmode,
+			     const_double_low_int (operands[1]));
+      return \"ld.l %1,%0\";
     }
   else
     return \"ld.l %1,%0\";
@@ -157,7 +211,7 @@
 
 (define_insn "movdi"
   [(set (match_operand:DI 0 "general_operand" "=g,d")
-	(match_operand:DI 1 "general_operand" "d,gG"))]
+	(match_operand:DI 1 "general_operand" "d,dmiG"))]
   ""
   "*
 {
@@ -186,10 +240,19 @@
   "operands[1] != stack_pointer_rtx"
   "pshea %a2(%1)")
 
-(define_insn "movsi"
+;; General movsi.  Constraints will be selected based on TARGET_INDIRECTS
+;; to avoid indirect addressing on C3, where it is slow.
+
+(define_expand "movsi"
+  [(set (match_operand:SI 0 "general_operand" "")
+	(match_operand:SI 1 "general_operand" ""))]
+  ""
+  "")
+
+(define_insn ""
   [(set (match_operand:SI 0 "general_operand" "=g,r,<")
 	(match_operand:SI 1 "general_operand" "r,g,io"))]
-  ""
+  "TARGET_INDIRECTS"
   "*
 { 
   if (push_operand (operands[0], SImode))
@@ -199,6 +262,43 @@
       else
         return \"pshea %a1\";
     }
+  if (GET_CODE (operands[0]) == MEM)
+    return \"st.w %1,%0\";
+  if (GET_CODE (operands[1]) != REG)
+    return \"ld.w %1,%0\";
+  if (S_REG_P (operands[0]) && S_REG_P (operands[1]))
+    return \"mov.w %1,%0\";
+  return \"mov %1,%0\";
+}")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "general_operand" "=g,r,<")
+	(match_operand:SI 1 "general_operand" "r,g,i"))]
+  "! TARGET_INDIRECTS"
+  "*
+{ 
+  if (push_operand (operands[0], SImode))
+    {
+      if (GET_CODE (operands[1]) == REG)
+	return \"psh.w %1\";
+      else
+        return \"pshea %a1\";
+    }
+  if (GET_CODE (operands[0]) == MEM)
+    return \"st.w %1,%0\";
+  if (GET_CODE (operands[1]) != REG)
+    return \"ld.w %1,%0\";
+  if (S_REG_P (operands[0]) && S_REG_P (operands[1]))
+    return \"mov.w %1,%0\";
+  return \"mov %1,%0\";
+}")
+
+(define_insn "movstrictsi"
+  [(set (strict_low_part (match_operand:SI 0 "general_operand" "=g,r"))
+	(match_operand:SI 1 "general_operand" "r,g"))]
+  ""
+  "*
+{ 
   if (GET_CODE (operands[0]) == MEM)
     return \"st.w %1,%0\";
   if (GET_CODE (operands[1]) != REG)
@@ -610,6 +710,15 @@
 
 ;; - and, or, xor
 
+(define_insn ""
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(and:DI (match_operand:DI 1 "register_operand" "%0")
+		(match_operand:DI 2 "immediate_operand" "Fn")))]
+  "GET_CODE (operands[2]) == CONST_INT
+   || (GET_CODE (operands[2]) == CONST_DOUBLE
+       && CONST_DOUBLE_HIGH (operands[2]) == -1)"
+  "and %2,%0")
+
 (define_insn "anddi3"
   [(set (match_operand:DI 0 "register_operand" "=d")
 	(and:DI (match_operand:DI 1 "register_operand" "%0")
@@ -640,6 +749,15 @@
 
 ;;- Bit set instructions.
 
+(define_insn ""
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(ior:DI (match_operand:DI 1 "register_operand" "%0")
+		(match_operand:DI 2 "immediate_operand" "Fn")))]
+  "GET_CODE (operands[2]) == CONST_INT
+   || (GET_CODE (operands[2]) == CONST_DOUBLE
+       && CONST_DOUBLE_HIGH (operands[2]) == 0)"
+  "or %2,%0")
+
 (define_insn "iordi3"
   [(set (match_operand:DI 0 "register_operand" "=d")
 	(ior:DI (match_operand:DI 1 "register_operand" "%0")
@@ -669,6 +787,15 @@
   "or %2,%0")
 
 ;;- xor instructions.
+
+(define_insn ""
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(xor:DI (match_operand:DI 1 "register_operand" "%0")
+		(match_operand:DI 2 "immediate_operand" "Fn")))]
+  "GET_CODE (operands[2]) == CONST_INT
+   || (GET_CODE (operands[2]) == CONST_DOUBLE
+       && CONST_DOUBLE_HIGH (operands[2]) == 0)"
+  "xor %2,%0")
 
 (define_insn "xordi3"
   [(set (match_operand:DI 0 "register_operand" "=d")
@@ -760,19 +887,16 @@
 
 ;;- shifts
 ;;
-;; Convex shift instructions are unsigned.
+;; Convex shift instructions are logical shifts.
 ;; To make signed right shifts:
 ;; for SImode, sign extend to DImode and shift, works for 0..32
-;; for DImode, shift and then extend the sign, works for 0..63
-;;
-;; It is very sad that DImode right shift 64 fails, but I don't see
-;; any reasonable way to handle it.  ANSI only requires up to 63.
+;; for DImode, shift and then extend the sign, works for 0..63 -- but not 64
 
-(define_insn ""
-  [(set (match_operand:SI 0 "register_operand" "=r")
-	(ashift:SI (match_operand:SI 1 "register_operand" "0")
-		   (match_operand:SI 2 "immediate_operand" "i")))]
-  "INTVAL (operands[2]) >= 0"
+(define_insn "lshlsi3"
+  [(set (match_operand:SI 0 "register_operand" "=d,a")
+	(lshift:SI (match_operand:SI 1 "register_operand" "0,0")
+		   (match_operand:SI 2 "nonmemory_operand" "di,ai")))]
+  ""
   "*
 {
   if (operands[2] == const1_rtx)
@@ -784,111 +908,79 @@
 }")
 
 (define_insn "ashlsi3"
-  [(set (match_operand:SI 0 "register_operand" "=d")
-	(ashift:SI (match_operand:SI 1 "register_operand" "0")
-		   (match_operand:SI 2 "nonmemory_operand" "di")))]
-  ""
-  "*
-{
-  if (operands[2] == const1_rtx)
-    return \"add.w %0,%0\";
-  else if (GET_CODE (operands[2]) == CONST_INT && INTVAL (operands[2]) >= 0)
-    return TARGET_C2 ? \"shf.w %2,%0\" : \"shf %2,%0\";
-  else
-    return \"cvtw.l %0,%0\;shf %2,%0\";
-}")
-
-(define_expand "ashrsi3"
-  [(set (match_operand:SI 0 "register_operand" "=d")
-	(ashift:SI (match_operand:SI 1 "register_operand" "0")
-		   (match_operand:SI 2 "nonmemory_operand" "di")))]
-  ""
-  "operands[2] = negate_rtx (SImode, operands[2]);")
-
-(define_insn "lshlsi3"
   [(set (match_operand:SI 0 "register_operand" "=d,a")
-	(lshift:SI (match_operand:SI 1 "register_operand" "0,0")
+	(ashift:SI (match_operand:SI 1 "register_operand" "0,0")
 		   (match_operand:SI 2 "nonmemory_operand" "di,ai")))]
   ""
   "*
 {
   if (operands[2] == const1_rtx)
     return \"add.w %0,%0\";
-  if (S_REG_P (operands[0]))
-    {
-      if (TARGET_C2)
-	return \"shf.w %2,%0\";
-      else if (GET_CODE (operands[2]) == CONST_INT
-	       && INTVAL (operands[2]) >= 0)
-        return \"shf %2,%0\";
-      else
-        return \"ld.u #0,%0\;shf %2,%0\";
-    }
-  return \"shf %2,%0\";
+  else if (TARGET_C2 && S_REG_P (operands[0]))
+    return \"shf.w %2,%0\";
+  else
+    return \"shf %2,%0\";
 }")
 
 (define_expand "lshrsi3"
-  [(set (match_operand:SI 0 "register_operand" "=d")
-	(lshift:SI (match_operand:SI 1 "register_operand" "0")
-		   (match_operand:SI 2 "nonmemory_operand" "di")))]
+  [(set (match_operand:SI 0 "register_operand" "")
+	(lshiftrt:SI (match_operand:SI 1 "register_operand" "")
+		     (neg:SI (match_operand:SI 2 "nonmemory_operand" ""))))]
   ""
   "operands[2] = negate_rtx (SImode, operands[2]);")
 
-;; signed  a >> b  is
-;;     ((a >> b) ^ signbit) - signbit
-;; where signbit is (1 << 63) >> b
-
-(define_expand "ashldi3"
-  [(match_operand:DI 0 "register_operand" "=d")
-   (match_operand:DI 1 "register_operand" "0")
-   (match_operand:SI 2 "nonmemory_operand" "di")
-   (match_dup 3)]
+(define_insn ""
+  [(set
+    (match_operand:SI 0 "register_operand" "=d,a")
+    (lshiftrt:SI (match_operand:SI 1 "register_operand" "0,0")
+		 (neg:SI (match_operand:SI 2 "nonmemory_operand" "di,ai"))))]
   ""
-  "
+  "*
 {
-  if (GET_CODE (operands[2]) == CONST_INT && INTVAL (operands[2]) >= 0)
-    emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			gen_rtx (LSHIFT, DImode, operands[1], operands[2])));
-  else if (GET_CODE (operands[2]) == CONST_INT && INTVAL (operands[2]) < 0)
-    {
-      int rshift = - INTVAL (operands[2]);
-      operands[3] = force_reg
-	(DImode,
-	 immed_double_const (1 << (63 - rshift), 1 << (31 - rshift), DImode));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (LSHIFT, DImode, operands[1], operands[2])));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (XOR, DImode, operands[0], operands[3])));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (MINUS, DImode, operands[0], operands[3])));
-    }
+  if (A_REG_P (operands[0]))
+    return \"shf %2,%0\";
+  else if (TARGET_C2)
+    return \"shf.w %2,%0\";
   else
-    {
-      operands[3] =
-	force_reg (DImode, immed_double_const (0, 1 << 31, DImode));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (LSHIFT, DImode, operands[1], operands[2])));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[3],
-			  gen_rtx (LSHIFT, DImode, operands[3], operands[2])));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (XOR, DImode, operands[0], operands[3])));
-      emit_insn (gen_rtx (SET, VOIDmode, operands[0],
-			  gen_rtx (MINUS, DImode, operands[0], operands[3])));
-  }
-  DONE;
+    return \"ld.u #0,%0\;shf %2,%0\";
 }")
 
-(define_expand "ashrdi3"
-  [(match_operand:DI 0 "register_operand" "=d")
-   (match_operand:DI 1 "register_operand" "0")
-   (match_operand:SI 2 "nonmemory_operand" "di")]
+(define_insn ""
+  [(set
+    (match_operand:SI 0 "register_operand" "=r")
+    (lshiftrt:SI (match_operand:SI 1 "register_operand" "0")
+		 (match_operand:SI 2 "immediate_operand" "i")))]
   ""
-  "
+  "*
 {
-  emit_insn (gen_ashldi3 (operands[0], operands[1],
-			  negate_rtx (SImode, operands[2])));
-  DONE;	    
+  if (A_REG_P (operands[0]))
+    return \"shf #%n2,%0\";
+  else if (TARGET_C2)
+    return \"shf.w #%n2,%0\";
+  else
+    return \"ld.u #0,%0\;shf #%n2,%0\";
 }")
+
+(define_expand "ashrsi3"
+  [(set (match_operand:SI 0 "register_operand" "=d")
+	(ashiftrt:SI (match_operand:SI 1 "register_operand" "d")
+		     (neg:SI (match_operand:SI 2 "nonmemory_operand" "di"))))]
+  ""
+  "operands[2] = negate_rtx (SImode, operands[2]);")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=&d")
+	(ashiftrt:SI (match_operand:SI 1 "register_operand" "d")
+		     (neg:SI (match_operand:SI 2 "nonmemory_operand" "di"))))]
+  ""
+  "cvtw.l %1,%0\;shf %2,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=&d")
+	(ashiftrt:SI (match_operand:SI 1 "register_operand" "d")
+		     (match_operand:SI 2 "immediate_operand" "i")))]
+  ""
+  "cvtw.l %1,%0\;shf #%n2,%0")
 
 (define_insn "lshldi3"
   [(set (match_operand:DI 0 "register_operand" "=d")
@@ -897,12 +989,67 @@
   ""
   "shf %2,%0")
 
-(define_expand "lshrdi3"
+(define_insn "ashldi3"
   [(set (match_operand:DI 0 "register_operand" "=d")
-	(lshift:DI (match_operand:DI 1 "register_operand" "0")
+	(ashift:DI (match_operand:DI 1 "register_operand" "0")
 		   (match_operand:SI 2 "nonmemory_operand" "di")))]
   ""
+  "shf %2,%0")
+
+(define_expand "lshrdi3"
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(lshiftrt:DI (match_operand:DI 1 "register_operand" "0")
+		     (neg:SI (match_operand:SI 2 "nonmemory_operand" "di"))))]
+  ""
   "operands[2] = negate_rtx (SImode, operands[2]);")
+
+(define_insn ""
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(lshiftrt:DI (match_operand:DI 1 "register_operand" "0")
+		     (neg:SI (match_operand:SI 2 "nonmemory_operand" "di"))))]
+  ""
+  "shf %2,%0")
+
+(define_insn ""
+  [(set (match_operand:DI 0 "register_operand" "=d")
+	(lshiftrt:DI (match_operand:DI 1 "register_operand" "0")
+		     (match_operand:SI 2 "immediate_operand" "i")))]
+  ""
+  "shf #%n2,%0")
+
+;; signed  a >> b  is
+;;     ((a >> b) ^ signbit) - signbit
+;; where signbit is (1 << 63) >> b
+
+(define_expand "ashrdi3"
+  [(match_operand:DI 0 "register_operand" "")
+   (match_operand:DI 1 "register_operand" "")
+   (match_operand:SI 2 "nonmemory_operand" "")
+   (match_dup 3)]
+  ""
+  "
+{
+  if (GET_CODE (operands[2]) == CONST_INT)
+    {
+      int rshift = INTVAL (operands[2]);
+      operands[3] =
+	force_reg (DImode, immed_double_const (1 << (63 - rshift),
+					       1 << (31 - rshift), DImode));
+    }
+  else
+    {
+      operands[3] =
+	  force_reg (DImode, immed_double_const (0, 1 << 31, DImode));
+      emit_insn (gen_lshrdi3 (operands[3], operands[3], operands[2]));
+    }
+
+  emit_insn (gen_lshrdi3 (operands[0], operands[1], operands[2]));
+  emit_insn (gen_rtx (SET, VOIDmode, operands[0],
+		      gen_rtx (XOR, DImode, operands[0], operands[3])));
+  emit_insn (gen_rtx (SET, VOIDmode, operands[0],
+		      gen_rtx (MINUS, DImode, operands[0], operands[3])));
+  DONE;
+}")
 
 ;; __builtin instructions
 
@@ -918,22 +1065,22 @@
   "TARGET_C2"
   "sqrt.s %0")
 
-(define_insn ""
-  [(set (match_operand:SI 0 "register_operand" "=d")
-	(minus:SI (ffs:SI (match_operand:SI 1 "register_operand" "d"))
-		  (const_int 1)))]
-  ""
-  "tzc %1,%0\;le.w #32,%0\;jbrs.f .+6\;ld.w #-1,%0")
-
-(define_expand "ffssi2"
-  [(set (match_operand:SI 0 "register_operand" "=d")
-	(minus:SI (ffs:SI (match_operand:SI 1 "register_operand" "d"))
-		  (const_int 1)))
-   (set (match_dup 0)
-	(plus:SI (match_dup 0)
-		 (const_int 1)))]
-  ""
-  "")
+;(define_insn ""
+;  [(set (match_operand:SI 0 "register_operand" "=d")
+;	(minus:SI (ffs:SI (match_operand:SI 1 "register_operand" "d"))
+;		  (const_int 1)))]
+;  ""
+;  "tzc %1,%0\;le.w #32,%0\;jbrs.f .+6\;ld.w #-1,%0")
+;
+;(define_expand "ffssi2"
+;  [(set (match_operand:SI 0 "register_operand" "=d")
+;	(minus:SI (ffs:SI (match_operand:SI 1 "register_operand" "d"))
+;		  (const_int 1)))
+;   (set (match_dup 0)
+;	(plus:SI (match_dup 0)
+;		 (const_int 1)))]
+;  ""
+;  "")
 
 (define_insn "abssf2"
   [(set (match_operand:SF 0 "register_operand" "=d")
@@ -949,6 +1096,8 @@
   "operands[2] = force_reg (DImode,
 			    immed_double_const (-1, 0x7fffffff, DImode));")
 
+;; Jumps
+
 (define_insn "jump"
   [(set (pc)
 	(label_ref (match_operand 0 "" "")))]
@@ -1141,49 +1290,17 @@
 ;; combine the arg list pop.  RETURN_POPS_ARGS from tm.h decides this.
 
 (define_insn "call"
-  [(call (match_operand:QI 0 "general_operand" "g")
+  [(call (match_operand:QI 0 "memory_operand" "m")
 	 (match_operand:SI 1 "general_operand" "g"))]
   ""
-  "*
-{
-  if (! RETURN_POPS_ARGS (ignoreme)) 
-    {
-      if (operands[1] == const0_rtx)
-	return \"calls %0\";
-      if (! reg_mentioned_p (arg_pointer_rtx, operands[0]))
-	return \"mov sp,ap\;calls %0\;ld.w 12(fp),ap\";
-      operands[0] = XEXP (operands[0], 0);
-      return \"ld.w %0,a1\;mov sp,ap\;calls (a1)\;ld.w 12(fp),ap\";
-    }
-  operands[1] = gen_rtx (CONST_INT, VOIDmode, (INTVAL (operands[1]) + 3)/ 4);
-  if (! reg_mentioned_p (arg_pointer_rtx, operands[0]))
-    return \"mov sp,ap\;pshea %a1\;calls %0\;ld.w 12(fp),ap\;add.w #4*%a1+4,sp\";
-  operands[0] = XEXP (operands[0], 0);
-  return \"ld.w %0,a1\;mov sp,ap\;pshea %a1\;calls (a1)\;ld.w 12(fp),ap\;add.w #4*%a1+4,sp\";
-}")
+  "* return output_call (insn, operands[0], operands[1]);")
 
 (define_insn "call_value"
   [(set (match_operand 0 "" "=g")
-	(call (match_operand:QI 1 "general_operand" "g")
+	(call (match_operand:QI 1 "memory_operand" "m")
 	      (match_operand:SI 2 "general_operand" "g")))]
   ""
-  "*
-{
-  if (! RETURN_POPS_ARGS (ignoreme)) 
-    {
-      if (operands[2] == const0_rtx)
-	return \"calls %1\";
-      if (! reg_mentioned_p (arg_pointer_rtx, operands[1]))
-	return \"mov sp,ap\;calls %1\;ld.w 12(fp),ap\";
-      operands[1] = XEXP (operands[1], 0);
-      return \"ld.w %1,a1\;mov sp,ap\;calls (a1)\;ld.w 12(fp),ap\";
-    }
-  operands[2] = gen_rtx (CONST_INT, VOIDmode, (INTVAL (operands[2]) + 3) / 4);
-  if (! reg_mentioned_p (arg_pointer_rtx, operands[1]))
-    return \"mov sp,ap\;pshea %a2\;calls %1\;ld.w 12(fp),ap\;add.w #4*%a2+4,sp\";
-  operands[1] = XEXP (operands[1], 0);
-  return \"ld.w %1,a1\;mov sp,ap\;pshea %a2\;calls (a1)\;ld.w 12(fp),ap\;add.w #4*%a2+4,sp\";
-}")
+  "* return output_call (insn, operands[1], operands[2]);")
 
 (define_insn "return"
   [(return)]
@@ -1200,59 +1317,11 @@
    (use (label_ref (match_operand 1 "" "")))]
   ""
   "jmp %a0")
-
-;; - fix up the code generated for bit field tests
 
-;; cc0 = (x >> k1) & k2  -->  cc0 = x & (k2 << k1)
-;; cc0 = (x << k1) & k2  -->  cc0 = x & (k2 >> k1)  
-;; provided k2 and (k2 << k1) don't include the sign bit
-
-(define_peephole
-  [(set (match_operand:SI 0 "register_operand" "r")
-	(lshift:SI (match_dup 0)
-		   (match_operand 1 "immediate_operand" "i")))
-   (set (match_dup 0)
-	(and:SI (match_dup 0)
-		(match_operand 2 "immediate_operand" "i")))
-   (set (cc0) (match_dup 0))]
-  "dead_or_set_p (insn, operands[0])
-   && GET_CODE (operands[1]) == CONST_INT
-   && GET_CODE (operands[2]) == CONST_INT
-   && INTVAL (operands[2]) >= 0
-   && (INTVAL (operands[2]) << INTVAL (operands[1])) >= 0"
-  "*
-{
-  operands[2] = gen_rtx (CONST_INT, VOIDmode, 
-			 INTVAL (operands[2]) >> INTVAL (operands[1]));
-  output_asm_insn (\"and %2,%0\", operands);
-  return set_cmp (operands[0], const0_rtx, 'w');
-}")
-
-;; same as above where x is (y & 0xff...) caused by a zero extend
-
-(define_peephole
-  [(set (match_operand:SI 0 "register_operand" "r")
-	(zero_extend:SI (match_operand 1 "register_operand" "0")))
-   (set (match_dup 0)
-	(lshift:SI (match_dup 0)
-		   (match_operand 2 "immediate_operand" "i")))
-   (set (match_dup 0)
-	(and:SI (match_dup 0)
-		(match_operand 3 "immediate_operand" "i")))
-   (set (cc0) (match_dup 0))]
-  "dead_or_set_p (insn, operands[0])
-   && REGNO (operands[0]) == REGNO (operands[1])
-   && GET_CODE (operands[2]) == CONST_INT
-   && GET_CODE (operands[3]) == CONST_INT
-   && (INTVAL (operands[3]) << INTVAL (operands[2])) >= 0"
-  "*
-{
-  operands[3] = gen_rtx (CONST_INT, VOIDmode, 
-			 (INTVAL (operands[3]) >> INTVAL (operands[2])) &
-			 ~((-1) << GET_MODE_BITSIZE (GET_MODE (operands[1]))));
-  output_asm_insn (\"and %3,%0\", operands);
-  return set_cmp (operands[0], const0_rtx, 'w');
-}")
+(define_insn "indirect_jump"
+  [(set (pc) (match_operand:SI 0 "address_operand" "p"))]
+  ""
+  "jmp %a0")
 
 ;;- Local variables:
 ;;- mode:emacs-lisp
@@ -1263,4 +1332,3 @@
 ;;- eval: (modify-syntax-entry ?{ "(}")
 ;;- eval: (modify-syntax-entry ?} "){")
 ;;- End:
-

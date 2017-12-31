@@ -22,6 +22,12 @@
 #ifdef __pyr__
 #include "va-pyr.h"
 #else
+#ifdef __m88k__
+#include "va-m88k.h"
+#else
+#ifdef __hp9000s800__
+#include "va-hp800.h"
+#else
 
 #ifdef __NeXT__
 
@@ -36,32 +42,61 @@
 #undef va_arg
 #endif  /* __NeXT__ */
 
+/* In GCC version 2, we want an ellipsis at the end of the declaration
+   of the argument list.  GCC version 1 can't parse it.  */
+
+#if __GNUC__ > 1
+#define __va_ellipsis ...
+#else
+#define __va_ellipsis
+#endif
+
 /* These macros implement traditional (non-ANSI) varargs
    for GNU C.  */
 
 #define va_alist  __builtin_va_alist
-#define va_dcl    int __builtin_va_alist;
+/* The ... causes current_function_varargs to be set in cc1.  */
+#define va_dcl    int __builtin_va_alist; __va_ellipsis
 
+#ifdef _HIDDEN_VA_LIST  /* On OSF1, this means varargs.h is "half-loaded".  */
+#undef _VA_LIST
+#endif
+
+/* The macro _VA_LIST_ is the same thing used by this file in Ultrix.  */
+/* But in 4.3bsd-net2, _VA_LIST_ has another meaning.  So ignore it.  */
+#if !defined (_VA_LIST_) || defined (_ANSI_H)
+/* The macro _VA_LIST is used in SCO Unix 3.2.  */
+#ifndef _VA_LIST
+#ifndef _VA_LIST_
+#define _VA_LIST_
+#endif
+#define _VA_LIST
 /* Make this a macro rather than a typedef, so we can undef any other defn.  */
 #define va_list __va___list
 typedef char * __va___list;
+#endif /* _VA_LIST */
+#endif /* !defined (_VA_LIST_) || defined (_ANSI_H) */
 
-#ifdef __sparc__
-#define va_start(AP) 						\
- (__builtin_saveregs (),					\
-  AP = ((void *) &__builtin_va_alist))
-#else
-#define va_start(AP)  AP=(char *) &__builtin_va_alist
+/*  In 4.3bsd-net2, it is said we must #undef this.
+    I hope this successfully identifies that system.
+    I don't know why this works--rms.  */
+#ifdef _ANSI_H
+#undef _VA_LIST_
 #endif
+
+#define va_start(AP)  AP=(char *) &__builtin_va_alist
+
 #define va_end(AP)
 
 #define __va_rounded_size(TYPE)  \
   (((sizeof (TYPE) + sizeof (int) - 1) / sizeof (int)) * sizeof (int))
 
-#define va_arg(AP, TYPE)					\
- (*((TYPE *) (AP += __va_rounded_size (TYPE),			\
-	      AP - __va_rounded_size (TYPE))))
+#define va_arg(AP, TYPE)						\
+ (AP += __va_rounded_size (TYPE),					\
+  *((TYPE *) (AP - __va_rounded_size (TYPE))))
 
+#endif /* not hp800 */
+#endif /* not m88k */
 #endif /* not pyr */
 #endif /* not i860 */
 #endif /* not mips */

@@ -1,11 +1,11 @@
 /* Language-level data type conversion for GNU C.
-   Copyright (C) 1987, 1988 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -25,6 +25,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
 #include "config.h"
 #include "tree.h"
+#include "flags.h"
 
 /* Change of width--truncation and extension of integers or reals--
    is represented with NOP_EXPR.  Proper functioning of many things
@@ -37,8 +38,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    Here is a list of all the functions that assume that widening and
    narrowing is always done with a NOP_EXPR:
      In c-convert.c, convert_to_integer.
-     In c-typeck.c, build_binary_op_nodefault (boolean ops),
-        and truthvalue_conversion.
+     In c-typeck.c, build_binary_op (boolean ops), and truthvalue_conversion.
      In expr.c: expand_expr, for operands of a MULT_EXPR.
      In fold-const.c: fold.
      In tree.c: get_narrower and get_unwidened.  */
@@ -62,16 +62,19 @@ convert_to_pointer (type, expr)
     }
 
   if (form == POINTER_TYPE)
-    return build (NOP_EXPR, type, expr);
+    return build1 (NOP_EXPR, type, expr);
 
 
   if (form == INTEGER_TYPE || form == ENUMERAL_TYPE)
     {
       if (type_precision (intype) == POINTER_SIZE)
-	return build (CONVERT_EXPR, type, expr);
-      return convert_to_pointer (type,
-				 convert (type_for_size (POINTER_SIZE, 0),
-					  expr));
+	return build1 (CONVERT_EXPR, type, expr);
+      expr = convert (type_for_size (POINTER_SIZE, 0), expr);
+      if (TYPE_MODE (TREE_TYPE (expr)) != TYPE_MODE (type))
+	/* There is supposed to be some integral type
+	   that is the same width as a pointer.  */
+	abort ();
+      return convert_to_pointer (type, expr);
     }
 
   error ("cannot convert to a pointer type");
@@ -84,14 +87,13 @@ convert_to_real (type, expr)
      tree type, expr;
 {
   register enum tree_code form = TREE_CODE (TREE_TYPE (expr));
-  extern int flag_float_store;
 
   if (form == REAL_TYPE)
-    return build (flag_float_store ? CONVERT_EXPR : NOP_EXPR,
-		  type, expr);
+    return build1 (flag_float_store ? CONVERT_EXPR : NOP_EXPR,
+		   type, expr);
 
   if (form == INTEGER_TYPE || form == ENUMERAL_TYPE)
-    return build (FLOAT_EXPR, type, expr);
+    return build1 (FLOAT_EXPR, type, expr);
 
   if (form == POINTER_TYPE)
     error ("pointer value used where a float was expected");
@@ -115,16 +117,14 @@ convert_to_integer (type, expr)
 {
   register tree intype = TREE_TYPE (expr);
   register enum tree_code form = TREE_CODE (intype);
-  extern tree build_binary_op_nodefault ();
-  extern tree build_unary_op ();
 
   if (form == POINTER_TYPE)
     {
       if (integer_zerop (expr))
 	expr = integer_zero_node;
       else
-	expr = fold (build (CONVERT_EXPR,
-			    type_for_size (POINTER_SIZE, 0), expr));
+	expr = fold (build1 (CONVERT_EXPR,
+			     type_for_size (POINTER_SIZE, 0), expr));
       intype = TREE_TYPE (expr);
       form = TREE_CODE (intype);
       if (intype == type)
@@ -133,12 +133,12 @@ convert_to_integer (type, expr)
 
   if (form == INTEGER_TYPE || form == ENUMERAL_TYPE)
     {
-      register int outprec = TYPE_PRECISION (type);
-      register int inprec = TYPE_PRECISION (intype);
+      register unsigned outprec = TYPE_PRECISION (type);
+      register unsigned inprec = TYPE_PRECISION (intype);
       register enum tree_code ex_form = TREE_CODE (expr);
 
       if (outprec >= inprec)
-	return build (NOP_EXPR, type, expr);
+	return build1 (NOP_EXPR, type, expr);
 
 /* Here detect when we can distribute the truncation down past some arithmetic.
    For example, if adding two longs and converting to an int,
@@ -232,18 +232,19 @@ convert_to_integer (type, expr)
 		  {
 		    /* Don't do unsigned arithmetic where signed was wanted,
 		       or vice versa.
-		       Exception: if the original operands were unsigned
-		       then can safely do the work as unsigned.
+		       Exception: if either of the original operands were
+		       unsigned then can safely do the work as unsigned.
 		       And we may need to do it as unsigned
 		       if we truncate to the original size.  */
 		    typex = ((TREE_UNSIGNED (TREE_TYPE (expr))
-			      || TREE_UNSIGNED (TREE_TYPE (arg0)))
+			      || TREE_UNSIGNED (TREE_TYPE (arg0))
+			      || TREE_UNSIGNED (TREE_TYPE (arg1)))
 			     ? unsigned_type (typex) : signed_type (typex));
 		    return convert (type,
-				    build_binary_op_nodefault (ex_form,
-							       convert (typex, arg0),
-							       convert (typex, arg1),
-							       ex_form));
+				    build_binary_op (ex_form,
+						     convert (typex, arg0),
+						     convert (typex, arg1),
+						     0));
 		  }
 	      }
 	  }
@@ -330,21 +331,20 @@ convert_to_integer (type, expr)
 		    typex = (TREE_UNSIGNED (TREE_TYPE (expr))
 			     ? unsigned_type (typex) : signed_type (typex));
 		    return convert (type,
-				    build (COND_EXPR, typex,
-					   TREE_OPERAND (expr, 0),
-					   convert (typex, arg1),
-					   convert (typex, arg2)));
+				    fold (build (COND_EXPR, typex,
+						 TREE_OPERAND (expr, 0),
+						 convert (typex, arg1),
+						 convert (typex, arg2))));
 		  }
 	      }
 	  }
-
 	}
 
-      return build (NOP_EXPR, type, expr);
+      return build1 (NOP_EXPR, type, expr);
     }
 
   if (form == REAL_TYPE)
-    return build (FIX_TRUNC_EXPR, type, expr);
+    return build1 (FIX_TRUNC_EXPR, type, expr);
 
   error ("aggregate value used where an integer was expected");
 
@@ -378,7 +378,7 @@ convert (type, expr)
       return error_mark_node;
     }
   if (code == VOID_TYPE)
-    return build (CONVERT_EXPR, type, e);
+    return build1 (CONVERT_EXPR, type, e);
 #if 0
   /* This is incorrect.  A truncation can't be stripped this way.
      Extensions will be stripped by the use of get_unwidened.  */

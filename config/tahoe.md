@@ -6,7 +6,7 @@
 
 ;; GNU CC is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation; either version 1, or (at your option)
+;; the Free Software Foundation; either version 2, or (at your option)
 ;; any later version.
 
 ;; GNU CC is distributed in the hope that it will be useful,
@@ -21,8 +21,11 @@
 
 ; File: tahoe.md
 ;
-; This port made at the University of Buffalo by Devon Bowen,
+; Original port made at the University of Buffalo by Devon Bowen,
 ; Dale Wiles and Kevin Zachmann.
+;
+; Piet van Oostrum (piet@cs.ruu.nl) made adaptions for HCX/UX, fixed
+; some bugs and made some improvements (hopefully).
 ;
 ; Mail bugs reports or fixes to:	gcc@cs.buffalo.edu
 
@@ -41,7 +44,7 @@
 }")
 
 
-; The trick in the movsi is accessing the contents of the sp register.  The
+; the trick in the movsi is accessing the contents of the sp register.  The
 ; tahoe doesn't allow you to access it directly so you have to access the
 ; address of the top of the stack instead.
 
@@ -51,14 +54,14 @@
   ""
   "*
 {
-  rtx link;
-  if (operands[1] == const1_rtx
+   rtx link;
+   if (operands[1] == const1_rtx
       && (link = find_reg_note (insn, REG_WAS_0, 0))
       && ! XEXP (link, 0)->volatil
       && GET_CODE (XEXP (link, 0)) != NOTE
       && no_labels_between_p (XEXP (link, 0), insn))
     return \"incl %0\";
-  if (GET_CODE (operands[1]) == SYMBOL_REF || GET_CODE (operands[1]) == CONST)
+   if (GET_CODE (operands[1]) == SYMBOL_REF || GET_CODE (operands[1]) == CONST)
     {
       if (push_operand (operands[0], SImode))
 	return \"pushab %a1\";
@@ -68,7 +71,7 @@
     return \"clrl %0\";
   if (push_operand (operands[0], SImode))
     return \"pushl %1\";
-  if (GET_CODE (operands[1]) == REG && REGNO (operands[1]) == 14)
+  if (GET_CODE(operands[1]) == REG && REGNO(operands[1]) == 14)
     return \"moval (sp),%0\";
   return \"movl %1,%0\";
 }")
@@ -80,12 +83,12 @@
   ""
   "*
 {
-  rtx link;
-  if (operands[1] == const1_rtx
-      && (link = find_reg_note (insn, REG_WAS_0, 0))
-      && ! XEXP (link, 0)->volatil
-      && GET_CODE (XEXP (link, 0)) != NOTE
-      && no_labels_between_p (XEXP (link, 0), insn))
+ rtx link;
+ if (operands[1] == const1_rtx
+     && (link = find_reg_note (insn, REG_WAS_0, 0))
+     && ! XEXP (link, 0)->volatil
+     && GET_CODE (XEXP (link, 0)) != NOTE
+     && no_labels_between_p (XEXP (link, 0), insn))
     return \"incw %0\";
   if (operands[1] == const0_rtx)
     return \"clrw %0\";
@@ -118,13 +121,10 @@
   CC_STATUS_INIT;
   switch (which_alternative)
     {
-    case 0:
-      return \"movl %1,%0\";
-    case 1:
-      return \"ldf %1\";
-    case 2:
-      return \"stf %0\";
-    }
+    case 0: return \"movl %1,%0\";
+    case 1: return \"ldf %1\";
+    case 2: return \"stf %0\";
+   }
 }")
 
 
@@ -145,13 +145,196 @@
       return \"ldd %1\";
     case 1:
       if (push_operand (operands[0], DFmode))
-	return \"pushd\";
+        return \"pushd\";
       else
-	return \"std %0\";
+        return \"std %0\";
     case 2:
       return output_move_double (operands);
-    }
+   }
 }")
+
+
+;========================================================================
+; The tahoe has the following semantics for byte (and similar for word)
+; operands: if the operand is a register or immediate, it takes the full 32
+; bit operand, if the operand is memory, it sign-extends the byte.  The
+; operation is performed on the 32 bit values.  If the destination is a
+; register, the full 32 bit result is stored, if the destination is memory,
+; of course only the low part is stored.  The condition code is based on the
+; 32 bit operation.  Only on the movz instructions the byte from memory is
+; zero-extended rather than sign-extended.
+
+; This means that for arithmetic instructions we can use addb etc.  to
+; perform a long add from a signed byte from memory to a register.  Of
+; course this would also work for logical operations, but that doesn't seem
+; very useful.
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(plus:SI (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))
+		 (sign_extend:SI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "addb3 %1,%2,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(plus:SI (match_operand:SI 1 "nonmemory_operand" "%ri")
+		 (sign_extend:SI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"addb2 %2,%0\";
+  return \"addb3 %1,%2,%0\";
+}")
+
+; We can also consider the result to be a half integer
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(plus:HI (sign_extend:HI (match_operand:QI 1 "memory_operand" "m"))
+		 (sign_extend:HI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "addb3 %1,%2,%0")
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(plus:HI (match_operand:HI 1 "nonmemory_operand" "%ri")
+		 (sign_extend:HI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"addb2 %2,%0\";
+  return \"addb3 %1,%2,%0\";
+}")
+
+; The same applies to words (HI)
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(plus:SI (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))
+		 (sign_extend:SI (match_operand:HI 2 "memory_operand" "m"))))]
+  ""
+  "addw3 %1,%2,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(plus:SI (match_operand:SI 1 "nonmemory_operand" "%ri")
+		 (sign_extend:SI (match_operand:HI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"addw2 %2,%0\";
+  return \"addw3 %1,%2,%0\";
+}")
+
+; ======================= Now for subtract ==============================
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))
+		  (sign_extend:SI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "subb3 %2,%1,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (match_operand:SI 1 "nonmemory_operand" "ri")
+		  (sign_extend:SI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"subb2 %2,%0\";
+  return \"subb3 %2,%1,%0\";
+}")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))
+		  (match_operand:SI 2 "nonmemory_operand" "ri")))]
+  ""
+  "subb3 %2,%1,%0")
+
+; We can also consider the result to be a half integer
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(minus:HI (sign_extend:HI (match_operand:QI 1 "memory_operand" "m"))
+		 (sign_extend:HI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "subb3 %2,%1,%0")
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(minus:HI (match_operand:HI 1 "nonmemory_operand" "%ri")
+		 (sign_extend:HI (match_operand:QI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"subb2 %2,%0\";
+  return \"subb3 %2,%1,%0\";
+}")
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(minus:HI (sign_extend:HI (match_operand:QI 1 "memory_operand" "m"))
+		 (match_operand:HI 2 "nonmemory_operand" "ri")))]
+  ""
+  "subb3 %2,%1,%0")
+
+; The same applies to words (HI)
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))
+		  (sign_extend:SI (match_operand:HI 2 "memory_operand" "m"))))]
+  ""
+  "subw3 %2,%1,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (match_operand:SI 1 "nonmemory_operand" "ri")
+		 (sign_extend:SI (match_operand:HI 2 "memory_operand" "m"))))]
+  ""
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"subw2 %2,%0\";
+  return \"subw3 %2,%1,%0\";
+}")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(minus:SI (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))
+		  (match_operand:SI 2 "nonmemory_operand" "ri")))]
+  ""
+  "subw3 %2,%1,%0")
+
+; ======================= Now for neg ==============================
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(neg:SI (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))))]
+  ""
+  "mnegb %1,%0")
+
+(define_insn ""
+  [(set (match_operand:HI 0 "register_operand" "=r")
+	(neg:HI (sign_extend:HI (match_operand:QI 1 "memory_operand" "m"))))]
+  ""
+  "mnegb %1,%0")
+
+(define_insn ""
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(neg:SI (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))))]
+  ""
+  "mnegw %1,%0")
+
+;========================================================================
 
 
 (define_insn "addsi3"
@@ -200,8 +383,8 @@
     {
       if (operands[2] == const1_rtx)
 	return \"incw %0\";
-      if (GET_CODE (operands[1]) == CONST_INT
-	  && INTVAL (operands[1]) == -1)
+      if (GET_CODE (operands[2]) == CONST_INT
+	  && INTVAL (operands[2]) == -1)
 	return \"decw %0\";
       if (GET_CODE (operands[2]) == CONST_INT
 	  && (unsigned) (- INTVAL (operands[2])) < 64)
@@ -228,8 +411,8 @@
     {
       if (operands[2] == const1_rtx)
 	return \"incb %0\";
-      if (GET_CODE (operands[1]) == CONST_INT
-	  && INTVAL (operands[1]) == -1)
+      if (GET_CODE (operands[2]) == CONST_INT
+	  && INTVAL (operands[2]) == -1)
 	return \"decb %0\";
       if (GET_CODE (operands[2]) == CONST_INT
 	  && (unsigned) (- INTVAL (operands[2])) < 64)
@@ -243,7 +426,6 @@
     return \"subb3 $%n2,%1,%0\";
   return \"addb3 %1,%2,%0\";
 }")
-
 
 ; addsf3 can only add into the fpp register since the fpp is treated
 ; as a separate unit in the machine.  It also doesn't set the flags at
@@ -294,11 +476,13 @@
     {
       if (operands[2] == const1_rtx)
 	return \"decl %0\";
-      if (GET_CODE (operands[0]) == REG && REGNO (operands[0]) == 14)
-	if (GET_CODE (operands[2]) == CONST_INT)
-	  return \"movab %n2(sp),sp\";
-	else
-	  return \"pushab (sp)\;subl3 %2,(sp),sp\";
+      if (GET_CODE(operands[0]) == REG && REGNO(operands[0]) == 14)
+        {
+	  if (GET_CODE(operands[2]) == CONST_INT)
+	    return \"movab %n2(sp),sp\";
+	  else
+	    return \"pushab (sp)\;subl3 %2,(sp),sp\";
+	}
       return \"subl2 %2,%0\";
     }
   if (rtx_equal_p (operands[1], operands[2]))
@@ -409,7 +593,7 @@
 
 ; muldf3 can only multiply into the fpp reg since the fpp is limited
 ; from the rest.  Doubles may not be immediate mode.  This does not set
-; the flags like GCC would expect.
+; the flags like gcc would expect.
 
 (define_insn "muldf3"
   [(set (match_operand:DF 0 "register_operand" "=a")
@@ -421,6 +605,7 @@
   CC_STATUS_INIT;
   return \"muld %2\";
 }")
+
 
 
 (define_insn "divsi3"
@@ -474,12 +659,21 @@
 }")
 
 
+
 (define_insn "andsi3"
   [(set (match_operand:SI 0 "general_operand" "=g")
 	(and:SI (match_operand:SI 1 "general_operand" "g")
 		(match_operand:SI 2 "general_operand" "g")))]
   ""
-  "andl3 %2,%1,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"andl2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"andl2 %1,%0\";
+  return \"andl3 %2,%1,%0\";
+}")
+
 
 
 (define_insn "andhi3"
@@ -487,7 +681,14 @@
 	(and:HI (match_operand:HI 1 "general_operand" "g")
 		(match_operand:HI 2 "general_operand" "g")))]
   ""
-  "andw3 %1,%2,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"andw2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"andw2 %1,%0\";
+  return \"andw3 %2,%1,%0\";
+}")
 
 
 (define_insn "andqi3"
@@ -495,7 +696,14 @@
 	(and:QI (match_operand:QI 1 "general_operand" "g")
 		(match_operand:QI 2 "general_operand" "g")))]
   ""
-  "andb3 %1,%2,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"andb2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"andb2 %1,%0\";
+  return \"andb3 %2,%1,%0\";
+}")
 
 
 (define_insn "iorsi3"
@@ -503,7 +711,15 @@
 	(ior:SI (match_operand:SI 1 "general_operand" "g")
 		(match_operand:SI 2 "general_operand" "g")))]
   ""
-  "orl3 %2,%1,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"orl2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"orl2 %1,%0\";
+  return \"orl3 %2,%1,%0\";
+}")
+
 
 
 (define_insn "iorhi3"
@@ -511,7 +727,15 @@
 	(ior:HI (match_operand:HI 1 "general_operand" "g")
 		(match_operand:HI 2 "general_operand" "g")))]
   ""
-  "orw3 %2,%1,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"orw2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"orw2 %1,%0\";
+  return \"orw3 %2,%1,%0\";
+}")
+
 
 
 (define_insn "iorqi3"
@@ -519,7 +743,14 @@
 	(ior:QI (match_operand:QI 1 "general_operand" "g")
 		(match_operand:QI 2 "general_operand" "g")))]
   ""
-  "orb3 %2,%1,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"orb2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"orb2 %1,%0\";
+  return \"orb3 %2,%1,%0\";
+}")
 
 
 (define_insn "xorsi3"
@@ -527,7 +758,14 @@
 	(xor:SI (match_operand:SI 1 "general_operand" "g")
 		(match_operand:SI 2 "general_operand" "g")))]
   ""
-  "xorl3 %1,%2,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"xorl2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"xorl2 %1,%0\";
+  return \"xorl3 %2,%1,%0\";
+}")
 
 
 (define_insn "xorhi3"
@@ -535,7 +773,14 @@
 	(xor:HI (match_operand:HI 1 "general_operand" "g")
 		(match_operand:HI 2 "general_operand" "g")))]
   ""
-  "xorw3 %1,%2,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"xorw2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"xorw2 %1,%0\";
+  return \"xorw3 %2,%1,%0\";
+}")
 
 
 (define_insn "xorqi3"
@@ -543,10 +788,17 @@
 	(xor:QI (match_operand:QI 1 "general_operand" "g")
 		(match_operand:QI 2 "general_operand" "g")))]
   ""
-  "xorb3 %1,%2,%0")
+  "*
+{
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"xorb2 %2,%0\";
+  if (rtx_equal_p (operands[0], operands[2]))
+    return \"xorb2 %1,%0\";
+  return \"xorb3 %2,%1,%0\";
+}")
 
 
-; Shifts on the tahoe are expensive, so try to do an add instead.
+; shifts on the tahoe are expensive, try some magic first...
 
 (define_insn "ashlsi3"
   [(set (match_operand:SI 0 "general_operand" "=g")
@@ -555,12 +807,32 @@
   ""
   "*
 {
-  if (operands[2] == const1_rtx && rtx_equal_p (operands[0], operands[1]))
+  if (GET_CODE(operands[2]) == REG)
+      return \"mull3 ___shtab[%2],%1,%0\";
+  /* if (GET_CODE(operands[2]) == REG)
+    if (rtx_equal_p (operands[0], operands[1]))
+      return \"mull2 ___shtab[%2],%1\";
+    else
+      return \"mull3 ___shtab[%2],%1,%0\"; */
+  if (GET_CODE(operands[1]) == REG)
     {
-      CC_STATUS_INIT;
-      return \"addl2 %0,%0\";
+      if (operands[2] == const1_rtx)
+	{
+	  CC_STATUS_INIT;
+	  return \"movaw 0[%1],%0\";
+	}
+      if (GET_CODE(operands[2]) == CONST_INT && INTVAL(operands[2]) == 2)
+	{
+	  CC_STATUS_INIT;
+	  return \"moval 0[%1],%0\";
+	}
     }
-  return \"shal %2,%1,%0\";
+  if (GET_CODE(operands[2]) != CONST_INT || INTVAL(operands[2]) == 1)
+    return \"shal %2,%1,%0\";
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"mull2 %s2,%1\";
+  else
+    return \"mull3 %s2,%1,%0\";
 }")
 
 
@@ -572,7 +844,7 @@
   "shar %2,%1,%0")
 
 
-; Shifts are very expensive, so try to do an add if possible.
+; shifts are very expensive, try some magic first...
 
 (define_insn "lshlsi3"
   [(set (match_operand:SI 0 "general_operand" "=g")
@@ -581,12 +853,32 @@
   ""
   "*
 {
-  if (operands[2] == const1_rtx && rtx_equal_p (operands[0], operands[1]))
+  if (GET_CODE(operands[2]) == REG)
+      return \"mull3 ___shtab[%2],%1,%0\";
+  /* if (GET_CODE(operands[2]) == REG)
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"mull2 ___shtab[%2],%1\";
+  else
+    return \"mull3 ___shtab[%2],%1,%0\"; */
+  if (GET_CODE(operands[1]) == REG)
     {
-      CC_STATUS_INIT;
-      return \"addl2 %0,%0\";
+      if (operands[2] == const1_rtx)
+        {
+	  CC_STATUS_INIT;
+	  return \"movaw 0[%1],%0\";
+	}
+      if (GET_CODE(operands[2]) == CONST_INT && INTVAL(operands[2]) == 2)
+        {
+	  CC_STATUS_INIT;
+	  return \"moval 0[%1],%0\";
+	}
     }
-  return \"shll %2,%1,%0\";
+  if (GET_CODE(operands[2]) != CONST_INT || INTVAL(operands[2]) == 1)
+    return \"shll %2,%1,%0\";
+  if (rtx_equal_p (operands[0], operands[1]))
+    return \"mull2 %s2,%1\";
+  else
+    return \"mull3 %s2,%1,%0\";
 }")
 
 
@@ -631,10 +923,8 @@
   CC_STATUS_INIT;
   switch (which_alternative)
     {
-    case 0:
-      return \"negf\";
-    case 1:
-      return \"lnf %1\";
+    case 0: return \"negf\";
+    case 1: return \"lnf %1\";
     }
 }")
 
@@ -651,10 +941,8 @@
   CC_STATUS_INIT;
   switch (which_alternative)
     {
-    case 0:
-      return \"negd\";
-    case 1:
-      return \"lnd %1\";
+    case 0: return \"negd\";
+    case 1: return \"lnd %1\";
     }
 }")
 
@@ -674,14 +962,19 @@
 }")
 
 
-; ffssi2 tahoe instruction gives one less than GCC desired result for
+; ffssi2 tahoe instruction gives one less than gcc desired result for
 ; any given input.  So the increment is necessary here.
 
 (define_insn "ffssi2"
   [(set (match_operand:SI 0 "general_operand" "=g")
 	(ffs:SI (match_operand:SI 1 "general_operand" "g")))]
   ""
-  "ffs %1,%0\;incl %0")
+  "*
+{
+  if (push_operand(operands[0], SImode))
+    return \"ffs %1,%0\;incl (sp)\";
+  return \"ffs %1,%0\;incl %0\";
+}")
 
 
 (define_insn "one_cmplsi2"
@@ -710,11 +1003,105 @@
 ; to the compiler, so they were left out.  Compares of the stack are
 ; possible, though.
 
-;; Put cmpsi first among compare insns so it matches two CONST_INT operands.
+; There are optimized cases possible, however.  These follow first.
+
+(define_insn ""
+  [(set (cc0)
+	(compare (sign_extend:SI (match_operand:HI 0 "memory_operand" "m"))
+		 (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))))]
+  ""
+  "cmpw %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (match_operand:SI 0 "nonmemory_operand" "ri")
+		 (sign_extend:SI (match_operand:HI 1 "memory_operand" "m"))))]
+  ""
+  "cmpw %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (sign_extend:SI (match_operand:HI 0 "memory_operand" "m"))
+		 (match_operand:SI 1 "nonmemory_operand" "ri")))]
+  ""
+  "cmpw %0,%1")
+
+; zero-extended compares give the same result as sign-extended compares, if
+; the compare is unsigned.  Just see: if both operands are <65536 they are the
+; same in both cases.  If both are >=65536 the you effectively compare x+D
+; with y+D, where D=2**32-2**16, so the result is the same.  if x<65536 and
+; y>=65536 then you compare x with y+D, and in both cases the result is x<y.
+
+(define_insn ""
+  [(set (cc0)
+	(compare (zero_extend:SI (match_operand:HI 0 "memory_operand" "m"))
+		 (zero_extend:SI (match_operand:HI 1 "memory_operand" "m"))))]
+  "tahoe_cmp_check (insn, operands[0], 0)"
+  "cmpw %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (zero_extend:SI (match_operand:HI 0 "memory_operand" "m"))
+		 (match_operand:SI 1 "immediate_operand" "i")))]
+  "tahoe_cmp_check(insn, operands[1], 65535)"
+  "*
+{
+  if (INTVAL (operands[1]) > 32767)
+    operands[1] = gen_rtx (CONST_INT, VOIDmode, INTVAL (operands[1]) + 0xffff0000);
+  return \"cmpw %0,%1\";
+}")
+
+
+(define_insn ""
+  [(set (cc0)
+	(compare (sign_extend:SI (match_operand:QI 0 "memory_operand" "m"))
+		 (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))))]
+  ""
+  "cmpb %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (match_operand:SI 0 "nonmemory_operand" "ri")
+		 (sign_extend:SI (match_operand:QI 1 "memory_operand" "m"))))]
+  ""
+  "cmpb %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (sign_extend:SI (match_operand:QI 0 "memory_operand" "m"))
+		 (match_operand:SI 1 "nonmemory_operand" "ri")))]
+  ""
+  "cmpb %0,%1")
+
+; zero-extended compares give the same result as sign-extended compares, if
+; the compare is unsigned.  Just see: if both operands are <128 they are the
+; same in both cases.  If both are >=128 the you effectively compare x+D
+; with y+D, where D=2**32-2**8, so the result is the same.  if x<128 and
+; y>=128 then you compare x with y+D, and in both cases the result is x<y.
+
+(define_insn ""
+  [(set (cc0)
+	(compare (zero_extend:SI (match_operand:QI 0 "memory_operand" "m"))
+		 (zero_extend:SI (match_operand:QI 1 "memory_operand" "m"))))]
+  "tahoe_cmp_check (insn, operands[0], 0)"
+  "cmpb %0,%1")
+
+(define_insn ""
+  [(set (cc0)
+	(compare (zero_extend:SI (match_operand:QI 0 "memory_operand" "m"))
+		 (match_operand:SI 1 "immediate_operand" "i")))]
+  "tahoe_cmp_check(insn, operands[1], 255)"
+  "*
+{
+  if (INTVAL (operands[1]) > 127)
+    operands[1] = gen_rtx (CONST_INT, VOIDmode, INTVAL (operands[1]) + 0xffffff00);
+  return \"cmpb %0,%1\";
+}")
+
 
 (define_insn "cmpsi"
   [(set (cc0)
-	(compare (match_operand:SI 0 "general_operand" "g")
+	(compare (match_operand:SI 0 "nonimmediate_operand" "g")
 	         (match_operand:SI 1 "general_operand" "g")))]
   ""
   "cmpl %0,%1")
@@ -725,10 +1112,17 @@
 
 (define_insn "cmpsf"
   [(set (cc0)
-	(compare (match_operand:SF 0 "register_operand" "a")
-	         (match_operand:SF 1 "general_operand" "g")))]
+	(compare (match_operand:SF 0 "general_operand" "a,g")
+	       (match_operand:SF 1 "general_operand" "g,g")))]
   ""
-  "cmpf %1")
+  "*
+{
+  switch (which_alternative)
+    {
+    case 0: return \"cmpf %1\";
+    case 1: return \"cmpf2 %0,%1\";
+    }
+}")
 
 
 ; cmpdf similar to vax, but first operand is expected to be in the
@@ -736,60 +1130,106 @@
 
 (define_insn "cmpdf"
   [(set (cc0)
-	(compare (match_operand:DF 0 "register_operand" "a")
-	         (match_operand:DF 1 "general_operand" "rm")))]
+	(compare (match_operand:DF 0 "general_operand" "a,rm")
+		 (match_operand:DF 1 "general_operand" "rm,rm")))]
   ""
-  "cmpd %1")
+  "*
+{
+  switch (which_alternative)
+    {
+    case 0: return \"cmpd %1\";
+    case 1: return \"cmpd2 %0,%1\";
+    }
+}")
 
-
-;; Put tstsi first among test insns so it matches a CONST_INT operand.
+;; We don't want to allow a constant operand for test insns because
+;; (set (cc0) (const_int foo)) has no mode information.  Such insns will
+;; be folded while optimizing anyway.
 
 (define_insn "tstsi"
   [(set (cc0)
-	(match_operand:SI 0 "general_operand" "g"))]
+	(match_operand:SI 0 "nonimmediate_operand" "g"))]
   ""
   "tstl %0")
 
 
-; Small tests from memory are normal, but testing from registers don't
+; small tests from memory are normal, but testing from registers doesn't
 ; expand the data properly.  So test in this case does a convert and tests
 ; the new register data from the stack.
 
+; First some special cases that do work
+
+
+(define_insn ""
+  [(set (cc0)
+	(sign_extend:SI (match_operand:HI 0 "memory_operand" "m")))]
+  ""
+  "tstw %0")
+
+(define_insn ""
+  [(set (cc0)
+	(zero_extend:SI (match_operand:HI 0 "memory_operand" "m")))]
+  "tahoe_cmp_check (insn, operands[0], 0)"
+  "tstw %0")
+
+
 (define_insn "tsthi"
   [(set (cc0)
-	(match_operand:HI 0 "general_operand" "m,?r"))]
-  ""
+	(match_operand:HI 0 "extendable_operand" "m,!r"))]
+  "GET_MODE (operands[0]) != VOIDmode"
   "*
 {
+  rtx xoperands[2];
+  extern rtx tahoe_reg_conversion_loc;
   switch (which_alternative)
     {
     case 0:
       return \"tstw %0\";
     case 1:
-      return \"pushl %0\;cvtwl 2(sp),(sp)\;tstl (sp)+\";
+      xoperands[0] = operands[0];
+      xoperands[1] = tahoe_reg_conversion_loc;
+      output_asm_insn (\"movl %0,%1\", xoperands);
+      xoperands[1] = plus_constant (XEXP (tahoe_reg_conversion_loc, 0), 2);
+      output_asm_insn (\"tstw %a1\", xoperands);
+      return \"\";
     }
 }")
 
 
-; Small tests from memory are normal, but testing from registers don't
-; expand the data properly.  So test in this case does a convert and tests
-; the new register data from the stack.
+(define_insn ""
+  [(set (cc0)
+	(sign_extend:SI (match_operand:QI 0 "memory_operand" "m")))]
+  ""
+  "tstb %0")
+
+(define_insn ""
+  [(set (cc0)
+	(zero_extend:SI (match_operand:QI 0 "memory_operand" "m")))]
+  "tahoe_cmp_check (insn, operands[0], 0)"
+  "tstb %0")
+
 
 (define_insn "tstqi"
   [(set (cc0)
-	(match_operand:QI 0 "general_operand" "m,?r"))]
-  ""
+	(match_operand:QI 0 "extendable_operand" "m,!r"))]
+  "GET_MODE (operands[0]) != VOIDmode"
   "*
 {
+  rtx xoperands[2];
+  extern rtx tahoe_reg_conversion_loc;
   switch (which_alternative)
     {
     case 0:
       return \"tstb %0\";
     case 1:
-      return \"pushl %0\;cvtbl 3(sp),(sp)\;tstl (sp)+\";
+      xoperands[0] = operands[0];
+      xoperands[1] = tahoe_reg_conversion_loc;
+      output_asm_insn (\"movl %0,%1\", xoperands);
+      xoperands[1] = plus_constant (XEXP (tahoe_reg_conversion_loc, 0), 3);
+      output_asm_insn (\"tstb %a1\", xoperands);
+      return \"\";
     }
 }")
-
 
 ; tstsf compares a given value to a value already in the fpp accumulator.
 ; No flags are set by this so ignore them.
@@ -809,6 +1249,7 @@
 	(match_operand:DF 0 "register_operand" "a"))]
   ""
   "tstd")
+
 
 
 ; movstrhi tahoe instruction does not load registers by itself like
@@ -920,14 +1361,14 @@
 
 
 ; This monster is to cover for the Tahoe's nasty habit of not extending
-; a number if the source is in a register.  (It just moves it!)  Case 0 is
+; a number if the source is in a register.  (It just moves it!) Case 0 is
 ; a normal extend from memory.  Case 1 does the extension from the top of
 ; the stack.  Extension from the stack doesn't set the flags right since
 ; the moval changes them.
 
 (define_insn "extendhisi2"
   [(set (match_operand:SI 0 "general_operand" "=g,?=g")
-	(sign_extend:SI (match_operand:HI 1 "general_operand" "m,r")))]
+	(sign_extend:SI (match_operand:HI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
@@ -936,26 +1377,25 @@
     case 0:
       return \"cvtwl %1,%0\";
     case 1:
-      if (push_operand(operands[0], SImode))
+      if (push_operand (operands[0], SImode))
 	return \"pushl %1\;cvtwl 2(sp),(sp)\";
       else
 	{
-	  CC_STATUS_INIT;
+          CC_STATUS_INIT;
 	  return \"pushl %1\;cvtwl 2(sp),%0\;moval 4(sp),sp\";
 	}
     }
 }")
 
-
 ; This monster is to cover for the Tahoe's nasty habit of not extending
-; a number if the source is in a register.  (It just moves it!)  Case 0 is
+; a number if the source is in a register.  (It just moves it!) Case 0 is
 ; a normal extend from memory.  Case 1 does the extension from the top of
 ; the stack.  Extension from the stack doesn't set the flags right since
 ; the moval changes them.
 
 (define_insn "extendqisi2"
   [(set (match_operand:SI 0 "general_operand" "=g,?=g")
-	(sign_extend:SI (match_operand:QI 1 "general_operand" "m,r")))]
+	(sign_extend:SI (match_operand:QI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
@@ -964,7 +1404,7 @@
     case 0:
       return \"cvtbl %1,%0\";
     case 1:
-      if (push_operand(operands[0], SImode))
+      if (push_operand (operands[0], SImode))
 	return \"pushl %1\;cvtbl 3(sp),(sp)\";
       else
 	{
@@ -976,14 +1416,14 @@
 
 
 ; This monster is to cover for the Tahoe's nasty habit of not extending
-; a number if the source is in a register.  (It just moves it!)  Case 0 is
+; a number if the source is in a register.  (It just moves it!) Case 0 is
 ; a normal extend from memory.  Case 1 does the extension from the top of
 ; the stack.  Extension from the stack doesn't set the flags right since
 ; the moval changes them.
 
 (define_insn "extendqihi2"
   [(set (match_operand:HI 0 "general_operand" "=g,?=g")
-	(sign_extend:HI (match_operand:QI 1 "general_operand" "m,r")))]
+	(sign_extend:HI (match_operand:QI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
@@ -992,13 +1432,14 @@
     case 0:
       return \"cvtbw %1,%0\";
     case 1:
-      if (push_operand(operands[0], SImode))
-	return \"pushl %1\;cvtbw 3(sp),2(sp)\";
-      else {
-	CC_STATUS_INIT;
-	return \"pushl %1\;cvtbw 3(sp),%0\;moval 4(sp),sp\";
-      }
-    }
+      if (push_operand (operands[0], SImode))
+	return \"pushl %1\;cvtbw 3(sp),(sp)\";
+      else
+	{
+	  CC_STATUS_INIT;
+	  return \"pushl %1\;cvtbw 3(sp),%0\;moval 4(sp),sp\";
+	}
+     }
 }")
 
 
@@ -1021,21 +1462,19 @@
 ; from memory and we use an and to simulate it from register.  This is faster
 ; than pulling it off the stack.
 
+
 (define_insn "zero_extendhisi2"
   [(set (match_operand:SI 0 "general_operand" "=g,?=g")
-	(zero_extend:SI (match_operand:HI 1 "general_operand" "m,r")))]
+	(zero_extend:SI (match_operand:HI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
   switch (which_alternative)
     {
-    case 0:
-      return \"movzwl %1,%0\";
-    case 1:
-      return \"andl3 $0xffff,%1,%0\";
+    case 0: return \"movzwl %1,%0\";
+    case 1: return \"andl3 $0xffff,%1,%0\";
     }
 }")
-
 
 ; movz works fine from memory but not from register for the same reasons
 ; the cvt instructions don't work right.  So we use the normal instruction
@@ -1044,16 +1483,14 @@
 
 (define_insn "zero_extendqihi2"
   [(set (match_operand:HI 0 "general_operand" "=g,?=g")
-	(zero_extend:HI (match_operand:QI 1 "general_operand" "m,r")))]
+	(zero_extend:HI (match_operand:QI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
   switch (which_alternative)
     {
-    case 0:
-      return \"movzbw %1,%0\";
-    case 1:
-      return \"andw3 $0xff,%1,%0\";
+    case 0: return \"movzbw %1,%0\";
+    case 1: return \"andw3 $0xff,%1,%0\";
     }
 }")
 
@@ -1065,16 +1502,14 @@
 
 (define_insn "zero_extendqisi2"
   [(set (match_operand:SI 0 "general_operand" "=g,?=g")
-	(zero_extend:SI (match_operand:QI 1 "general_operand" "m,r")))]
+	(zero_extend:SI (match_operand:QI 1 "nonimmediate_operand" "m,r")))]
   ""
   "*
 {
   switch (which_alternative)
     {
-    case 0:
-      return \"movzbl %1,%0\";
-    case 1:
-      return \"andl3 $0xff,%1,%0\";
+    case 0: return \"movzbl %1,%0\";
+    case 1: return \"andl3 $0xff,%1,%0\";
     }
 }")
 
@@ -1179,39 +1614,40 @@
   "jlequ %l0")
 
 
-; GCC does not account for register mask/argc longword.  Thus the number
+; gcc does not account for register mask/argc longword.  Thus the number
 ; for the call = number bytes for args + 4
 
 (define_insn "call"
-  [(call (match_operand:QI 0 "general_operand" "g")
+  [(call (match_operand:QI 0 "memory_operand" "m")
 	 (match_operand:QI 1 "general_operand" "g"))]
   ""
   "*
 {
   operands[1] = gen_rtx (CONST_INT, VOIDmode, (INTVAL (operands[1]) + 4));
+  if (GET_CODE(operands[0]) == MEM
+      && CONSTANT_ADDRESS_P (XEXP(operands[0], 0))
+      && INTVAL (operands[1]) < 64)
+    return \"callf %1,%0\"; /* this is much faster */   
   return \"calls %1,%0\";
 }")
 
-
-; GCC does not account for register mask/argc longword.  Thus the number
+; gcc does not account for register mask/argc longword.  Thus the number
 ; for the call = number bytes for args + 4
 
 (define_insn "call_value"
-  [(set (match_operand 0 "" "=g")
-	(call (match_operand:QI 1 "general_operand" "g")
+  [(set (match_operand 0 "" "g")
+	(call (match_operand:QI 1 "memory_operand" "m")
 	      (match_operand:QI 2 "general_operand" "g")))]
   ""
   "*
 {
   operands[2] = gen_rtx (CONST_INT, VOIDmode, (INTVAL (operands[2]) + 4));
+  if (GET_CODE(operands[1]) == MEM
+      && CONSTANT_ADDRESS_P (XEXP(operands[1], 0))
+      && INTVAL (operands[2]) < 64)
+    return \"callf %2,%1\"; /* this is much faster */   
   return \"calls %2,%1\";
 }")
-
-
-(define_insn "nop"
-  [(const_int 0)]
-  ""
-  "nop")
 
 
 (define_insn "return"
@@ -1219,8 +1655,12 @@
   ""
   "ret")
 
+(define_insn "nop"
+  [(const_int 0)]
+  ""
+  "nop")
 
-; casesi, extracted from the vax code.  The instructions are
+; casesi this code extracted from the vax code.  The instructions are
 ; very similar.  Tahoe requires that the table be word aligned.  GCC
 ; places the table immediately after, thus the alignment directive.
 
@@ -1294,27 +1734,8 @@
   return \"moval %a1,%0\";
 }")
 
-; The tahoe doesn't have an 8 byte indexed move address command
-; and GCC needs it.  To work around it, double the index (%2) and
-; then use the 4 byte indexed move address command.
-;
-;(define_insn ""
-;  [(set (match_operand:SI 0 "general_operand" "=g")
-;	(plus:SI (match_operand:SI 1 "general_operand" "g")
-;		 (mult:SI (match_operand:SI 2 "register_operand" "r")
-;			  (const_int 8))))]
-;  ""
-;  "*
-;{
-;  if (GET_CODE (operands[0]) == REG &&
-;      REGNO (operands[0]) == REGNO (operands[2])) {
-;	return \"shll $3,%2,%2\;addl3 %1,%2,%0\";
-;  } else {
-;	return \"shll $3,%2,%2\;addl3 %1,%2,%0\;shrl $3,%2,%2\"; }
-;}")
 
-
-; Bit test longword instruction, same as vax.
+; bit test longword instruction, same as vax
 
 (define_insn ""
   [(set (cc0)
@@ -1324,7 +1745,7 @@
   "bitl %0,%1")
 
 
-; Bit test word instructions, same as vax.
+; bit test word instructions, same as vax
 
 (define_insn ""
   [(set (cc0)
@@ -1334,7 +1755,7 @@
   "bitw %0,%1")
 
 
-; Bit test instructions, same as vax.
+; bit test instructions, same as vax
 
 (define_insn ""
   [(set (cc0)
@@ -1344,7 +1765,7 @@
   "bitb %0,%1")
 
 
-; bne counterpart.  In case GCC reverses the conditional.
+; bne counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1356,7 +1777,7 @@
   "jneq %l0")
 
 
-; beq counterpart.  In case GCC reverses the conditional.
+; beq counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1368,7 +1789,7 @@
   "jeql %l0")
 
 
-; ble counterpart.  In case GCC reverses the conditional.
+; ble counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1380,7 +1801,7 @@
   "jleq %l0")
 
 
-; bleu counterpart.  In case GCC reverses the conditional.
+; bleu counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1392,7 +1813,7 @@
   "jlequ %l0")
 
 
-; bge counterpart.  In case GCC reverses the conditional.
+; bge counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1404,7 +1825,7 @@
   "jgeq %l0")
 
 
-; bgeu counterpart.  In case GCC reverses the conditional.
+; bgeu counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1416,7 +1837,7 @@
   "jgequ %l0")
 
 
-; blt counterpart.  In case GCC reverses the conditional.
+; blt counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1428,7 +1849,7 @@
   "jlss %l0")
 
 
-; bltu counterpart.  In case GCC reverses the conditional.
+; bltu counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1440,7 +1861,7 @@
   "jlssu %l0")
 
 
-; bgt counterpart.  In case GCC reverses the conditional.
+; bgt counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1452,7 +1873,7 @@
   "jgtr %l0")
 
 
-; bgtu counterpart.  In case GCC reverses the conditional.
+; bgtu counterpart.  in case gcc reverses the conditional.
 
 (define_insn ""
   [(set (pc)
@@ -1464,7 +1885,7 @@
   "jgtru %l0")
 
 
-; casesi alternate form as found in vax code.  This form is to
+; casesi alternate form as found in vax code.  this form is to
 ; compensate for the table's offset being no distance (0 displacement)
 
 (define_insn ""
@@ -1481,7 +1902,7 @@
   "casel %0,$0,%1\;.align %@")
 
 
-; casesi alternate form as found in vax code.  Another form to
+; casesi alternate form as found in vax code.  another form to
 ; compensate for the table's offset being no distance (0 displacement)
 
 (define_insn ""
@@ -1495,3 +1916,241 @@
 		      (pc)))]
   ""
   "casel %0,$0,%1 \;.align %@")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (lt (plus:SI (match_operand:SI 0 "general_operand" "+g")
+		      (const_int 1))
+	     (match_operand:SI 1 "general_operand" "g"))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0)
+		 (const_int 1)))]
+  ""
+  "aoblss %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (le (plus:SI (match_operand:SI 0 "general_operand" "+g")
+		      (const_int 1))
+	     (match_operand:SI 1 "general_operand" "g"))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0)
+		 (const_int 1)))]
+  ""
+  "aobleq %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (ge (plus:SI (match_operand:SI 0 "general_operand" "+g")
+		      (const_int 1))
+	     (match_operand:SI 1 "general_operand" "g"))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0)
+		 (const_int 1)))]
+  ""
+  "aoblss %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (gt (plus:SI (match_operand:SI 0 "general_operand" "+g")
+		      (const_int 1))
+	     (match_operand:SI 1 "general_operand" "g"))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))
+   (set (match_dup 0)
+	(plus:SI (match_dup 0)
+		 (const_int 1)))]
+  ""
+  "aobleq %1,%0,%l2")
+
+; bbs/bbc
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (ne (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+		      (subreg:QI (match_operand:SI 1 "general_operand" "g") 0))
+	     (const_int 0))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))]
+  ""
+  "bbs %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (eq (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+		      (subreg:QI (match_operand:SI 1 "general_operand" "g") 0))
+	     (const_int 0))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))]
+  ""
+  "bbc %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (ne (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+		      (subreg:QI (match_operand:SI 1 "general_operand" "g") 0))
+	     (const_int 0))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))]
+  ""
+  "bbc %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (eq (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+		      (subreg:QI (match_operand:SI 1 "general_operand" "g") 0))
+	     (const_int 0))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))]
+  ""
+  "bbs %1,%0,%l2")
+
+; if the shift count is a byte in a register we can use it as a long
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (ne (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+			      (match_operand:QI 1 "register_operand" "r"))
+	     (const_int 0))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))]
+  ""
+  "bbs %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (eq (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+			      (match_operand:QI 1 "register_operand" "r"))
+	     (const_int 0))
+	 (label_ref (match_operand 2 "" ""))
+	 (pc)))]
+  ""
+  "bbc %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (ne (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+			      (match_operand:QI 1 "register_operand" "r"))
+	     (const_int 0))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))]
+  ""
+  "bbc %1,%0,%l2")
+
+(define_insn ""
+  [(set (pc)
+	(if_then_else
+	 (eq (sign_extract:SI (match_operand:SI 0 "nonimmediate_operand" "rm")
+			      (const_int 1)
+			      (match_operand:QI 1 "register_operand" "r"))
+	     (const_int 0))
+	 (pc)
+	 (label_ref (match_operand 2 "" ""))))]
+  ""
+  "bbs %1,%0,%l2")
+
+; special case for 1 << constant.  We don't do these because they are slower
+; than the bitl instruction
+
+;(define_insn ""
+;  [(set (pc)
+;	(if_then_else
+;	 (ne (and:SI (match_operand:SI 0 "nonimmediate_operand" "%rm")
+;		     (match_operand:SI 1 "immediate_operand" "i"))
+;	     (const_int 0))
+;	 (label_ref (match_operand 2 "" ""))
+;	 (pc)))]
+;  "GET_CODE (operands[1]) == CONST_INT
+;   && exact_log2 (INTVAL (operands[1])) >= 0"
+;  "*
+;{
+;  operands[1]
+;    = gen_rtx (CONST_INT, VOIDmode, exact_log2 (INTVAL (operands[1])));
+;  return \"bbs %1,%0,%l2\";
+;}")
+;
+;(define_insn ""
+;  [(set (pc)
+;	(if_then_else
+;	 (eq (and:SI (match_operand:SI 0 "nonimmediate_operand" "%rm")
+;		     (match_operand:SI 1 "immediate_operand" "i"))
+;	     (const_int 0))
+;	 (label_ref (match_operand 2 "" ""))
+;	 (pc)))]
+;  "GET_CODE (operands[1]) == CONST_INT
+;   && exact_log2 (INTVAL (operands[1])) >= 0"
+;  "*
+;{
+;  operands[1]
+;    = gen_rtx (CONST_INT, VOIDmode, exact_log2 (INTVAL (operands[1])));
+;  return \"bbc %1,%0,%l2\";
+;}")
+;
+;(define_insn ""
+;  [(set (pc)
+;	(if_then_else
+;	 (ne (and:SI (match_operand:SI 0 "nonimmediate_operand" "%rm")
+;		     (match_operand:SI 1 "immediate_operand" "i"))
+;	     (const_int 0))
+;	 (pc)
+;	 (label_ref (match_operand 2 "" ""))))]
+;  "GET_CODE (operands[1]) == CONST_INT
+;   && exact_log2 (INTVAL (operands[1])) >= 0"
+;  "*
+;{
+;  operands[1]
+;    = gen_rtx (CONST_INT, VOIDmode, exact_log2 (INTVAL (operands[1])));
+;  return \"bbc %1,%0,%l2\";
+;}")
+;
+;(define_insn ""
+;  [(set (pc)
+;	(if_then_else
+;	 (eq (and:SI (match_operand:SI 0 "nonimmediate_operand" "%rm")
+;		     (match_operand:SI 1 "immediate_operand" "i"))
+;	     (const_int 0))
+;	 (pc)
+;	 (label_ref (match_operand 2 "" ""))))]
+;  "GET_CODE (operands[1]) == CONST_INT
+;   && exact_log2 (INTVAL (operands[1])) >= 0"
+;  "*
+;{
+;  operands[1]
+;    = gen_rtx (CONST_INT, VOIDmode, exact_log2 (INTVAL (operands[1])));
+;  return \"bbs %1,%0,%l2\";
+;}")
+
+
+;;- Local variables:
+;;- mode:emacs-lisp
+;;- comment-start: ";;- "
+;;- eval: (set-syntax-table (copy-sequence (syntax-table)))
+;;- eval: (modify-syntax-entry ?[ "(]")
+;;- eval: (modify-syntax-entry ?] ")[")
+;;- eval: (modify-syntax-entry ?{ "(}")
+;;- eval: (modify-syntax-entry ?} "){")
+;;- End:

@@ -1,11 +1,11 @@
 /* Allocate registers for pseudo-registers that span basic blocks.
-   Copyright (C) 1987, 1988 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1988, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -26,6 +26,7 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "hard-reg-set.h"
 #include "regs.h"
 #include "insn-config.h"
+#include "output.h"
 
 /* This pass of the compiler performs global register allocation.
    It assigns hard register numbers to all the pseudo registers
@@ -89,6 +90,12 @@ static int *allocno_order;
 
 static int *allocno_size;
 
+/* Indexed by (pseudo) reg number, gives the number of another
+   lower-numbered pseudo reg which can share a hard reg with this peudo
+   *even if the two pseudos would otherwise appear to conflict*.  */
+
+static int *reg_may_share;
+
 /* max_allocno by max_allocno array of bits,
    recording whether two allocno's conflict (can't go in the same
    hardware register).
@@ -127,13 +134,54 @@ static HARD_REG_SET *hard_reg_conflicts;
 
 static HARD_REG_SET *hard_reg_preferences;
 
-/* Set of registers that some allocno has a preference for.  */
+/* Similar, but just counts register preferences made in simple copy
+   operations, rather than arithmetic.  These are given priority because
+   we can always eliminate an insn by using these, but using a register
+   in the above list won't always eliminate an insn.  */
 
-static HARD_REG_SET regs_someone_prefers;
+static HARD_REG_SET *hard_reg_copy_preferences;
+
+/* Similar to hard_reg_preferences, but includes bits for subsequent
+   registers when an allocno is multi-word.  The above variable is used for
+   allocation while this is used to build reg_someone_prefers, below.  */
+
+static HARD_REG_SET *hard_reg_full_preferences;
+
+/* Indexed by N, set of hard registers that some later allocno has a
+   preference for.  */
+
+static HARD_REG_SET *regs_someone_prefers;
 
 /* Set of registers that global-alloc isn't supposed to use.  */
 
 static HARD_REG_SET no_global_alloc_regs;
+
+/* Set of registers used so far.  */
+
+static HARD_REG_SET regs_used_so_far;
+
+/* Number of calls crossed by each allocno.  */
+
+static int *allocno_calls_crossed;
+
+/* Number of refs (weighted) to each allocno.  */
+
+static int *allocno_n_refs;
+
+/* Guess at live length of each allocno.
+   This is actually the max of the live lengths of the regs.  */
+
+static int *allocno_live_length;
+
+/* Number of refs (weighted) to each hard reg, as used by local alloc.
+   It is zero for a reg that contains global pseudos or is explicitly used.  */
+
+static int local_reg_n_refs[FIRST_PSEUDO_REGISTER];
+
+/* Guess at live length of each hard reg, as used by local alloc.
+   This is actually the sum of the live lengths of the specific regs.  */
+
+static int local_reg_live_length[FIRST_PSEUDO_REGISTER];
 
 /* Test a bit in TABLE, a vector of HARD_REG_SETs,
    for vector element I, and hard register number J.  */
@@ -162,11 +210,40 @@ static int *allocnos_live;
 #define CLEAR_ALLOCNO_LIVE(I) \
   (allocnos_live[(I) / INT_BITS] &= ~(1 << ((I) % INT_BITS)))
 
+/* This is turned off because it doesn't work right for DImode.
+   (And it is only used for DImode, so the other cases are worthless.)
+   The problem is that it isn't true that there is NO possibility of conflict;
+   only that there is no conflict if the two pseudos get the exact same regs.
+   If they were allocated with a partial overlap, there would be a conflict.
+   We can't safely turn off the conflict unless we have another way to
+   prevent the partial overlap.
+
+   Idea: change hard_reg_conflicts so that instead of recording which
+   hard regs the allocno may not overlap, it records where the allocno
+   may not start.  Change both where it is used and where it is updated.
+   Then there is a way to record that (reg:DI 108) may start at 10
+   but not at 9 or 11.  There is still the question of how to record
+   this semi-conflict between two pseudos.  */
+#if 0
+/* Reg pairs for which conflict after the current insn
+   is inhibited by a REG_NO_CONFLICT note.
+   If the table gets full, we ignore any other notes--that is conservative.  */
+#define NUM_NO_CONFLICT_PAIRS 4
+/* Number of pairs in use in this insn.  */
+int n_no_conflict_pairs;
+static struct { int allocno1, allocno2;}
+  no_conflict_pairs[NUM_NO_CONFLICT_PAIRS];
+#endif /* 0 */
+
 /* Record all regs that are set in any one insn.
    Communication from mark_reg_{store,clobber} and global_conflicts.  */
 
 static rtx *regs_set;
 static int n_regs_set;
+
+/* All register that can be eliminated.  */
+
+static HARD_REG_SET eliminable_regset;
 
 static int allocno_compare ();
 static void mark_reg_store ();
@@ -174,8 +251,11 @@ static void mark_reg_clobber ();
 static void mark_reg_live_nc ();
 static void mark_reg_death ();
 static void dump_conflicts ();
+void dump_global_regs ();
 static void find_reg ();
 static void global_conflicts ();
+static void expand_preferences ();
+static void prune_preferences ();
 static void record_conflicts ();
 static void set_preference ();
 
@@ -187,11 +267,13 @@ void
 global_alloc (file)
      FILE *file;
 {
+#ifdef ELIMINABLE_REGS
+  static struct {int from, to; } eliminables[] = ELIMINABLE_REGS;
+#endif
   register int i;
+  rtx x;
 
   max_allocno = 0;
-
-  CLEAR_HARD_REG_SET (regs_someone_prefers);
 
   /* A machine may have certain hard registers that
      are safe to use only within a basic block.  */
@@ -203,6 +285,61 @@ global_alloc (file)
       SET_HARD_REG_BIT (no_global_alloc_regs, i);
 #endif
 
+  /* Build the regset of all eliminable registers and show we can't use those
+     that we already know won't be eliminated.  */
+#ifdef ELIMINABLE_REGS
+  for (i = 0; i < sizeof eliminables / sizeof eliminables[0]; i++)
+    {
+      SET_HARD_REG_BIT (eliminable_regset, eliminables[i].from);
+
+      if (! CAN_ELIMINATE (eliminables[i].from, eliminables[i].to)
+	  || (eliminables[i].from == FRAME_POINTER_REGNUM
+	      && (! flag_omit_frame_pointer || FRAME_POINTER_REQUIRED)))
+	SET_HARD_REG_BIT (no_global_alloc_regs, eliminables[i].from);
+    }
+#else
+  SET_HARD_REG_BIT (eliminable_regset, FRAME_POINTER_REGNUM);
+
+  /* If we know we will definitely not be eliminating the frame pointer,
+     don't allocate it.  */
+  if (! flag_omit_frame_pointer || FRAME_POINTER_REQUIRED)
+    SET_HARD_REG_BIT (no_global_alloc_regs, FRAME_POINTER_REGNUM);
+#endif
+
+  /* Track which registers have already been used.  Start with registers
+     explicitly in the rtl, then registers allocated by local register
+     allocation.  */
+
+  CLEAR_HARD_REG_SET (regs_used_so_far);
+#ifdef LEAF_REGISTERS
+  /* If we are doing the leaf function optimization, and this is a leaf
+     function, it means that the registers that take work to save are those
+     that need a register window.  So prefer the ones that can be used in
+     a leaf function.  */
+  {
+    char *cheap_regs;
+    static char leaf_regs[] = LEAF_REGISTERS;
+
+    if (only_leaf_regs_used () && leaf_function_p ())
+      cheap_regs = leaf_regs;
+    else
+      cheap_regs = call_used_regs;
+    for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+      if (regs_ever_live[i] || cheap_regs[i])
+	SET_HARD_REG_BIT (regs_used_so_far, i);
+  }
+#else
+  /* We consider registers that do not have to be saved over calls as if
+     they were already used since there is no cost in using them.  */
+  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+    if (regs_ever_live[i] || call_used_regs[i])
+      SET_HARD_REG_BIT (regs_used_so_far, i);
+#endif
+
+  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
+    if (reg_renumber[i] >= 0)
+      SET_HARD_REG_BIT (regs_used_so_far, reg_renumber[i]);
+
   /* Establish mappings from register number to allocation number
      and vice versa.  In the process, count the allocnos.  */
 
@@ -211,13 +348,34 @@ global_alloc (file)
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
     reg_allocno[i] = -1;
 
+  /* Initialize the shared-hard-reg mapping
+     from the list of pairs that may share.  */
+  reg_may_share = (int *) alloca (max_regno * sizeof (int));
+  bzero (reg_may_share, max_regno * sizeof (int));
+  for (x = regs_may_share; x; x = XEXP (XEXP (x, 1), 1))
+    {
+      int r1 = REGNO (XEXP (x, 0));
+      int r2 = REGNO (XEXP (XEXP (x, 1), 0));
+      if (r1 > r2)
+	reg_may_share[r1] = r2;
+      else
+	reg_may_share[r2] = r1;
+    }
+
   for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
     /* Note that reg_live_length[i] < 0 indicates a "constant" reg
        that we are supposed to refrain from putting in a hard reg.
        -2 means do make an allocno but don't allocate it.  */
-    if (reg_n_refs[i] != 0 && reg_renumber[i] < 0 && reg_live_length[i] != -1)
+    if (reg_n_refs[i] != 0 && reg_renumber[i] < 0 && reg_live_length[i] != -1
+	/* Don't allocate pseudos that cross calls,
+	   if this function receives a nonlocal goto.  */
+	&& (! current_function_has_nonlocal_label
+	    || reg_n_calls_crossed[i] == 0))
       {
-	reg_allocno[i] = max_allocno++;
+	if (reg_may_share[i] && reg_allocno[reg_may_share[i]] >= 0)
+	  reg_allocno[i] = reg_allocno[reg_may_share[i]];
+	else
+	  reg_allocno[i] = max_allocno++;
 	if (reg_live_length[i] == 0)
 	  abort ();
       }
@@ -226,29 +384,76 @@ global_alloc (file)
 
   allocno_reg = (int *) alloca (max_allocno * sizeof (int));
   allocno_size = (int *) alloca (max_allocno * sizeof (int));
+  allocno_calls_crossed = (int *) alloca (max_allocno * sizeof (int));
+  allocno_n_refs = (int *) alloca (max_allocno * sizeof (int));
+  allocno_live_length = (int *) alloca (max_allocno * sizeof (int));
   bzero (allocno_size, max_allocno * sizeof (int));
+  bzero (allocno_calls_crossed, max_allocno * sizeof (int));
+  bzero (allocno_n_refs, max_allocno * sizeof (int));
+  bzero (allocno_live_length, max_allocno * sizeof (int));
 
   for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
     if (reg_allocno[i] >= 0)
       {
-	allocno_reg[reg_allocno[i]] = i;
-	allocno_size[reg_allocno[i]] = PSEUDO_REGNO_SIZE (i);
+	int allocno = reg_allocno[i];
+	allocno_reg[allocno] = i;
+	allocno_size[allocno] = PSEUDO_REGNO_SIZE (i);
+	allocno_calls_crossed[allocno] += reg_n_calls_crossed[i];
+	allocno_n_refs[allocno] += reg_n_refs[i];
+	if (allocno_live_length[allocno] < reg_live_length[i])
+	  allocno_live_length[allocno] = reg_live_length[i];
       }
 
-  /* Allocate the space for the conflict tables.  */
+  /* Calculate amount of usage of each hard reg by pseudos
+     allocated by local-alloc.  This is to see if we want to
+     override it.  */
+  bzero (local_reg_live_length, sizeof local_reg_live_length);
+  bzero (local_reg_n_refs, sizeof local_reg_n_refs);
+  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
+    if (reg_allocno[i] < 0 && reg_renumber[i] >= 0)
+      {
+	int regno = reg_renumber[i];
+	int endregno = regno + HARD_REGNO_NREGS (regno, PSEUDO_REGNO_MODE (i));
+	int j;
 
-  hard_reg_conflicts = (HARD_REG_SET *)
-    alloca (max_allocno * sizeof (HARD_REG_SET));
+	for (j = regno; j < endregno; j++)
+	  {
+	    local_reg_n_refs[j] += reg_n_refs[i];
+	    local_reg_live_length[j] += reg_live_length[i];
+	  }
+      }
+
+  /* We can't override local-alloc for a reg used not just by local-alloc.  */
+  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+    if (regs_ever_live[i])
+      local_reg_n_refs[i] = 0;
+
+  /* Allocate the space for the conflict and preference tables and
+     initialize them.  */
+
+  hard_reg_conflicts
+    = (HARD_REG_SET *) alloca (max_allocno * sizeof (HARD_REG_SET));
   bzero (hard_reg_conflicts, max_allocno * sizeof (HARD_REG_SET));
 
-  hard_reg_preferences = (HARD_REG_SET *)
-    alloca (max_allocno * sizeof (HARD_REG_SET));
+  hard_reg_preferences
+    = (HARD_REG_SET *) alloca (max_allocno * sizeof (HARD_REG_SET));
   bzero (hard_reg_preferences, max_allocno * sizeof (HARD_REG_SET));
+  
+  hard_reg_copy_preferences
+    = (HARD_REG_SET *) alloca (max_allocno * sizeof (HARD_REG_SET));
+  bzero (hard_reg_copy_preferences, max_allocno * sizeof (HARD_REG_SET));
+  
+  hard_reg_full_preferences
+    = (HARD_REG_SET *) alloca (max_allocno * sizeof (HARD_REG_SET));
+  bzero (hard_reg_full_preferences, max_allocno * sizeof (HARD_REG_SET));
+  
+  regs_someone_prefers
+    = (HARD_REG_SET *) alloca (max_allocno * sizeof (HARD_REG_SET));
+  bzero (regs_someone_prefers, max_allocno * sizeof (HARD_REG_SET));
 
   allocno_row_words = (max_allocno + INT_BITS - 1) / INT_BITS;
 
-  conflicts = (int *)
-    alloca (max_allocno * allocno_row_words * sizeof (int));
+  conflicts = (int *) alloca (max_allocno * allocno_row_words * sizeof (int));
   bzero (conflicts, max_allocno * allocno_row_words * sizeof (int));
 
   allocnos_live = (int *) alloca (allocno_row_words * sizeof (int));
@@ -263,19 +468,49 @@ global_alloc (file)
 
       global_conflicts ();
 
+      /* Eliminate conflicts between pseudos and eliminable registers.  If
+	 the register is not eliminated, the pseudo won't really be able to
+	 live in the eliminable register, so the conflict doesn't matter.
+	 If we do eliminate the register, the conflict will no longer exist.
+	 So in either case, we can ignore the conflict.  Likewise for
+	 preferences.  */
+
+      for (i = 0; i < max_allocno; i++)
+	{
+	  AND_COMPL_HARD_REG_SET (hard_reg_conflicts[i], eliminable_regset);
+	  AND_COMPL_HARD_REG_SET (hard_reg_copy_preferences[i],
+				  eliminable_regset);
+	  AND_COMPL_HARD_REG_SET (hard_reg_preferences[i], eliminable_regset);
+	}
+
+      /* Try to expand the preferences by merging them between allocnos.  */
+
+      expand_preferences ();
+
       /* Determine the order to allocate the remaining pseudo registers.  */
 
       allocno_order = (int *) alloca (max_allocno * sizeof (int));
       for (i = 0; i < max_allocno; i++)
 	allocno_order[i] = i;
 
-      /* Default the size to 1, since allocno_compare uses it to divide by.  */
+      /* Default the size to 1, since allocno_compare uses it to divide by.
+	 Also convert allocno_live_length of zero to -1.  A length of zero
+	 can occur when all the registers for that allocno have reg_live_length
+	 equal to -2.  In this case, we want to make an allocno, but not
+	 allocate it.  So avoid the divide-by-zero and set it to a low
+	 priority.  */
 
       for (i = 0; i < max_allocno; i++)
-	if (allocno_size[i] == 0)
-	  allocno_size[i] = 1;
+	{
+	  if (allocno_size[i] == 0)
+	    allocno_size[i] = 1;
+	  if (allocno_live_length[i] == 0)
+	    allocno_live_length[i] = -1;
+	}
 
       qsort (allocno_order, max_allocno, sizeof (int), allocno_compare);
+      
+      prune_preferences ();
 
       if (file)
 	dump_conflicts (file);
@@ -291,21 +526,22 @@ global_alloc (file)
 	       for this pseudo-reg.  If that fails, try any reg.  */
 	    if (N_REG_CLASSES > 1)
 	      {
-		find_reg (allocno_order[i], 0, 0, 0,
-			  hard_reg_preferences[allocno_order[i]]);
+		find_reg (allocno_order[i], HARD_CONST (0), 0, 0, 0);
 		if (reg_renumber[allocno_reg[allocno_order[i]]] >= 0)
 		  continue;
 	      }
 	    if (!reg_preferred_or_nothing (allocno_reg[allocno_order[i]]))
-	      find_reg (allocno_order[i], 0, 1, 0,
-			hard_reg_preferences[allocno_order[i]]);
+	      find_reg (allocno_order[i], HARD_CONST (0), 1, 0, 0);
 	  }
     }
 
   /* Do the reloads now while the allocno data still exist, so that we can
      try to assign new hard regs to any pseudo regs that are spilled.  */
 
+#if 0 /* We need to eliminate regs even if there is no rtl code,
+	 for the sake of debugging information.  */
   if (n_basic_blocks > 0)
+#endif
     reload (basic_block_head[0], 1, file);
 }
 
@@ -316,19 +552,17 @@ static int
 allocno_compare (v1, v2)
      int *v1, *v2;
 {
-  register int r1 = allocno_reg[*v1];
-  register int r2 = allocno_reg[*v2];
   /* Note that the quotient will never be bigger than
      the value of floor_log2 times the maximum number of
      times a register can occur in one insn (surely less than 100).
      Multiplying this by 10000 can't overflow.  */
   register int pri1
-    = (((double) (floor_log2 (reg_n_refs[r1]) * reg_n_refs[r1])
-	/ (reg_live_length[r1] * allocno_size[*v1]))
+    = (((double) (floor_log2 (allocno_n_refs[*v1]) * allocno_n_refs[*v1])
+	/ (allocno_live_length[*v1] * allocno_size[*v1]))
        * 10000);
   register int pri2
-    = (((double) (floor_log2 (reg_n_refs[r2]) * reg_n_refs[r2])
-	/ (reg_live_length[r2] * allocno_size[*v2]))
+    = (((double) (floor_log2 (allocno_n_refs[*v2]) * allocno_n_refs[*v2])
+	/ (allocno_live_length[*v2] * allocno_size[*v2]))
        * 10000);
   if (pri2 - pri1)
     return pri2 - pri1;
@@ -338,7 +572,8 @@ allocno_compare (v1, v2)
   return *v1 - *v2;
 }
 
-/* Scan the rtl code and record all conflicts in the conflict matrices.  */
+/* Scan the rtl code and record all conflicts and register preferences in the
+   conflict matrices and preference tables.  */
 
 static void
 global_conflicts ()
@@ -423,6 +658,22 @@ global_conflicts ()
 
 	  if (code == INSN || code == CALL_INSN || code == JUMP_INSN)
 	    {
+	      int i = 0;
+
+#if 0
+	      for (link = REG_NOTES (insn);
+		   link && i < NUM_NO_CONFLICT_PAIRS;
+		   link = XEXP (link, 1))
+		if (REG_NOTE_KIND (link) == REG_NO_CONFLICT)
+		  {
+		    no_conflict_pairs[i].allocno1
+		      = reg_allocno[REGNO (SET_DEST (PATTERN (insn)))];
+		    no_conflict_pairs[i].allocno2
+		      = reg_allocno[REGNO (XEXP (link, 0))];
+		    i++;
+		  }
+#endif /* 0 */
+
 	      /* Mark any registers clobbered by INSN as live,
 		 so they conflict with the inputs.  */
 
@@ -441,23 +692,18 @@ global_conflicts ()
 
 	      note_stores (PATTERN (insn), mark_reg_store);
 
-	      /* Mark any registers both set and dead after INSN as dead.
-		 This is not redundant!
-		 A register may be set and killed in the same insn.
-		 It is necessary to mark them as live, above, to get
-		 the right conflicts within the insn.  */
+#ifdef AUTO_INC_DEC
+	      for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
+		if (REG_NOTE_KIND (link) == REG_INC)
+		  mark_reg_store (XEXP (link, 0), 0);
+#endif
+
+	      /* Mark any registers set in INSN and then never used.  */
 
 	      while (n_regs_set > 0)
-		if (find_regno_note (insn, REG_DEAD, REGNO (regs_set[--n_regs_set])))
+		if (find_regno_note (insn, REG_UNUSED,
+				     REGNO (regs_set[--n_regs_set])))
 		  mark_reg_death (regs_set[n_regs_set]);
-
-	      /*???The following seems to be incorrect.  */
-	      /* Likewise for regs set by incrementation.  */
-
-	      for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
-		if (REG_NOTE_KIND (link) == REG_INC
-		    && find_regno_note (insn, REG_DEAD, REGNO (XEXP (link, 0))))
-		  mark_reg_death (XEXP (link, 0));
 	    }
 
 	  if (insn == basic_block_end[b])
@@ -466,10 +712,121 @@ global_conflicts ()
 	}
     }
 }
+/* Expand the preference information by looking for cases where one allocno
+   dies in an insn that sets an allocno.  If those two allocnos don't conflict,
+   merge any preferences between those allocnos.  */
+
+static void
+expand_preferences ()
+{
+  rtx insn;
+  rtx link;
+  rtx set;
+
+  /* We only try to handle the most common cases here.  Most of the cases
+     where this wins are reg-reg copies.  */
+
+  for (insn = get_insns (); insn; insn = NEXT_INSN (insn))
+    if (GET_RTX_CLASS (GET_CODE (insn)) == 'i'
+	&& (set = single_set (insn)) != 0
+	&& GET_CODE (SET_DEST (set)) == REG
+	&& reg_allocno[REGNO (SET_DEST (set))] >= 0)
+      for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
+	if (REG_NOTE_KIND (link) == REG_DEAD
+	    && GET_CODE (XEXP (link, 0)) == REG
+	    && reg_allocno[REGNO (XEXP (link, 0))] >= 0
+	    && ! CONFLICTP (reg_allocno[REGNO (SET_DEST (set))],
+			    reg_allocno[REGNO (XEXP (link, 0))])
+	    && ! CONFLICTP (reg_allocno[REGNO (XEXP (link, 0))],
+			    reg_allocno[REGNO (SET_DEST (set))]))
+	  {
+	    int a1 = reg_allocno[REGNO (SET_DEST (set))];
+	    int a2 = reg_allocno[REGNO (XEXP (link, 0))];
+
+	    if (XEXP (link, 0) == SET_SRC (set))
+	      {
+		IOR_HARD_REG_SET (hard_reg_copy_preferences[a1],
+				  hard_reg_copy_preferences[a2]);
+		IOR_HARD_REG_SET (hard_reg_copy_preferences[a2],
+				  hard_reg_copy_preferences[a1]);
+	      }
+
+	    IOR_HARD_REG_SET (hard_reg_preferences[a1],
+			      hard_reg_preferences[a2]);
+	    IOR_HARD_REG_SET (hard_reg_preferences[a2],
+			      hard_reg_preferences[a1]);
+	    IOR_HARD_REG_SET (hard_reg_full_preferences[a1],
+			      hard_reg_full_preferences[a2]);
+	    IOR_HARD_REG_SET (hard_reg_full_preferences[a2],
+			      hard_reg_full_preferences[a1]);
+	  }
+}
+
+/* Prune the preferences for global registers to exclude registers that cannot
+   be used.
+   
+   Compute `regs_someone_prefers', which is a bitmask of the hard registers
+   that are preferred by conflicting registers of lower priority.  If possible,
+   we will avoid using these registers.  */
+   
+static void
+prune_preferences ()
+{
+  int i, j;
+  int allocno;
+  
+  /* Scan least most important to most important.
+     For each allocno, remove from preferences registers that cannot be used,
+     either because of conflicts or register type.  Then compute all registers
+     prefered by each lower-priority register that conflicts.  */
+
+  for (i = max_allocno - 1; i >= 0; i--)
+    {
+      HARD_REG_SET temp;
+
+      allocno = allocno_order[i];
+      COPY_HARD_REG_SET (temp, hard_reg_conflicts[allocno]);
+
+      if (allocno_calls_crossed[allocno] == 0)
+	IOR_HARD_REG_SET (temp, fixed_reg_set);
+      else
+	IOR_HARD_REG_SET (temp,	call_used_reg_set);
+
+      IOR_COMPL_HARD_REG_SET
+	(temp,
+	 reg_class_contents[(int) reg_preferred_class (allocno_reg[allocno])]);
+
+      AND_COMPL_HARD_REG_SET (hard_reg_preferences[allocno], temp);
+      AND_COMPL_HARD_REG_SET (hard_reg_copy_preferences[allocno], temp);
+      AND_COMPL_HARD_REG_SET (hard_reg_full_preferences[allocno], temp);
+
+      CLEAR_HARD_REG_SET (regs_someone_prefers[allocno]);
+
+      /* Merge in the preferences of lower-priority registers (they have
+	 already been pruned).  If we also prefer some of those registers,
+	 don't exclude them unless we are of a smaller size (in which case
+	 we want to give the lower-priority allocno the first chance for
+	 these registers).  */
+      for (j = i + 1; j < max_allocno; j++)
+	if (CONFLICTP (allocno, allocno_order[j]))
+	  {
+	    COPY_HARD_REG_SET (temp,
+			       hard_reg_full_preferences[allocno_order[j]]);
+	    if (allocno_size[allocno_order[j]] <= allocno_size[allocno])
+	      AND_COMPL_HARD_REG_SET (temp,
+				      hard_reg_full_preferences[allocno]);
+			       
+	    IOR_HARD_REG_SET (regs_someone_prefers[allocno], temp);
+	  }
+    }
+}
 
 /* Assign a hard register to ALLOCNO; look for one that is the beginning
    of a long enough stretch of hard regs none of which conflicts with ALLOCNO.
    The registers marked in PREFREGS are tried first.
+
+   LOSERS, if non-zero, is a HARD_REG_SET indicating registers that cannot
+   be used for this allocation.
 
    If ALL_REGS_P is zero, consider only the preferred class of ALLOCNO's reg.
    Otherwise ignore that preferred class.
@@ -477,121 +834,259 @@ global_conflicts ()
    If ACCEPT_CALL_CLOBBERED is nonzero, accept a call-clobbered hard reg that
    will have to be saved and restored at calls.
 
+   RETRYING is nonzero if this is called from retry_global_alloc.
+
    If we find one, record it in reg_renumber.
    If not, do nothing.  */
 
 static void
-find_reg (allocno, losers, all_regs_p, accept_call_clobbered, prefregs)
+find_reg (allocno, losers, all_regs_p, accept_call_clobbered, retrying)
      int allocno;
-     register short *losers;
+     HARD_REG_SET losers;
      int all_regs_p;
      int accept_call_clobbered;
-     HARD_REG_SET prefregs;
+     int retrying;
 {
-  register int i, prefreg, pass;
+  register int i, best_reg, pass;
 #ifdef HARD_REG_SET
   register		/* Declare it register if it's a scalar.  */
 #endif
-    HARD_REG_SET used;
+    HARD_REG_SET used, used1, used2;
 
   enum reg_class class 
-    = all_regs_p ? GENERAL_REGS : reg_preferred_class (allocno_reg[allocno]);
+    = all_regs_p ? ALL_REGS : reg_preferred_class (allocno_reg[allocno]);
   enum machine_mode mode = PSEUDO_REGNO_MODE (allocno_reg[allocno]);
 
   if (accept_call_clobbered)
-    COPY_HARD_REG_SET (used, call_fixed_reg_set);
-  else if (reg_n_calls_crossed[allocno_reg[allocno]] == 0)
-    COPY_HARD_REG_SET (used, fixed_reg_set);
+    COPY_HARD_REG_SET (used1, call_fixed_reg_set);
+  else if (allocno_calls_crossed[allocno] == 0)
+    COPY_HARD_REG_SET (used1, fixed_reg_set);
   else
-    COPY_HARD_REG_SET (used, call_used_reg_set);
+    COPY_HARD_REG_SET (used1, call_used_reg_set);
 
   /* Some registers should not be allocated in global-alloc.  */
-  IOR_HARD_REG_SET (used, no_global_alloc_regs);
+  IOR_HARD_REG_SET (used1, no_global_alloc_regs);
+  if (losers)
+    IOR_HARD_REG_SET (used1, losers);
 
-  IOR_COMPL_HARD_REG_SET (used, reg_class_contents[(int) class]);
-  IOR_HARD_REG_SET (used, hard_reg_conflicts[allocno]);
-  if (frame_pointer_needed)
-    SET_HARD_REG_BIT (used, FRAME_POINTER_REGNUM);
+  IOR_COMPL_HARD_REG_SET (used1, reg_class_contents[(int) class]);
+  COPY_HARD_REG_SET (used2, used1);
 
-  AND_COMPL_HARD_REG_SET (prefregs, used);
+  IOR_HARD_REG_SET (used1, hard_reg_conflicts[allocno]);
 
-  /* Try to find a register from the preferred set first. */
+  /* Try each hard reg to see if it fits.  Do this in two passes.
+     In the first pass, skip registers that are prefered by some other pseudo
+     to give it a better chance of getting one of those registers.  Only if
+     we can't get a register when excluding those do we take one of them.
+     However, we never allocate a register for the first time in pass 0.  */
 
-  i = -1;
-  for (prefreg = 0; prefreg < FIRST_PSEUDO_REGISTER; prefreg++)
-    if (TEST_HARD_REG_BIT (prefregs, prefreg)
-	&& (losers == 0 || losers[prefreg] < 0)
-	&& HARD_REGNO_MODE_OK (prefreg, mode))
-      {
-	register int j;
-	register int lim = prefreg + HARD_REGNO_NREGS (prefreg, mode);
-	for (j = prefreg + 1;
-	     (j < lim
-	      && ! TEST_HARD_REG_BIT (used, j)
-	      && (losers == 0 || losers[j] < 0));
-	     j++);
-	if (j == lim)
+  COPY_HARD_REG_SET (used, used1);
+  IOR_COMPL_HARD_REG_SET (used, regs_used_so_far);
+  IOR_HARD_REG_SET (used, regs_someone_prefers[allocno]);
+  
+  best_reg = -1;
+  for (i = FIRST_PSEUDO_REGISTER, pass = 0;
+       pass <= 1 && i >= FIRST_PSEUDO_REGISTER;
+       pass++)
+    {
+      if (pass == 1)
+	COPY_HARD_REG_SET (used, used1);
+      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+	{
+#ifdef REG_ALLOC_ORDER
+	  int regno = reg_alloc_order[i];
+#else
+	  int regno = i;
+#endif
+	  if (! TEST_HARD_REG_BIT (used, regno)
+	      && HARD_REGNO_MODE_OK (regno, mode))
+	    {
+	      register int j;
+	      register int lim = regno + HARD_REGNO_NREGS (regno, mode);
+	      for (j = regno + 1;
+		   (j < lim
+		    && ! TEST_HARD_REG_BIT (used, j));
+		   j++);
+	      if (j == lim)
+		{
+		  best_reg = regno;
+		  break;
+		}
+#ifndef REG_ALLOC_ORDER
+	      i = j;			/* Skip starting points we know will lose */
+#endif
+	    }
+	  }
+      }
+
+  /* See if there is a preferred register with the same class as the register
+     we allocated above.  Making this restriction prevents register
+     preferencing from creating worse register allocation.
+
+     Remove from the preferred registers and conflicting registers.  Note that
+     additional conflicts may have been added after `prune_preferences' was
+     called. 
+
+     First do this for those register with copy preferences, then all
+     preferred registers.  */
+
+  AND_COMPL_HARD_REG_SET (hard_reg_copy_preferences[allocno], used);
+  GO_IF_HARD_REG_SUBSET (hard_reg_copy_preferences[allocno],
+			 reg_class_contents[(int) NO_REGS], no_copy_prefs);
+
+  if (best_reg >= 0)
+    {
+      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+	if (TEST_HARD_REG_BIT (hard_reg_copy_preferences[allocno], i)
+	    && HARD_REGNO_MODE_OK (i, mode)
+	    && (REGNO_REG_CLASS (i) == REGNO_REG_CLASS (best_reg)
+		|| reg_class_subset_p (REGNO_REG_CLASS (i),
+				       REGNO_REG_CLASS (best_reg))
+		|| reg_class_subset_p (REGNO_REG_CLASS (best_reg),
+				       REGNO_REG_CLASS (i))))
+	    {
+	      register int j;
+	      register int lim = i + HARD_REGNO_NREGS (i, mode);
+	      for (j = i + 1;
+		   (j < lim
+		    && ! TEST_HARD_REG_BIT (used, j)
+		    && (REGNO_REG_CLASS (j)
+		    	== REGNO_REG_CLASS (best_reg + (j - i))
+			|| reg_class_subset_p (REGNO_REG_CLASS (j),
+					       REGNO_REG_CLASS (best_reg + (j - i)))
+			|| reg_class_subset_p (REGNO_REG_CLASS (best_reg + (j - i)),
+					       REGNO_REG_CLASS (j))));
+		   j++);
+	      if (j == lim)
+		{
+		  best_reg = i;
+		  goto no_prefs;
+		}
+	    }
+    }
+ no_copy_prefs:
+
+  AND_COMPL_HARD_REG_SET (hard_reg_preferences[allocno], used);
+  GO_IF_HARD_REG_SUBSET (hard_reg_preferences[allocno],
+			 reg_class_contents[(int) NO_REGS], no_prefs);
+
+  if (best_reg >= 0)
+    {
+      for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
+	if (TEST_HARD_REG_BIT (hard_reg_preferences[allocno], i)
+	    && HARD_REGNO_MODE_OK (i, mode)
+	    && (REGNO_REG_CLASS (i) == REGNO_REG_CLASS (best_reg)
+		|| reg_class_subset_p (REGNO_REG_CLASS (i),
+				       REGNO_REG_CLASS (best_reg))
+		|| reg_class_subset_p (REGNO_REG_CLASS (best_reg),
+				       REGNO_REG_CLASS (i))))
+	    {
+	      register int j;
+	      register int lim = i + HARD_REGNO_NREGS (i, mode);
+	      for (j = i + 1;
+		   (j < lim
+		    && ! TEST_HARD_REG_BIT (used, j)
+		    && (REGNO_REG_CLASS (j)
+		    	== REGNO_REG_CLASS (best_reg + (j - i))
+			|| reg_class_subset_p (REGNO_REG_CLASS (j),
+					       REGNO_REG_CLASS (best_reg + (j - i)))
+			|| reg_class_subset_p (REGNO_REG_CLASS (best_reg + (j - i)),
+					       REGNO_REG_CLASS (j))));
+		   j++);
+	      if (j == lim)
+		{
+		  best_reg = i;
+		  break;
+		}
+	    }
+    }
+ no_prefs:
+
+  /* If we haven't succeeded yet, try with caller-saves.  */
+  if (flag_caller_saves && best_reg < 0)
+    {
+      /* Did not find a register.  If it would be profitable to
+	 allocate a call-clobbered register and save and restore it
+	 around calls, do that.  */
+      if (! accept_call_clobbered
+	  && allocno_calls_crossed[allocno] != 0
+	  && CALLER_SAVE_PROFITABLE (allocno_n_refs[allocno],
+				     allocno_calls_crossed[allocno]))
+	{
+	  find_reg (allocno, losers, all_regs_p, 1, retrying);
+	  if (reg_renumber[allocno_reg[allocno]] >= 0)
+	    {
+	      caller_save_needed = 1;
+	      return;
+	    }
+	}
+    }
+
+  /* If we haven't succeeded yet,
+     see if some hard reg that conflicts with us
+     was utilized poorly by local-alloc.
+     If so, kick out the regs that were put there by local-alloc
+     so we can use it instead.  */
+  if (best_reg < 0 && !retrying
+      /* Let's not bother with multi-reg allocnos.  */
+      && allocno_size[allocno] == 1)
+    {
+      /* Count from the end, to find the least-used ones first.  */
+      for (i = FIRST_PSEUDO_REGISTER - 1; i >= 0; i--)
+	if (local_reg_n_refs[i] != 0
+	    /* Don't use a reg no good for this pseudo.  */
+	    && ! TEST_HARD_REG_BIT (used2, i)
+	    && HARD_REGNO_MODE_OK (i, mode)
+	    && ((double) local_reg_n_refs[i] / local_reg_live_length[i]
+		< ((double) allocno_n_refs[allocno]
+		   / allocno_live_length[allocno])))
 	  {
-	    i = prefreg;
+	    /* Hard reg I was used less in total by local regs
+	       than it would be used by this one allocno!  */
+	    int k;
+	    for (k = 0; k < max_regno; k++)
+	      if (reg_renumber[k] >= 0)
+		{
+		  int regno = reg_renumber[k];
+		  int endregno
+		    = regno + HARD_REGNO_NREGS (regno, PSEUDO_REGNO_MODE (k));
+
+		  if (i >= regno && i < endregno)
+		    reg_renumber[k] = -1;
+		}
+
+	    best_reg = i;
 	    break;
 	  }
-      }
-
-#if 0
-  /* Otherwise try each hard reg to see if it fits.  Do this in two passes.
-     In the first pass, skip registers that are prefered by some pseudo to
-     give it a better chance of getting one of those registers.  Only if
-     we can't get a register when excluding those do we take one of them.  */
-
-  /* This is turned off because it makes worse allocation on the 68020.  */
-  for (pass = 0; pass <= 1 && i < 0; pass++)
-#endif
-  pass = 1;
-    for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-      {
-#ifdef REG_ALLOC_ORDER
-	int regno = reg_alloc_order[i];
-#else
-	int regno = i;
-#endif
-	if (! TEST_HARD_REG_BIT (used, regno)
-	    && (losers == 0 || losers[regno] < 0)
-	    && (pass == 1 || ! TEST_HARD_REG_BIT (regs_someone_prefers, regno))
-	    && HARD_REGNO_MODE_OK (regno, mode))
-	  {
-	    register int j;
-	    register int lim = regno + HARD_REGNO_NREGS (regno, mode);
-	    for (j = regno + 1;
-		 (j < lim
-		  && ! TEST_HARD_REG_BIT (used, j)
-		  && (losers == 0 || losers[j] < 0));
-		 j++);
-	    if (j == lim)
-	      {
-		i = regno;
-		break;
-	      }
-#ifndef REG_ALLOC_ORDER
-	    i = j;			/* Skip starting points we know will lose */
-#endif
-	  }
-      }
+    }
 
   /* Did we find a register?  */
 
-  if (i < FIRST_PSEUDO_REGISTER)
+  if (best_reg >= 0)
     {
       register int lim, j;
       HARD_REG_SET this_reg;
 
       /* Yes.  Record it as the hard register of this pseudo-reg.  */
-      reg_renumber[allocno_reg[allocno]] = i;
+      reg_renumber[allocno_reg[allocno]] = best_reg;
+      /* Also of any pseudo-regs that share with it.  */
+      if (reg_may_share[allocno_reg[allocno]])
+	for (j = FIRST_PSEUDO_REGISTER; j < max_regno; j++)
+	  if (reg_allocno[j] == allocno)
+	    reg_renumber[j] = best_reg;
+
+      /* Make a set of the hard regs being allocated.  */
+      CLEAR_HARD_REG_SET (this_reg);
+      lim = best_reg + HARD_REGNO_NREGS (best_reg, mode);
+      for (j = best_reg; j < lim; j++)
+	{
+	  SET_HARD_REG_BIT (this_reg, j);
+	  SET_HARD_REG_BIT (regs_used_so_far, j);
+	  /* This is no longer a reg used just by local regs.  */
+	  local_reg_n_refs[j] = 0;
+	}
       /* For each other pseudo-reg conflicting with this one,
 	 mark it as conflicting with the hard regs this one occupies.  */
-      CLEAR_HARD_REG_SET (this_reg);
-      lim = i + HARD_REGNO_NREGS (i, mode);
-      for (j = i; j < lim; j++)
-	SET_HARD_REG_BIT (this_reg, j);
       lim = allocno;
       for (j = 0; j < max_allocno; j++)
 	if (CONFLICTP (lim, j) || CONFLICTP (j, lim))
@@ -599,35 +1094,19 @@ find_reg (allocno, losers, all_regs_p, accept_call_clobbered, prefregs)
 	    IOR_HARD_REG_SET (hard_reg_conflicts[j], this_reg);
 	  }
     }
-  else if (flag_caller_saves)
-    {
-      /* Did not find a register.  If it would be profitable to
-	 allocate a call-clobbered register and save and restore it
-	 around calls, do that.  */
-      if (! accept_call_clobbered
-	  && reg_n_calls_crossed[allocno_reg[allocno]] != 0
-	  && CALLER_SAVE_PROFITABLE (reg_n_refs[allocno_reg[allocno]],
-				     reg_n_calls_crossed[allocno_reg[allocno]]))
-	{
-	  find_reg (allocno, losers, all_regs_p, 1, prefregs);
-	  if (reg_renumber[allocno_reg[allocno]] >= 0)
-	    caller_save_needed = 1;
-	}
-    }
 }
 
 /* Called from `reload' to look for a hard reg to put pseudo reg REGNO in.
    Perhaps it had previously seemed not worth a hard reg,
    or perhaps its old hard reg has been commandeered for reloads.
-   FORBIDDEN_REGS is a vector that indicates certain hard regs
-   that may not be used, even if they do not appear to be allocated.
-   A nonnegative element means the corresponding hard reg is forbidden.
+   FORBIDDEN_REGS indicates certain hard regs that may not be used, even if
+   they do not appear to be allocated.
    If FORBIDDEN_REGS is zero, no regs are forbidden.  */
 
 void
 retry_global_alloc (regno, forbidden_regs)
      int regno;
-     short *forbidden_regs;
+     HARD_REG_SET forbidden_regs;
 {
   int allocno = reg_allocno[regno];
   if (allocno >= 0)
@@ -636,84 +1115,19 @@ retry_global_alloc (regno, forbidden_regs)
 	 first try allocating in the class that is cheapest
 	 for this pseudo-reg.  If that fails, try any reg.  */
       if (N_REG_CLASSES > 1)
-	find_reg (allocno, forbidden_regs, 0, 0,
-		  hard_reg_preferences[allocno]);
+	find_reg (allocno, forbidden_regs, 0, 0, 1);
       if (reg_renumber[regno] < 0
 	  && !reg_preferred_or_nothing (regno))
-	find_reg (allocno, forbidden_regs, 1, 0,
-		  hard_reg_preferences[allocno]);
+	find_reg (allocno, forbidden_regs, 1, 0, 1);
+
+      /* If we found a register, modify the RTL for the register to
+	 show the hard register, and mark that register live.  */
+      if (reg_renumber[regno] >= 0)
+	{
+	  REGNO (regno_reg_rtx[regno]) = reg_renumber[regno];
+	  mark_home_live (regno);
+	}
     }
-}
-
-/* Called from reload pass to see if current function's pseudo regs
-   require a frame pointer to be allocated and set up.
-
-   Return 1 if so, 0 otherwise.
-   We may alter the hard-reg allocation of the pseudo regs
-   in order to make the frame pointer unnecessary.
-   However, if the value is 1, nothing has been altered.
-
-   Args grant access to some tables used in reload1.c.
-   See there for info on them.  */
-
-int
-check_frame_pointer_required (reg_equiv_constant, reg_equiv_mem, reg_equiv_address)
-     rtx *reg_equiv_constant, *reg_equiv_mem, *reg_equiv_address;
-{
-  register int i;
-  HARD_REG_SET *old_hard_reg_conflicts;
-  short *old_reg_renumber;
-  char old_regs_ever_live[FIRST_PSEUDO_REGISTER];
-
-  /* If any pseudo reg has no hard reg and no equivalent,
-     we must have a frame pointer.  */
-
-  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
-    if (reg_renumber[i] < 0 && reg_n_refs[i] > 0
-        && reg_equiv_mem[i] == 0 && reg_equiv_constant[i] == 0
-	&& reg_equiv_address[i] == 0)
-      return 1;
-
-  /* If we might not need a frame pointer,
-     try finding a hard reg for any pseudo that has a memory equivalent.
-     That is because the memory equivalent probably refers to a frame
-     pointer.  */
-
-  old_reg_renumber = (short *) alloca (max_regno * sizeof (short));
-  old_hard_reg_conflicts = (HARD_REG_SET *)
-    alloca (max_allocno * sizeof (HARD_REG_SET));
-
-  bcopy (reg_renumber, old_reg_renumber, max_regno * sizeof (short));
-  bcopy (hard_reg_conflicts, old_hard_reg_conflicts,
-	 max_allocno * sizeof (HARD_REG_SET));
-  bcopy (regs_ever_live, old_regs_ever_live, sizeof regs_ever_live);
-
-  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
-    if (reg_renumber[i] < 0
-	&& ((reg_equiv_mem[i]
-	     && reg_mentioned_p (frame_pointer_rtx, reg_equiv_mem[i]))
-	    || (reg_equiv_address[i]
-		&& reg_mentioned_p (frame_pointer_rtx, reg_equiv_address[i]))))
-      {
-	retry_global_alloc (i, 0);
-	/* If we can't find a hard reg for ALL of them,
-	   or if a previously unneeded hard reg is used that requires saving,
-	   we fail: set all those pseudos back as they were.  */
-	if (reg_renumber[i] < 0
-	    || (! old_regs_ever_live[reg_renumber[i]]
-		&& ! call_used_regs[reg_renumber[i]]))
-	  {
-	    bcopy (old_reg_renumber, reg_renumber,
-		   max_regno * sizeof (short));
-	    bcopy (old_hard_reg_conflicts, hard_reg_conflicts,
-		   max_allocno * sizeof (HARD_REG_SET));
-	    bcopy (old_regs_ever_live, regs_ever_live, sizeof regs_ever_live);
-	    return 1;
-	  }
-	mark_home_live (i);
-      }
-
-  return 0;
 }
 
 /* Record a conflict between register REGNO
@@ -745,7 +1159,18 @@ record_one_conflict (regno)
       register int ialloc_prod = ialloc * allocno_row_words;
       IOR_HARD_REG_SET (hard_reg_conflicts[ialloc], hard_regs_live);
       for (j = allocno_row_words - 1; j >= 0; j--)
-	conflicts[ialloc_prod + j] |= allocnos_live[j];
+	{
+#if 0
+	  int k;
+	  for (k = 0; k < n_no_conflict_pairs; k++)
+	    if (! ((j == no_conflict_pairs[k].allocno1
+		    && ialloc == no_conflict_pairs[k].allocno2)
+		   ||
+		   (j == no_conflict_pairs[k].allocno2
+		    && ialloc == no_conflict_pairs[k].allocno1)))
+#endif /* 0 */
+	      conflicts[ialloc_prod + j] |= allocnos_live[j];
+	}
     }
 }
 
@@ -787,6 +1212,9 @@ record_conflicts (allocno_vec, len)
    REG might actually be something other than a register;
    if so, we do nothing.
 
+   SETTER is 0 if this register was modified by an auto-increment (i.e.,
+   a REG_INC note was found for it).
+
    CLOBBERs are processed here by calling mark_reg_clobber.  */ 
 
 static void
@@ -811,7 +1239,7 @@ mark_reg_store (orig_reg, setter)
   if (GET_CODE (reg) != REG)
     return;
 
-  if (GET_CODE (setter) != SET)
+  if (setter && GET_CODE (setter) == CLOBBER)
     {
       /* A clobber of a register should be processed here too.  */
       mark_reg_clobber (orig_reg, setter);
@@ -820,7 +1248,8 @@ mark_reg_store (orig_reg, setter)
 
   regs_set[n_regs_set++] = reg;
 
-  set_preference (reg, SET_SRC (setter));
+  if (setter)
+    set_preference (reg, SET_SRC (setter));
 
   regno = REGNO (reg);
 
@@ -975,9 +1404,11 @@ set_preference (dest, src)
   /* Amount to add to the hard regno for SRC, or subtract from that for DEST,
      to compensate for subregs in SRC or DEST.  */
   int offset = 0;
+  int i;
+  int copy = 1;
 
   if (GET_RTX_FORMAT (GET_CODE (src))[0] == 'e')
-    src = XEXP (src, 0);
+    src = XEXP (src, 0), copy = 0;
 
   /* Get the reg number for both SRC and DEST.
      If neither is a reg, give up.  */
@@ -1019,9 +1450,16 @@ set_preference (dest, src)
       dest_regno -= offset;
       if (dest_regno >= 0 && dest_regno < FIRST_PSEUDO_REGISTER)
 	{
+	  if (copy)
+	    SET_REGBIT (hard_reg_copy_preferences,
+			reg_allocno[src_regno], dest_regno);
+
 	  SET_REGBIT (hard_reg_preferences,
 		      reg_allocno[src_regno], dest_regno);
-	  SET_HARD_REG_BIT (regs_someone_prefers, dest_regno);
+	  for (i = dest_regno;
+	       i < dest_regno + HARD_REGNO_NREGS (dest_regno, GET_MODE (dest));
+	       i++)
+	    SET_REGBIT (hard_reg_full_preferences, reg_allocno[src_regno], i);
 	}
     }
 
@@ -1031,11 +1469,40 @@ set_preference (dest, src)
       src_regno += offset;
       if (src_regno >= 0 && src_regno < FIRST_PSEUDO_REGISTER)
 	{
+	  if (copy)
+	    SET_REGBIT (hard_reg_copy_preferences,
+			reg_allocno[dest_regno], src_regno);
+
 	  SET_REGBIT (hard_reg_preferences,
 		      reg_allocno[dest_regno], src_regno);
-	  SET_HARD_REG_BIT (regs_someone_prefers, src_regno);
+	  for (i = src_regno;
+	       i < src_regno + HARD_REGNO_NREGS (src_regno, GET_MODE (src));
+	       i++)
+	    SET_REGBIT (hard_reg_full_preferences, reg_allocno[dest_regno], i);
 	}
     }
+}
+
+/* Indicate that hard register number FROM was eliminated and replaced with
+   an offset from hard register number TO.  The status of hard registers live
+   at the start of a basic block is updated by replacing a use of FROM with
+   a use of TO.  */
+
+void
+mark_elimination (from, to)
+     int from, to;
+{
+  int i;
+
+  for (i = 0; i < n_basic_blocks; i++)
+    if ((basic_block_live_at_start[i][from / HOST_BITS_PER_INT]
+	 & (1 << (from % HOST_BITS_PER_INT))) != 0)
+      {
+	basic_block_live_at_start[i][from / HOST_BITS_PER_INT]
+	  &= ~ (1 << (from % HOST_BITS_PER_INT));
+	basic_block_live_at_start[i][to / HOST_BITS_PER_INT]
+	  |= (1 << (to % HOST_BITS_PER_INT));
+      }
 }
 
 /* Print debugging trace information if -greg switch is given,
@@ -1046,10 +1513,16 @@ dump_conflicts (file)
      FILE *file;
 {
   register int i;
+  register int has_preferences;
   fprintf (file, ";; %d regs to allocate:", max_allocno);
   for (i = 0; i < max_allocno; i++)
     {
+      int j;
       fprintf (file, " %d", allocno_reg[allocno_order[i]]);
+      for (j = 0; j < max_regno; j++)
+	if (reg_allocno[j] == allocno_order[i]
+	    && j != allocno_reg[allocno_order[i]])
+	  fprintf (file, "+%d", j);
       if (allocno_size[allocno_order[i]] != 1)
 	fprintf (file, " (%d)", allocno_size[allocno_order[i]]);
     }
@@ -1066,6 +1539,19 @@ dump_conflicts (file)
 	if (TEST_HARD_REG_BIT (hard_reg_conflicts[i], j))
 	  fprintf (file, " %d", j);
       fprintf (file, "\n");
+
+      has_preferences = 0;
+      for (j = 0; j < FIRST_PSEUDO_REGISTER; j++)
+	if (TEST_HARD_REG_BIT (hard_reg_preferences[i], j))
+	  has_preferences = 1;
+
+      if (! has_preferences)
+	continue;
+      fprintf (file, ";; %d preferences:", allocno_reg[i]);
+      for (j = 0; j < FIRST_PSEUDO_REGISTER; j++)
+	if (TEST_HARD_REG_BIT (hard_reg_preferences[i], j))
+	  fprintf (file, " %d", j);
+      fprintf (file, "\n");
     }
   fprintf (file, "\n");
 }
@@ -1074,14 +1560,16 @@ void
 dump_global_regs (file)
      FILE *file;
 {
-  register int i;
-
-  fprintf (file, ";; Register dispositions:");
-  for (i = FIRST_PSEUDO_REGISTER; i < max_regno; i++)
-    {
-      if (reg_renumber[i] >= 0)
-	fprintf (file, " %d in %d ", i, reg_renumber[i]);
-    }
+  register int i, j;
+  
+  fprintf (file, ";; Register dispositions:\n");
+  for (i = FIRST_PSEUDO_REGISTER, j = 0; i < max_regno; i++)
+    if (reg_renumber[i] >= 0)
+      {
+	fprintf (file, "%d in %d  ", i, reg_renumber[i]);
+        if (++j % 6 == 0)
+	  fprintf (file, "\n");
+      }
 
   fprintf (file, "\n\n;; Hard regs used: ");
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)

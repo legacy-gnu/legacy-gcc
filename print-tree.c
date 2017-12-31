@@ -1,11 +1,11 @@
 /* Prints out tree in human readable form - GNU C-compiler
-   Copyright (C) 1990 Free Software Foundation, Inc.
+   Copyright (C) 1990, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -22,28 +22,12 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "tree.h"
 #include <stdio.h>
 
-
-/* Names of tree components.
-   Used for printing out the tree and error messages.  */
-#define DEFTREECODE(SYM, NAME, TYPE, LEN) NAME,
-
-char *tree_code_name[] = {
-#include "tree.def"
-};
-#undef DEFTREECODE
-
-/* Indexed by enum tree_code, contains a character which is
-   '<' for a comparison expression, '1', for a unary arithmetic
-   expression, '2' for a binary arithmetic expression, `e' for
-   other types of expressions, `r' for a reference, `c' for a
-   constant, `d' for a decl, `t' for a type, `s' for a statement,
-   and `x' for anything else (TREE_LIST, IDENTIFIER, etc).  */
-
-#define TREE_CODE_CLASS(CODE)	(*tree_code_type[(int) (CODE)])
+extern char **tree_code_name;
 
 extern char *mode_name[];
 
 void print_node ();
+void indent_to ();
 
 /* Define the hash table of nodes already seen.
    Such nodes are not repeated; brief cross-references are used.  */
@@ -202,6 +186,13 @@ print_node (file, prefix, node, indent)
       return;
     }
 
+  /* It is unsafe to look at any other filds of an ERROR_MARK node. */
+  if (TREE_CODE (node) == ERROR_MARK)
+    {
+      print_node_brief (file, prefix, node, indent);
+      return;
+    }
+
   hash = ((int) node & ~(1 << (HOST_BITS_PER_INT - 1))) % HASH_SIZE;
 
   /* If node is in the table, just mention its address.  */
@@ -258,52 +249,93 @@ print_node (file, prefix, node, indent)
 	indent_to (file, indent + 3);
     }
 
-  if (TREE_EXTERNAL (node))
-    fprintf (file, " external");
-  if (TREE_PUBLIC (node))
-    fprintf (file, " public");
-  if (TREE_STATIC (node))
-    fprintf (file, " static");
-  if (TREE_VOLATILE (node))
-    fprintf (file, " volatile");
-  if (TREE_PACKED (node))
-    fprintf (file, " packed");
-  if (TREE_READONLY (node))
-    fprintf (file, " readonly");
-  if (TREE_LITERAL (node))
-    fprintf (file, " literal");
-  if (TREE_NONLOCAL (node))
-    fprintf (file, " nonlocal");
-  if (TREE_PERMANENT (node))
-    fprintf (file, " permanent");
-  if (TREE_ADDRESSABLE (node))
-    fprintf (file, " addressable");
-  if (TREE_REGDECL (node))
-    fprintf (file, " regdecl");
-  if (TREE_THIS_VOLATILE (node))
-    fprintf (file, " this_vol");
-  if (TREE_UNSIGNED (node))
-    fprintf (file, " unsigned");
-  if (TREE_ASM_WRITTEN (node))
-    fprintf (file, " asm_written");
-  if (TREE_INLINE (node))
-    fprintf (file, " inline");
-  if (TREE_USED (node))
-    fprintf (file, " used");
-  if (TREE_LANG_FLAG_1 (node))
-    fprintf (file, " lang_flag_1");
-  if (TREE_LANG_FLAG_2 (node))
-    fprintf (file, " lang_flag_2");
-  if (TREE_LANG_FLAG_3 (node))
-    fprintf (file, " lang_flag_3");
-  if (TREE_LANG_FLAG_4 (node))
-    fprintf (file, " lang_flag_4");
+  /* If a permanent object is in the wrong obstack, or the reverse, warn.  */
+  if (object_permanent_p (node) != TREE_PERMANENT (node))
+    {
+      if (TREE_PERMANENT (node))
+	fputs (" !!permanent object in non-permanent obstack!!", file);
+      else
+	fputs (" !!non-permanent object in permanent obstack!!", file);
+      indent_to (file, indent + 3);
+    }
 
+  if (TREE_SIDE_EFFECTS (node))
+    fputs (" side-effects", file);
+  if (TREE_READONLY (node))
+    fputs (" readonly", file);
+  if (TREE_CONSTANT (node))
+    fputs (" constant", file);
+  if (TREE_ADDRESSABLE (node))
+    fputs (" addressable", file);
+  if (TREE_THIS_VOLATILE (node))
+    fputs (" volatile", file);
+  if (TREE_UNSIGNED (node))
+    fputs (" unsigned", file);
+  if (TREE_ASM_WRITTEN (node))
+    fputs (" asm_written", file);
+  if (TREE_USED (node))
+    fputs (" used", file);
+  if (TREE_PERMANENT (node))
+    fputs (" permanent", file);
+  if (TREE_PUBLIC (node))
+    fputs (" public", file);
+  if (TREE_STATIC (node))
+    fputs (" static", file);
+  if (TREE_LANG_FLAG_0 (node))
+    fputs (" tree_0", file);
+  if (TREE_LANG_FLAG_1 (node))
+    fputs (" tree_1", file);
+  if (TREE_LANG_FLAG_2 (node))
+    fputs (" tree_2", file);
+  if (TREE_LANG_FLAG_3 (node))
+    fputs (" tree_3", file);
+  if (TREE_LANG_FLAG_4 (node))
+    fputs (" tree_4", file);
+  if (TREE_LANG_FLAG_5 (node))
+    fputs (" tree_5", file);
+  if (TREE_LANG_FLAG_6 (node))
+    fputs (" tree_6", file);
+
+  /* DECL_ nodes have additional attributes.  */
 
   switch (TREE_CODE_CLASS (TREE_CODE (node)))
     {
     case 'd':
       mode = DECL_MODE (node);
+
+      if (TREE_EXTERNAL (node))
+	fputs (" external", file);
+      if (TREE_NONLOCAL (node))
+	fputs (" nonlocal", file);
+      if (TREE_REGDECL (node))
+	fputs (" regdecl", file);
+      if (TREE_INLINE (node))
+	fputs (" inline", file);
+      if (DECL_BIT_FIELD (node))
+	fputs (" bit-field", file);
+      if (DECL_VIRTUAL_P (node))
+	fputs (" virtual", file);
+      if (DECL_FROM_INLINE (node))
+	fputs (" from_inline", file);
+      if (DECL_IGNORED_P (node))
+	fputs (" ignored", file);
+      if (DECL_LANG_FLAG_0 (node))
+	fputs (" decl_0", file);
+      if (DECL_LANG_FLAG_1 (node))
+	fputs (" decl_1", file);
+      if (DECL_LANG_FLAG_2 (node))
+	fputs (" decl_2", file);
+      if (DECL_LANG_FLAG_3 (node))
+	fputs (" decl_3", file);
+      if (DECL_LANG_FLAG_4 (node))
+	fputs (" decl_4", file);
+      if (DECL_LANG_FLAG_5 (node))
+	fputs (" decl_5", file);
+      if (DECL_LANG_FLAG_6 (node))
+	fputs (" decl_6", file);
+      if (DECL_LANG_FLAG_7 (node))
+	fputs (" decl_7", file);
+
       fprintf (file, " %s", mode_name[(int) mode]);
 
       fprintf (file, " file %s line %d",
@@ -312,14 +344,34 @@ print_node (file, prefix, node, indent)
       print_node (file, "size", DECL_SIZE (node), indent + 4);
       indent_to (file, indent + 3);
       fprintf (file, " align %d", DECL_ALIGN (node));
-      fprintf (file, " size_unit %d", DECL_SIZE_UNIT (node));
-      fprintf (file, " offset %d", DECL_OFFSET (node));
+      fprintf (file, " frame_size %d", DECL_FRAME_SIZE (node));
+      if (TREE_CODE (node) == FIELD_DECL)
+	print_node (file, "bitpos", DECL_FIELD_BITPOS (node), indent + 4);
       print_node_brief (file, "context", DECL_CONTEXT (node), indent + 4);
-      print_node_brief (file, "voffset", DECL_VOFFSET (node), indent + 4);
 
       print_node (file, "arguments", DECL_ARGUMENTS (node), indent + 4);
       print_node (file, "result", DECL_RESULT (node), indent + 4);
       print_node_brief (file, "initial", DECL_INITIAL (node), indent + 4);
+
+      print_lang_decl (file, node, indent);
+
+      if (DECL_RTL (node) != 0)
+	{
+	  indent_to (file, indent + 4);
+	  print_rtl (file, DECL_RTL (node));
+	}
+
+      if (DECL_SAVED_INSNS (node) != 0)
+	{
+	  indent_to (file, indent + 4);
+	  if (TREE_CODE (node) == PARM_DECL)
+	    {
+	      fprintf (file, "incoming-rtl ");
+	      print_rtl (file, DECL_INCOMING_RTL (node));
+	    }
+	  else if (TREE_CODE (node) == FUNCTION_DECL)
+	    fprintf (file, "saved-insns 0x%x", DECL_SAVED_INSNS (node));
+	}
 
       /* Print the decl chain only if decl is at second level.  */
       if (indent == 4)
@@ -329,6 +381,23 @@ print_node (file, prefix, node, indent)
       break;
 
     case 't':
+      if (TYPE_NO_FORCE_BLK (node))
+	fputs (" no_force_blk", file);
+      if (TYPE_LANG_FLAG_0 (node))
+	fputs (" type_0", file);
+      if (TYPE_LANG_FLAG_1 (node))
+	fputs (" type_1", file);
+      if (TYPE_LANG_FLAG_2 (node))
+	fputs (" type_2", file);
+      if (TYPE_LANG_FLAG_3 (node))
+	fputs (" type_3", file);
+      if (TYPE_LANG_FLAG_4 (node))
+	fputs (" type_4", file);
+      if (TYPE_LANG_FLAG_5 (node))
+	fputs (" type_5", file);
+      if (TYPE_LANG_FLAG_6 (node))
+	fputs (" type_6", file);
+
       mode = TYPE_MODE (node);
       fprintf (file, " %s", mode_name[(int) mode]);
 
@@ -336,11 +405,7 @@ print_node (file, prefix, node, indent)
       indent_to (file, indent + 3);
 
       fprintf (file, " align %d", TYPE_ALIGN (node));
-      fprintf (file, " size_unit %d", TYPE_SIZE_UNIT (node));
-      fprintf (file, " sep_unit %d", TYPE_SEP_UNIT (node));
       fprintf (file, " symtab %d", TYPE_SYMTAB_ADDRESS (node));
-
-      print_node (file, "sep", TYPE_SEP (node), indent + 4);
 
       if (TREE_CODE (node) == ARRAY_TYPE || TREE_CODE (node) == SET_TYPE)
 	print_node (file, "domain", TYPE_DOMAIN (node), indent + 4);
@@ -355,14 +420,22 @@ print_node (file, prefix, node, indent)
 	  fprintf (file, " precision %d", TYPE_PRECISION (node));
 	  print_node (file, "min", TYPE_MIN_VALUE (node), indent + 4);
 	  print_node (file, "max", TYPE_MAX_VALUE (node), indent + 4);
-	  print_node (file, "values", TYPE_VALUES (node));
+	  print_node (file, "values", TYPE_VALUES (node), indent + 4);
 	}
       else if (TREE_CODE (node) == REAL_TYPE)
 	fprintf (file, " precision %d", TYPE_PRECISION (node));
       else if (TREE_CODE (node) == RECORD_TYPE || TREE_CODE (node) == UNION_TYPE)
 	print_node (file, "fields", TYPE_FIELDS (node), indent + 4);
       else if (TREE_CODE (node) == FUNCTION_TYPE || TREE_CODE (node) == METHOD_TYPE)
-	print_node (file, "arg-types", TYPE_ARG_TYPES (node), indent + 4);
+	{
+	  if (TYPE_METHOD_BASETYPE (node))
+	    print_node_brief (file, "method basetype", TYPE_METHOD_BASETYPE (node), indent + 4);
+	  print_node (file, "arg-types", TYPE_ARG_TYPES (node), indent + 4);
+	}
+      if (TYPE_CONTEXT (node))
+	print_node_brief (file, "context", TYPE_CONTEXT (node), indent + 4);
+
+      print_lang_type (file, node, indent);
 
       if (TYPE_POINTER_TO (node) || TREE_CHAIN (node))
 	indent_to (file, indent + 3);
@@ -376,13 +449,30 @@ print_node (file, prefix, node, indent)
     case '1':
     case '2':
     case 'r':
+    case 's':
+      switch (TREE_CODE (node))
+	{
+	case BLOCK:
+	  print_node (file, "vars", BLOCK_VARS (node), indent + 4);
+	  print_node (file, "tags", BLOCK_TYPE_TAGS (node), indent + 4);
+	  print_node (file, "supercontext", BLOCK_SUPERCONTEXT (node), indent + 4);
+	  print_node (file, "subblocks", BLOCK_SUBBLOCKS (node), indent + 4);
+	  print_node (file, "chain", BLOCK_CHAIN (node), indent + 4);
+	  return;
+
+	case BIND_EXPR:
+	  print_node (file, "vars", TREE_OPERAND (node, 0), indent + 4);
+	  print_node (file, "body", TREE_OPERAND (node, 1), indent + 4);
+	  return;
+	}
+
       first_rtl = len = tree_code_length[(int) TREE_CODE (node)];
       /* These kinds of nodes contain rtx's, not trees,
 	 after a certain point.  Print the rtx's as rtx's.  */
       switch (TREE_CODE (node))
 	{
 	case SAVE_EXPR:
-	  first_rtl = 1;
+	  first_rtl = 2;
 	  break;
 	case CALL_EXPR:
 	  first_rtl = 2;
@@ -401,6 +491,8 @@ print_node (file, prefix, node, indent)
 	{
 	  if (i >= first_rtl)
 	    {
+	      indent_to (file, indent + 4);
+	      fprintf (file, "rtl %d ", i);
 	      if (TREE_OPERAND (node, i))
 		print_rtl (file, TREE_OPERAND (node, i));
 	      else
@@ -415,39 +507,6 @@ print_node (file, prefix, node, indent)
 	      print_node (file, temp, TREE_OPERAND (node, i), indent + 4);
 	    }
 	}
-      break;
-
-    case 's':
-      fprintf (file, " file %s line %d",
-	       STMT_SOURCE_FILE (node), STMT_SOURCE_LINE (node));
-
-      switch (TREE_CODE (node))
-	{
-	case IF_STMT:
-	  print_node (file, "cond", STMT_COND (node), indent + 4);
-	  print_node (file, "then", STMT_THEN (node), indent + 4);
-	  print_node (file, "else", STMT_ELSE (node), indent + 4);
-	  break;
-
-	case LET_STMT:
-	case WITH_STMT:
-	  print_node (file, "vars", STMT_VARS (node), indent + 4);
-	  print_node (file, "tags", STMT_TYPE_TAGS (node), indent + 4);
-	  print_node (file, "supercontext", STMT_SUPERCONTEXT (node), indent + 4);
-	  print_node (file, "body", STMT_BODY (node), indent + 4);
-	  print_node (file, "subblocks", STMT_SUBBLOCKS (node), indent + 4);
-	  break;
-
-	case CASE_STMT:
-	  print_node (file, "index", STMT_CASE_INDEX (node), indent + 4);
-	  print_node (file, "list", STMT_CASE_LIST (node), indent + 4);
-	  break;
-
-	default:
-	  print_node (file, "body", STMT_BODY (node), indent + 4);
-	  break;
-	}
-      print_node (file, "chain", TREE_CHAIN (node), indent + 4);
       break;
 
     case 'c':
@@ -499,12 +558,22 @@ print_node (file, prefix, node, indent)
 	  print_node (file, "chain", TREE_CHAIN (node), indent + 4);
 	  break;
 
+	case TREE_VEC:
+	  len = TREE_VEC_LENGTH (node);
+	  for (i = 0; i < len; i++)
+	    {
+	      char temp[10];
+	      sprintf (temp, "elt %d", i);
+	      indent_to (file, indent + 4);
+	      print_node_brief (file, temp, TREE_VEC_ELT (node, i), 0);
+	    }
+	  break;
+
 	case OP_IDENTIFIER:
 	  print_node (file, "op1", TREE_PURPOSE (node), indent + 4);
 	  print_node (file, "op2", TREE_VALUE (node), indent + 4);
 	}
 
-      print_node (file, "chain", TREE_CHAIN (node), indent + 4);
       break;
     }
 }

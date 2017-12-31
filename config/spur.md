@@ -5,7 +5,7 @@
 
 ;; GNU CC is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation; either version 1, or (at your option)
+;; the Free Software Foundation; either version 2, or (at your option)
 ;; any later version.
 
 ;; GNU CC is distributed in the hope that it will be useful,
@@ -33,12 +33,10 @@
 ;; The define_peephole's below recognize the combinations of
 ;; compares and jumps, and output each pair as a single assembler insn.
 
-;; Put cmpsi first among compare insns so it matches two CONST_INT operands.
-
 ;; This controls RTL generation and register allocation.
 (define_insn "cmpsi"
   [(set (cc0)
-	(compare (match_operand:SI 0 "nonmemory_operand" "rK")
+	(compare (match_operand:SI 0 "register_operand" "rK")
 		 (match_operand:SI 1 "nonmemory_operand" "rK")))]
   ""
   "*
@@ -46,8 +44,6 @@
   cc_status.value1 = operands[0], cc_status.value2 = operands[1];
   return \"\";
 }")
-
-;; Put tstsi first among test insns so it matches a CONST_INT operand.
 
 ;; We have to have this because cse can optimize the previous pattern
 ;; into this one.
@@ -581,12 +577,12 @@
 {
   if (FP_REG_P (operands[0]))
     return output_fp_move_double (operands);
-  if (operands[1] == dconst0_rtx && GET_CODE (operands[0]) == REG)
+  if (operands[1] == CONST0_RTX (DFmode) && GET_CODE (operands[0]) == REG)
     {
       operands[1] = gen_rtx (REG, SImode, REGNO (operands[0]) + 1);
       return \"add_nt %0,r0,$0\;add_nt %1,r0,$0\";
     }
-  if (operands[1] == dconst0_rtx && GET_CODE (operands[0]) == MEM)
+  if (operands[1] == CONST0_RTX (DFmode) && GET_CODE (operands[0]) == MEM)
     {
       operands[1] = adj_offsettable_operand (operands[0], 4);
       return \"st_32 r0,%0\;st_32 r0,%1\";

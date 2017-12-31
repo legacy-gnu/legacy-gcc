@@ -34,6 +34,15 @@ document pdn
 Print the name of the decl-node that is $.
 end
 
+define ptn
+output $.type.name->decl.name->identifier.pointer
+echo \n
+end
+
+document ptn
+Print the name of the type-node that is $.
+end
+
 define prc
 output (enum rtx_code) $.code
 echo \ (

@@ -1,10 +1,14 @@
-This directory contains the version 1.41 release of the GNU C compiler.
-All serious bugs (that would make ordinary C programs fail) reported for
-previous test releases have been fixed.  We have often decided not to fix
-bugs that are Less important, to avoid risking creating new bugs.
+This directory contains the version 2.0 release of the GNU C compiler.
+This is the first test release of GCC version 2.
 
-See the file gcc.texinfo for installation and porting information.
-The file INSTALL contains a copy of the installation information.
+See the file gcc.texi (together with other files that it includes) for
+installation and porting information.  The file INSTALL contains a
+copy of the installation information, as plain ASCII.
+
+Installing this package will create various files in subdirectories of
+/usr/local/lib, which are passes used by the compiler and a library
+named libgcc.a.  It will also create /usr/local/bin/gcc, which is
+the user-level command to do a compilation.
 
 The GNU C compiler is free software.  See the file COPYING for copying
 permission.

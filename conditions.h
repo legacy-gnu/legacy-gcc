@@ -5,7 +5,7 @@ This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -17,6 +17,9 @@ You should have received a copy of the GNU General Public License
 along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
+/* None of the things in the files exist if we don't use CC0.  */
+
+#ifdef HAVE_cc0
 
 /* The variable cc_status says how to interpret the condition code.
    It is set by output routines for an instruction that sets the cc's
@@ -34,11 +37,11 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
    were set in a nonstandard manner.  The output of jump instructions
    uses these flags to compensate and produce the standard result
    with the nonstandard condition codes.  Standard flags are defined here.
-   The tm- file can also define other machine-dependent flags.
+   The tm.h file can also define other machine-dependent flags.
 
    cc_status also contains a machine-dependent component `mdep'
    whose type, `CC_STATUS_MDEP', may be defined as a macro in the
-   tm- file.  */
+   tm.h file.  */
 
 #ifndef CC_STATUS_MDEP
 #define CC_STATUS_MDEP int
@@ -91,9 +94,18 @@ extern CC_STATUS cc_status;
    should be tested as the N bit.  */
 #define CC_Z_IN_N 040
 
+/* Nonzero if we must invert the sense of the following branch, i.e.
+   change EQ to NE.  This is not safe for IEEE floating point operations!
+   It is intended for use only when a combination of arithmentic
+   or logical insns can leave the condition codes set in a fortuitous
+   (though inverted) state.  */
+#define CC_INVERTED 0100
+
 /* This is how to initialize the variable cc_status.
    final does this at appropriate moments.  */
 
 #define CC_STATUS_INIT  \
  (cc_status.flags = 0, cc_status.value1 = 0, cc_status.value2 = 0,  \
   CC_STATUS_MDEP_INIT)
+
+#endif

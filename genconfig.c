@@ -1,13 +1,13 @@
 /* Generate from machine description:
 
    - some #define configuration flags.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -25,28 +25,37 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "rtl.h"
 #include "obstack.h"
 
-struct obstack obstack;
+static struct obstack obstack;
 struct obstack *rtl_obstack = &obstack;
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-extern int xmalloc ();
+
 extern void free ();
 
 /* flags to determine output of machine description dependent #define's.  */
-int max_recog_operands_flag;
-int max_dup_operands_flag;
-int max_clobbers_per_insn_flag;
-int register_constraint_flag;
+static int max_recog_operands;
+static int max_dup_operands;
+static int max_clobbers_per_insn;
+static int register_constraint_flag;
+static int have_cc0_flag;
+static int have_lo_sum_flag;
 
-int clobbers_seen_this_insn;
-int dup_operands_seen_this_insn;
+/* Maximum number of insns seen in a split.  */
+static int max_insns_per_split = 1;
 
-void fatal ();
+static int clobbers_seen_this_insn;
+static int dup_operands_seen_this_insn;
+
+char *xmalloc ();
+static void fatal ();
 void fancy_abort ();
 
-void
-walk_insn_part (part)
+/* RECOG_P will be non-zero if this pattern was seen in a context where it will
+   be used to recognize, rather than just generate an insn.  */
+
+static void
+walk_insn_part (part, recog_p)
      rtx part;
 {
   register int i, j;
@@ -64,16 +73,21 @@ walk_insn_part (part)
       break;
 
     case MATCH_OPERAND:
-      if (XINT (part, 0) > max_recog_operands_flag)
-	max_recog_operands_flag = XINT (part, 0);
+      if (XINT (part, 0) > max_recog_operands)
+	max_recog_operands = XINT (part, 0);
       if (XSTR (part, 2) && *XSTR (part, 2))
 	register_constraint_flag = 1;
       return;
 
+    case MATCH_OP_DUP:
+      ++dup_operands_seen_this_insn;
+    case MATCH_SCRATCH:
+    case MATCH_PARALLEL:
     case MATCH_OPERATOR:
-      if (XINT (part, 0) > max_recog_operands_flag)
-	max_recog_operands_flag = XINT (part, 0);
-      /* Now scan the rtl'x in the vector inside the match_operator.  */
+      if (XINT (part, 0) > max_recog_operands)
+	max_recog_operands = XINT (part, 0);
+      /* Now scan the rtl's in the vector inside the MATCH_OPERATOR or
+	 MATCH_PARALLEL.  */
       break;
 
     case LABEL_REF:
@@ -83,11 +97,22 @@ walk_insn_part (part)
 
     case MATCH_DUP:
       ++dup_operands_seen_this_insn;
-      if (XINT (part, 0) > max_recog_operands_flag)
-	max_recog_operands_flag = XINT (part, 0);
+      if (XINT (part, 0) > max_recog_operands)
+	max_recog_operands = XINT (part, 0);
+      return;
+
+    case CC0:
+      if (recog_p)
+	have_cc0_flag = 1;
+      return;
+
+    case LO_SUM:
+      if (recog_p)
+	have_lo_sum_flag = 1;
+      return;
 
     case REG: case CONST_INT: case SYMBOL_REF:
-    case PC: case CC0:
+    case PC:
       return;
     }
 
@@ -98,17 +123,17 @@ walk_insn_part (part)
       {
       case 'e':
       case 'u':
-	walk_insn_part (XEXP (part, i));
+	walk_insn_part (XEXP (part, i), recog_p);
 	break;
       case 'E':
 	if (XVEC (part, i) != NULL)
 	  for (j = 0; j < XVECLEN (part, i); j++)
-	    walk_insn_part (XVECEXP (part, i, j));
+	    walk_insn_part (XVECEXP (part, i, j), recog_p);
 	break;
       }
 }
 
-void
+static void
 gen_insn (insn)
      rtx insn;
 {
@@ -119,17 +144,17 @@ gen_insn (insn)
   dup_operands_seen_this_insn = 0;
   if (XVEC (insn, 1) != 0)
     for (i = 0; i < XVECLEN (insn, 1); i++)
-      walk_insn_part (XVECEXP (insn, 1, i));
+      walk_insn_part (XVECEXP (insn, 1, i), 1);
 
-  if (clobbers_seen_this_insn > max_clobbers_per_insn_flag)
-    max_clobbers_per_insn_flag = clobbers_seen_this_insn;
-  if (dup_operands_seen_this_insn > max_dup_operands_flag)
-    max_dup_operands_flag = dup_operands_seen_this_insn;
+  if (clobbers_seen_this_insn > max_clobbers_per_insn)
+    max_clobbers_per_insn = clobbers_seen_this_insn;
+  if (dup_operands_seen_this_insn > max_dup_operands)
+    max_dup_operands = dup_operands_seen_this_insn;
 }
 
 /* Similar but scan a define_expand.  */
 
-void
+static void
 gen_expand (insn)
      rtx insn;
 {
@@ -147,14 +172,31 @@ gen_expand (insn)
 	   don't sum across all of them.  */
 	clobbers_seen_this_insn = 0;
 
-	walk_insn_part (XVECEXP (insn, 1, i));
+	walk_insn_part (XVECEXP (insn, 1, i), 0);
 
-	if (clobbers_seen_this_insn > max_clobbers_per_insn_flag)
-	  max_clobbers_per_insn_flag = clobbers_seen_this_insn;
+	if (clobbers_seen_this_insn > max_clobbers_per_insn)
+	  max_clobbers_per_insn = clobbers_seen_this_insn;
       }
 }
 
-void
+/* Similar but scan a define_split.  */
+
+static void
+gen_split (split)
+     rtx split;
+{
+  int i;
+
+  /* Look through the patterns that are matched
+     to compute the maximum operand number.  */
+  for (i = 0; i < XVECLEN (split, 0); i++)
+    walk_insn_part (XVECEXP (split, 0, i), 1);
+  /* Look at the number of insns this insn could split into.  */
+  if (XVECLEN (split, 2) > max_insns_per_split)
+    max_insns_per_split = XVECLEN (split, 2);
+}
+
+static void
 gen_peephole (peep)
      rtx peep;
 {
@@ -163,13 +205,14 @@ gen_peephole (peep)
   /* Look through the patterns that are matched
      to compute the maximum operand number.  */
   for (i = 0; i < XVECLEN (peep, 0); i++)
-    walk_insn_part (XVECEXP (peep, 0, i));
+    walk_insn_part (XVECEXP (peep, 0, i), 1);
 }
 
-int
+char *
 xmalloc (size)
+     unsigned size;
 {
-  register int val = malloc (size);
+  register char *val = (char *) malloc (size);
 
   if (val == 0)
     fatal ("virtual memory exhausted");
@@ -177,18 +220,18 @@ xmalloc (size)
   return val;
 }
 
-int
+char *
 xrealloc (ptr, size)
      char *ptr;
-     int size;
+     unsigned size;
 {
-  int result = realloc (ptr, size);
+  char *result = (char *) realloc (ptr, size);
   if (!result)
     fatal ("virtual memory exhausted");
   return result;
 }
 
-void
+static void
 fatal (s, a1, a2)
      char *s;
 {
@@ -234,6 +277,10 @@ main (argc, argv)
   printf ("/* Generated automatically by the program `genconfig'\n\
 from the machine description file `md'.  */\n\n");
 
+  /* Allow at least 10 operands for the sake of asm constructs.  */
+  max_recog_operands = 10;
+  max_dup_operands = 1;
+
   /* Read the machine description.  */
 
   while (1)
@@ -248,20 +295,32 @@ from the machine description file `md'.  */\n\n");
 	gen_insn (desc);
       if (GET_CODE (desc) == DEFINE_EXPAND)
 	gen_expand (desc);
+      if (GET_CODE (desc) == DEFINE_SPLIT)
+	gen_split (desc);
       if (GET_CODE (desc) == DEFINE_PEEPHOLE)
 	gen_peephole (desc);
     }
 
-  /* 3 more than needed for this md file, for the sake of asm constructs.  */
-  printf ("\n#define MAX_RECOG_OPERANDS %d\n", max_recog_operands_flag + 4);
+  printf ("\n#define MAX_RECOG_OPERANDS %d\n", max_recog_operands);
 
-  if (max_dup_operands_flag == 0)
-    max_dup_operands_flag = 1;
-  printf ("\n#define MAX_DUP_OPERANDS %d\n", max_dup_operands_flag);
+  printf ("\n#define MAX_DUP_OPERANDS %d\n", max_dup_operands);
+
+  /* This is conditionally defined, in case the user writes code which emits
+     more splits than we can readily see (and knows s/he does it).  */
+  printf ("#ifndef MAX_INSNS_PER_SPLIT\n#define MAX_INSNS_PER_SPLIT %d\n#endif\n",
+	  max_insns_per_split);
 
   if (register_constraint_flag)
     printf ("#define REGISTER_CONSTRAINTS\n");
 
+  if (have_cc0_flag)
+    printf ("#define HAVE_cc0\n");
+
+  if (have_lo_sum_flag)
+    printf ("#define HAVE_lo_sum\n");
+
   fflush (stdout);
   exit (ferror (stdout) != 0 ? FATAL_EXIT_CODE : SUCCESS_EXIT_CODE);
+  /* NOTREACHED */
+  return 0;
 }

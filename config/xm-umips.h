@@ -1,11 +1,11 @@
 /* Configuration for GNU C-compiler for UMIPS operating system
-   Copyright (C) 1989 Free Software Foundation, Inc.
+   Copyright (C) 1989, 1990, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -23,21 +23,10 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
  *	- do not define DBX_DEBUGGING_INFO in tm.h, it doesn't exist (unless
  *	you get one from a bsd system)
  */
-#include "xm-mips.h"
-
-/* Arguments to use with `exit'.  */
-#define SUCCESS_EXIT_CODE 0
-#define FATAL_EXIT_CODE 33
-
-/* If compiled with GNU C, use the built-in alloca */
-#ifdef __GNUC__
-#define alloca __builtin_alloca
-#endif
 
 #define USG
 
-/* for the emacs version of alloca */
-#define STACK_DIRECTION	-1
+#include "xm-mips.h"
 
 #define bcopy(a,b,c)	memcpy((b),(a),(c))
 #define bzero(a,b)	memset((a),0,(b))

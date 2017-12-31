@@ -15,9 +15,6 @@ is generated and may be worse than
 If ordering of operands is improved, many more
 such cases will be generated from typical array accesses.
 
-23. (memory >> 24) and (memory >> 24) == CONST  optimizations
-ought to be done machine independently.
-
 38. Hack expand_mult so that if there is no same-modes multiply
 it will use a widening multiply and then truncate rather than
 calling the library.
@@ -32,15 +29,10 @@ the DIV:SI part.  Problem is, this may not be desirable on machines
 where computing the quotient alone does not necessarily give
 a remainder--such as the 68020 for long operands.
 
-42. In subst in combine.c at line 704 or so, a reg that really
-wants an areg gets a dreg.  It is i*4, for indexing.  Why?
-
 52. Reloading can look at how reload_contents got set up.
 If it was copied from a register, just reload from that register.
 Otherwise, perhaps can change the previous insn to move the
 data via the reload reg, thus avoiding one memory ref.
-
-53. Know that certain library routines do not clobber memory.
 
 63. Potential problem in cc_status.value2, if it ever activates itself
 after a two-address subtraction (which currently cannot happen).
@@ -66,9 +58,6 @@ so it can be added to with no copying.
 
 93. If a pseudo doesn't get a hard reg everywhere,
 can it get one during a loop?
-
-95. Can simplify shift of result of a bfextu.  See testunsfld.c.
-Likewise and of result of a bfextu.  See hyph.c.
 
 96. Can do SImode bitfield insns without reloading, but must
 alter the operands in special ways.

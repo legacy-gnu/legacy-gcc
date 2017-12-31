@@ -1,11 +1,11 @@
-;; Machine description for Pyramid 90 Series for GNU C compiler
-;; Copyright (C) 1989 Free Software Foundation, Inc.
+;; GNU C machine description for Pyramid 90x, 9000, MIServer Series
+;; Copyright (C) 1989, 1990 Free Software Foundation, Inc.
 
 ;; This file is part of GNU CC.
 
 ;; GNU CC is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation; either version 1, or (at your option)
+;; the Free Software Foundation; either version 2, or (at your option)
 ;; any later version.
 
 ;; GNU CC is distributed in the hope that it will be useful,
@@ -111,7 +111,7 @@
 
 (define_insn "cmpsi"
   [(set (cc0)
-	(compare (match_operand:SI 0 "general_operand" "r,g")
+	(compare (match_operand:SI 0 "nonimmediate_operand" "r,g")
 		 (match_operand:SI 1 "general_operand" "g,r")))]
   ""
   "*
@@ -144,10 +144,14 @@
 
 (define_insn ""
   [(set (cc0)
-	(match_operand:SI 0 "general_operand" "r"))]
+	(match_operand:SI 0 "nonimmediate_operand" "r"))]
   ""
   "*
 {
+#if 0
+  cc_status.flags |= CC_NO_OVERFLOW;
+  return \"cmpw $0,%0\";
+#endif
   rtx br_insn = NEXT_INSN (insn);
   RTX_CODE br_code;
 
@@ -165,7 +169,7 @@
 
 (define_expand "cmphi"
   [(set (cc0)
-	(compare (match_operand:HI 0 "general_operand" "")
+	(compare (match_operand:HI 0 "nonimmediate_operand" "")
 		 (match_operand:HI 1 "general_operand" "")))]
   ""
   "
@@ -177,14 +181,16 @@
   DONE;
 }")
 
-(define_insn "tsthi"
+(define_expand "tsthi"
   [(set (cc0)
-	(match_operand:HI 0 "nonimmediate_operand" "rm"))]
+	(match_operand:HI 0 "nonimmediate_operand" ""))]
   ""
-  "*
+  "
 {
-  cc_status.flags = CC_NO_OVERFLOW;
-  return \"cvthw %0,lr15\";
+  extern rtx test_op0;  extern enum machine_mode test_mode;
+  test_op0 = copy_rtx (operands[0]);
+  test_mode = HImode;
+  DONE;
 }")
 
 (define_insn ""
@@ -233,7 +239,7 @@
 
 (define_expand "cmpqi"
   [(set (cc0)
-	(compare (match_operand:QI 0 "general_operand" "")
+	(compare (match_operand:QI 0 "nonimmediate_operand" "")
 		 (match_operand:QI 1 "general_operand" "")))]
   ""
   "
@@ -245,14 +251,16 @@
   DONE;
 }")
 
-(define_insn "tstqi"
+(define_expand "tstqi"
   [(set (cc0)
-	(match_operand:QI 0 "nonimmediate_operand" "rm"))]
+	(match_operand:QI 0 "nonimmediate_operand" ""))]
   ""
-  "*
+  "
 {
-  cc_status.flags = CC_NO_OVERFLOW;
-  return \"cvtbw %0,lr15\";
+  extern rtx test_op0;  extern enum machine_mode test_mode;
+  test_op0 = copy_rtx (operands[0]);
+  test_mode = QImode;
+  DONE;
 }")
 
 (define_insn ""
@@ -412,12 +420,12 @@
   "*
 {
   if (which_alternative == 0)
-    return \"addw %2,%0\";
+    return (GET_CODE (operands[2]) == CONST_INT && INTVAL (operands[2]) == 32
+	    ? \"subw %n2,%0\" : \"addw %2,%0\");
   else
     {
       forget_cc_if_dependent (operands[0]);
-      return REG_P (operands[2])
-	? \"mova (%2)[%1*1],%0\" : \"mova %a2[%1*1],%0\";
+      return \"mova %a2[%1*1],%0\";
     }
 }")
 
@@ -434,13 +442,6 @@
 		 (match_operand:SI 2 "general_operand" "g")))]
   ""
   "mulw %2,%0")
-
-(define_insn "umulsi3"
-  [(set (match_operand:SI 0 "register_operand" "=r")
-	(umult:SI (match_operand:SI 1 "general_operand" "%0")
-		  (match_operand:SI 2 "general_operand" "g")))]
-  ""
-  "umulw %2,%0")
 
 (define_insn "divsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
@@ -603,13 +604,6 @@
   return (INTVAL (operands[2]) == 255
 	  ? \"movzbw %1,%0\" : \"movzhw %1,%0\");
 }")
-
-(define_insn "andcbsi3"
-  [(set (match_operand:SI 0 "register_operand" "=r")
-	(and:SI (match_operand:SI 1 "register_operand" "0")
-		(not:SI (match_operand:SI 2 "general_operand" "g"))))]
-  ""
-  "bicw %2,%0")
 
 (define_insn ""
   [(set (match_operand:SI 0 "register_operand" "=r")
@@ -1375,3 +1369,4 @@
 ;;- eval: (modify-syntax-entry ?{ "(}")
 ;;- eval: (modify-syntax-entry ?} "){")
 ;;- End:
+

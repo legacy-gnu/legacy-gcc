@@ -5,16 +5,35 @@
 # This works properly on a Sun in system version 3.4;
 # for other versions, you had better check.
 
+# See README-fixinc for more information.
+
 # Directory containing the original header files.
-INCLUDES=${2-${INCLUDES-/usr/include}}
+# (This was named INCLUDES, but that conflicts with a name in Makefile.in.)
+INPUT=${2-${INPUT-/usr/include}}
+
+# This prevents /bin/ex from failing if the current terminal type is
+# unrecognizable.
+TERM=unknown
+export TERM
 
 # Directory in which to store the results.
-LIB=${LIB-/usr/local/lib/gcc-include}
+LIB=${1-${LIB-/usr/local/lib/gcc-include}}
 
 # Make sure it exists.
 if [ ! -d $LIB ]; then
   mkdir $LIB || exit 1
 fi
+
+# Make LIB absolute.
+cd $LIB; LIB=`pwd`
+
+# Fail if no arg to specify a directory for the output.
+if [ x$1 = x ]
+then echo fixincludes: no output directory specified
+exit 1
+fi
+
+echo 'Building fixincludes in ' ${LIB}
 
 # Determine whether this system has symbolic links.
 if ln -s X $LIB/ShouldNotExist 2>/dev/null; then
@@ -25,7 +44,7 @@ else
 fi
 
 echo 'Making directories:'
-cd ${INCLUDES}
+cd ${INPUT}
 if $LINKS; then
   files=`ls -LR | sed -n s/:$//p`
 else
@@ -41,7 +60,7 @@ done
 # treetops gets an alternating list
 # of old directories to copy
 # and the new directories to copy to.
-treetops="${INCLUDES} ${LIB}"
+treetops="${INPUT} ${LIB}"
 
 if $LINKS; then
   echo 'Making internal symbolic directory links'
@@ -50,7 +69,7 @@ if $LINKS; then
     if [ "$dest" ]; then    
       cwd=`pwd`
       # In case $dest is relative, get to $file's dir first.
-      cd ${INCLUDES}
+      cd ${INPUT}
       cd `echo ./$file | sed -n 's&[^/]*$&&p'`
       # Check that the target directory exists.
       # Redirections changed to avoid bug in sh on Ultrix.
@@ -59,20 +78,20 @@ if $LINKS; then
 	cd $dest
 	# X gets the dir that the link actually leads to.
 	x=`pwd`
-	# If link leads back into ${INCLUDES},
+	# If link leads back into ${INPUT},
 	# make a similar link here.
-	if expr $x : '${INCLUDES}/.*' > /dev/null; then
-	  # Y gets the actual target dir name, relative to ${INCLUDES}.
-	  y=`echo $x | sed -n 's&${INCLUDES}/&&p'`
+	if expr $x : "${INPUT}/.*" > /dev/null; then
+	  # Y gets the actual target dir name, relative to ${INPUT}.
+	  y=`echo $x | sed -n "s&${INPUT}/&&p"`
 	  echo $file '->' $y ': Making link'
 	  rm -fr ${LIB}/$file > /dev/null 2>&1
 	  ln -s ${LIB}/$y ${LIB}/$file > /dev/null 2>&1
 	else
-	  # If the link is to outside ${INCLUDES},
+	  # If the link is to outside ${INPUT},
 	  # treat this directory as if it actually contained the files.
 # This line used to have $dest instead of $x.
 # $dest seemed to be wrong for links found in subdirectories
-# of ${INCLUDES}.  Does this change break anything?
+# of ${INPUT}.  Does this change break anything?
 	  treetops="$treetops $x ${LIB}/$file"
 	fi
       fi
@@ -85,13 +104,17 @@ set - $treetops
 while [ $# != 0 ]; do
   # $1 is an old directory to copy, and $2 is the new directory to copy to.
   echo "Finding header files in $1:"
-  cd ${INCLUDES}
+  cd ${INPUT}
   cd $1
   files=`find . -name '*.h' -type f -print`
   echo 'Checking header files:'
 # Note that BSD43_* are used on recent MIPS systems.
   for file in $files; do
-    if egrep '[ 	]_IO[A-Z]*\(|[	 ]BSD43__IO[A-Z]*\(|#define._IO|#define.BSD43__IO|CTRL' $file > /dev/null; then
+# This call to egrep is essential, since checking a file with egrep
+# is much faster than actually trying to fix it.
+# But the argument to egrep must be kept small, or many versions of egrep
+# won't be able to handle it.
+    if egrep '[ 	_]_IO|CTRL|#define.NULL|#[el]*if.*([0-9]|sparc|vax|sun|pyr)' $file > /dev/null; then
       echo Fixing $file
       if [ -r $file ]; then
 	cp $file $2/$file >/dev/null 2>&1	\
@@ -109,8 +132,24 @@ while [ $# != 0 ]; do
 	  /#define.CTRL/		s/'\''c'\''/c/g
 	  /#define._CTRL/		s/'\''c'\''/c/g
 	  /#define.BSD43_CTRL/		s/'\''c'\''/c/g
-	  /#if.* m68k$/			s/m68k/__m68k__/g
-	  /#if.*defined *(m68k)/	s/m68k/__m68k__/g
+	  /#[a-z]*if.*[ (]m68k/		s/m68k/__m68k__/g
+	  /#[a-z]*if.*[ (]__i386/	s/__i386/__i386__/g
+	  /#[a-z]*if.*[ (]i386/		s/i386/__i386__/g
+	  /#[a-z]*if.*[ (]sparc/	s/sparc/__sparc__/g
+	  /#[a-z]*if.*[ (]mc68000/	s/mc68000/__mc68000__/g
+	  /#[a-z]*if.*[ (]vax/		s/vax/__vax__/g
+	  /#[a-z]*if.*[ (]sun3x/	s/sun3x/__sun3x__/g
+	  /#[a-z]*if.*[ (]sun3/		s/sun3/__sun3__/g
+	  /#[a-z]*if.*[ (]sun2/		s/sun2/__sun2__/g
+	  /#[a-z]*if.*[ (]sun4c/	s/sun4c/__sun4c__/g
+	  /#[a-z]*if.*[ (]sun4/		s/sun4/__sun4__/g
+	  /#[a-z]*if.*[ (]sun/		s/sun/__sun__/g
+	  /#[a-z]*if.*[ (]ns32000/	s/ns32000/__ns32000__/g
+	  /#[a-z]*if.*[ (]pyr/		s/pyr/__pyr__/g
+	  /#[a-z]*if.*[ (]is68k/	s/is68k/__is68k__/g
+	  /#[a-z]*if.*[ (]sun386/	s/sun386/__sun386__/g
+	  /#define.NULL[ 	]/	i\
+		#undef NULL
 	' $2/$file > $2/$file.sed
 	mv $2/$file.sed $2/$file
 	if cmp $file $2/$file >/dev/null 2>&1; then
@@ -123,7 +162,7 @@ while [ $# != 0 ]; do
   shift; shift
 done
 
-cd ${INCLUDES}
+cd ${INPUT}
 
 # Fix one other error in this file: a mismatched quote not inside a C comment.
 file=sundev/vuid_event.h
@@ -185,6 +224,37 @@ if [ -r ${LIB}/$file ]; then
 #define _WCHAR_T
 .
   /wchar_t/+1
+  i
+#endif
+.
+  wq
+EOF
+  if cmp $file ${LIB}/$file >/dev/null 2>&1; then
+    echo Deleting ${LIB}/$file\; no fixes were needed.
+    rm ${LIB}/$file
+  fi
+fi
+
+# Fix this file to avoid intefering with stddef.h.
+
+file=sys/types.h
+if [ -r $file ]; then
+  if [ ! -r ${LIB}/$file ]; then
+    cp $file ${LIB}/$file >/dev/null 2>&1	\
+    || echo "Can't copy $file"
+    chmod +w ${LIB}/$file
+  fi
+fi
+
+if [ -r ${LIB}/$file ]; then
+  echo Fixing $file comment
+  ex ${LIB}/$file <<EOF
+  /size_t.*;/
+  i
+#ifndef _SIZE_T
+#define _SIZE_T
+.
+  /size_t/+1
   i
 #endif
 .
@@ -364,6 +434,113 @@ if [ -r $file ]; then
   fi
 fi
 
+# Fix return type of exit and abort in <stdlib.h> on SunOS 4.1.
+
+file=stdlib.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  sed 's/int	abort/void	abort/g' $file_to_fix \
+    |  sed 's/int	exit/void	exit/g' > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Fix bogus comment in <locale.h> on SunOS 4.1.
+
+file=locale.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+else
+  if [ -r ${INPUT}/$file ]; then
+    file_to_fix=${INPUT}/$file
+  else
+    file_to_fix=""
+  fi
+fi
+if [ \! -z "$file_to_fix" ]; then
+  echo Checking $file_to_fix
+  sed 's%#endif / \*%#endif /\* %g' $file_to_fix > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Fix bogus #ifdef in <hsfs/hsfs_spec.h> on SunOS 4.1.
+
+file=hsfs/hsfs_spec.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+  echo Checking $file_to_fix
+  sed 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' $file_to_fix > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Fix bogus #ifdef in <hsfs/hsnode.h> on SunOS 4.1.
+
+file=hsfs/hsnode.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+  echo Checking $file_to_fix
+  sed 's/\#ifdef __i386__ || __sun4c__/\#if __i386__ || __sun4c__/g' $file_to_fix > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
+# Fix bogus #ifdef in <hsfs/iso_spec.h> on SunOS 4.1.
+
+file=hsfs/iso_spec.h
+base=`basename $file`
+if [ -r ${LIB}/$file ]; then
+  file_to_fix=${LIB}/$file
+  echo Checking $file_to_fix
+  sed 's/\#ifdef __i386__ || __vax__/\#if __i386__ || __vax__/g' $file_to_fix > /tmp/$base
+  if cmp $file_to_fix /tmp/$base >/dev/null 2>&1; then \
+    echo No change needed in $file_to_fix
+  else
+    echo Fixed $file_to_fix
+    rm -f ${LIB}/$file
+    cp /tmp/$base ${LIB}/$file
+  fi
+  rm -f /tmp/$base
+fi
+
 echo 'Removing unneeded directories:'
 cd $LIB
 files=`find . -type d -print | sort -r`
@@ -373,7 +550,7 @@ done
 
 if $LINKS; then
   echo 'Making internal symbolic non-directory links'
-  cd ${INCLUDES}
+  cd ${INPUT}
   files=`find . -type l -print`
   for file in $files; do
     dest=`ls -ld $file | sed -n 's/.*-> //p'`

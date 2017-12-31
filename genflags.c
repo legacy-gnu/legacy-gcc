@@ -2,13 +2,13 @@
 
    - some flags HAVE_... saying which simple standard instructions are
    available for this machine.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+   Copyright (C) 1987, 1991 Free Software Foundation, Inc.
 
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
+the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
 GNU CC is distributed in the hope that it will be useful,
@@ -26,35 +26,55 @@ the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 #include "rtl.h"
 #include "obstack.h"
 
-struct obstack obstack;
+static struct obstack obstack;
 struct obstack *rtl_obstack = &obstack;
 
 #define obstack_chunk_alloc xmalloc
 #define obstack_chunk_free free
-extern int xmalloc ();
+
 extern void free ();
 
-void fatal ();
+char *xmalloc ();
+static void fatal ();
 void fancy_abort ();
 
-void
+static void
 gen_insn (insn)
      rtx insn;
 {
+  char *p;
+
   /* Don't mention instructions whose names are the null string.
      They are in the machine description just to be recognized.  */
   if (strlen (XSTR (insn, 0)) == 0)
     return;
 
-  printf ("#define HAVE_%s (%s)\n", XSTR (insn, 0),
-	  strlen (XSTR (insn, 2)) ? XSTR (insn, 2) : "1");
+  printf ("#define HAVE_%s ", XSTR (insn, 0));
+  if (strlen (XSTR (insn, 2)) == 0)
+    printf ("1\n");
+  else
+    {
+      /* Write the macro definition, putting \'s at the end of each line,
+	 if more than one.  */
+      printf ("(");
+      for (p = XSTR (insn, 2); *p; p++)
+	{
+	  if (*p == '\n')
+	    printf (" \\\n");
+	  else
+	    printf ("%c", *p);
+	}
+      printf (")\n");
+    }
+      
   printf ("extern rtx gen_%s ();\n", XSTR (insn, 0));
 }
 
-int
+char *
 xmalloc (size)
+     unsigned size;
 {
-  register int val = malloc (size);
+  register char *val = (char *) malloc (size);
 
   if (val == 0)
     fatal ("virtual memory exhausted");
@@ -62,18 +82,18 @@ xmalloc (size)
   return val;
 }
 
-int
+char *
 xrealloc (ptr, size)
      char *ptr;
-     int size;
+     unsigned size;
 {
-  int result = realloc (ptr, size);
+  char *result = (char *) realloc (ptr, size);
   if (!result)
     fatal ("virtual memory exhausted");
   return result;
 }
 
-void
+static void
 fatal (s, a1, a2)
      char *s;
 {
@@ -135,4 +155,6 @@ from the machine description file `md'.  */\n\n");
 
   fflush (stdout);
   exit (ferror (stdout) != 0 ? FATAL_EXIT_CODE : SUCCESS_EXIT_CODE);
+  /* NOTREACHED */
+  return 0;
 }

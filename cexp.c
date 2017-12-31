@@ -1,5 +1,7 @@
 
-/*  A Bison parser, made from ./cexp.y  */
+/*  A Bison parser, made from cexp.y  */
+
+#define YYBISON 1  /* Identify Bison output.  */
 
 #define	INT	258
 #define	CHAR	259
@@ -15,28 +17,66 @@
 #define	RSH	269
 #define	UNARY	270
 
-#line 26 "./cexp.y"
+#line 26 "cexp.y"
 
 #include "config.h"
 #include <setjmp.h>
 /* #define YYDEBUG 1 */
 
-  int yylex ();
-  void yyerror ();
-  int expression_value;
+#ifdef MULTIBYTE_CHARS
+#include <stdlib.h>
+#include <locale.h>
+#endif
 
-  static jmp_buf parse_return_error;
+typedef unsigned char U_CHAR;
 
-  /* some external tables of character types */
-  extern unsigned char is_idstart[], is_idchar[];
+/* This is used for communicating lists of keywords with cccp.c.  */
+struct arglist {
+  struct arglist *next;
+  U_CHAR *name;
+  int length;
+  int argno;
+};
+
+int yylex ();
+void yyerror ();
+int expression_value;
+
+static jmp_buf parse_return_error;
+
+/* Nonzero means count most punctuation as part of a name.  */
+static int keyword_parsing = 0;
+
+/* some external tables of character types */
+extern unsigned char is_idstart[], is_idchar[], is_hor_space[];
+
+/* Flag for -pedantic.  */
+extern int pedantic;
+
+/* Flag for -traditional.  */
+extern int traditional;
 
 #ifndef CHAR_TYPE_SIZE
 #define CHAR_TYPE_SIZE BITS_PER_UNIT
 #endif
 
-#line 45 "./cexp.y"
+#ifndef INT_TYPE_SIZE
+#define INT_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef LONG_TYPE_SIZE
+#define LONG_TYPE_SIZE BITS_PER_WORD
+#endif
+
+#ifndef WCHAR_TYPE_SIZE
+#define WCHAR_TYPE_SIZE INT_TYPE_SIZE
+#endif
+
+#line 81 "cexp.y"
 typedef union {
   struct constant {long value; int unsignedp;} integer;
+  struct name {U_CHAR *address; int length;} name;
+  struct arglist *keywords;
   int voidval;
   char *sval;
 } YYSTYPE;
@@ -44,7 +84,7 @@ typedef union {
 #ifndef YYLTYPE
 typedef
   struct yyltype
- {
+    {
       int timestamp;
       int first_line;
       int first_column;
@@ -52,7 +92,7 @@ typedef
       int last_column;
       char *text;
    }
- yyltype;
+  yyltype;
 
 #define YYLTYPE yyltype
 #endif
@@ -65,18 +105,18 @@ typedef
 
 
 
-#define	YYFINAL		61
+#define	YYFINAL		73
 #define	YYFLAG		-32768
-#define	YYNTBASE	33
+#define	YYNTBASE	34
 
-#define YYTRANSLATE(x) ((unsigned)(x) <= 270 ? yytranslate[x] : 36)
+#define YYTRANSLATE(x) ((unsigned)(x) <= 270 ? yytranslate[x] : 39)
 
 static const char yytranslate[] = {     0,
      2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
      2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
      2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
-     2,     2,    29,     2,     2,     2,    27,    14,     2,    31,
-    32,    25,    23,     9,    24,     2,    26,     2,     2,     2,
+     2,     2,    29,     2,    31,     2,    27,    14,     2,    32,
+    33,    25,    23,     9,    24,     2,    26,     2,     2,     2,
      2,     2,     2,     2,     2,     2,     2,     8,     2,    17,
      2,    18,     7,     2,     2,     2,     2,     2,     2,     2,
      2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
@@ -102,126 +142,135 @@ static const char yytranslate[] = {     0,
 };
 
 static const short yyprhs[] = {     0,
-     0,     2,     4,     8,    11,    14,    17,    20,    24,    28,
-    32,    36,    40,    44,    48,    52,    56,    60,    64,    68,
-    72,    76,    80,    84,    88,    92,    96,   102,   104,   106
+     0,     2,     4,     8,    11,    14,    17,    20,    23,    24,
+    31,    35,    39,    43,    47,    51,    55,    59,    63,    67,
+    71,    75,    79,    83,    87,    91,    95,    99,   103,   107,
+   113,   115,   117,   119,   120,   125
 };
 
-static const short yyrhs[] = {    34,
-     0,    35,     0,    34,     9,    35,     0,    24,    35,     0,
-    29,    35,     0,    23,    35,     0,    30,    35,     0,    31,
-    34,    32,     0,    35,    25,    35,     0,    35,    26,    35,
-     0,    35,    27,    35,     0,    35,    23,    35,     0,    35,
-    24,    35,     0,    35,    21,    35,     0,    35,    22,    35,
-     0,    35,    15,    35,     0,    35,    16,    35,     0,    35,
-    19,    35,     0,    35,    20,    35,     0,    35,    17,    35,
-     0,    35,    18,    35,     0,    35,    14,    35,     0,    35,
-    13,    35,     0,    35,    12,    35,     0,    35,    11,    35,
-     0,    35,    10,    35,     0,    35,     7,    35,     8,    35,
-     0,     3,     0,     4,     0,     5,     0
+static const short yyrhs[] = {    35,
+     0,    36,     0,    35,     9,    36,     0,    24,    36,     0,
+    29,    36,     0,    23,    36,     0,    30,    36,     0,    31,
+     5,     0,     0,    31,     5,    37,    32,    38,    33,     0,
+    32,    35,    33,     0,    36,    25,    36,     0,    36,    26,
+    36,     0,    36,    27,    36,     0,    36,    23,    36,     0,
+    36,    24,    36,     0,    36,    21,    36,     0,    36,    22,
+    36,     0,    36,    15,    36,     0,    36,    16,    36,     0,
+    36,    19,    36,     0,    36,    20,    36,     0,    36,    17,
+    36,     0,    36,    18,    36,     0,    36,    14,    36,     0,
+    36,    13,    36,     0,    36,    12,    36,     0,    36,    11,
+    36,     0,    36,    10,    36,     0,    36,     7,    36,     8,
+    36,     0,     3,     0,     4,     0,     5,     0,     0,    32,
+    38,    33,    38,     0,     5,    38,     0
 };
 
 #if YYDEBUG != 0
 static const short yyrline[] = { 0,
-    74,    79,    80,    85,    88,    91,    93,    96,   101,   107,
-   118,   129,   132,   135,   141,   147,   150,   153,   159,   165,
-   171,   177,   180,   183,   186,   189,   192,   195,   197,   199
+   113,   118,   119,   126,   129,   132,   134,   137,   141,   143,
+   148,   153,   159,   170,   181,   184,   187,   193,   199,   202,
+   205,   211,   217,   223,   229,   232,   235,   238,   241,   244,
+   247,   249,   251,   256,   258,   271
 };
 
-static const char * const yytname[] = {   "$",
-"error","$illegal.","INT","CHAR","NAME","ERROR","'?'","':'","','","OR",
-"AND","'|'","'^'","'&'","EQUAL","NOTEQUAL","'<'","'>'","LEQ","GEQ",
-"LSH","RSH","'+'","'-'","'*'","'/'","'%'","UNARY","'!'","'~'",
-"'('","')'","start","exp1","exp",""
+static const char * const yytname[] = {   "$","error","$illegal.","INT","CHAR",
+"NAME","ERROR","'?'","':'","','","OR","AND","'|'","'^'","'&'","EQUAL","NOTEQUAL",
+"'<'","'>'","LEQ","GEQ","LSH","RSH","'+'","'-'","'*'","'/'","'%'","UNARY","'!'",
+"'~'","'#'","'('","')'","start","exp1","exp","@1","keywords",""
 };
 #endif
 
 static const short yyr1[] = {     0,
-    33,    34,    34,    35,    35,    35,    35,    35,    35,    35,
-    35,    35,    35,    35,    35,    35,    35,    35,    35,    35,
-    35,    35,    35,    35,    35,    35,    35,    35,    35,    35
+    34,    35,    35,    36,    36,    36,    36,    36,    37,    36,
+    36,    36,    36,    36,    36,    36,    36,    36,    36,    36,
+    36,    36,    36,    36,    36,    36,    36,    36,    36,    36,
+    36,    36,    36,    38,    38,    38
 };
 
 static const short yyr2[] = {     0,
-     1,     1,     3,     2,     2,     2,     2,     3,     3,     3,
+     1,     1,     3,     2,     2,     2,     2,     2,     0,     6,
      3,     3,     3,     3,     3,     3,     3,     3,     3,     3,
-     3,     3,     3,     3,     3,     3,     5,     1,     1,     1
+     3,     3,     3,     3,     3,     3,     3,     3,     3,     5,
+     1,     1,     1,     0,     4,     2
 };
 
 static const short yydefact[] = {     0,
-    28,    29,    30,     0,     0,     0,     0,     0,     1,     2,
-     6,     4,     5,     7,     0,     0,     0,     0,     0,     0,
+    31,    32,    33,     0,     0,     0,     0,     0,     0,     1,
+     2,     6,     4,     5,     7,     8,     0,     0,     0,     0,
      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-     0,     0,     0,     0,     0,     8,     3,     0,    26,    25,
-    24,    23,    22,    16,    17,    20,    21,    18,    19,    14,
-    15,    12,    13,     9,    10,    11,     0,    27,     0,     0,
-     0
+     0,     0,     0,     0,     0,     0,     0,     0,    11,     3,
+     0,    29,    28,    27,    26,    25,    19,    20,    23,    24,
+    21,    22,    17,    18,    15,    16,    12,    13,    14,    34,
+     0,    34,    34,     0,    30,    36,     0,    10,    34,    35,
+     0,     0,     0
 };
 
-static const short yydefgoto[] = {    59,
-     9,    10
+static const short yydefgoto[] = {    71,
+    10,    11,    38,    64
 };
 
 static const short yypact[] = {    31,
--32768,-32768,-32768,    31,    31,    31,    31,    31,     1,    77,
--32768,-32768,-32768,-32768,     0,    31,    31,    31,    31,    31,
+-32768,-32768,-32768,    31,    31,    31,    31,     4,    31,     3,
+    80,-32768,-32768,-32768,-32768,     6,    32,    31,    31,    31,
     31,    31,    31,    31,    31,    31,    31,    31,    31,    31,
-    31,    31,    31,    31,    31,-32768,    77,    56,    94,    25,
-   109,   123,   136,   147,   147,   154,   154,   154,   154,   -19,
-   -19,    32,    32,-32768,-32768,-32768,    31,    77,    11,    33,
--32768
+    31,    31,    31,    31,    31,    31,    31,     7,-32768,    80,
+    59,    97,   113,   128,   142,   155,    25,    25,   162,   162,
+   162,   162,   167,   167,   -19,   -19,-32768,-32768,-32768,     5,
+    31,     5,     5,   -20,    80,-32768,    20,-32768,     5,-32768,
+    40,    56,-32768
 };
 
 static const short yypgoto[] = {-32768,
-    48,    -4
+    49,    -4,-32768,   -58
 };
 
 
-#define	YYLAST		181
+#define	YYLAST		194
 
 
-static const short yytable[] = {    11,
-    12,    13,    14,    31,    32,    33,    34,    35,    16,    16,
-    60,    37,    38,    39,    40,    41,    42,    43,    44,    45,
-    46,    47,    48,    49,    50,    51,    52,    53,    54,    55,
-    56,    36,    61,     1,     2,     3,    20,    21,    22,    23,
-    24,    25,    26,    27,    28,    29,    30,    31,    32,    33,
-    34,    35,    58,     4,     5,    15,    33,    34,    35,     6,
-     7,     8,    17,    57,     0,    18,    19,    20,    21,    22,
-    23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-    33,    34,    35,    17,     0,     0,    18,    19,    20,    21,
+static const short yytable[] = {    12,
+    13,    14,    15,    66,    67,    35,    36,    37,    16,    62,
+    70,    18,    68,    40,    41,    42,    43,    44,    45,    46,
+    47,    48,    49,    50,    51,    52,    53,    54,    55,    56,
+    57,    58,    59,     1,     2,     3,    63,    -9,    60,    72,
+    18,    27,    28,    29,    30,    31,    32,    33,    34,    35,
+    36,    37,    69,     4,     5,    73,    65,    17,     0,     6,
+     7,     8,     9,     0,    39,    19,    61,     0,    20,    21,
     22,    23,    24,    25,    26,    27,    28,    29,    30,    31,
-    32,    33,    34,    35,    19,    20,    21,    22,    23,    24,
-    25,    26,    27,    28,    29,    30,    31,    32,    33,    34,
-    35,    21,    22,    23,    24,    25,    26,    27,    28,    29,
-    30,    31,    32,    33,    34,    35,    22,    23,    24,    25,
-    26,    27,    28,    29,    30,    31,    32,    33,    34,    35,
+    32,    33,    34,    35,    36,    37,    19,     0,     0,    20,
+    21,    22,    23,    24,    25,    26,    27,    28,    29,    30,
+    31,    32,    33,    34,    35,    36,    37,    21,    22,    23,
+    24,    25,    26,    27,    28,    29,    30,    31,    32,    33,
+    34,    35,    36,    37,    22,    23,    24,    25,    26,    27,
+    28,    29,    30,    31,    32,    33,    34,    35,    36,    37,
     23,    24,    25,    26,    27,    28,    29,    30,    31,    32,
-    33,    34,    35,    25,    26,    27,    28,    29,    30,    31,
-    32,    33,    34,    35,    29,    30,    31,    32,    33,    34,
-    35
+    33,    34,    35,    36,    37,    24,    25,    26,    27,    28,
+    29,    30,    31,    32,    33,    34,    35,    36,    37,    25,
+    26,    27,    28,    29,    30,    31,    32,    33,    34,    35,
+    36,    37,    31,    32,    33,    34,    35,    36,    37,    33,
+    34,    35,    36,    37
 };
 
 static const short yycheck[] = {     4,
-     5,     6,     7,    23,    24,    25,    26,    27,     9,     9,
-     0,    16,    17,    18,    19,    20,    21,    22,    23,    24,
+     5,     6,     7,    62,    63,    25,    26,    27,     5,     5,
+    69,     9,    33,    18,    19,    20,    21,    22,    23,    24,
     25,    26,    27,    28,    29,    30,    31,    32,    33,    34,
-    35,    32,     0,     3,     4,     5,    12,    13,    14,    15,
-    16,    17,    18,    19,    20,    21,    22,    23,    24,    25,
-    26,    27,    57,    23,    24,     8,    25,    26,    27,    29,
-    30,    31,     7,     8,    -1,    10,    11,    12,    13,    14,
-    15,    16,    17,    18,    19,    20,    21,    22,    23,    24,
-    25,    26,    27,     7,    -1,    -1,    10,    11,    12,    13,
+    35,    36,    37,     3,     4,     5,    32,    32,    32,     0,
+     9,    17,    18,    19,    20,    21,    22,    23,    24,    25,
+    26,    27,    33,    23,    24,     0,    61,     9,    -1,    29,
+    30,    31,    32,    -1,    33,     7,     8,    -1,    10,    11,
+    12,    13,    14,    15,    16,    17,    18,    19,    20,    21,
+    22,    23,    24,    25,    26,    27,     7,    -1,    -1,    10,
+    11,    12,    13,    14,    15,    16,    17,    18,    19,    20,
+    21,    22,    23,    24,    25,    26,    27,    11,    12,    13,
     14,    15,    16,    17,    18,    19,    20,    21,    22,    23,
-    24,    25,    26,    27,    11,    12,    13,    14,    15,    16,
-    17,    18,    19,    20,    21,    22,    23,    24,    25,    26,
-    27,    13,    14,    15,    16,    17,    18,    19,    20,    21,
-    22,    23,    24,    25,    26,    27,    14,    15,    16,    17,
+    24,    25,    26,    27,    12,    13,    14,    15,    16,    17,
     18,    19,    20,    21,    22,    23,    24,    25,    26,    27,
-    15,    16,    17,    18,    19,    20,    21,    22,    23,    24,
-    25,    26,    27,    17,    18,    19,    20,    21,    22,    23,
-    24,    25,    26,    27,    21,    22,    23,    24,    25,    26,
-    27
+    13,    14,    15,    16,    17,    18,    19,    20,    21,    22,
+    23,    24,    25,    26,    27,    14,    15,    16,    17,    18,
+    19,    20,    21,    22,    23,    24,    25,    26,    27,    15,
+    16,    17,    18,    19,    20,    21,    22,    23,    24,    25,
+    26,    27,    21,    22,    23,    24,    25,    26,    27,    23,
+    24,    25,    26,    27
 };
 /* -*-C-*-  Note some compilers choke on comments on `#line' lines.  */
 #line 3 "bison.simple"
@@ -247,15 +296,20 @@ static const short yycheck[] = {     4,
 #ifndef alloca
 #ifdef __GNUC__
 #define alloca __builtin_alloca
-#else /* Not GNU C.  */
+#else /* not GNU C.  */
 #if (!defined (__STDC__) && defined (sparc)) || defined (__sparc__)
 #include <alloca.h>
-#else /* Not sparc */
-#ifdef MSDOS
+#else /* not sparc */
+#if defined (MSDOS) && !defined (__TURBOC__)
 #include <malloc.h>
-#endif /* MSDOS */
-#endif /* Not sparc.  */
-#endif /* Not GNU C.  */
+#else /* not MSDOS, or __TURBOC__ */
+#if defined(_AIX)
+#include <malloc.h>
+ #pragma alloca
+#endif /* not _AIX */
+#endif /* not MSDOS, or __TURBOC__ */
+#endif /* not sparc.  */
+#endif /* not GNU C.  */
 #endif /* alloca not defined.  */
 
 /* This is the parser code that is written into each bison parser
@@ -346,6 +400,9 @@ int yydebug;			/*  nonzero means print parse trace	*/
 #define YYMAXDEPTH 10000
 #endif
 
+#if __GNUC__ > 1		/* GNU C and GNU C++ define this.  */
+#define __yy_bcopy(FROM,TO,COUNT)	__builtin_memcpy(TO,FROM,COUNT)
+#else				/* not GNU C or C++ */
 #ifndef __cplusplus
 
 /* This is the most reliable way to avoid incompatibilities
@@ -380,8 +437,9 @@ __yy_bcopy (char *from, char *to, int count)
 }
 
 #endif
+#endif
 
-#line 160 "bison.simple"
+#line 169 "bison.simple"
 int
 yyparse()
 {
@@ -399,9 +457,9 @@ yyparse()
   YYSTYPE *yyvs = yyvsa;	/*  to allow yyoverflow to reallocate them elsewhere */
 
 #ifdef YYLSP_NEEDED
+  YYLTYPE yylsa[YYINITDEPTH];	/*  the location stack			*/
   YYLTYPE *yyls = yylsa;
   YYLTYPE *yylsp;
-  YYLTYPE yylsa[YYINITDEPTH];	/*  the location stack			*/
 
 #define YYPOPSTACK   (yyvsp--, yysp--, yylsp--)
 #else
@@ -564,7 +622,15 @@ yynewstate:
 
 #if YYDEBUG != 0
       if (yydebug)
-	fprintf(stderr, "Next token is %d (%s)\n", yychar, yytname[yychar1]);
+	{
+	  fprintf (stderr, "Next token is %d (%s", yychar, yytname[yychar1]);
+	  /* Give the individual parser a way to print the precise meaning
+	     of a token, for further debugging info.  */
+#ifdef YYPRINT
+	  YYPRINT (stderr, yychar, yylval);
+#endif
+	  fprintf (stderr, ")\n");
+	}
 #endif
     }
 
@@ -647,46 +713,65 @@ yyreduce:
   switch (yyn) {
 
 case 1:
-#line 75 "./cexp.y"
+#line 114 "cexp.y"
 { expression_value = yyvsp[0].integer.value; ;
     break;}
 case 3:
-#line 81 "./cexp.y"
-{ yyval.integer = yyvsp[0].integer; ;
+#line 120 "cexp.y"
+{ if (pedantic)
+			    pedwarn ("comma operator in operand of `#if'");
+			  yyval.integer = yyvsp[0].integer; ;
     break;}
 case 4:
-#line 86 "./cexp.y"
+#line 127 "cexp.y"
 { yyval.integer.value = - yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[0].integer.unsignedp; ;
     break;}
 case 5:
-#line 89 "./cexp.y"
+#line 130 "cexp.y"
 { yyval.integer.value = ! yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = 0; ;
     break;}
 case 6:
-#line 92 "./cexp.y"
+#line 133 "cexp.y"
 { yyval.integer = yyvsp[0].integer; ;
     break;}
 case 7:
-#line 94 "./cexp.y"
+#line 135 "cexp.y"
 { yyval.integer.value = ~ yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[0].integer.unsignedp; ;
     break;}
 case 8:
-#line 97 "./cexp.y"
-{ yyval.integer = yyvsp[-1].integer; ;
+#line 138 "cexp.y"
+{ yyval.integer.value = check_assertion (yyvsp[0].name.address, yyvsp[0].name.length,
+						      0, 0);
+			  yyval.integer.unsignedp = 0; ;
     break;}
 case 9:
-#line 102 "./cexp.y"
+#line 142 "cexp.y"
+{ keyword_parsing = 1; ;
+    break;}
+case 10:
+#line 144 "cexp.y"
+{ yyval.integer.value = check_assertion (yyvsp[-4].name.address, yyvsp[-4].name.length,
+						      1, yyvsp[-1].keywords);
+			  keyword_parsing = 0;
+			  yyval.integer.unsignedp = 0; ;
+    break;}
+case 11:
+#line 149 "cexp.y"
+{ yyval.integer = yyvsp[-1].integer; ;
+    break;}
+case 12:
+#line 154 "cexp.y"
 { yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp;
 			  if (yyval.integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value * yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value * yyvsp[0].integer.value; ;
     break;}
-case 10:
-#line 108 "./cexp.y"
+case 13:
+#line 160 "cexp.y"
 { if (yyvsp[0].integer.value == 0)
 			    {
 			      error ("division by zero in #if");
@@ -698,8 +783,8 @@ case 10:
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value / yyvsp[0].integer.value; ;
     break;}
-case 11:
-#line 119 "./cexp.y"
+case 14:
+#line 171 "cexp.y"
 { if (yyvsp[0].integer.value == 0)
 			    {
 			      error ("division by zero in #if");
@@ -711,120 +796,146 @@ case 11:
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value % yyvsp[0].integer.value; ;
     break;}
-case 12:
-#line 130 "./cexp.y"
+case 15:
+#line 182 "cexp.y"
 { yyval.integer.value = yyvsp[-2].integer.value + yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 13:
-#line 133 "./cexp.y"
+case 16:
+#line 185 "cexp.y"
 { yyval.integer.value = yyvsp[-2].integer.value - yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 14:
-#line 136 "./cexp.y"
+case 17:
+#line 188 "cexp.y"
 { yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp;
 			  if (yyval.integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value << yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value << yyvsp[0].integer.value; ;
     break;}
-case 15:
-#line 142 "./cexp.y"
+case 18:
+#line 194 "cexp.y"
 { yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp;
 			  if (yyval.integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value >> yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value >> yyvsp[0].integer.value; ;
     break;}
-case 16:
-#line 148 "./cexp.y"
+case 19:
+#line 200 "cexp.y"
 { yyval.integer.value = (yyvsp[-2].integer.value == yyvsp[0].integer.value);
 			  yyval.integer.unsignedp = 0; ;
     break;}
-case 17:
-#line 151 "./cexp.y"
+case 20:
+#line 203 "cexp.y"
 { yyval.integer.value = (yyvsp[-2].integer.value != yyvsp[0].integer.value);
 			  yyval.integer.unsignedp = 0; ;
     break;}
-case 18:
-#line 154 "./cexp.y"
+case 21:
+#line 206 "cexp.y"
 { yyval.integer.unsignedp = 0;
 			  if (yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value <= yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value <= yyvsp[0].integer.value; ;
     break;}
-case 19:
-#line 160 "./cexp.y"
+case 22:
+#line 212 "cexp.y"
 { yyval.integer.unsignedp = 0;
 			  if (yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value >= yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value >= yyvsp[0].integer.value; ;
     break;}
-case 20:
-#line 166 "./cexp.y"
+case 23:
+#line 218 "cexp.y"
 { yyval.integer.unsignedp = 0;
 			  if (yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value < yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value < yyvsp[0].integer.value; ;
     break;}
-case 21:
-#line 172 "./cexp.y"
+case 24:
+#line 224 "cexp.y"
 { yyval.integer.unsignedp = 0;
 			  if (yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp)
 			    yyval.integer.value = (unsigned) yyvsp[-2].integer.value > yyvsp[0].integer.value;
 			  else
 			    yyval.integer.value = yyvsp[-2].integer.value > yyvsp[0].integer.value; ;
     break;}
-case 22:
-#line 178 "./cexp.y"
+case 25:
+#line 230 "cexp.y"
 { yyval.integer.value = yyvsp[-2].integer.value & yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 23:
-#line 181 "./cexp.y"
+case 26:
+#line 233 "cexp.y"
 { yyval.integer.value = yyvsp[-2].integer.value ^ yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 24:
-#line 184 "./cexp.y"
+case 27:
+#line 236 "cexp.y"
 { yyval.integer.value = yyvsp[-2].integer.value | yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 25:
-#line 187 "./cexp.y"
+case 28:
+#line 239 "cexp.y"
 { yyval.integer.value = (yyvsp[-2].integer.value && yyvsp[0].integer.value);
 			  yyval.integer.unsignedp = 0; ;
     break;}
-case 26:
-#line 190 "./cexp.y"
+case 29:
+#line 242 "cexp.y"
 { yyval.integer.value = (yyvsp[-2].integer.value || yyvsp[0].integer.value);
 			  yyval.integer.unsignedp = 0; ;
     break;}
-case 27:
-#line 193 "./cexp.y"
+case 30:
+#line 245 "cexp.y"
 { yyval.integer.value = yyvsp[-4].integer.value ? yyvsp[-2].integer.value : yyvsp[0].integer.value;
 			  yyval.integer.unsignedp = yyvsp[-2].integer.unsignedp || yyvsp[0].integer.unsignedp; ;
     break;}
-case 28:
-#line 196 "./cexp.y"
+case 31:
+#line 248 "cexp.y"
 { yyval.integer = yylval.integer; ;
     break;}
-case 29:
-#line 198 "./cexp.y"
+case 32:
+#line 250 "cexp.y"
 { yyval.integer = yylval.integer; ;
     break;}
-case 30:
-#line 200 "./cexp.y"
+case 33:
+#line 252 "cexp.y"
 { yyval.integer.value = 0;
 			  yyval.integer.unsignedp = 0; ;
     break;}
+case 34:
+#line 257 "cexp.y"
+{ yyval.keywords = 0; ;
+    break;}
+case 35:
+#line 259 "cexp.y"
+{ struct arglist *temp;
+			  yyval.keywords = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  yyval.keywords->next = yyvsp[-2].keywords;
+			  yyval.keywords->name = (U_CHAR *) "(";
+			  yyval.keywords->length = 1;
+			  temp = yyval.keywords;
+			  while (temp != 0 && temp->next != 0)
+			    temp = temp->next;
+			  temp->next = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  temp->next->next = yyvsp[0].keywords;
+			  temp->next->name = (U_CHAR *) ")";
+			  temp->next->length = 1; ;
+    break;}
+case 36:
+#line 272 "cexp.y"
+{ yyval.keywords = (struct arglist *) xmalloc (sizeof (struct arglist));
+			  yyval.keywords->name = yyvsp[-1].name.address;
+			  yyval.keywords->length = yyvsp[-1].name.length;
+			  yyval.keywords->next = yyvsp[0].keywords; ;
+    break;}
 }
    /* the action file gets copied in in place of this dollarsign */
-#line 423 "bison.simple"
+#line 440 "bison.simple"
 
   yyvsp -= yylen;
   yyssp -= yylen;
@@ -897,23 +1008,28 @@ yyerrlab:   /* here on detecting error */
 	  for (x = 0; x < (sizeof(yytname) / sizeof(char *)); x++)
 	    if (yycheck[x + yyn] == x)
 	      size += strlen(yytname[x]) + 15, count++;
-	  msg = (char *) xmalloc(size + 15);
-	  strcpy(msg, "parse error");
-
-	  if (count < 5)
+	  msg = (char *) malloc(size + 15);
+	  if (msg != 0)
 	    {
-	      count = 0;
-	      for (x = 0; x < (sizeof(yytname) / sizeof(char *)); x++)
-		if (yycheck[x + yyn] == x)
-		  {
-		    strcat(msg, count == 0 ? ", expecting `" : " or `");
-		    strcat(msg, yytname[x]);
-		    strcat(msg, "'");
-		    count++;
-		  }
+	      strcpy(msg, "parse error");
+
+	      if (count < 5)
+		{
+		  count = 0;
+		  for (x = 0; x < (sizeof(yytname) / sizeof(char *)); x++)
+		    if (yycheck[x + yyn] == x)
+		      {
+			strcat(msg, count == 0 ? ", expecting `" : " or `");
+			strcat(msg, yytname[x]);
+			strcat(msg, "'");
+			count++;
+		      }
+		}
+	      yyerror(msg);
+	      free(msg);
 	    }
-	  yyerror(msg);
-	  free(msg);
+	  else
+	    yyerror ("parse error; also virtual memory exceeded");
 	}
       else
 #endif /* YYERROR_VERBOSE */
@@ -1011,7 +1127,7 @@ yyerrhandle:
   yystate = yyn;
   goto yynewstate;
 }
-#line 203 "./cexp.y"
+#line 277 "cexp.y"
 
 
 /* During parsing of a C expression, the pointer to the next character
@@ -1115,6 +1231,8 @@ static struct token tokentab2[] = {
   {"!=", NOTEQUAL},
   {"<=", LEQ},
   {">=", GEQ},
+  {"++", ERROR},
+  {"--", ERROR},
   {NULL, ERROR}
 };
 
@@ -1127,17 +1245,25 @@ yylex ()
   register int namelen;
   register char *tokstart;
   register struct token *toktab;
+  int wide_flag;
 
  retry:
 
   tokstart = lexptr;
   c = *tokstart;
   /* See if it is a special token of length 2.  */
-  for (toktab = tokentab2; toktab->operator != NULL; toktab++)
-    if (c == *toktab->operator && tokstart[1] == toktab->operator[1]) {
-      lexptr += 2;
-      return toktab->token;
-    }
+  if (! keyword_parsing)
+    for (toktab = tokentab2; toktab->operator != NULL; toktab++)
+      if (c == *toktab->operator && tokstart[1] == toktab->operator[1]) {
+	lexptr += 2;
+	if (toktab->token == ERROR)
+	  {
+	    char *buf = (char *) alloca (40);
+	    sprintf (buf, "`%s' not allowed in operand of `#if'", toktab->operator);
+	    yyerror (buf);
+	  }
+	return toktab->token;
+      }
 
   switch (c) {
   case 0:
@@ -1150,27 +1276,143 @@ yylex ()
     lexptr++;
     goto retry;
     
+  case 'L':
+    /* Capital L may start a wide-string or wide-character constant.  */
+    if (lexptr[1] == '\'')
+      {
+	lexptr++;
+	wide_flag = 1;
+	goto char_constant;
+      }
+    if (lexptr[1] == '"')
+      {
+	lexptr++;
+	wide_flag = 1;
+	goto string_constant;
+      }
+    break;
+
   case '\'':
+    wide_flag = 0;
+  char_constant:
     lexptr++;
-    c = *lexptr++;
-    if (c == '\\')
-      c = parse_escape (&lexptr);
+    if (keyword_parsing) {
+      char *start_ptr = lexptr - 1;
+      while (1) {
+	c = *lexptr++;
+	if (c == '\\')
+	  c = parse_escape (&lexptr);
+	else if (c == '\'')
+	  break;
+      }
+      yylval.name.address = (U_CHAR *) tokstart;
+      yylval.name.length = lexptr - start_ptr;
+      return NAME;
+    }
 
-    /* Sign-extend the constant if chars are signed on target machine.  */
+    /* This code for reading a character constant
+       handles multicharacter constants and wide characters.
+       It is mostly copied from c-lex.c.  */
     {
-      if (lookup ("__CHAR_UNSIGNED__", sizeof ("__CHAR_UNSIGNED__")-1, -1)
-	  || ((c >> (CHAR_TYPE_SIZE - 1)) & 1) == 0)
-	yylval.integer.value = c & ((1 << CHAR_TYPE_SIZE) - 1);
+      register int result = 0;
+      register num_chars = 0;
+      unsigned width = CHAR_TYPE_SIZE;
+      int max_chars;
+      char *token_buffer;
+
+      if (wide_flag)
+	{
+	  width = WCHAR_TYPE_SIZE;
+#ifdef MULTIBYTE_CHARS
+	  max_chars = MB_CUR_MAX;
+#else
+	  max_chars = 1;
+#endif
+	}
       else
-	yylval.integer.value = c | ~((1 << CHAR_TYPE_SIZE) - 1);
+	max_chars = LONG_TYPE_SIZE / width;
+
+      token_buffer = (char *) alloca (max_chars + 1);
+
+      while (1)
+	{
+	  c = *lexptr++;
+
+	  if (c == '\'' || c == EOF)
+	    break;
+
+	  if (c == '\\')
+	    {
+	      c = parse_escape (&lexptr);
+	      if (width < HOST_BITS_PER_INT
+		  && (unsigned) c >= (1 << width))
+		pedwarn ("escape sequence out of range for character");
+	    }
+
+	  num_chars++;
+
+	  /* Merge character into result; ignore excess chars.  */
+	  if (num_chars < max_chars + 1)
+	    {
+	      if (width < HOST_BITS_PER_INT)
+		result = (result << width) | (c & ((1 << width) - 1));
+	      else
+		result = c;
+	      token_buffer[num_chars - 1] = c;
+	    }
+	}
+
+      token_buffer[num_chars] = 0;
+
+      if (c != '\'')
+	error ("malformatted character constant");
+      else if (num_chars == 0)
+	error ("empty character constant");
+      else if (num_chars > max_chars)
+	{
+	  num_chars = max_chars;
+	  error ("character constant too long");
+	}
+      else if (num_chars != 1 && ! traditional)
+	warning ("multi-character character constant");
+
+      /* If char type is signed, sign-extend the constant.  */
+      if (! wide_flag)
+	{
+	  int num_bits = num_chars * width;
+
+	  if (lookup ("__CHAR_UNSIGNED__", sizeof ("__CHAR_UNSIGNED__")-1, -1)
+	      || ((result >> (num_bits - 1)) & 1) == 0)
+	    yylval.integer.value
+	      = result & ((unsigned) ~0 >> (HOST_BITS_PER_INT - num_bits));
+	  else
+	    yylval.integer.value
+	      = result | ~((unsigned) ~0 >> (HOST_BITS_PER_INT - num_bits));
+	}
+      else
+	{
+#ifdef MULTIBYTE_CHARS
+	  /* Set the initial shift state and convert the next sequence.  */
+	  result = 0;
+	  /* In all locales L'\0' is zero and mbtowc will return zero,
+	     so don't use it.  */
+	  if (num_chars > 1
+	      || (num_chars == 1 && token_buffer[0] != '\0'))
+	    {
+	      wchar_t wc;
+	      (void) mbtowc (NULL, NULL, 0);
+	      if (mbtowc (& wc, token_buffer, num_chars) == num_chars)
+		result = wc;
+	      else
+		warning ("Ignoring invalid multibyte character");
+	    }
+#endif
+	  yylval.integer.value = result;
+	}
     }
 
+    /* This is always a signed type.  */
     yylval.integer.unsignedp = 0;
-    c = *lexptr++;
-    if (c != '\'') {
-      yyerror ("Invalid character constant in #if");
-      return ERROR;
-    }
     
     return CHAR;
 
@@ -1189,8 +1431,6 @@ yylex ()
   case '@':
   case '<':
   case '>':
-  case '(':
-  case ')':
   case '[':
   case ']':
   case '.':
@@ -1200,14 +1440,35 @@ yylex ()
   case '{':
   case '}':
   case ',':
+  case '#':
+    if (keyword_parsing)
+      break;
+  case '(':
+  case ')':
     lexptr++;
     return c;
-    
+
   case '"':
-    yyerror ("double quoted strings not allowed in #if expressions");
+  string_constant:
+    if (keyword_parsing) {
+      char *start_ptr = lexptr;
+      lexptr++;
+      while (1) {
+	c = *lexptr++;
+	if (c == '\\')
+	  c = parse_escape (&lexptr);
+	else if (c == '"')
+	  break;
+      }
+      yylval.name.address = (U_CHAR *) tokstart;
+      yylval.name.length = lexptr - start_ptr;
+      return NAME;
+    }
+    yyerror ("string constants not allowed in #if expressions");
     return ERROR;
   }
-  if (c >= '0' && c <= '9') {
+
+  if (c >= '0' && c <= '9' && !keyword_parsing) {
     /* It's a number */
     for (namelen = 0;
 	 c = tokstart[namelen], is_idchar[c] || c == '.'; 
@@ -1215,18 +1476,31 @@ yylex ()
       ;
     return parse_number (namelen);
   }
-  
-  if (!is_idstart[c]) {
-    yyerror ("Invalid token in expression");
-    return ERROR;
+
+  /* It is a name.  See how long it is.  */
+
+  if (keyword_parsing) {
+    for (namelen = 0;; namelen++) {
+      if (is_hor_space[tokstart[namelen]])
+	break;
+      if (tokstart[namelen] == '(' || tokstart[namelen] == ')')
+	break;
+      if (tokstart[namelen] == '"' || tokstart[namelen] == '\'')
+	break;
+    }
+  } else {
+    if (!is_idstart[c]) {
+      yyerror ("Invalid token in expression");
+      return ERROR;
+    }
+
+    for (namelen = 0; is_idchar[tokstart[namelen]]; namelen++)
+      ;
   }
   
-  /* It is a name.  See how long it is.  */
-  
-  for (namelen = 0; is_idchar[tokstart[namelen]]; namelen++)
-    ;
-  
   lexptr += namelen;
+  yylval.name.address = (U_CHAR *) tokstart;
+  yylval.name.length = namelen;
   return NAME;
 }
 
@@ -1313,7 +1587,6 @@ parse_escape (string_ptr)
     case 'x':
       {
 	register int i = 0;
-	register int count = 0;
 	for (;;)
 	  {
 	    c = *(*string_ptr)++;
@@ -1383,12 +1656,15 @@ parse_c_expression (string)
 }
 
 #ifdef TEST_EXP_READER
-/* main program, for testing purposes. */
+extern int yydebug;
+
+/* Main program for testing purposes.  */
+int
 main ()
 {
   int n, c;
   char buf[1024];
-  extern int yydebug;
+
 /*
   yydebug = 1;
 */
@@ -1404,6 +1680,8 @@ main ()
     buf[n] = '\0';
     printf ("parser returned %d\n", parse_c_expression (buf));
   }
+
+  return 0;
 }
 
 /* table to tell if char can be part of a C identifier. */

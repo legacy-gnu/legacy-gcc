@@ -1303,7 +1303,7 @@ Thu Sep 29 02:50:46 1988  Richard Stallman  (rms at corn-chex.ai.mit.edu)
 
 	* reload.c (find_reloads): Store all earlyclobber operand in
 	reload_earlyclobbers (# in n_earlyclobbers):
-	* reload.1 (choose_reload_targets): Don't use value of find_equiv_reg
+	* reload1.c (choose_reload_targets): Don't use value of find_equiv_reg
 	if it matches an earlyclobber operand.
 
 	* reload.c (find_reloads_address for REG):

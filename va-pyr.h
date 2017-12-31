@@ -58,18 +58,28 @@ typedef __va_regs __va_buf;
 /* __va_buf[0] = address of next arg passed on the stack
    __va_buf[1] = address of next arg passed in a register
    __va_buf[2] = register-# of next arg passed in a register
-*/
+ */
 typedef __voidptr(*__va_buf);
 
 #endif
 
+/* In GCC version 2, we want an ellipsis at the end of the declaration
+   of the argument list.  GCC version 1 can't parse it.  */
+
+#if __GNUC__ > 1
+#define __va_ellipsis ...
+#else
+#define __va_ellipsis
+#endif
+
 #define va_alist \
   __va0,__va1,__va2,__va3,__va4,__va5,__va6,__va7,__va8,__va9,__va10,__va11, \
-  __builtin_va_alist
+ __builtin_va_alist
 
-#define va_dcl __voidptr va_alist;
+/* The ... causes current_function_varargs to be set in cc1.  */
+#define va_dcl __voidptr va_alist; __va_ellipsis
 
-#define va_list __va_buf
+typedef __va_buf va_list;
 
 
 /* __asm ("rcsp %0" : "=r" ( _AP [0]));*/
@@ -79,11 +89,15 @@ typedef __voidptr(*__va_buf);
    &(_AP.__pr0), (void*)&__builtin_va_alist, (void*)0,			\
         __va0,__va1,__va2,__va3,__va4,__va5,				\
 	__va6,__va7,__va8,__va9,__va10,__va11})
- 
-  
-	 
+
+
+/* Avoid errors if compiling GCC v2 with GCC v1.  */
+#if __GNUC__ == 1
+#define __extension__
+#endif
 
 #define va_arg(_AP, _MODE)	\
+__extension__								\
 ({__voidptr *__ap = (__voidptr*)&_AP;					\
   register int __size = sizeof (_MODE);					\
   register int __onstack =						\

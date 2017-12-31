@@ -7,6 +7,9 @@ extern char *main_input_filename;
 /* Line number in current source file.  */
 extern int lineno;
 
+/* Stream for reading from input file.  */
+extern FILE *finput;
+
 struct file_stack
   {
     char *name;

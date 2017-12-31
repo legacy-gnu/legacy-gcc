@@ -19,9 +19,11 @@
 *								   *
 \******************************************************************/
 
-/* Modified by Richard Stallman, November 1990, to initialize HUGE_VAL
-   specially on a Sun.
-   December 1989, add parens around `&' in pow.  */
+/* Changed by Richard Stallman: % inserted before a #.
+   New function `hypot' added.
+   Nans written in hex to avoid 0rnan.
+   December 1989, add parens around `&' in pow.
+   November 1990, added alternate definition of HUGE_VAL for Sun.  */
 
 #include <errno.h>
 
@@ -38,7 +40,7 @@
 ({									\
   double huge_val;							\
 									\
-  __asm ("fmove%.d #0x7ff0000000000000,%0"	/* Infinity */		\
+  __asm ("fmove%.d %#0x7ff0000000000000,%0"	/* Infinity */		\
 	 : "=f" (huge_val)						\
 	 : /* no inputs */);						\
   huge_val;								\
@@ -153,7 +155,7 @@ __inline static const double atan2 (double y, double x)
 	      double value;
 
 	      errno = EDOM;
-	      __asm ("fmove%.d %#0rnan,%0" 	/* quiet NaN */
+	      __asm ("fmove%.d %#0x7fffffffffffffff,%0" 	/* quiet NaN */
 		     : "=f" (value)
 		     : /* no inputs */);
 	      return value;
@@ -262,6 +264,11 @@ __inline static const double sqrt (double x)
   return value;
 }
 
+__inline static const double hypot (const double x, const double y)
+{
+  return sqrt (x*x + y*y);
+}
+
 __inline static const double pow (const double x, const double y)
 {
   if (x > 0)
@@ -275,7 +282,7 @@ __inline static const double pow (const double x, const double y)
 	  double value;
 
 	  errno = EDOM;
-	  __asm ("fmove%.d %#0rnan,%0"		/* quiet NaN */
+	  __asm ("fmove%.d %#07fffffffffffffff,%0"		/* quiet NaN */
 		 : "=f" (value)
 		 : /* no inputs */);
 	  return value;
@@ -292,7 +299,7 @@ __inline static const double pow (const double x, const double y)
         {
 	  int i = (int) y;
 	  
-	  if ((i & 1) == 0)			/* even */
+	  if (i & 1 == 0)			/* even */
 	    return exp (y * log (-x));
 	  else
 	    return - exp (y * log (-x));
@@ -302,7 +309,7 @@ __inline static const double pow (const double x, const double y)
 	  double value;
 
 	  errno = EDOM;
-	  __asm ("fmove%.d %#0rnan,%0"		/* quiet NaN */
+	  __asm ("fmove%.d %#0x7fffffffffffffff,%0"		/* quiet NaN */
 		 : "=f" (value)
 		 : /* no inputs */);
 	  return value;

@@ -1,49 +1,56 @@
-/* Define constants for communication with parse.y.
-   Copyright (C) 1987 Free Software Foundation, Inc.
+typedef union {long itype; tree ttype; enum tree_code code;
+	char *filename; int lineno; } YYSTYPE;
+#define	IDENTIFIER	258
+#define	TYPENAME	259
+#define	SCSPEC	260
+#define	TYPESPEC	261
+#define	TYPE_QUAL	262
+#define	CONSTANT	263
+#define	STRING	264
+#define	ELLIPSIS	265
+#define	SIZEOF	266
+#define	ENUM	267
+#define	STRUCT	268
+#define	UNION	269
+#define	IF	270
+#define	ELSE	271
+#define	WHILE	272
+#define	DO	273
+#define	FOR	274
+#define	SWITCH	275
+#define	CASE	276
+#define	DEFAULT	277
+#define	BREAK	278
+#define	CONTINUE	279
+#define	RETURN	280
+#define	GOTO	281
+#define	ASM	282
+#define	TYPEOF	283
+#define	ALIGNOF	284
+#define	ALIGN	285
+#define	ATTRIBUTE	286
+#define	EXTENSION	287
+#define	LABEL	288
+#define	ASSIGN	289
+#define	OROR	290
+#define	ANDAND	291
+#define	EQCOMPARE	292
+#define	ARITHCOMPARE	293
+#define	LSHIFT	294
+#define	RSHIFT	295
+#define	UNARY	296
+#define	PLUSPLUS	297
+#define	MINUSMINUS	298
+#define	HYPERUNARY	299
+#define	POINTSAT	300
+#define	INTERFACE	301
+#define	IMPLEMENTATION	302
+#define	END	303
+#define	SELECTOR	304
+#define	DEFS	305
+#define	ENCODE	306
+#define	CLASSNAME	307
+#define	PUBLIC	308
 
-This file is part of GNU CC.
 
-GNU CC is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 1, or (at your option)
-any later version.
-
-GNU CC is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with GNU CC; see the file COPYING.  If not, write to
-the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
-
-
-
-enum rid
-{
-  RID_UNUSED,
-  RID_INT,
-  RID_CHAR,
-  RID_FLOAT,
-  RID_DOUBLE,
-  RID_VOID,
-  RID_UNUSED1,
-
-  RID_UNSIGNED,
-  RID_SHORT,
-  RID_LONG,
-  RID_AUTO,
-  RID_STATIC,
-  RID_EXTERN,
-  RID_REGISTER,
-  RID_TYPEDEF,
-  RID_SIGNED,
-  RID_CONST,
-  RID_VOLATILE,
-  RID_INLINE,
-  RID_NOALIAS,
-
-  RID_MAX
-};
-
-#define RID_FIRST_MODIFIER RID_UNSIGNED
+extern YYSTYPE yylval;

@@ -9,6 +9,9 @@ $!
 $!	C compiler
 $!
 $ CC	:=	gcc
+$ BISON	:=	bison
+$ RENAME :=	rename
+$ LINK	:=	link
 $!
 $!	Compiler options
 $!
@@ -38,7 +41,7 @@ $!
 $ 'CC 'CFLAGS cexp.c
 $ 'CC 'CFLAGS version.c
 $ Link:
-$ link 'LDFLAGS /exe=gcc-cpp cccp,cexp,version,'LIBS'
+$ link 'LDFLAGS /exe=gcc-cpp cccp,cexp,version,version.opt/opt,'LIBS'
 $!
 $! CAUTION: If you want to link gcc-cpp to the sharable image library
 $! VAXCRTL, see the notes in gcc.texinfo (or INSTALL) first.
