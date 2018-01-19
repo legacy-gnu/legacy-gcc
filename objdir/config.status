@@ -1,4 +1,0 @@
-#!/bin/sh
-# GCC was configured as follows:
-../configure --host=i386-winnt3.5 --target=mips-elf
-echo host=i386-unknown-winnt3.5 target=mips-mips-elf build=i386-unknown-winnt3.5
