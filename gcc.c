@@ -2136,7 +2136,7 @@ pexecute (search_flag, program, argv, not_last)
      char *argv[];
      int not_last;
 {
-  return (search_flag ? __spawnv : __spawnvp) (1, program, argv);
+  return (search_flag ? _spawnv : _spawnvp) (1, program, argv);
 }
 #endif /* _WIN32 */
 
