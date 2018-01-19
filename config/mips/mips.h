@@ -637,23 +637,26 @@ while (0)
 #if ((TARGET_CPU_DEFAULT | TARGET_DEFAULT) & MASK_GAS) != 0
 /* GAS */
 #define ASM_FINAL_SPEC "\
+%{pipe:-}"
+/*
 %{mmips-as: %{!mno-mips-tfile: \
 	\n mips-tfile %{v*: -v} \
 		%{K: -I %b.o~} \
 		%{!K: %{save-temps: -I %b.o~}} \
 		%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
 		%{.s:%i} %{!.s:%g.s}}}"
-
+*/
 #else
 /* not GAS */
 #define ASM_FINAL_SPEC "\
-%{!mgas: %{!mno-mips-tfile: \
+%{pipe:-}"
+/*%{!mgas: %{!mno-mips-tfile: \
 	\n mips-tfile %{v*: -v} \
 		%{K: -I %b.o~} \
 		%{!K: %{save-temps: -I %b.o~}} \
 		%{c:%W{o*}%{!o*:-o %b.o}}%{!c:-o %U.o} \
 		%{.s:%i} %{!.s:%g.s}}}"
-
+*/
 #endif
 #endif	/* ASM_FINAL_SPEC */
 
@@ -706,12 +709,12 @@ while (0)
 %{.s:	-D__LANGUAGE_ASSEMBLY -D_LANGUAGE_ASSEMBLY %{!ansi:-DLANGUAGE_ASSEMBLY}} \
 %{!.S:%{!.s:	-D__LANGUAGE_C -D_LANGUAGE_C %{!ansi:-DLANGUAGE_C}}} \
 %{mlong64:-D__SIZE_TYPE__=long\\ unsigned\\ int -D__PTRDIFF_TYPE__=long\\ int} \
-%{!mlong64:-D__SIZE_TYPE__=unsigned\\ int -D__PTRDIFF_TYPE__=int} \
+%{!mlong64:-D__SIZE_TYPE__=\"unsigned\\ int\" -D__PTRDIFF_TYPE__=int} \
 %{mips3:-U__mips -D__mips=3 -D__mips64} \
 %{mips4:-U__mips -D__mips=4 -D__mips64} \
 %{mgp32:-U__mips64} %{mgp64:-D__mips64} \
-%{EB:-UMIPSEL -U_MIPSEL -U__MIPSEL -U__MIPSEL__ -D_MIPSEB -D__MIPSEB -D__MIPSEB__ %{!ansi:-DMIPSEB}} \
-%{EL:-UMIPSEB -U_MIPSEB -U__MIPSEB -U__MIPSEB__ -D_MIPSEL -D__MIPSEL -D__MIPSEL__ %{!ansi:-DMIPSEL}}"
+%{EB:-UMIPSEL -U_MIPSEL -U__MIPSEL -U__MIPSEL__ -D_MIPSEB -D__MIPSEB -D__MIPSEB__ %{!ansi:-DMIPSEB}} -D_ULTRA64 -D__EXTENSIONS__ \
+%{EL:-UMIPSEB -U_MIPSEB -U__MIPSEB -U__MIPSEB__ -D_MIPSEL -D__MIPSEL -D__MIPSEL__ %{!ansi:-DMIPSEL}} -D_ULTRA64 -D__EXTENSIONS__"
 #endif
 
 /* If defined, this macro is an additional prefix to try after
