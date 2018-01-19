@@ -23,7 +23,7 @@ Boston, MA 02111-1307, USA.
  what you give them.   Help stamp out software-hoarding!  */
 
 typedef unsigned char U_CHAR;
-#include <string.h>
+
 #ifdef EMACS
 #define NO_SHORTNAMES
 #include "../src/config.h"

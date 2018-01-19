@@ -49,7 +49,7 @@ Boston, MA 02111-1307, USA.  */
 #define rindex strrchr
 #define kill(a,b) raise(b)
 
-#define OBJECT_SUFFIX ".obj"
+#define OBJECT_SUFFIX ".o"
 #define EXECUTABLE_SUFFIX ".exe"
 #define PATH_SEPARATOR ';'
 #define DIR_SEPARATOR '\\'
